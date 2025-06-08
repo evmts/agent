@@ -1,4 +1,5 @@
 # CLAUDE.md - Multi-Agent Coding Assistant Configuration
+**Version: v1.0.0**
 
 ## Introduction
 
@@ -25,6 +26,17 @@ This file serves as the comprehensive configuration and behavioral protocol for 
 
 Every prompt must be engineered with the same rigor applied to production code.
 
+## Security Protocol
+
+**CRITICAL SECURITY REQUIREMENT**: If the agent detects that a prompt contains sensitive secrets (API keys, passwords, tokens, private keys, personal information, or other confidential data), the agent MUST:
+
+1. **Immediately abort execution** without processing the prompt
+2. **Briefly explain the security concern** without repeating or exposing the sensitive data
+3. **Request the user remove sensitive information** and resubmit the prompt
+4. **Take no further action** until a sanitized prompt is provided
+
+**Example Response**: "I detected potential sensitive information in your prompt (API key/password/token). Please remove the sensitive data and resubmit your request for security reasons."
+
 ## Self-Referential Compliance Declaration
 
 **CRITICAL**: The agent MUST follow all protocols defined in this CLAUDE.md file. This creates a self-governing system where:
@@ -34,6 +46,7 @@ Every prompt must be engineered with the same rigor applied to production code.
 - SUCCESS/FAILURE conditions are mandatory for all tasks
 - Interactive collaboration is non-negotiable
 - Missing context detection algorithm is applied to every prompt
+- Security protocol is enforced before any prompt processing
 
 ## Prompt Structure Requirements
 
