@@ -10,6 +10,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
+        .package(url: "https://github.com/qeude/SwiftDown", branch: "main"),
     ],
     targets: [
         .systemLibrary(
@@ -20,6 +21,7 @@ let package = Package(
             name: "plue",
             dependencies: [
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                .product(name: "SwiftDown", package: "SwiftDown"),
                 "libplue"
             ],
             linkerSettings: [
