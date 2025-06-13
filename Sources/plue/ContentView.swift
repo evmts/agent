@@ -8,16 +8,23 @@ struct ContentView: View {
             ChatView()
                 .tabItem {
                     Image(systemName: "bubble.left.and.bubble.right")
-                    Text("Chat")
+                    Text("Prompt")
                 }
                 .tag(0)
+            
+            ChatView()
+                .tabItem {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                    Text("Chat")
+                }
+                .tag(1)
             
             ChatView()
                 .tabItem {
                     Image(systemName: "doc.text")
                     Text("Code Editor")
                 }
-                .tag(1)
+                .tag(2)
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
     }
