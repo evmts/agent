@@ -1,19 +1,18 @@
 const std = @import("std");
-const webui = @import("webui/webui.zig");
+const Window = @import("webui/webui.zig");
 const assets = @import("assets.zig");
 
 const App = @This();
 
-window: webui,
+window: Window,
 
 pub fn init() App {
-    const window = webui.new_window();
-    webui.set_config(.multi_client, true);
+    const window = Window.init();
     return App{ .window = window };
 }
 
-pub fn deinit() void {
-    webui.clean();
+pub fn deinit(self: App) void {
+    self.window.clean();
 }
 
 pub fn handler(filename: []const u8) ?[]const u8 {
@@ -24,5 +23,5 @@ pub fn handler(filename: []const u8) ?[]const u8 {
 pub fn run(self: *App) !void {
     self.window.set_file_handler(handler);
     try self.window.show("index.html");
-    webui.wait();
+    self.window.wait();
 }
