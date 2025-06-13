@@ -793,18 +793,28 @@ class VimResponseTerminalNSView: NSView {
     
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil {
-            // View removed from window - clean up timer
-            cursorTimer?.invalidate()
-            cursorTimer = nil
-        } else if cursorTimer == nil {
-            // View added to window - restart timer
-            startCursorBlink()
+        
+        // Ensure this runs on main thread and is synchronized
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            if self.window == nil {
+                // View removed from window - clean up timer
+                self.cursorTimer?.invalidate()
+                self.cursorTimer = nil
+            } else if self.cursorTimer == nil {
+                // View added to window - restart timer only if still in window
+                if self.window != nil {
+                    self.startCursorBlink()
+                }
+            }
         }
     }
     
     deinit {
-        cursorTimer?.invalidate()
-        cursorTimer = nil
+        // Ensure cleanup happens on main thread to avoid race conditions
+        DispatchQueue.main.async { [weak cursorTimer] in
+            cursorTimer?.invalidate()
+        }
     }
 }

@@ -77,11 +77,13 @@ class MockTerminal: ObservableObject {
     }
     
     func startSession() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
             self.isConnected = true
             self.showWelcomeMessage()
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                guard let self = self else { return }
                 self.showConnectionStatus = false
                 self.showPrompt()
             }
@@ -176,8 +178,8 @@ class MockTerminal: ObservableObject {
         commandHistory.append(command)
         
         // Simulate command execution
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.executeCommand(command)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.executeCommand(command)
         }
     }
     
@@ -370,7 +372,8 @@ class MockTerminal: ObservableObject {
         guard !redrawPending else { return }
         redrawPending = true
         
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             self.needsRedraw.toggle()
             self.redrawPending = false
         }

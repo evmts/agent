@@ -273,8 +273,8 @@ class VimChatTerminal: ObservableObject {
         
         guard !content.isEmpty else { 
             statusLine = "No content to send"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                self.statusLine = ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.statusLine = ""
             }
             return 
         }
@@ -283,8 +283,8 @@ class VimChatTerminal: ObservableObject {
         if content == lastSentContent {
             statusLine = "No changes to submit"
             print("VimChatTerminal: Content unchanged, skipping submission")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                self.statusLine = ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.statusLine = ""
             }
             return
         }
@@ -307,8 +307,8 @@ class VimChatTerminal: ObservableObject {
         // Update last sent content
         lastSentContent = content
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.statusLine = ""
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.statusLine = ""
         }
     }
     
@@ -470,7 +470,9 @@ class VimChatTerminal: ObservableObject {
     }
     
     private func updateDisplay() {
-        DispatchQueue.main.async {
+        // Prevent race conditions by using weak self and checking state
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.isNvimRunning else { return }
             self.objectWillChange.send()
         }
     }
@@ -582,8 +584,8 @@ class VimChatTerminal: ObservableObject {
         // In a full implementation, this would copy to clipboard
         // For now, just simulate the operation
         statusLine = "Yanked selection"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.statusLine = ""
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.statusLine = ""
         }
     }
     

@@ -3,6 +3,10 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedTab = 0
     @State private var loadedTabs: Set<Int> = [0] // Only load tabs when needed
+    @State private var isTabSwitching = false
+    @State private var pendingTab: Int?
+    
+    private let tabSwitchDelay: TimeInterval = 0.2 // Debounce rapid switching
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -78,9 +82,31 @@ struct ContentView: View {
             }
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
+        .disabled(isTabSwitching) // Prevent rapid switching
         .onChange(of: selectedTab) { newTab in
-            // Lazy load tabs only when selected
-            loadedTabs.insert(newTab)
+            handleTabSwitch(to: newTab)
+        }
+    }
+    
+    private func handleTabSwitch(to newTab: Int) {
+        // Debounce rapid tab switching to prevent race conditions
+        guard !isTabSwitching else {
+            pendingTab = newTab
+            return
+        }
+        
+        isTabSwitching = true
+        pendingTab = nil
+        
+        // Small delay to allow previous tab to clean up properly
+        DispatchQueue.main.asyncAfter(deadline: .now() + tabSwitchDelay) {
+            self.loadedTabs.insert(newTab)
+            self.isTabSwitching = false
+            
+            // Handle any pending tab switch
+            if let pending = self.pendingTab {
+                self.selectedTab = pending
+            }
         }
     }
 }

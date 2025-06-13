@@ -95,13 +95,19 @@ struct TerminalMetalViewRepresentable: NSViewRepresentable {
     
     func makeNSView(context: Context) -> TerminalMetalView {
         let metalView = TerminalMetalView(terminal: terminal)
-        DispatchQueue.main.async {
+        
+        // Delay first responder assignment to avoid race conditions
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak metalView] in
+            guard let metalView = metalView, metalView.window != nil else { return }
             metalView.window?.makeFirstResponder(metalView)
         }
+        
         return metalView
     }
     
     func updateNSView(_ nsView: TerminalMetalView, context: Context) {
+        // Only update if view is still in window hierarchy
+        guard nsView.window != nil else { return }
         nsView.setNeedsDisplay(nsView.bounds)
     }
 }
@@ -139,9 +145,12 @@ class TerminalMetalView: MTKView {
     }
     
     deinit {
-        // Clean up Metal resources
-        renderer = nil
-        delegate = nil
+        // Clean up Metal resources on main thread to avoid race conditions
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.renderer = nil
+            self.delegate = nil
+        }
     }
     
     override var acceptsFirstResponder: Bool {

@@ -179,7 +179,10 @@ class WebViewModel: ObservableObject {
     func updateNavigationState() {
         guard let webView = webView else { return }
         
-        DispatchQueue.main.async {
+        // Prevent race conditions during rapid tab switching
+        DispatchQueue.main.async { [weak self, weak webView] in
+            guard let self = self, let webView = webView else { return }
+            
             self.canGoBack = webView.canGoBack
             self.canGoForward = webView.canGoForward
             self.currentURL = webView.url?.absoluteString ?? ""
