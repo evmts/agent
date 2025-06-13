@@ -26,6 +26,11 @@ class VimChatTerminal: ObservableObject {
     private var hasBeenSaved = false
     private var lastSentContent = ""
     
+    // Visual mode selection
+    private var visualStartRow = 0
+    private var visualStartCol = 0
+    private var visualType: VisualType = .characterwise
+    
     init() {
         setupNvimSession()
     }
@@ -69,6 +74,8 @@ class VimChatTerminal: ObservableObject {
             handleInsertModeKey(characters: characters, keyCode: keyCode, modifiers: modifiers)
         case .command:
             handleCommandModeKey(characters: characters, keyCode: keyCode, modifiers: modifiers)
+        case .visual:
+            handleVisualModeKey(characters: characters, keyCode: keyCode, modifiers: modifiers)
         }
         
         updateDisplay()
@@ -118,6 +125,12 @@ class VimChatTerminal: ObservableObject {
             }
         }
         
+        // Handle Control+V for block visual mode
+        if modifiers.contains(.control) && characters.lowercased() == "v" {
+            enterVisualMode(.blockwise)
+            return
+        }
+        
         switch characters {
         case "i":
             enterInsertMode()
@@ -136,6 +149,10 @@ class VimChatTerminal: ObservableObject {
             bufferLines.insert("", at: cursorRow)
             cursorCol = 0
             enterInsertMode()
+        case "v":
+            enterVisualMode(.characterwise)
+        case "V":
+            enterVisualMode(.linewise)
         case ":":
             enterCommandMode()
         case "h":
@@ -440,6 +457,15 @@ class VimChatTerminal: ObservableObject {
             if !statusLine.hasPrefix(":") {
                 statusLine = ":"
             }
+        case .visual:
+            switch visualType {
+            case .characterwise:
+                statusLine = "-- VISUAL --"
+            case .linewise:
+                statusLine = "-- VISUAL LINE --"
+            case .blockwise:
+                statusLine = "-- VISUAL BLOCK --"
+            }
         }
     }
     
@@ -447,6 +473,196 @@ class VimChatTerminal: ObservableObject {
         DispatchQueue.main.async {
             self.objectWillChange.send()
         }
+    }
+    
+    // MARK: - Visual Mode Operations
+    private func enterVisualMode(_ type: VisualType) {
+        currentMode = .visual
+        visualType = type
+        visualStartRow = cursorRow
+        visualStartCol = cursorCol
+        updateStatusLine()
+    }
+    
+    private func handleVisualModeKey(characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        // Handle Control key shortcuts in visual mode
+        let isControlPressed = modifiers.contains(.control) || 
+                              (modifiers.rawValue & NSEvent.ModifierFlags.control.rawValue) != 0 ||
+                              modifiers.rawValue == 131330 ||
+                              characters.unicodeScalars.first?.value ?? 0 < 32
+        
+        if isControlPressed && !characters.isEmpty {
+            switch keyCode {
+            case 38: // J key
+                onNavigateDown?()
+                return
+            case 40: // K key
+                onNavigateUp?()
+                return
+            case 4: // H key
+                onPreviousChat?()
+                return
+            case 37: // L key
+                onNextChat?()
+                return
+            default:
+                break
+            }
+        }
+        
+        switch keyCode {
+        case 53: // Escape
+            exitVisualMode()
+        default:
+            switch characters {
+            case "h":
+                moveCursorLeft()
+            case "j":
+                moveCursorDown()
+            case "k":
+                moveCursorUp()
+            case "l":
+                moveCursorRight()
+            case "w":
+                moveWordForward()
+            case "b":
+                moveWordBackward()
+            case "0":
+                cursorCol = 0
+            case "$":
+                cursorCol = max(0, bufferLines[cursorRow].count - 1)
+            case "d":
+                deleteSelection()
+                exitVisualMode()
+            case "y":
+                yankSelection()
+                exitVisualMode()
+            case "c":
+                deleteSelection()
+                enterInsertMode()
+            case "v":
+                // Switch visual mode types
+                switch visualType {
+                case .characterwise:
+                    visualType = .linewise
+                case .linewise:
+                    visualType = .blockwise
+                case .blockwise:
+                    visualType = .characterwise
+                }
+                updateStatusLine()
+            case "V":
+                visualType = .linewise
+                updateStatusLine()
+            default:
+                break
+            }
+        }
+    }
+    
+    private func exitVisualMode() {
+        currentMode = .normal
+        updateStatusLine()
+    }
+    
+    private func deleteSelection() {
+        let (startRow, startCol, endRow, endCol) = getSelectionBounds()
+        
+        switch visualType {
+        case .characterwise:
+            deleteCharacterSelection(startRow: startRow, startCol: startCol, endRow: endRow, endCol: endCol)
+        case .linewise:
+            deleteLineSelection(startRow: startRow, endRow: endRow)
+        case .blockwise:
+            deleteBlockSelection(startRow: startRow, startCol: startCol, endRow: endRow, endCol: endCol)
+        }
+    }
+    
+    private func yankSelection() {
+        // In a full implementation, this would copy to clipboard
+        // For now, just simulate the operation
+        statusLine = "Yanked selection"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.statusLine = ""
+        }
+    }
+    
+    private func getSelectionBounds() -> (startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        let startRow = min(visualStartRow, cursorRow)
+        let endRow = max(visualStartRow, cursorRow)
+        let startCol = min(visualStartCol, cursorCol)
+        let endCol = max(visualStartCol, cursorCol)
+        
+        return (startRow, startCol, endRow, endCol)
+    }
+    
+    private func deleteCharacterSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        if startRow == endRow {
+            // Single line selection
+            var line = bufferLines[startRow]
+            let startIndex = line.index(line.startIndex, offsetBy: startCol)
+            let endIndex = line.index(line.startIndex, offsetBy: min(endCol + 1, line.count))
+            line.removeSubrange(startIndex..<endIndex)
+            bufferLines[startRow] = line
+            cursorRow = startRow
+            cursorCol = startCol
+        } else {
+            // Multi-line selection
+            for row in (startRow...endRow).reversed() {
+                if row == startRow {
+                    // First line - delete from startCol to end
+                    var line = bufferLines[row]
+                    let startIndex = line.index(line.startIndex, offsetBy: startCol)
+                    line.removeSubrange(startIndex...)
+                    bufferLines[row] = line
+                } else if row == endRow {
+                    // Last line - delete from beginning to endCol
+                    var line = bufferLines[row]
+                    let endIndex = line.index(line.startIndex, offsetBy: min(endCol + 1, line.count))
+                    line.removeSubrange(line.startIndex..<endIndex)
+                    // Join with first line
+                    bufferLines[startRow] += line
+                    bufferLines.remove(at: row)
+                } else {
+                    // Middle lines - delete entirely
+                    bufferLines.remove(at: row)
+                }
+            }
+            cursorRow = startRow
+            cursorCol = startCol
+        }
+    }
+    
+    private func deleteLineSelection(startRow: Int, endRow: Int) {
+        for _ in startRow...endRow {
+            if bufferLines.count > 1 {
+                bufferLines.remove(at: startRow)
+            } else {
+                bufferLines[0] = ""
+            }
+        }
+        cursorRow = min(startRow, bufferLines.count - 1)
+        cursorCol = 0
+    }
+    
+    private func deleteBlockSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        // Block selection deletes rectangular region
+        for row in startRow...endRow {
+            if row < bufferLines.count {
+                var line = bufferLines[row]
+                if startCol < line.count {
+                    let actualEndCol = min(endCol, line.count - 1)
+                    if actualEndCol >= startCol {
+                        let startIndex = line.index(line.startIndex, offsetBy: startCol)
+                        let endIndex = line.index(line.startIndex, offsetBy: actualEndCol + 1)
+                        line.removeSubrange(startIndex..<endIndex)
+                        bufferLines[row] = line
+                    }
+                }
+            }
+        }
+        cursorRow = startRow
+        cursorCol = startCol
     }
     
     // MARK: - Public Interface
@@ -457,6 +673,12 @@ class VimChatTerminal: ObservableObject {
     func getCursorPosition() -> (row: Int, col: Int) {
         return (cursorRow, cursorCol)
     }
+    
+    func getVisualSelection() -> (isActive: Bool, startRow: Int, startCol: Int, endRow: Int, endCol: Int, type: VisualType)? {
+        guard currentMode == .visual else { return nil }
+        let (startRow, startCol, endRow, endCol) = getSelectionBounds()
+        return (true, startRow, startCol, endRow, endCol, visualType)
+    }
 }
 
 // MARK: - Vim Modes
@@ -464,5 +686,13 @@ enum VimMode {
     case normal
     case insert
     case command
+    case visual
+}
+
+// MARK: - Visual Mode Types
+enum VisualType {
+    case characterwise
+    case linewise
+    case blockwise
 }
 

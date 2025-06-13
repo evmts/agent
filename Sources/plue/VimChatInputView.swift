@@ -71,6 +71,8 @@ struct VimChatInputView: View {
             return "INSERT"
         case .command:
             return "COMMAND"
+        case .visual:
+            return "VISUAL"
         }
     }
     
@@ -82,6 +84,8 @@ struct VimChatInputView: View {
             return .blue
         case .command:
             return .yellow
+        case .visual:
+            return .orange
         }
     }
 }
@@ -217,6 +221,11 @@ class VimTerminalNSView: NSView {
     private func drawTextContent(in context: CGContext) {
         let lines = vimTerminal.getDisplayLines()
         
+        // Draw visual selection background first if in visual mode
+        if let selection = vimTerminal.getVisualSelection() {
+            drawVisualSelection(in: context, selection: selection)
+        }
+        
         for (row, line) in lines.enumerated() {
             let y = bounds.height - CGFloat(row + 1) * cellHeight
             
@@ -231,6 +240,71 @@ class VimTerminalNSView: NSView {
                 let attributedString = NSAttributedString(string: String(char), attributes: attributes)
                 attributedString.draw(at: CGPoint(x: x, y: y))
             }
+        }
+    }
+    
+    private func drawVisualSelection(in context: CGContext, selection: (isActive: Bool, startRow: Int, startCol: Int, endRow: Int, endCol: Int, type: VisualType)) {
+        guard selection.isActive else { return }
+        
+        context.setFillColor(NSColor.blue.withAlphaComponent(0.3).cgColor)
+        
+        let startRow = selection.startRow
+        let startCol = selection.startCol
+        let endRow = selection.endRow
+        let endCol = selection.endCol
+        
+        switch selection.type {
+        case .characterwise:
+            drawCharacterWiseSelection(in: context, startRow: startRow, startCol: startCol, endRow: endRow, endCol: endCol)
+        case .linewise:
+            drawLinewiseSelection(in: context, startRow: startRow, endRow: endRow)
+        case .blockwise:
+            drawBlockwiseSelection(in: context, startRow: startRow, startCol: startCol, endRow: endRow, endCol: endCol)
+        }
+    }
+    
+    private func drawCharacterWiseSelection(in context: CGContext, startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        if startRow == endRow {
+            // Single line selection
+            let y = bounds.height - CGFloat(startRow + 1) * cellHeight
+            let x = CGFloat(startCol) * cellWidth
+            let width = CGFloat(endCol - startCol + 1) * cellWidth
+            context.fill(CGRect(x: x, y: y, width: width, height: cellHeight))
+        } else {
+            // Multi-line selection
+            for row in startRow...endRow {
+                let y = bounds.height - CGFloat(row + 1) * cellHeight
+                
+                if row == startRow {
+                    // First line - from startCol to end
+                    let x = CGFloat(startCol) * cellWidth
+                    let width = bounds.width - x
+                    context.fill(CGRect(x: x, y: y, width: width, height: cellHeight))
+                } else if row == endRow {
+                    // Last line - from beginning to endCol
+                    let width = CGFloat(endCol + 1) * cellWidth
+                    context.fill(CGRect(x: 0, y: y, width: width, height: cellHeight))
+                } else {
+                    // Middle lines - full width
+                    context.fill(CGRect(x: 0, y: y, width: bounds.width, height: cellHeight))
+                }
+            }
+        }
+    }
+    
+    private func drawLinewiseSelection(in context: CGContext, startRow: Int, endRow: Int) {
+        for row in startRow...endRow {
+            let y = bounds.height - CGFloat(row + 1) * cellHeight
+            context.fill(CGRect(x: 0, y: y, width: bounds.width, height: cellHeight))
+        }
+    }
+    
+    private func drawBlockwiseSelection(in context: CGContext, startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        for row in startRow...endRow {
+            let y = bounds.height - CGFloat(row + 1) * cellHeight
+            let x = CGFloat(startCol) * cellWidth
+            let width = CGFloat(endCol - startCol + 1) * cellWidth
+            context.fill(CGRect(x: x, y: y, width: width, height: cellHeight))
         }
     }
     
@@ -265,6 +339,23 @@ class VimTerminalNSView: NSView {
         case .command:
             // Underline cursor
             context.fill(CGRect(x: x, y: y, width: cellWidth, height: 2))
+            
+        case .visual:
+            // Block cursor with orange color for visual mode
+            context.setFillColor(NSColor.orange.cgColor)
+            context.fill(CGRect(x: x, y: y, width: cellWidth, height: cellHeight))
+            
+            // Draw character in black if there's text
+            let lines = vimTerminal.getDisplayLines()
+            if row < lines.count && col < lines[row].count {
+                let char = lines[row][lines[row].index(lines[row].startIndex, offsetBy: col)]
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: NSColor.black
+                ]
+                let attributedString = NSAttributedString(string: String(char), attributes: attributes)
+                attributedString.draw(at: CGPoint(x: x, y: y))
+            }
         }
     }
     

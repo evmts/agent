@@ -360,6 +360,8 @@ class VimResponseTerminal: ObservableObject {
             handleInsertModeKey(characters: characters, keyCode: keyCode, modifiers: modifiers)
         case .command:
             handleCommandModeKey(characters: characters, keyCode: keyCode, modifiers: modifiers)
+        case .visual:
+            handleNormalModeKey(characters: characters, keyCode: keyCode, modifiers: modifiers) // Same as normal for responses
         }
         
         updateDisplay()
@@ -766,6 +768,22 @@ class VimResponseTerminalNSView: NSView {
         case .insert:
             // Line cursor (though this mode isn't used in response view)
             context.fill(CGRect(x: x, y: y, width: 2, height: cellHeight))
+        case .visual:
+            // Block cursor with orange color for visual mode
+            context.setFillColor(NSColor.orange.cgColor)
+            context.fill(CGRect(x: x, y: y, width: cellWidth, height: cellHeight))
+            
+            // Draw character in black if there's text
+            let lines = vimTerminal.getDisplayLines()
+            if row < lines.count && col < lines[row].count {
+                let char = lines[row][lines[row].index(lines[row].startIndex, offsetBy: col)]
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: NSColor.black
+                ]
+                let attributedString = NSAttributedString(string: String(char), attributes: attributes)
+                attributedString.draw(at: CGPoint(x: x, y: y))
+            }
         }
     }
     
