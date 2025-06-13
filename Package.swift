@@ -5,10 +5,26 @@ import PackageDescription
 
 let package = Package(
     name: "plue",
+    platforms: [
+        .macOS(.v12)
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
+        .package(url: "https://github.com/CodeEditApp/CodeEditSourceEditor", from: "0.1.0")
+    ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
+        .systemLibrary(
+            name: "libplue",
+            path: "include"
+        ),
         .executableTarget(
-            name: "plue"),
+            name: "plue",
+            dependencies: [
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                "libplue"
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-Llib", "-lpluecore"])
+            ]),
     ]
 )

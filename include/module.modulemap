@@ -1,0 +1,5 @@
+module libplue {
+    umbrella header "libplue.h"
+    export *
+    link "liblibplue"
+}
