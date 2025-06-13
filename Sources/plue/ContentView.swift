@@ -19,12 +19,19 @@ struct ContentView: View {
                 }
                 .tag(1)
             
+            TerminalView()
+                .tabItem {
+                    Image(systemName: "terminal")
+                    Text("Terminal")
+                }
+                .tag(2)
+            
             ChatView()
                 .tabItem {
                     Image(systemName: "doc.text")
                     Text("Code Editor")
                 }
-                .tag(2)
+                .tag(3)
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
     }
