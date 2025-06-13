@@ -1,3 +1,33 @@
+# Zig
 zig-cache/
 .zig-cache/
 zig-out/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+.swiftpm/
+xcuserdata/
+DerivedData/
+
+# Xcode
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcworkspace
+!default.xcworkspace
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local libraries and build artifacts
+lib/
+*.a
+*.dylib
+test_integration
