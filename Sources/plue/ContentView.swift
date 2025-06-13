@@ -26,12 +26,19 @@ struct ContentView: View {
                 }
                 .tag(2)
             
+            WebView()
+                .tabItem {
+                    Image(systemName: "globe")
+                    Text("Web")
+                }
+                .tag(3)
+            
             ChatView()
                 .tabItem {
                     Image(systemName: "doc.text")
                     Text("Code Editor")
                 }
-                .tag(3)
+                .tag(4)
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
     }
