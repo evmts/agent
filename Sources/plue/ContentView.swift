@@ -5,7 +5,7 @@ struct ContentView: View {
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            PromptView()
+            VimPromptView()
                 .tabItem {
                     Image(systemName: "bubble.left.and.bubble.right")
                     Text("Prompt")

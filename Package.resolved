@@ -1,6 +1,15 @@
 {
-  "originHash" : "5c1e0746cd3e9f83d633e6e48e98020b75b528d2588ed4895c6acb2c7258fdfa",
+  "originHash" : "73a871fe43af2c8d0b2e6d3a9c8c5f1810f605a09c4da14aaed080f346e6009f",
   "pins" : [
+    {
+      "identity" : "codeedittextview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CodeEditApp/CodeEditTextView",
+      "state" : {
+        "revision" : "c045ffcf4d8b2904e7bd138cdeccda99cba3ab3c",
+        "version" : "0.11.2"
+      }
+    },
     {
       "identity" : "down",
       "kind" : "remoteSourceControl",
@@ -8,6 +17,15 @@
       "state" : {
         "revision" : "f34b166be1f1db4aa8f573067e901d72f2a6be57",
         "version" : "0.11.0"
+      }
+    },
+    {
+      "identity" : "rearrange",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/Rearrange",
+      "state" : {
+        "revision" : "5ff7f3363f7a08f77e0d761e38e6add31c2136e1",
+        "version" : "1.8.1"
       }
     },
     {
@@ -35,6 +53,24 @@
       "state" : {
         "branch" : "main",
         "revision" : "3a988bfa50ffbc55ee312749c326f8791d7f87ad"
+      }
+    },
+    {
+      "identity" : "swiftlintplugin",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lukepistrol/SwiftLintPlugin",
+      "state" : {
+        "revision" : "3780efccceaa87f17ec39638a9d263d0e742b71c",
+        "version" : "0.59.1"
+      }
+    },
+    {
+      "identity" : "textstory",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/TextStory",
+      "state" : {
+        "revision" : "8dc9148b46fcf93b08ea9d4ef9bdb5e4f700e008",
+        "version" : "0.9.0"
       }
     }
   ],

@@ -6,11 +6,12 @@ import PackageDescription
 let package = Package(
     name: "plue",
     platforms: [
-        .macOS(.v12)
+        .macOS(.v13)
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
         .package(url: "https://github.com/qeude/SwiftDown", branch: "main"),
+        .package(url: "https://github.com/CodeEditApp/CodeEditTextView", from: "0.1.0"),
     ],
     targets: [
         .systemLibrary(
@@ -22,6 +23,7 @@ let package = Package(
             dependencies: [
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "SwiftDown", package: "SwiftDown"),
+                .product(name: "CodeEditTextView", package: "CodeEditTextView"),
                 "libplue"
             ],
             linkerSettings: [
