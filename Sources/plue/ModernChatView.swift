@@ -5,6 +5,7 @@ struct ModernChatView: View {
     @State private var messageText = ""
     @State private var messages: [ChatMessage] = sampleMessages
     @State private var isTyping = false
+    @State private var selectedModel = AIModel.plueCore
     @FocusState private var isInputFocused: Bool
     
     var body: some View {
@@ -36,22 +37,8 @@ struct ModernChatView: View {
     // MARK: - Header Bar
     private var headerBar: some View {
         HStack {
-            // Left side - Model info
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.green.opacity(0.8), Color.blue.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 8, height: 8)
-                
-                Text("Plue Assistant")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
+            // Left side - Model Picker
+            modelPicker
             
             Spacer()
             
@@ -86,6 +73,64 @@ struct ModernChatView: View {
                     alignment: .bottom
                 )
         )
+    }
+    
+    // MARK: - Model Picker
+    private var modelPicker: some View {
+        Menu {
+            ForEach(AIModel.allCases, id: \.self) { model in
+                Button(action: {
+                    selectedModel = model
+                }) {
+                    HStack {
+                        Circle()
+                            .fill(model.statusColor)
+                            .frame(width: 8, height: 8)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.name)
+                                .font(.system(size: 13, weight: .medium))
+                            Text(model.description)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        if selectedModel == model {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12))
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(selectedModel.statusColor)
+                    .frame(width: 8, height: 8)
+                
+                Text(selectedModel.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.primary)
+                
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(NSColor.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+                    )
+            )
+        }
+        .menuStyle(BorderlessButtonMenuStyle())
+        .frame(maxWidth: 200)
     }
     
     // MARK: - Chat Messages Area
@@ -227,22 +272,45 @@ struct ModernChatView: View {
                 .frame(width: 24, height: 24)
                 .help("Attach file")
                 
-                // Text input area
-                VStack(spacing: 0) {
-                    ScrollView {
-                        TextField("Message Plue Assistant...", text: $messageText, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 15))
-                            .lineLimit(1...6)
-                            .focused($isInputFocused)
-                            .onSubmit {
-                                sendMessage()
-                            }
+                // Text input area with embedded send button
+                HStack(alignment: .bottom, spacing: 8) {
+                    VStack(spacing: 0) {
+                        ScrollView {
+                            TextField("Message \(selectedModel.name)...", text: $messageText, axis: .vertical)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 15))
+                                .lineLimit(1...6)
+                                .focused($isInputFocused)
+                                .onSubmit {
+                                    sendMessage()
+                                }
+                        }
+                        .frame(minHeight: 20, maxHeight: 120)
                     }
-                    .frame(minHeight: 20, maxHeight: 120)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 12)
+                    
+                    // Send button inside the text field
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(
+                                        messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        ? Color.gray.opacity(0.3)
+                                        : Color.blue
+                                    )
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 6)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 20)
                         .fill(Color(NSColor.controlBackgroundColor))
@@ -254,25 +322,6 @@ struct ModernChatView: View {
                                 )
                         )
                 )
-                
-                // Send button
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            Circle()
-                                .fill(
-                                    messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    ? Color.gray.opacity(0.3)
-                                    : Color.blue
-                                )
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -494,6 +543,69 @@ private let sampleMessages: [ChatMessage] = [
         timestamp: Date().addingTimeInterval(-100)
     )
 ]
+
+// MARK: - AI Model Configuration
+enum AIModel: String, CaseIterable {
+    case plueCore = "plue-core"
+    case gpt4 = "gpt-4"
+    case claude = "claude-3.5-sonnet"
+    case local = "local-llm"
+    
+    var name: String {
+        switch self {
+        case .plueCore:
+            return "Plue Core"
+        case .gpt4:
+            return "GPT-4"
+        case .claude:
+            return "Claude 3.5 Sonnet"
+        case .local:
+            return "Local LLM"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .plueCore:
+            return "Built-in Zig core engine"
+        case .gpt4:
+            return "OpenAI's most capable model"
+        case .claude:
+            return "Anthropic's latest model"
+        case .local:
+            return "Locally hosted model"
+        }
+    }
+    
+    var statusColor: LinearGradient {
+        switch self {
+        case .plueCore:
+            return LinearGradient(
+                colors: [Color.green.opacity(0.8), Color.blue.opacity(0.6)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .gpt4:
+            return LinearGradient(
+                colors: [Color.green.opacity(0.8), Color.green.opacity(0.6)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .claude:
+            return LinearGradient(
+                colors: [Color.orange.opacity(0.8), Color.red.opacity(0.6)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .local:
+            return LinearGradient(
+                colors: [Color.purple.opacity(0.8), Color.indigo.opacity(0.6)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+}
 
 #Preview {
     ModernChatView()
