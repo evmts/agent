@@ -12,7 +12,7 @@ struct ContentView: View {
                 }
                 .tag(0)
             
-            ChatView()
+            ModernChatView()
                 .tabItem {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                     Text("Chat")
