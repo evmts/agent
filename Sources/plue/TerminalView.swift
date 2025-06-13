@@ -37,12 +37,12 @@ struct TerminalView: View {
         }
     }
     
-    // MARK: - Terminal Overlay (for non-Metal rendering)
+    // MARK: - Terminal Overlay (for non-Metal rendering) - Optimized
     private var terminalOverlay: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(0..<terminal.rows), id: \.self) { row in
-                HStack(spacing: 0) {
-                    ForEach(Array(0..<terminal.cols), id: \.self) { col in
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(0..<min(terminal.rows, 50)), id: \.self) { row in
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(0..<min(terminal.cols, 120)), id: \.self) { col in
                         let cell = terminal.getCell(row: row, col: col)
                         Text(String(cell.character))
                             .font(.system(size: 14, design: .monospaced))
@@ -54,6 +54,7 @@ struct TerminalView: View {
             }
         }
         .background(Color.black)
+        .drawingGroup() // Flatten into single layer for better performance
     }
     
     // MARK: - Connection Status Overlay
@@ -135,6 +136,12 @@ class TerminalMetalView: MTKView {
     
     required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    deinit {
+        // Clean up Metal resources
+        renderer = nil
+        delegate = nil
     }
     
     override var acceptsFirstResponder: Bool {

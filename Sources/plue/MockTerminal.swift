@@ -364,9 +364,15 @@ class MockTerminal: ObservableObject {
         return "user@plue:\(currentDirectory)$ ".count
     }
     
+    private var redrawPending = false
+    
     private func redraw() {
+        guard !redrawPending else { return }
+        redrawPending = true
+        
         DispatchQueue.main.async {
             self.needsRedraw.toggle()
+            self.redrawPending = false
         }
     }
 }

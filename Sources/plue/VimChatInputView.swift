@@ -363,8 +363,21 @@ class VimTerminalNSView: NSView {
         needsDisplay = true
     }
     
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            // View removed from window - clean up timer
+            cursorTimer?.invalidate()
+            cursorTimer = nil
+        } else if cursorTimer == nil {
+            // View added to window - restart timer
+            startCursorBlink()
+        }
+    }
+    
     deinit {
         cursorTimer?.invalidate()
+        cursorTimer = nil
     }
 }
 
