@@ -3,7 +3,7 @@ import AppKit
 
 struct ModernChatView: View {
     @State private var messageText = ""
-    @State private var messages: [ChatMessage] = sampleMessages
+    @State private var messages: [ChatMessage] = []
     @State private var isTyping = false
     @State private var selectedModel = AIModel.plueCore
     @FocusState private var isInputFocused: Bool
@@ -24,12 +24,14 @@ struct ModernChatView: View {
                     ZStack {
                         chatMessagesArea
                             .offset(x: conversationManager.chatSlideOffset)
+                            .animation(.easeInOut(duration: 0.3), value: conversationManager.chatSlideOffset)
                         
                         // Response buffer overlay
                         if conversationManager.isViewingResponse {
                             responseBufferOverlay
                         }
                     }
+                    .clipped() // Prevent content from showing outside bounds during slide
                     
                     // Input Area
                     inputArea
@@ -40,13 +42,50 @@ struct ModernChatView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isInputFocused = true
             }
+            loadCurrentChatMessages()
+        }
+        .onChange(of: conversationManager.currentChatIndex) { _ in
+            loadCurrentChatMessages()
         }
     }
     
     // MARK: - Header Bar
     private var headerBar: some View {
         HStack {
-            // Left side - Model Picker
+            // Left side - Chat Navigation
+            HStack(spacing: 8) {
+                // Previous chat button
+                Button(action: {
+                    conversationManager.navigateToPreviousChat()
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Previous chat (^H)")
+                .disabled(conversationManager.currentChatIndex == 0)
+                
+                // Chat indicator
+                Text("Chat \(conversationManager.currentChatIndex + 1) of \(conversationManager.chats.count)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                // Next/New chat button
+                Button(action: {
+                    conversationManager.navigateToNextChat()
+                }) {
+                    Image(systemName: conversationManager.currentChatIndex < conversationManager.chats.count - 1 ? "chevron.right" : "plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help(conversationManager.currentChatIndex < conversationManager.chats.count - 1 ? "Next chat (^L)" : "New chat (^L)")
+            }
+            
+            Spacer()
+            
+            // Center - Model Picker
             modelPicker
             
             Spacer()
@@ -424,6 +463,18 @@ struct ModernChatView: View {
                 )
                 messages.append(aiMessage)
             }
+        }
+    }
+    
+    private func loadCurrentChatMessages() {
+        // Clear current messages and load from conversation manager
+        // For now, we'll keep the sample messages for the first chat
+        // In a full implementation, this would reconstruct ChatMessage array from conversation files
+        if conversationManager.currentChatIndex == 0 && messages.isEmpty {
+            messages = sampleMessages
+        } else {
+            // For additional chats, start empty
+            messages = []
         }
     }
     
