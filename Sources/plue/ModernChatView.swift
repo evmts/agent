@@ -262,18 +262,20 @@ struct ModernChatView: View {
                 .opacity(0.6)
             
             HStack(alignment: .bottom, spacing: 12) {
-                // Attachment button
-                Button(action: {}) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .frame(width: 24, height: 24)
-                .help("Attach file")
-                
-                // Text input area with embedded send button
+                // Text input area with embedded attachment and send buttons
                 HStack(alignment: .bottom, spacing: 8) {
+                    // Attachment button inside the text field
+                    Button(action: {}) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .frame(width: 24, height: 24)
+                    .help("Attach file")
+                    .padding(.leading, 12)
+                    .padding(.bottom, 6)
+                    
                     VStack(spacing: 0) {
                         ScrollView {
                             TextField("Message \(selectedModel.name)...", text: $messageText, axis: .vertical)
@@ -287,7 +289,6 @@ struct ModernChatView: View {
                         }
                         .frame(minHeight: 20, maxHeight: 120)
                     }
-                    .padding(.leading, 16)
                     .padding(.vertical, 12)
                     
                     // Send button inside the text field
