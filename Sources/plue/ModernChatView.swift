@@ -7,6 +7,7 @@ struct ModernChatView: View {
     @State private var isTyping = false
     @State private var selectedModel = AIModel.plueCore
     @FocusState private var isInputFocused: Bool
+    @StateObject private var conversationManager = ConversationManager()
     
     var body: some View {
         GeometryReader { geometry in
@@ -19,8 +20,16 @@ struct ModernChatView: View {
                     // Header Bar
                     headerBar
                     
-                    // Chat Messages Area
-                    chatMessagesArea
+                    // Chat Messages Area with sliding animation
+                    ZStack {
+                        chatMessagesArea
+                            .offset(x: conversationManager.chatSlideOffset)
+                        
+                        // Response buffer overlay
+                        if conversationManager.isViewingResponse {
+                            responseBufferOverlay
+                        }
+                    }
                     
                     // Input Area
                     inputArea
@@ -146,10 +155,12 @@ struct ModernChatView: View {
                     
                     // Messages
                     ForEach(messages) { message in
-                        MessageBubbleView(message: message)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .id(message.id)
+                        MessageBubbleView(message: message) { tappedMessage in
+                            handleAIMessageTapped(tappedMessage)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .id(message.id)
                     }
                     
                     // Typing indicator
@@ -252,7 +263,7 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Input Area
+    // MARK: - Input Area (Vim Buffer)
     private var inputArea: some View {
         VStack(spacing: 0) {
             // Separator line
@@ -261,75 +272,186 @@ struct ModernChatView: View {
                 .foregroundColor(Color(NSColor.separatorColor))
                 .opacity(0.6)
             
-            HStack(alignment: .bottom, spacing: 12) {
-                // Text input area with embedded attachment and send buttons
-                HStack(alignment: .bottom, spacing: 8) {
-                    // Attachment button inside the text field
-                    Button(action: {}) {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 16))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .frame(width: 24, height: 24)
-                    .help("Attach file")
-                    .padding(.leading, 12)
-                    .padding(.bottom, 6)
-                    
-                    VStack(spacing: 0) {
-                        ScrollView {
-                            TextField("Message \(selectedModel.name)...", text: $messageText, axis: .vertical)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 15))
-                                .lineLimit(1...6)
-                                .focused($isInputFocused)
-                                .onSubmit {
-                                    sendMessage()
-                                }
-                        }
-                        .frame(minHeight: 20, maxHeight: 120)
-                    }
-                    .padding(.vertical, 12)
-                    
-                    // Send button inside the text field
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(
-                                        messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                        ? Color.gray.opacity(0.3)
-                                        : Color.blue
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .animation(.easeInOut(duration: 0.2), value: messageText.isEmpty)
-                    .padding(.trailing, 8)
-                    .padding(.bottom, 6)
+            HStack(spacing: 16) {
+                // Attachment button
+                Button(action: {}) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color(NSColor.controlBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20)
-                                .stroke(
-                                    isInputFocused ? Color.blue.opacity(0.5) : Color(NSColor.separatorColor),
-                                    lineWidth: isInputFocused ? 1.5 : 0.5
-                                )
-                        )
+                .buttonStyle(PlainButtonStyle())
+                .help("Attach file")
+                
+                // Vim Chat Input
+                VimChatInputView(
+                    onMessageSent: { message in
+                        handleVimMessage(message)
+                    },
+                    onMessageUpdated: { message in
+                        handleVimMessageUpdate(message)
+                    },
+                    onNavigateUp: {
+                        print("ModernChatView: Navigate Up called")
+                        let success = conversationManager.navigateUp()
+                        print("ModernChatView: Navigate Up result: \(success)")
+                    },
+                    onNavigateDown: {
+                        print("ModernChatView: Navigate Down called")
+                        let success = conversationManager.navigateDown()
+                        print("ModernChatView: Navigate Down result: \(success)")
+                    },
+                    onPreviousChat: {
+                        conversationManager.navigateToPreviousChat()
+                    },
+                    onNextChat: {
+                        conversationManager.navigateToNextChat()
+                    }
                 )
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 8)
+                
+                // Help indicator
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(":w to send")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text("^K up • ^J down")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text("^H prev • ^L next")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.8))
+                }
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .padding(.vertical, 20)
             .background(Color(NSColor.controlBackgroundColor))
         }
     }
     
+    // MARK: - Response Buffer Overlay
+    private var responseBufferOverlay: some View {
+        VimResponseBufferView(conversationManager: conversationManager) {
+            conversationManager.exitResponseView()
+        }
+        .background(Color.black.opacity(0.9))
+        .transition(.opacity)
+    }
+    
+    private func setupVimCallbacks() {
+        // We need to access the VimChatInputView's terminal to set up callbacks
+        // This is handled through a more integrated approach in the view
+    }
+    
+    private func handleVimMessage(_ message: String) {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        
+        print("ModernChatView: Handling vim message: \(text)")
+        
+        // Add to conversation manager
+        conversationManager.addUserMessage(text)
+        
+        // Add user message to display
+        let userMessage = ChatMessage(
+            id: UUID(),
+            content: text,
+            isUser: true,
+            timestamp: Date()
+        )
+        
+        withAnimation(.easeOut(duration: 0.3)) {
+            messages.append(userMessage)
+        }
+        
+        generateAIResponse(for: text)
+    }
+    
+    private func handleVimMessageUpdate(_ message: String) {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        
+        print("ModernChatView: Handling vim message update: \(text)")
+        
+        // Find and remove the last AI response with animation
+        if let lastAIIndex = messages.lastIndex(where: { !$0.isUser }) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                messages.remove(at: lastAIIndex)
+            }
+        }
+        
+        // Find and update the last user message
+        if let lastUserIndex = messages.lastIndex(where: { $0.isUser }) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                messages[lastUserIndex] = ChatMessage(
+                    id: messages[lastUserIndex].id,
+                    content: text,
+                    isUser: true,
+                    timestamp: Date()
+                )
+            }
+        }
+        
+        // Update in conversation manager
+        conversationManager.updateLastUserMessage(text)
+        
+        // Generate new response after a short delay for animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.generateAIResponse(for: text)
+        }
+    }
+    
+    private func generateAIResponse(for text: String) {
+        // Simulate AI typing
+        withAnimation(.easeOut(duration: 0.3)) {
+            isTyping = true
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                isTyping = false
+                let aiResponse = "I understand you're asking about: \"\(text)\"\n\nThis is a placeholder response from the Plue Assistant. The actual Zig core integration will provide real responses here."
+                
+                print("ModernChatView: Adding AI response to conversation manager")
+                // Add to conversation manager
+                conversationManager.addAIResponse(aiResponse)
+                
+                let aiMessage = ChatMessage(
+                    id: UUID(),
+                    content: aiResponse,
+                    isUser: false,
+                    timestamp: Date()
+                )
+                messages.append(aiMessage)
+            }
+        }
+    }
+    
+    private func handleAIMessageTapped(_ message: ChatMessage) {
+        print("ModernChatView: AI message tapped - \(message.content.prefix(50))...")
+        
+        // Find the index of this message in the conversation manager
+        guard let currentChat = conversationManager.currentChat else { 
+            print("ModernChatView: No current chat found")
+            return 
+        }
+        
+        print("ModernChatView: Current chat has \(currentChat.responses.count) responses")
+        
+        if let responseIndex = currentChat.responses.firstIndex(where: { $0.content == message.content }) {
+            print("ModernChatView: Found response at index \(responseIndex)")
+            conversationManager.currentResponseIndex = responseIndex
+            conversationManager.isViewingResponse = true
+            print("ModernChatView: Set isViewingResponse = true, showing response buffer")
+        } else {
+            print("ModernChatView: Could not find matching response in conversation manager")
+            print("ModernChatView: Available responses:")
+            for (index, response) in currentChat.responses.enumerated() {
+                print("  \(index): \(response.content.prefix(50))...")
+            }
+        }
+    }
+
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -371,6 +493,7 @@ struct ModernChatView: View {
 // MARK: - Message Bubble View
 struct MessageBubbleView: View {
     let message: ChatMessage
+    let onAIMessageTapped: ((ChatMessage) -> Void)?
     
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -449,6 +572,12 @@ struct MessageBubbleView: View {
                             )
                     )
                     .textSelection(.enabled)
+                    .onTapGesture {
+                        if !message.isUser {
+                            print("MessageBubbleView: AI message tapped")
+                            onAIMessageTapped?(message)
+                        }
+                    }
             }
             
             Text(formatTime(message.timestamp))
