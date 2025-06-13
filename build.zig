@@ -58,12 +58,21 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    const webui = b.dependency("webui", .{
+        .target = target,
+        .optimize = optimize,
+        .dynamic = false,
+        .@"enable-tls" = false,
+        .verbose = .err,
+    });
+
     // This creates another `std.Build.Step.Compile`, but this one builds an executable
     // rather than a static library.
     const exe = b.addExecutable(.{
         .name = "plue",
         .root_module = exe_mod,
     });
+    exe.linkLibrary(webui.artifact("webui"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
