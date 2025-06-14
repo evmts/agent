@@ -1342,8 +1342,6 @@ struct GitChangedFile {
         deletions: 8,
         originalContent: "import SwiftUI\n\nstruct DiffView: View {\n    var body: some View {\n        Text(\"Hello\")\n    }\n}",
         modifiedContent: "import SwiftUI\n\nstruct DiffView: View {\n    let appState: AppState\n    \n    var body: some View {\n        VStack {\n            Text(\"Git Diff Viewer\")\n            Text(\"Now with more features!\")\n        }\n    }\n}",
-        hasConflicts: false,
-        conflicts: [],
         diffLines: [
             GitDiffLine(type: .unchanged, content: "import SwiftUI", oldLineNumber: 1, newLineNumber: 1),
             GitDiffLine(type: .unchanged, content: "", oldLineNumber: 2, newLineNumber: 2),
@@ -1358,7 +1356,9 @@ struct GitChangedFile {
             GitDiffLine(type: .added, content: "        }", oldLineNumber: nil, newLineNumber: 10),
             GitDiffLine(type: .unchanged, content: "    }", oldLineNumber: 6, newLineNumber: 11),
             GitDiffLine(type: .unchanged, content: "}", oldLineNumber: 7, newLineNumber: 12)
-        ]
+        ],
+        hasConflicts: false,
+        conflicts: []
     )
     
     static let mockReadme = GitChangedFile(
@@ -1368,8 +1368,6 @@ struct GitChangedFile {
         deletions: 5,
         originalContent: "# Plue\nA development tool",
         modifiedContent: "# Plue\nA multi-agent coding assistant\n\n## Features\n- Git diff viewer\n- AI assistance",
-        hasConflicts: false,
-        conflicts: [],
         diffLines: [
             GitDiffLine(type: .unchanged, content: "# Plue", oldLineNumber: 1, newLineNumber: 1),
             GitDiffLine(type: .removed, content: "A development tool", oldLineNumber: 2, newLineNumber: nil),
@@ -1378,7 +1376,9 @@ struct GitChangedFile {
             GitDiffLine(type: .added, content: "## Features", oldLineNumber: nil, newLineNumber: 4),
             GitDiffLine(type: .added, content: "- Git diff viewer", oldLineNumber: nil, newLineNumber: 5),
             GitDiffLine(type: .added, content: "- AI assistance", oldLineNumber: nil, newLineNumber: 6)
-        ]
+        ],
+        hasConflicts: false,
+        conflicts: []
     )
     
     static let mockConfig = GitChangedFile(
@@ -1388,14 +1388,14 @@ struct GitChangedFile {
         deletions: 0,
         originalContent: "",
         modifiedContent: ".DS_Store\n*.xcworkspace\n.build/\nPackage.resolved\n",
-        hasConflicts: false,
-        conflicts: [],
         diffLines: [
             GitDiffLine(type: .added, content: ".DS_Store", oldLineNumber: nil, newLineNumber: 1),
             GitDiffLine(type: .added, content: "*.xcworkspace", oldLineNumber: nil, newLineNumber: 2),
             GitDiffLine(type: .added, content: ".build/", oldLineNumber: nil, newLineNumber: 3),
             GitDiffLine(type: .added, content: "Package.resolved", oldLineNumber: nil, newLineNumber: 4)
-        ]
+        ],
+        hasConflicts: false,
+        conflicts: []
     )
 }
 
