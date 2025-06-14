@@ -2,10 +2,23 @@ import SwiftUI
 
 struct ContentView: View {
     @Binding var appState: AppState
+    @State private var previousTab: TabType = .prompt
     
     // This will now handle the event dispatches
     private func handleEvent(_ event: AppEvent) {
         PlueCore.shared.handleEvent(event)
+    }
+    
+    // Smart animation direction based on tab indices
+    private func transitionForTab(_ tab: TabType) -> AnyTransition {
+        let currentIndex = appState.currentTab.rawValue
+        let previousIndex = previousTab.rawValue
+        let isMovingRight = currentIndex > previousIndex
+        
+        return .asymmetric(
+            insertion: .move(edge: isMovingRight ? .trailing : .leading).combined(with: .opacity),
+            removal: .move(edge: isMovingRight ? .leading : .trailing).combined(with: .opacity)
+        )
     }
 
     var body: some View {
@@ -26,63 +39,42 @@ struct ContentView: View {
                 DesignSystem.Colors.background(for: appState.currentTheme)
                     .ignoresSafeArea()
 
-                // 3. View Switching Logic with Enhanced Transitions
+                // 3. View Switching Logic with Smart Contextual Transitions
                 Group {
                     switch appState.currentTab {
                     case .prompt:
                         VimPromptView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.prompt))
                     case .farcaster:
                         FarcasterView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.farcaster))
                     case .agent:
                         AgentView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.agent))
                     case .terminal:
                         TerminalView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.terminal))
                     case .web:
                         WebView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.web))
                     case .editor:
                         // The "Editor" tab uses the old ChatView, let's update it later if needed.
                         // For now, let's ensure it has a consistent background.
                         ChatView(appState: appState, core: PlueCore.shared)
                             .background(DesignSystem.Colors.background)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.editor))
                     case .diff:
                         DiffView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.diff))
                     case .worktree:
                         WorktreeView(appState: appState, core: PlueCore.shared)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .trailing).combined(with: .opacity),
-                                removal: .move(edge: .leading).combined(with: .opacity)
-                            ))
+                            .transition(transitionForTab(.worktree))
                     }
                 }
                 .animation(DesignSystem.Animation.tabSwitch, value: appState.currentTab)
+                .onChange(of: appState.currentTab) { oldValue, newValue in
+                    previousTab = oldValue
+                }
             }
         }
         .background(DesignSystem.Colors.background(for: appState.currentTheme))

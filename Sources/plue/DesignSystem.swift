@@ -192,7 +192,7 @@ struct DesignSystem {
         static let plueInteractive = SwiftUI.Animation.interactiveSpring(response: 0.25, dampingFraction: 0.8)
         
         // Specialized animations for enhanced UX - optimized for responsiveness
-        static let tabSwitch = SwiftUI.Animation.easeInOut(duration: 0.18)
+        static let tabSwitch = SwiftUI.Animation.easeInOut(duration: 0.12)
         static let messageAppear = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.75)
         static let buttonPress = SwiftUI.Animation.easeOut(duration: 0.12)
         static let socialInteraction = SwiftUI.Animation.spring(response: 0.25, dampingFraction: 0.7)
