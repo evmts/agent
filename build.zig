@@ -143,12 +143,78 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
+    // Integration tests for our Zig modules
+    const integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/integration_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+
+    // Individual test modules with proper module imports
+    const libplue_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/test_libplue.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    libplue_test_mod.addImport("libplue", c_lib_mod);
+    
+    const libplue_tests = b.addTest(.{
+        .root_module = libplue_test_mod,
+    });
+
+    const farcaster_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/test_farcaster.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    farcaster_test_mod.addImport("farcaster", farcaster_mod);
+    
+    const farcaster_tests = b.addTest(.{
+        .root_module = farcaster_test_mod,
+    });
+
+    const app_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/test_app.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_test_mod.addImport("app_root", lib_mod);
+    
+    const app_tests = b.addTest(.{
+        .root_module = app_test_mod,
+    });
+
+    const run_libplue_tests = b.addRunArtifact(libplue_tests);
+    const run_farcaster_tests = b.addRunArtifact(farcaster_tests);
+    const run_app_tests = b.addRunArtifact(app_tests);
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
-    const test_step = b.step("test", "Run unit tests");
+    const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&run_integration_tests.step);
+    test_step.dependOn(&run_libplue_tests.step);
+    test_step.dependOn(&run_farcaster_tests.step);
+    test_step.dependOn(&run_app_tests.step);
+
+    // Individual test steps for granular testing
+    const test_integration_step = b.step("test-integration", "Run integration tests");
+    test_integration_step.dependOn(&run_integration_tests.step);
+
+    const test_libplue_step = b.step("test-libplue", "Run libplue tests");
+    test_libplue_step.dependOn(&run_libplue_tests.step);
+
+    const test_farcaster_step = b.step("test-farcaster", "Run farcaster tests");
+    test_farcaster_step.dependOn(&run_farcaster_tests.step);
+
+    const test_app_step = b.step("test-app", "Run app tests");
+    test_app_step.dependOn(&run_app_tests.step);
 
     // Add Swift build step that depends on Zig libraries
     const swift_build_cmd = b.addSystemCommand(&.{
