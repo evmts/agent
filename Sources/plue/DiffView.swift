@@ -884,7 +884,6 @@ struct SyntaxHighlightedDiffLine: View {
     @ViewBuilder
     private func syntaxHighlightedText(_ content: String) -> some View {
         // Simple syntax highlighting for common patterns
-        let trimmed = content.trimmingCharacters(in: .whitespaces)
         
         if fileType == "swift" {
             swiftSyntaxHighlighting(content)

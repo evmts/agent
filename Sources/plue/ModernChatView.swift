@@ -50,17 +50,17 @@ struct ModernChatView: View {
             HStack(spacing: DesignSystem.Spacing.sm) {
                 // Previous chat button
                 Button(action: {
-                    if appState.chatState.currentConversationIndex > 0 {
-                        core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
+                    if appState.promptState.currentConversationIndex > 0 {
+                        core.handleEvent(.promptSelectConversation(appState.promptState.currentConversationIndex - 1))
                     }
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(appState.chatState.currentConversationIndex == 0 ? DesignSystem.Colors.textTertiary.opacity(0.3) : DesignSystem.Colors.textSecondary)
+                        .foregroundColor(appState.promptState.currentConversationIndex == 0 ? DesignSystem.Colors.textTertiary.opacity(0.3) : DesignSystem.Colors.textSecondary)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .help("Previous chat (⌘[)")
-                .disabled(appState.chatState.currentConversationIndex == 0)
+                .disabled(appState.promptState.currentConversationIndex == 0)
                 
                 // Minimal chat indicator
                 VStack(alignment: .leading, spacing: 1) {
@@ -68,25 +68,25 @@ struct ModernChatView: View {
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.textTertiary)
                     
-                    Text("\(appState.chatState.currentConversationIndex + 1)/\(appState.chatState.conversations.count)")
+                    Text("\(appState.promptState.currentConversationIndex + 1)/\(appState.promptState.conversations.count)")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(DesignSystem.Colors.textSecondary)
                 }
                 
                 // Next/New chat button
                 Button(action: {
-                    if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
-                        core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
+                    if appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 {
+                        core.handleEvent(.promptSelectConversation(appState.promptState.currentConversationIndex + 1))
                     } else {
-                        core.handleEvent(.chatNewConversation)
+                        core.handleEvent(.promptNewConversation)
                     }
                 }) {
-                    Image(systemName: appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "chevron.right" : "plus")
+                    Image(systemName: appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 ? "chevron.right" : "plus")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(DesignSystem.Colors.textSecondary)
                 }
                 .buttonStyle(PlainButtonStyle())
-                .help(appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "Next chat (⌘])" : "New chat (⌘N)")
+                .help(appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 ? "Next chat (⌘])" : "New chat (⌘N)")
             }
             
             Spacer()
@@ -220,33 +220,35 @@ struct ModernChatView: View {
             ScrollView {
                 LazyVStack(spacing: DesignSystem.Spacing.lg) {
                     // Enhanced welcome message
-                    if appState.chatState.currentConversation?.messages.isEmpty ?? true {
+                    if appState.promptState.currentConversation?.messages.isEmpty ?? true {
                         enhancedWelcomeView
                             .padding(.top, DesignSystem.Spacing.massive)
                     }
                     
                     // Professional message bubbles with enhanced animations
-                    ForEach(Array(appState.chatState.currentConversation?.messages.enumerated() ?? []), id: \.element.id) { index, message in
-                        ProfessionalMessageBubbleView(
-                            message: message,
-                            isActive: activeMessageId == message.id,
-                            theme: appState.currentTheme
-                        )
-                        .padding(.horizontal, DesignSystem.Spacing.xl)
-                        .padding(.vertical, DesignSystem.Spacing.sm)
-                        .id(message.id)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95)),
-                            removal: .move(edge: .top).combined(with: .opacity)
-                        ))
-                        .animation(
-                            DesignSystem.Animation.messageAppear.delay(Double(index) * DesignSystem.Animation.staggerDelay),
-                            value: appState.chatState.currentConversation?.messages.count
-                        )
+                    if let messages = appState.promptState.currentConversation?.messages {
+                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                            ProfessionalMessageBubbleView(
+                                message: message,
+                                isActive: activeMessageId == message.id,
+                                theme: appState.currentTheme
+                            )
+                            .padding(.horizontal, DesignSystem.Spacing.xl)
+                            .padding(.vertical, DesignSystem.Spacing.sm)
+                            .id(message.id)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95)),
+                                removal: .move(edge: .top).combined(with: .opacity)
+                            ))
+                            .animation(
+                                DesignSystem.Animation.messageAppear.delay(Double(index) * DesignSystem.Animation.staggerDelay),
+                                value: messages.count
+                            )
+                        }
                     }
                     
                     // Enhanced typing indicator with smooth appearance
-                    if appState.chatState.isGenerating {
+                    if appState.promptState.isProcessing {
                         ProfessionalTypingIndicatorView()
                             .padding(.horizontal, DesignSystem.Spacing.xl)
                             .padding(.vertical, DesignSystem.Spacing.sm)
@@ -254,7 +256,7 @@ struct ModernChatView: View {
                                 insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.8)),
                                 removal: .opacity.combined(with: .scale(scale: 0.8))
                             ))
-                            .animation(DesignSystem.Animation.messageAppear, value: appState.chatState.isGenerating)
+                            .animation(DesignSystem.Animation.messageAppear, value: appState.promptState.isProcessing)
                     }
                     
                     // Bottom spacing for better scrolling
@@ -264,9 +266,9 @@ struct ModernChatView: View {
             }
             .scrollIndicators(.never)
             .background(DesignSystem.Colors.backgroundSecondary)
-            .onChange(of: appState.chatState.currentConversation?.messages.count) { _ in
+            .onChange(of: appState.promptState.currentConversation?.messages.count) { _ in
                 withAnimation(DesignSystem.Animation.smooth) {
-                    if let lastMessage = appState.chatState.currentConversation?.messages.last {
+                    if let lastMessage = appState.promptState.currentConversation?.messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
                 }
@@ -313,7 +315,7 @@ struct ModernChatView: View {
     private func minimalSuggestionButton(_ text: String, icon: String) -> some View {
         Button(action: {
             withAnimation(.easeInOut(duration: 0.2)) {
-                core.handleEvent(.chatMessageSent(text))
+                core.handleEvent(.promptMessageSent(text))
             }
         }) {
             HStack(spacing: 8) {
@@ -402,7 +404,7 @@ struct ModernChatView: View {
         guard !message.isEmpty else { return }
         
         withAnimation(DesignSystem.Animation.plueStandard) {
-            core.handleEvent(.chatMessageSent(message))
+            core.handleEvent(.promptMessageSent(message))
         }
         
         inputText = ""
@@ -411,7 +413,7 @@ struct ModernChatView: View {
     // MARK: - Navigation and Editing Logic
     
     private func navigateMessages(direction: NavigationDirection) {
-        guard let conversation = appState.chatState.currentConversation else { return }
+        guard let conversation = appState.promptState.currentConversation else { return }
         let messages = conversation.messages
         
         if let currentActiveId = activeMessageId,
@@ -440,7 +442,7 @@ struct ModernChatView: View {
     
     private func editActiveMessage() {
         guard let activeId = activeMessageId,
-              let message = appState.chatState.currentConversation?.messages.first(where: { $0.id == activeId })
+              let message = appState.promptState.currentConversation?.messages.first(where: { $0.id == activeId })
         else { return }
         
         // Load message content into input field for editing
@@ -452,13 +454,13 @@ struct ModernChatView: View {
 // MARK: - Professional Message Bubble View
 
 struct ProfessionalMessageBubbleView: View {
-    let message: CoreMessage
+    let message: PromptMessage
     let isActive: Bool
     let theme: DesignSystem.Theme
     
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            if message.isUser {
+            if message.type == .user {
                 Spacer(minLength: 100)
                 professionalUserMessageView
             } else {
@@ -615,11 +617,11 @@ struct ProfessionalTypingIndicatorView: View {
 
 // MARK: - Core Message Bubble View
 struct CoreMessageBubbleView: View {
-    let message: CoreMessage
+    let message: PromptMessage
     
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            if message.isUser {
+            if message.type == .user {
                 Spacer(minLength: 80)
                 userMessageView
             } else {
@@ -712,12 +714,12 @@ struct CoreMessageBubbleView: View {
 
 // MARK: - Legacy Message Bubble View
 struct MessageBubbleView: View {
-    let message: ChatMessage
-    let onAIMessageTapped: ((ChatMessage) -> Void)?
+    let message: PromptMessage
+    let onAIMessageTapped: ((PromptMessage) -> Void)?
     
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            if message.isUser {
+            if message.type == .user {
                 Spacer(minLength: 80)
                 userMessageView
             } else {
@@ -793,7 +795,7 @@ struct MessageBubbleView: View {
                     )
                     .textSelection(.enabled)
                     .onTapGesture {
-                        if !message.isUser {
+                        if message.type != .user {
                             print("MessageBubbleView: AI message tapped")
                             onAIMessageTapped?(message)
                         }
@@ -873,26 +875,7 @@ struct TypingIndicatorView: View {
 }
 
 // MARK: - Sample Data
-private let sampleMessages: [ChatMessage] = [
-    ChatMessage(
-        id: UUID(),
-        content: "Hello! I'm your Plue Assistant. How can I help you with your coding projects today?",
-        isUser: false,
-        timestamp: Date().addingTimeInterval(-300)
-    ),
-    ChatMessage(
-        id: UUID(),
-        content: "Can you help me understand how this Zig and Swift integration works?",
-        isUser: true,
-        timestamp: Date().addingTimeInterval(-200)
-    ),
-    ChatMessage(
-        id: UUID(),
-        content: "Absolutely! The integration works by creating a C-compatible library in Zig that exports functions Swift can call. Here's how it works:\n\n1. **Zig Core**: We define exported functions with `export fn`\n2. **C Headers**: We create `.h` files that Swift can import\n3. **Swift Wrapper**: We wrap the C calls in safe Swift classes\n4. **UI Integration**: SwiftUI calls the Swift wrapper which calls Zig\n\nThis pattern gives us the performance of Zig with the native UI experience of SwiftUI. Would you like me to explain any specific part in more detail?",
-        isUser: false,
-        timestamp: Date().addingTimeInterval(-100)
-    )
-]
+// Sample messages removed - using actual PromptMessage data from core state instead
 
 // MARK: - AI Model Configuration
 enum AIModel: String, CaseIterable {

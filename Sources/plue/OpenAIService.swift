@@ -212,11 +212,11 @@ class OpenAIService {
         }
     }
     
-    // Helper method to convert CoreMessage to OpenAI format
-    func convertToOpenAIMessages(_ coreMessages: [CoreMessage]) -> [OpenAIMessage] {
-        return coreMessages.map { message in
+    // Helper method to convert PromptMessage to OpenAI format
+    func convertToOpenAIMessages(_ promptMessages: [PromptMessage]) -> [OpenAIMessage] {
+        return promptMessages.map { message in
             OpenAIMessage(
-                role: message.isUser ? "user" : "assistant",
+                role: message.type == .user ? "user" : "assistant",
                 content: message.content
             )
         }

@@ -603,6 +603,7 @@ class MockPlueCore: PlueCoreInterface {
                 errorMessage: nil,
                 openAIAvailable: openAIService != nil,
                 currentTheme: .dark,
+                promptState: PromptState.initial,
                 terminalState: TerminalState.initial,
                 vimState: VimState.initial,
                 webState: WebState.initial,
@@ -762,11 +763,12 @@ class MockPlueCore: PlueCoreInterface {
     
     private func processChatMessage(_ message: String) {
         // Add user message
-        let userMessage = CoreMessage(
+        let userMessage = PromptMessage(
             id: UUID().uuidString,
             content: message,
-            isUser: true,
-            timestamp: Date()
+            type: .user,
+            timestamp: Date(),
+            promptSnapshot: nil
         )
         
         var conversations = currentState.promptState.conversations
@@ -775,7 +777,8 @@ class MockPlueCore: PlueCoreInterface {
             id: currentConv.id,
             messages: currentConv.messages + [userMessage],
             createdAt: currentConv.createdAt,
-            updatedAt: Date()
+            updatedAt: Date(),
+            associatedPromptContent: currentConv.associatedPromptContent
         )
         conversations[currentState.promptState.currentConversationIndex] = currentConv
         
@@ -783,8 +786,8 @@ class MockPlueCore: PlueCoreInterface {
         let newPromptState = PromptState(
             conversations: conversations,
             currentConversationIndex: currentState.promptState.currentConversationIndex,
-            isGenerating: true,
-            generationProgress: 0.0
+            currentPromptContent: currentState.promptState.currentPromptContent,
+            isProcessing: true
         )
         
         currentState = createUpdatedAppState(promptState: newPromptState)
@@ -849,8 +852,9 @@ class MockPlueCore: PlueCoreInterface {
             let aiMessage = PromptMessage(
                 id: UUID().uuidString,
                 content: content,
-                isUser: false,
-                timestamp: Date()
+                type: .assistant,
+                timestamp: Date(),
+                promptSnapshot: nil
             )
             
             var conversations = self.currentState.promptState.conversations
@@ -859,15 +863,16 @@ class MockPlueCore: PlueCoreInterface {
                 id: currentConv.id,
                 messages: currentConv.messages + [aiMessage],
                 createdAt: currentConv.createdAt,
-                updatedAt: Date()
+                updatedAt: Date(),
+                associatedPromptContent: currentConv.associatedPromptContent
             )
             conversations[self.currentState.promptState.currentConversationIndex] = currentConv
             
             let newPromptState = PromptState(
                 conversations: conversations,
                 currentConversationIndex: self.currentState.promptState.currentConversationIndex,
-                isGenerating: false,
-                generationProgress: 1.0
+                currentPromptContent: self.currentState.promptState.currentPromptContent,
+                isProcessing: false
             )
             
             self.currentState = self.createUpdatedAppState(promptState: newPromptState)
@@ -883,20 +888,22 @@ class MockPlueCore: PlueCoreInterface {
                 PromptMessage(
                     id: UUID().uuidString,
                     content: "New conversation started. How can I help you?",
-                    isUser: false,
-                    timestamp: Date()
+                    type: .assistant,
+                    timestamp: Date(),
+                    promptSnapshot: nil
                 )
             ],
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            associatedPromptContent: nil
         )
         
         let conversations = currentState.promptState.conversations + [newConv]
         let newPromptState = PromptState(
             conversations: conversations,
             currentConversationIndex: conversations.count - 1,
-            isGenerating: false,
-            generationProgress: 0.0
+            currentPromptContent: currentState.promptState.currentPromptContent,
+            isProcessing: false
         )
         
         currentState = createUpdatedAppState(promptState: newPromptState)
@@ -908,8 +915,8 @@ class MockPlueCore: PlueCoreInterface {
         let newPromptState = PromptState(
             conversations: currentState.promptState.conversations,
             currentConversationIndex: index,
-            isGenerating: false,
-            generationProgress: 0.0
+            currentPromptContent: currentState.promptState.currentPromptContent,
+            isProcessing: false
         )
         
         currentState = createUpdatedAppState(promptState: newPromptState)
@@ -967,8 +974,8 @@ class MockPlueCore: PlueCoreInterface {
     private func processVimKeypress(key: String, modifiers: UInt32) {
         // Simple vim simulation (will be real vim in Zig)
         var newMode = currentState.vimState.mode
-        var newBuffer = currentState.vimState.buffer
-        var newCursor = currentState.vimState.cursor
+        let newBuffer = currentState.vimState.buffer
+        let newCursor = currentState.vimState.cursor
         var newStatusLine = currentState.vimState.statusLine
         
         switch (currentState.vimState.mode, key) {
@@ -1337,7 +1344,7 @@ class MockPlueCore: PlueCoreInterface {
     }
     
     private func refreshFarcasterFeed() {
-        if let farcasterService = farcasterService {
+        if farcasterService != nil {
             // Use real Farcaster API
             Task { [weak self] in
                 await self?.refreshFarcasterFeedReal()
