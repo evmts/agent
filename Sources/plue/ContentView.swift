@@ -45,6 +45,8 @@ struct ContentView: View {
                     FarcasterView(appState: appState, core: PlueCore.shared)
                 case .diff:
                     DiffView(appState: appState, core: PlueCore.shared)
+                case .worktree:
+                    WorktreeView(appState: appState, core: PlueCore.shared)
                 case .agent:
                     AgentView(appState: appState, core: PlueCore.shared)
                 }
@@ -143,6 +145,7 @@ struct TabButton: View {
         case .editor: return "Editor"
         case .farcaster: return "Social"
         case .diff: return "Diff"
+        case .worktree: return "Worktree"
         case .agent: return "Agent"
         }
     }
@@ -156,6 +159,7 @@ struct TabButton: View {
         case .editor: return "curlybraces"
         case .farcaster: return "person.2.circle.fill"
         case .diff: return "doc.on.doc.fill"
+        case .worktree: return "arrow.triangle.branch"
         case .agent: return "gearshape.2.fill"
         }
     }
