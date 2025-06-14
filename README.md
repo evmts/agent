@@ -4,13 +4,6 @@
 
 Plue is a native macOS application that provides an intelligent coding assistant interface with multiple interaction modes. It combines a modern Swift UI with high-performance Zig backend libraries to deliver a responsive and powerful development tool.
 
-![telegram-cloud-photo-size-1-5073602166656183840-y](https://github.com/user-attachments/assets/7e8c33a3-fe58-4d68-8a1f-d5c797ac5068)
-<img width="999" alt="image" src="https://github.com/user-attachments/assets/59a68f31-5739-43a3-8d26-905751e26ef4" />
-<img width="1005" alt="image" src="https://github.com/user-attachments/assets/8ba9a7db-7788-4592-9b32-fd892df35731" />
-<img width="1001" alt="image" src="https://github.com/user-attachments/assets/99a9b0e7-a20e-4aaf-866b-2c1835cd4047" />
-<img width="998" alt="image" src="https://github.com/user-attachments/assets/f49c7a0f-c468-43c1-ae43-065f84a66761" />
-
-
 ## Features
 
 - **🎯 Vim-style Prompt Interface** - Efficient text input with vim keybindings
@@ -21,6 +14,13 @@ Plue is a native macOS application that provides an intelligent coding assistant
 - **⚡ High Performance** - Zig backend for optimal performance
 - **📂 Command Line Interface** - Open Plue from terminal like VSCode (`plue /path/to/project`)
 - **🍎 Native macOS** - Built specifically for macOS with native frameworks
+
+![telegram-cloud-photo-size-1-5073602166656183931-y](https://github.com/user-attachments/assets/94233eed-b09f-4ed0-a598-8de8c40e7ac4)
+![telegram-cloud-photo-size-1-5073602166656183927-y](https://github.com/user-attachments/assets/c073cd54-9405-4317-a65f-a221275df641)
+![telegram-cloud-photo-size-1-5073602166656183928-y](https://github.com/user-attachments/assets/abe3e80f-7dab-4fc4-b5b2-a9004ceeea4d)
+![telegram-cloud-photo-size-1-5073602166656183929-y](https://github.com/user-attachments/assets/4df08d5c-ff12-424f-8bc7-2716935fd73a)
+![telegram-cloud-photo-size-1-5073602166656183931-y](https://github.com/user-attachments/assets/97990a57-7ed8-46e3-8efd-90ebdd0c5ad2)
+![telegram-cloud-photo-size-1-5073602166656183932-y](https://github.com/user-attachments/assets/b0989a5c-5c12-4a21-ad8d-27c727013b3c)
 
 ## Architecture
 
