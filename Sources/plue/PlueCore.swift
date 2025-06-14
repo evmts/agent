@@ -4,14 +4,13 @@ import Foundation
 
 enum TabType: Int, CaseIterable {
     case prompt = 0
-    case chat = 1 
-    case terminal = 2
-    case web = 3
-    case editor = 4
-    case farcaster = 5
+    case farcaster = 1
+    case agent = 2
+    case terminal = 3
+    case web = 4
+    case editor = 5
     case diff = 6
     case worktree = 7
-    case agent = 8
 }
 
 struct AppState {
@@ -22,7 +21,7 @@ struct AppState {
     let currentTheme: DesignSystem.Theme
     
     // Tab states
-    let chatState: ChatState
+    let promptState: PromptState
     let terminalState: TerminalState
     let vimState: VimState
     let webState: WebState
@@ -36,7 +35,7 @@ struct AppState {
         errorMessage: nil,
         openAIAvailable: false,
         currentTheme: .dark,
-        chatState: ChatState.initial,
+        promptState: PromptState.initial,
         terminalState: TerminalState.initial,
         vimState: VimState.initial,
         webState: WebState.initial,
@@ -46,51 +45,61 @@ struct AppState {
     )
 }
 
-struct ChatState {
-    let conversations: [Conversation]
+struct PromptState {
+    let conversations: [PromptConversation]
     let currentConversationIndex: Int
-    let isGenerating: Bool
-    let generationProgress: Float
+    let currentPromptContent: String
+    let isProcessing: Bool
     
-    static let initial = ChatState(
-        conversations: [Conversation.initial],
+    static let initial = PromptState(
+        conversations: [PromptConversation.initial],
         currentConversationIndex: 0,
-        isGenerating: false,
-        generationProgress: 0.0
+        currentPromptContent: "# Your Prompt\n\nStart typing your prompt here. The live preview will update on the right.\n\nUse `:w` in the Vim buffer to send this prompt to the Chat tab.",
+        isProcessing: false
     )
     
-    var currentConversation: Conversation? {
+    var currentConversation: PromptConversation? {
         guard currentConversationIndex < conversations.count else { return nil }
         return conversations[currentConversationIndex]
     }
 }
 
-struct Conversation {
+struct PromptConversation {
     let id: String
-    let messages: [CoreMessage]
+    let messages: [PromptMessage]
     let createdAt: Date
     let updatedAt: Date
+    let associatedPromptContent: String?
     
-    static let initial = Conversation(
+    static let initial = PromptConversation(
         id: UUID().uuidString,
         messages: [
-            CoreMessage(
+            PromptMessage(
                 id: UUID().uuidString,
-                content: "Welcome to Plue! How can I help you today?",
-                isUser: false,
-                timestamp: Date()
+                content: "Welcome to the Prompt Engineering interface! Use the chat to refine your prompts and see them update in the vim buffer and preview.",
+                type: .system,
+                timestamp: Date(),
+                promptSnapshot: nil
             )
         ],
         createdAt: Date(),
-        updatedAt: Date()
+        updatedAt: Date(),
+        associatedPromptContent: nil
     )
 }
 
-struct CoreMessage: Identifiable {
+struct PromptMessage: Identifiable {
     let id: String
     let content: String
-    let isUser: Bool
+    let type: PromptMessageType
     let timestamp: Date
+    let promptSnapshot: String? // Snapshot of prompt content when message was sent
+}
+
+enum PromptMessageType {
+    case user
+    case assistant
+    case system
 }
 
 struct TerminalState {
@@ -474,9 +483,6 @@ enum WorkflowStepStatus {
 enum AppEvent {
     case tabSwitched(TabType)
     case themeToggled
-    case chatMessageSent(String)
-    case chatNewConversation
-    case chatSelectConversation(Int)
     case terminalInput(String)
     case terminalResize(rows: Int, cols: Int)
     case vimKeypress(key: String, modifiers: UInt32)
@@ -493,6 +499,12 @@ enum AppEvent {
     case farcasterReplyToPost(String, String) // postId, replyContent
     case farcasterCreatePost(String)
     case farcasterRefreshFeed
+    
+    // Prompt events
+    case promptMessageSent(String)
+    case promptContentUpdated(String) // from vim buffer or preview
+    case promptNewConversation
+    case promptSelectConversation(Int)
     
     // Agent events
     case agentMessageSent(String)
@@ -591,7 +603,6 @@ class MockPlueCore: PlueCoreInterface {
                 errorMessage: nil,
                 openAIAvailable: openAIService != nil,
                 currentTheme: .dark,
-                chatState: ChatState.initial,
                 terminalState: TerminalState.initial,
                 vimState: VimState.initial,
                 webState: WebState.initial,
@@ -617,7 +628,7 @@ class MockPlueCore: PlueCoreInterface {
         currentTab: TabType? = nil,
         currentTheme: DesignSystem.Theme? = nil,
         errorMessage: String? = nil,
-        chatState: ChatState? = nil,
+        promptState: PromptState? = nil,
         terminalState: TerminalState? = nil,
         vimState: VimState? = nil,
         webState: WebState? = nil,
@@ -631,7 +642,7 @@ class MockPlueCore: PlueCoreInterface {
             errorMessage: errorMessage ?? self.currentState.errorMessage,
             openAIAvailable: self.openAIService != nil,
             currentTheme: currentTheme ?? self.currentState.currentTheme,
-            chatState: chatState ?? self.currentState.chatState,
+            promptState: promptState ?? self.currentState.promptState,
             terminalState: terminalState ?? self.currentState.terminalState,
             vimState: vimState ?? self.currentState.vimState,
             webState: webState ?? self.currentState.webState,
@@ -651,15 +662,6 @@ class MockPlueCore: PlueCoreInterface {
         case .themeToggled:
             let newTheme: DesignSystem.Theme = currentState.currentTheme == .dark ? .light : .dark
             currentState = createUpdatedAppState(currentTheme: newTheme)
-            
-        case .chatMessageSent(let message):
-            processChatMessage(message)
-            
-        case .chatNewConversation:
-            createNewConversation()
-            
-        case .chatSelectConversation(let index):
-            selectConversation(index)
             
         case .terminalInput(let input):
             processTerminalInput(input)
@@ -708,6 +710,19 @@ class MockPlueCore: PlueCoreInterface {
             
         case .farcasterRefreshFeed:
             refreshFarcasterFeed()
+            
+        // Prompt events
+        case .promptMessageSent(let message):
+            processPromptMessage(message)
+            
+        case .promptContentUpdated(let content):
+            updatePromptContent(content)
+            
+        case .promptNewConversation:
+            createNewPromptConversation()
+            
+        case .promptSelectConversation(let index):
+            selectPromptConversation(index)
             
         // Agent events
         case .agentMessageSent(let message):
@@ -1419,6 +1434,157 @@ class MockPlueCore: PlueCoreInterface {
                 self.notifyStateChange()
             }
         }
+    }
+    
+    // MARK: - Prompt Event Handlers
+    
+    private func processPromptMessage(_ message: String) {
+        // Add user message to conversation
+        let userMessage = PromptMessage(
+            id: UUID().uuidString,
+            content: message,
+            type: .user,
+            timestamp: Date(),
+            promptSnapshot: currentState.promptState.currentPromptContent
+        )
+        
+        var conversations = currentState.promptState.conversations
+        var currentConv = conversations[currentState.promptState.currentConversationIndex]
+        currentConv = PromptConversation(
+            id: currentConv.id,
+            messages: currentConv.messages + [userMessage],
+            createdAt: currentConv.createdAt,
+            updatedAt: Date(),
+            associatedPromptContent: currentConv.associatedPromptContent
+        )
+        conversations[currentState.promptState.currentConversationIndex] = currentConv
+        
+        // Update state with processing started
+        let newPromptState = PromptState(
+            conversations: conversations,
+            currentConversationIndex: currentState.promptState.currentConversationIndex,
+            currentPromptContent: currentState.promptState.currentPromptContent,
+            isProcessing: true
+        )
+        
+        currentState = createUpdatedAppState(promptState: newPromptState)
+        
+        // Generate prompt response
+        Task { [weak self] in
+            await self?.generatePromptResponse(for: message)
+        }
+    }
+    
+    private func generatePromptResponse(for input: String) async {
+        // Simulate processing delay
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        
+        let responseContent = generatePromptResponseContent(for: input)
+        
+        // Update state with response
+        await updateStateWithPromptResponse(content: responseContent)
+    }
+    
+    private func generatePromptResponseContent(for input: String) -> String {
+        let lowercaseInput = input.lowercased()
+        
+        if lowercaseInput.contains("help") || lowercaseInput.contains("how") {
+            return "I can help you refine your prompts! Try asking me to:\n• Make your prompt more specific\n• Add context or examples\n• Improve clarity or structure\n• Switch to Farcaster tab to post the prompt"
+        } else if lowercaseInput.contains("improve") || lowercaseInput.contains("better") {
+            return "To improve your prompt, consider:\n• Being more specific about desired output\n• Adding examples of what you want\n• Specifying the format or style\n• Including relevant context"
+        } else if lowercaseInput.contains("update") || lowercaseInput.contains("change") {
+            return "I can help update your prompt content. The vim buffer and preview will sync automatically. What changes would you like to make?"
+        } else {
+            return "I'm here to help you craft better prompts! The current prompt in the vim buffer will be used when you switch to other tabs or use the 'chat' button. How can I help you improve it?"
+        }
+    }
+    
+    private func updateStateWithPromptResponse(content: String) async {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let promptMessage = PromptMessage(
+                id: UUID().uuidString,
+                content: content,
+                type: .assistant,
+                timestamp: Date(),
+                promptSnapshot: self.currentState.promptState.currentPromptContent
+            )
+            
+            var conversations = self.currentState.promptState.conversations
+            var currentConv = conversations[self.currentState.promptState.currentConversationIndex]
+            currentConv = PromptConversation(
+                id: currentConv.id,
+                messages: currentConv.messages + [promptMessage],
+                createdAt: currentConv.createdAt,
+                updatedAt: Date(),
+                associatedPromptContent: currentConv.associatedPromptContent
+            )
+            conversations[self.currentState.promptState.currentConversationIndex] = currentConv
+            
+            let newPromptState = PromptState(
+                conversations: conversations,
+                currentConversationIndex: self.currentState.promptState.currentConversationIndex,
+                currentPromptContent: self.currentState.promptState.currentPromptContent,
+                isProcessing: false
+            )
+            
+            self.currentState = self.createUpdatedAppState(promptState: newPromptState)
+            
+            self.notifyStateChange()
+        }
+    }
+    
+    private func updatePromptContent(_ content: String) {
+        let newPromptState = PromptState(
+            conversations: currentState.promptState.conversations,
+            currentConversationIndex: currentState.promptState.currentConversationIndex,
+            currentPromptContent: content,
+            isProcessing: currentState.promptState.isProcessing
+        )
+        
+        currentState = createUpdatedAppState(promptState: newPromptState)
+    }
+    
+    private func createNewPromptConversation() {
+        let newConv = PromptConversation(
+            id: UUID().uuidString,
+            messages: [
+                PromptMessage(
+                    id: UUID().uuidString,
+                    content: "New prompt session started. How can I help you refine your prompt?",
+                    type: .system,
+                    timestamp: Date(),
+                    promptSnapshot: nil
+                )
+            ],
+            createdAt: Date(),
+            updatedAt: Date(),
+            associatedPromptContent: currentState.promptState.currentPromptContent
+        )
+        
+        let conversations = currentState.promptState.conversations + [newConv]
+        let newPromptState = PromptState(
+            conversations: conversations,
+            currentConversationIndex: conversations.count - 1,
+            currentPromptContent: currentState.promptState.currentPromptContent,
+            isProcessing: false
+        )
+        
+        currentState = createUpdatedAppState(promptState: newPromptState)
+    }
+    
+    private func selectPromptConversation(_ index: Int) {
+        guard index < currentState.promptState.conversations.count else { return }
+        
+        let newPromptState = PromptState(
+            conversations: currentState.promptState.conversations,
+            currentConversationIndex: index,
+            currentPromptContent: currentState.promptState.currentPromptContent,
+            isProcessing: false
+        )
+        
+        currentState = createUpdatedAppState(promptState: newPromptState)
     }
     
     // MARK: - Agent Event Handlers
