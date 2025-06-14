@@ -2,11 +2,13 @@ import SwiftUI
 import AppKit
 
 struct ChatView: View {
+    let appState: AppState
+    let core: PlueCoreInterface
+    
     @State private var inputText = ""
     @State private var messages: [ChatMessage] = []
     @State private var promptHistory: [String] = []
     @FocusState private var isInputFocused: Bool
-    @State private var plueCore: PlueCore?
     
     var body: some View {
         HStack(spacing: 0) {
@@ -85,13 +87,6 @@ struct ChatView: View {
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
         .onAppear {
-            // Initialize Plue core
-            do {
-                plueCore = try PlueCore()
-            } catch {
-                print("Failed to initialize PlueCore: \(error)")
-            }
-            
             // Add some sample data
             addSampleData()
             // Focus the input field when the view appears
@@ -120,14 +115,9 @@ struct ChatView: View {
         // Clear input
         inputText = ""
         
-        // Generate AI response using Plue core
+        // Generate AI response using core (temporarily using mock response)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            let responseContent: String
-            if let core = plueCore {
-                responseContent = core.processMessage(trimmedInput)
-            } else {
-                responseContent = "Error: Plue core not initialized"
-            }
+            let responseContent = "Legacy ChatView response for: \(trimmedInput)"
             
             let aiResponse = ChatMessage(
                 id: UUID(),
@@ -332,6 +322,6 @@ struct MacTextField: NSViewRepresentable {
 }
 
 #Preview {
-    ChatView()
+    ChatView(appState: AppState.initial, core: PlueCore.shared)
         .frame(width: 1200, height: 800)
 }

@@ -2,37 +2,9 @@ import SwiftUI
 import SwiftDown
 
 struct VimPromptView: View {
-    @State private var markdownText = """
-# Prompt Engineering Interface
-
-Write your prompts here using **Markdown** formatting.
-
-## Features
-- Rich text editing with markdown syntax highlighting
-- Live preview capability
-- Toggle between edit and preview modes
-- Integration with Zig core processing
-- Vim keybindings (coming soon)
-
-```swift
-// Code blocks with syntax highlighting
-let vimMode = true
-print("Vim keybindings enabled!")
-```
-
-## Usage
-1. Use vim commands to edit your prompt
-2. Press `Cmd+Enter` to send prompt to Zig core
-3. View responses in the right panel
-
----
-
-*Click the edit/preview button to toggle between modes...*
-"""
+    let appState: AppState
+    let core: PlueCoreInterface
     
-    @State private var responses: [PromptResponse] = []
-    @State private var plueCore: PlueCore?
-    @State private var isProcessing = false
     @State private var showPreview = false
     
     var body: some View {
@@ -58,7 +30,7 @@ print("Vim keybindings enabled!")
                     
                     Button(action: processPrompt) {
                         HStack(spacing: 6) {
-                            if isProcessing {
+                            if appState.editorState.hasUnsavedChanges {
                                 ProgressView()
                                     .scaleEffect(0.6)
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -73,7 +45,7 @@ print("Vim keybindings enabled!")
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     }
-                    .disabled(isProcessing || markdownText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(appState.editorState.hasUnsavedChanges || appState.editorState.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .keyboardShortcut(.return, modifiers: .command)
                 }
                 .padding()
@@ -85,14 +57,17 @@ print("Vim keybindings enabled!")
                 // Editor or Preview
                 if showPreview {
                     ScrollView {
-                        SwiftDownEditor(text: .constant(markdownText))
+                        SwiftDownEditor(text: .constant(appState.editorState.content))
                             .disabled(true)
                             .padding()
                     }
                     .background(Color(red: 0.05, green: 0.05, blue: 0.06))
                 } else {
                     // For now, use SwiftDown editor - vim support coming soon
-                    SwiftDownEditor(text: $markdownText)
+                    SwiftDownEditor(text: Binding(
+                        get: { appState.editorState.content },
+                        set: { newContent in core.handleEvent(.editorContentChanged(newContent)) }
+                    ))
                         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
                 }
             }
@@ -107,9 +82,9 @@ print("Vim keybindings enabled!")
                     
                     Spacer()
                     
-                    if !responses.isEmpty {
+                    if !(appState.chatState.currentConversation?.messages.isEmpty ?? true) {
                         Button("Clear") {
-                            responses.removeAll()
+                            core.handleEvent(.chatNewConversation)
                         }
                         .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
                     }
@@ -121,7 +96,7 @@ print("Vim keybindings enabled!")
                     .background(Color(red: 0.2, green: 0.2, blue: 0.25))
                 
                 // Responses List
-                if responses.isEmpty {
+                if appState.chatState.currentConversation?.messages.isEmpty ?? true {
                     VStack {
                         Spacer()
                         Image(systemName: "terminal")
@@ -140,8 +115,15 @@ print("Vim keybindings enabled!")
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 12) {
-                            ForEach(responses) { response in
-                                PromptResponseView(response: response)
+                            ForEach(appState.chatState.currentConversation?.messages ?? []) { message in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(message.content)
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.primary)
+                                        .padding()
+                                        .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+                                        .cornerRadius(8)
+                                }
                             }
                         }
                         .padding()
@@ -152,62 +134,18 @@ print("Vim keybindings enabled!")
             .frame(minWidth: 300)
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
-        .onAppear {
-            initializeCore()
-        }
-    }
-    
-    private func initializeCore() {
-        do {
-            plueCore = try PlueCore()
-        } catch {
-            print("Failed to initialize PlueCore: \(error)")
-        }
     }
     
     private func processPrompt() {
-        let prompt = markdownText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = appState.editorState.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         
-        isProcessing = true
-        
-        // Create new response entry
-        let newResponse = PromptResponse(
-            id: UUID(),
-            prompt: prompt,
-            response: nil,
-            timestamp: Date(),
-            isProcessing: true
-        )
-        responses.append(newResponse)
-        
-        // Process in background
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result: String
-            if let core = plueCore {
-                result = core.processMessage(prompt)
-            } else {
-                result = "Error: Plue core not initialized"
-            }
-            
-            DispatchQueue.main.async {
-                // Update the response
-                if let index = responses.firstIndex(where: { $0.id == newResponse.id }) {
-                    responses[index] = PromptResponse(
-                        id: newResponse.id,
-                        prompt: newResponse.prompt,
-                        response: result,
-                        timestamp: newResponse.timestamp,
-                        isProcessing: false
-                    )
-                }
-                isProcessing = false
-            }
-        }
+        // Send prompt to core
+        core.handleEvent(.chatMessageSent(prompt))
     }
 }
 
 #Preview {
-    VimPromptView()
+    VimPromptView(appState: AppState.initial, core: PlueCore.shared)
         .frame(width: 1200, height: 800)
 }

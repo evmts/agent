@@ -2,12 +2,11 @@ import SwiftUI
 import AppKit
 
 struct ModernChatView: View {
-    @State private var messageText = ""
-    @State private var messages: [ChatMessage] = []
-    @State private var isTyping = false
+    let appState: AppState
+    let core: PlueCoreInterface
+    
     @State private var selectedModel = AIModel.plueCore
     @FocusState private var isInputFocused: Bool
-    @StateObject private var conversationManager = ConversationManager()
     
     var body: some View {
         GeometryReader { geometry in
@@ -20,18 +19,8 @@ struct ModernChatView: View {
                     // Header Bar
                     headerBar
                     
-                    // Chat Messages Area with sliding animation
-                    ZStack {
-                        chatMessagesArea
-                            .offset(x: conversationManager.chatSlideOffset)
-                            .animation(.easeInOut(duration: 0.3), value: conversationManager.chatSlideOffset)
-                        
-                        // Response buffer overlay
-                        if conversationManager.isViewingResponse {
-                            responseBufferOverlay
-                        }
-                    }
-                    .clipped() // Prevent content from showing outside bounds during slide
+                    // Chat Messages Area
+                    chatMessagesArea
                     
                     // Input Area
                     inputArea
@@ -42,10 +31,6 @@ struct ModernChatView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isInputFocused = true
             }
-            loadCurrentChatMessages()
-        }
-        .onChange(of: conversationManager.currentChatIndex) { _ in
-            loadCurrentChatMessages()
         }
     }
     
@@ -56,7 +41,9 @@ struct ModernChatView: View {
             HStack(spacing: 8) {
                 // Previous chat button
                 Button(action: {
-                    conversationManager.navigateToPreviousChat()
+                    if appState.chatState.currentConversationIndex > 0 {
+                        core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
+                    }
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .medium))
@@ -64,23 +51,27 @@ struct ModernChatView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .help("Previous chat (^H)")
-                .disabled(conversationManager.currentChatIndex == 0)
+                .disabled(appState.chatState.currentConversationIndex == 0)
                 
                 // Chat indicator
-                Text("Chat \(conversationManager.currentChatIndex + 1) of \(conversationManager.chats.count)")
+                Text("Chat \(appState.chatState.currentConversationIndex + 1) of \(appState.chatState.conversations.count)")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.secondary)
                 
                 // Next/New chat button
                 Button(action: {
-                    conversationManager.navigateToNextChat()
+                    if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
+                        core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
+                    } else {
+                        core.handleEvent(.chatNewConversation)
+                    }
                 }) {
-                    Image(systemName: conversationManager.currentChatIndex < conversationManager.chats.count - 1 ? "chevron.right" : "plus")
+                    Image(systemName: appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "chevron.right" : "plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(PlainButtonStyle())
-                .help(conversationManager.currentChatIndex < conversationManager.chats.count - 1 ? "Next chat (^L)" : "New chat (^L)")
+                .help(appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "Next chat (^L)" : "New chat (^L)")
             }
             
             Spacer()
@@ -187,23 +178,21 @@ struct ModernChatView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     // Welcome message at top
-                    if messages.isEmpty {
+                    if appState.chatState.currentConversation?.messages.isEmpty ?? true {
                         welcomeView
                             .padding(.top, 60)
                     }
                     
                     // Messages
-                    ForEach(messages) { message in
-                        MessageBubbleView(message: message) { tappedMessage in
-                            handleAIMessageTapped(tappedMessage)
-                        }
+                    ForEach(appState.chatState.currentConversation?.messages ?? []) { message in
+                        CoreMessageBubbleView(message: message)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                         .id(message.id)
                     }
                     
                     // Typing indicator
-                    if isTyping {
+                    if appState.chatState.isGenerating {
                         TypingIndicatorView()
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
@@ -215,9 +204,9 @@ struct ModernChatView: View {
             }
             .scrollIndicators(.never)
             .background(Color(NSColor.textBackgroundColor))
-            .onChange(of: messages.count) { _ in
+            .onChange(of: appState.chatState.currentConversation?.messages.count) { _ in
                 withAnimation(.easeOut(duration: 0.3)) {
-                    if let lastMessage = messages.last {
+                    if let lastMessage = appState.chatState.currentConversation?.messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
                 }
@@ -271,7 +260,7 @@ struct ModernChatView: View {
     
     private func suggestionButton(_ text: String) -> some View {
         Button(action: {
-            messageText = text
+            core.handleEvent(.chatMessageSent(text))
         }) {
             HStack {
                 Text(text)
@@ -324,26 +313,32 @@ struct ModernChatView: View {
                 // Vim Chat Input
                 VimChatInputView(
                     onMessageSent: { message in
-                        handleVimMessage(message)
+                        core.handleEvent(.chatMessageSent(message))
                     },
                     onMessageUpdated: { message in
-                        handleVimMessageUpdate(message)
+                        // For now, treat updates as new messages
+                        // TODO: Implement proper message update in core
+                        core.handleEvent(.chatMessageSent(message))
                     },
                     onNavigateUp: {
-                        print("ModernChatView: Navigate Up called")
-                        let success = conversationManager.navigateUp()
-                        print("ModernChatView: Navigate Up result: \(success)")
+                        // TODO: Add navigation events to core
+                        print("Navigate up - not implemented in core yet")
                     },
                     onNavigateDown: {
-                        print("ModernChatView: Navigate Down called")
-                        let success = conversationManager.navigateDown()
-                        print("ModernChatView: Navigate Down result: \(success)")
+                        // TODO: Add navigation events to core
+                        print("Navigate down - not implemented in core yet")
                     },
                     onPreviousChat: {
-                        conversationManager.navigateToPreviousChat()
+                        if appState.chatState.currentConversationIndex > 0 {
+                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
+                        }
                     },
                     onNextChat: {
-                        conversationManager.navigateToNextChat()
+                        if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
+                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
+                        } else {
+                            core.handleEvent(.chatNewConversation)
+                        }
                     }
                 )
                 .frame(maxWidth: .infinity)
@@ -368,180 +363,106 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Response Buffer Overlay
-    private var responseBufferOverlay: some View {
-        VimResponseBufferView(conversationManager: conversationManager) {
-            conversationManager.exitResponseView()
-        }
-        .background(Color.black.opacity(0.9))
-        .transition(.opacity)
-    }
-    
-    private func setupVimCallbacks() {
-        // We need to access the VimChatInputView's terminal to set up callbacks
-        // This is handled through a more integrated approach in the view
-    }
-    
-    private func handleVimMessage(_ message: String) {
-        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        
-        print("ModernChatView: Handling vim message: \(text)")
-        
-        // Add to conversation manager
-        conversationManager.addUserMessage(text)
-        
-        // Add user message to display
-        let userMessage = ChatMessage(
-            id: UUID(),
-            content: text,
-            isUser: true,
-            timestamp: Date()
-        )
-        
-        withAnimation(.easeOut(duration: 0.3)) {
-            messages.append(userMessage)
-        }
-        
-        generateAIResponse(for: text)
-    }
-    
-    private func handleVimMessageUpdate(_ message: String) {
-        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        
-        print("ModernChatView: Handling vim message update: \(text)")
-        
-        // Find and remove the last AI response with animation
-        if let lastAIIndex = messages.lastIndex(where: { !$0.isUser }) {
-            withAnimation(.easeOut(duration: 0.3)) {
-                messages.remove(at: lastAIIndex)
-            }
-        }
-        
-        // Find and update the last user message
-        if let lastUserIndex = messages.lastIndex(where: { $0.isUser }) {
-            withAnimation(.easeOut(duration: 0.3)) {
-                messages[lastUserIndex] = ChatMessage(
-                    id: messages[lastUserIndex].id,
-                    content: text,
-                    isUser: true,
-                    timestamp: Date()
-                )
-            }
-        }
-        
-        // Update in conversation manager
-        conversationManager.updateLastUserMessage(text)
-        
-        // Generate new response after a short delay for animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.generateAIResponse(for: text)
-        }
-    }
-    
-    private func generateAIResponse(for text: String) {
-        // Simulate AI typing
-        withAnimation(.easeOut(duration: 0.3)) {
-            isTyping = true
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeOut(duration: 0.3)) {
-                isTyping = false
-                let aiResponse = "I understand you're asking about: \"\(text)\"\n\nThis is a placeholder response from the Plue Assistant. The actual Zig core integration will provide real responses here."
-                
-                print("ModernChatView: Adding AI response to conversation manager")
-                // Add to conversation manager
-                conversationManager.addAIResponse(aiResponse)
-                
-                let aiMessage = ChatMessage(
-                    id: UUID(),
-                    content: aiResponse,
-                    isUser: false,
-                    timestamp: Date()
-                )
-                messages.append(aiMessage)
-            }
-        }
-    }
-    
-    private func loadCurrentChatMessages() {
-        // Clear current messages and load from conversation manager
-        // For now, we'll keep the sample messages for the first chat
-        // In a full implementation, this would reconstruct ChatMessage array from conversation files
-        if conversationManager.currentChatIndex == 0 && messages.isEmpty {
-            messages = sampleMessages
-        } else {
-            // For additional chats, start empty
-            messages = []
-        }
-    }
-    
-    private func handleAIMessageTapped(_ message: ChatMessage) {
-        print("ModernChatView: AI message tapped - \(message.content.prefix(50))...")
-        
-        // Find the index of this message in the conversation manager
-        guard let currentChat = conversationManager.currentChat else { 
-            print("ModernChatView: No current chat found")
-            return 
-        }
-        
-        print("ModernChatView: Current chat has \(currentChat.responses.count) responses")
-        
-        if let responseIndex = currentChat.responses.firstIndex(where: { $0.content == message.content }) {
-            print("ModernChatView: Found response at index \(responseIndex)")
-            conversationManager.currentResponseIndex = responseIndex
-            conversationManager.isViewingResponse = true
-            print("ModernChatView: Set isViewingResponse = true, showing response buffer")
-        } else {
-            print("ModernChatView: Could not find matching response in conversation manager")
-            print("ModernChatView: Available responses:")
-            for (index, response) in currentChat.responses.enumerated() {
-                print("  \(index): \(response.content.prefix(50))...")
-            }
-        }
-    }
+}
 
-    private func sendMessage() {
-        let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        
-        // Add user message
-        let userMessage = ChatMessage(
-            id: UUID(),
-            content: text,
-            isUser: true,
-            timestamp: Date()
-        )
-        
-        withAnimation(.easeOut(duration: 0.3)) {
-            messages.append(userMessage)
-        }
-        
-        messageText = ""
-        
-        // Simulate AI typing
-        withAnimation(.easeOut(duration: 0.3)) {
-            isTyping = true
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeOut(duration: 0.3)) {
-                isTyping = false
-                let aiMessage = ChatMessage(
-                    id: UUID(),
-                    content: "I understand you're asking about: \"\(text)\"\n\nThis is a placeholder response from the Plue Assistant. The actual Zig core integration will provide real responses here.",
-                    isUser: false,
-                    timestamp: Date()
-                )
-                messages.append(aiMessage)
+// MARK: - Core Message Bubble View
+struct CoreMessageBubbleView: View {
+    let message: CoreMessage
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            if message.isUser {
+                Spacer(minLength: 80)
+                userMessageView
+            } else {
+                assistantMessageView
+                Spacer(minLength: 80)
             }
         }
+    }
+    
+    private var userMessageView: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 8) {
+                Text(message.content)
+                    .font(.system(size: 15))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color.blue)
+                    )
+                    .textSelection(.enabled)
+                
+                // User avatar
+                Circle()
+                    .fill(Color.blue.opacity(0.1))
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Text("You")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.blue)
+                    )
+            }
+            
+            Text(formatTime(message.timestamp))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.trailing, 40)
+        }
+    }
+    
+    private var assistantMessageView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                // Assistant avatar
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.green.opacity(0.1), Color.blue.opacity(0.1)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Image(systemName: "cpu")
+                            .font(.system(size: 14))
+                            .foregroundColor(.blue.opacity(0.7))
+                    )
+                
+                Text(message.content)
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+                            )
+                    )
+                    .textSelection(.enabled)
+            }
+            
+            Text(formatTime(message.timestamp))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.leading, 40)
+        }
+    }
+    
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 
-// MARK: - Message Bubble View
+// MARK: - Legacy Message Bubble View
 struct MessageBubbleView: View {
     let message: ChatMessage
     let onAIMessageTapped: ((ChatMessage) -> Void)?
@@ -789,6 +710,6 @@ enum AIModel: String, CaseIterable {
 }
 
 #Preview {
-    ModernChatView()
+    ModernChatView(appState: AppState.initial, core: PlueCore.shared)
         .frame(width: 800, height: 600)
 }

@@ -1,62 +1,55 @@
 const std = @import("std");
 
-// Core library state
-pub const PlueCore = struct {
+/// This global state is necessary so we can expose a C API
+/// We should not use it for anything else but the C API
+pub const GlobalState = struct {
     allocator: std.mem.Allocator,
     initialized: bool,
 
-    pub fn init(allocator: std.mem.Allocator) PlueCore {
-        return PlueCore{
+    pub fn init(allocator: std.mem.Allocator) GlobalState {
+        return GlobalState{
             .allocator = allocator,
             .initialized = true,
         };
     }
 
-    pub fn deinit(self: *PlueCore) void {
+    pub fn deinit(self: *GlobalState) void {
         self.initialized = false;
     }
 
-    pub fn processMessage(self: *PlueCore, message: []const u8) ?[]const u8 {
-        // Simple echo response for now
-        const response = std.fmt.allocPrint(self.allocator, "Echo: {s}", .{message}) catch return null;
-        return response;
+    pub fn processMessage(self: *GlobalState, message: []const u8) ?[]const u8 {
+        return try std.fmt.allocPrint(self.allocator, "Echo: {s}", .{message});
     }
 };
 
 // C API exports
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var core: ?PlueCore = null;
+var global_state: ?GlobalState = null;
 
 export fn plue_init() c_int {
     const allocator = gpa.allocator();
-    core = PlueCore.init(allocator);
-    return if (core != null) 0 else -1;
+    global_state = GlobalState
+        .init(allocator);
+    return if (global_state != null) 0 else -1;
 }
 
 export fn plue_deinit() void {
-    if (core) |*c| {
-        c.deinit();
-        core = null;
-    }
+    var s = global_state orelse return;
+    s.deinit();
+    global_state = null;
     _ = gpa.deinit();
 }
 
 export fn plue_process_message(message: [*:0]const u8) [*:0]const u8 {
-    if (core) |*c| {
-        const msg = std.mem.span(message);
-        if (c.processMessage(msg)) |response| {
-            // Convert to null-terminated string for C
-            const c_str = c.allocator.dupeZ(u8, response) catch return "";
-            c.allocator.free(response);
-            return c_str.ptr;
-        }
-    }
-    return "";
+    var s = global_state orelse return "";
+    const msg = std.mem.span(message);
+    const response = s.processMessage(msg) catch unreachable;
+    defer s.allocator.free(response);
+    const c_str = s.allocator.dupeZ(u8, response) catch return "";
+    return c_str.ptr;
 }
 
 export fn plue_free_string(str: [*:0]const u8) void {
-    if (core) |*c| {
-        const slice = std.mem.span(str);
-        c.allocator.free(slice);
-    }
+    var s = global_state orelse unreachable;
+    s.allocator.free(std.mem.span(str));
 }

@@ -134,11 +134,8 @@ let example = "Hello, World!"
     }
     
     private func initializeCore() {
-        do {
-            plueCore = try PlueCore()
-        } catch {
-            print("Failed to initialize PlueCore: \(error)")
-        }
+        // Legacy PromptView - no longer initializes core
+        print("Legacy PromptView - PlueCore initialization skipped")
     }
     
     private func processPrompt() {
@@ -160,11 +157,8 @@ let example = "Hello, World!"
         // Process in background
         DispatchQueue.global(qos: .userInitiated).async {
             let result: String
-            if let core = plueCore {
-                result = core.processMessage(prompt)
-            } else {
-                result = "Error: Plue core not initialized"
-            }
+            // Legacy PromptView - no longer used
+            result = "Legacy PromptView response for: \(prompt)"
             
             DispatchQueue.main.async {
                 // Update the response

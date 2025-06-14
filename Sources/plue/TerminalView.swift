@@ -3,6 +3,9 @@ import MetalKit
 import AppKit
 
 struct TerminalView: View {
+    let appState: AppState
+    let core: PlueCoreInterface
+    
     @StateObject private var terminal = MockTerminal()
     @State private var metalView: TerminalMetalView?
     @FocusState private var isTerminalFocused: Bool
@@ -247,6 +250,6 @@ class TerminalRenderer: NSObject, MTKViewDelegate {
 }
 
 #Preview {
-    TerminalView()
+    TerminalView(appState: AppState.initial, core: PlueCore.shared)
         .frame(width: 800, height: 600)
 }

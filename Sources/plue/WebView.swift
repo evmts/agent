@@ -2,6 +2,9 @@ import SwiftUI
 import WebKit
 
 struct WebView: View {
+    let appState: AppState
+    let core: PlueCoreInterface
+    
     @StateObject private var webViewModel = WebViewModel()
     @State private var urlString = "https://www.apple.com"
     @FocusState private var isUrlFocused: Bool
@@ -326,6 +329,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 }
 
 #Preview {
-    WebView()
+    WebView(appState: AppState.initial, core: PlueCore.shared)
         .frame(width: 1000, height: 700)
 }
