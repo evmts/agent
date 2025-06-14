@@ -155,7 +155,7 @@ struct ModernChatView: View {
         Menu {
             ForEach(AIModel.allCases, id: \.self) { model in
                 Button(action: {
-                    withAnimation(DesignSystem.Animation.smooth) {
+                    withAnimation(DesignSystem.Animation.plueStandard) {
                         selectedModel = model
                     }
                 }) {
@@ -253,8 +253,8 @@ struct ModernChatView: View {
                             .padding(.horizontal, DesignSystem.Spacing.xl)
                             .padding(.vertical, DesignSystem.Spacing.sm)
                             .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.8)),
-                                removal: .opacity.combined(with: .scale(scale: 0.8))
+                                insertion: .move(edge: .bottom).combined(with: .opacity),
+                                removal: .opacity
                             ))
                             .animation(DesignSystem.Animation.messageAppear, value: appState.promptState.isProcessing)
                     }
@@ -590,9 +590,9 @@ struct ProfessionalTypingIndicatorView: View {
                         .scaleEffect(animationPhase == index ? 1.3 : 0.7)
                         .opacity(animationPhase == index ? 1.0 : 0.4)
                         .animation(
-                            DesignSystem.Animation.smooth
+                            DesignSystem.Animation.plueStandard
                                 .repeatForever()
-                                .delay(Double(index) * 0.2),
+                                .delay(Double(index) * 0.15),
                             value: animationPhase
                         )
                 }
@@ -846,9 +846,9 @@ struct TypingIndicatorView: View {
                         .frame(width: 8, height: 8)
                         .scaleEffect(animationPhase == index ? 1.2 : 0.8)
                         .animation(
-                            Animation.easeInOut(duration: 0.6)
+                            Animation.easeInOut(duration: 0.4)
                                 .repeatForever()
-                                .delay(Double(index) * 0.2),
+                                .delay(Double(index) * 0.15),
                             value: animationPhase
                         )
                 }
