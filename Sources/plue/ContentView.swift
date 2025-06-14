@@ -26,30 +26,63 @@ struct ContentView: View {
                 DesignSystem.Colors.background(for: appState.currentTheme)
                     .ignoresSafeArea()
 
-                // 3. View Switching Logic
-                switch appState.currentTab {
-                case .prompt:
-                    VimPromptView(appState: appState, core: PlueCore.shared)
-                case .chat:
-                    ModernChatView(appState: appState, core: PlueCore.shared)
-                case .terminal:
-                    TerminalView(appState: appState, core: PlueCore.shared)
-                case .web:
-                    WebView(appState: appState, core: PlueCore.shared)
-                case .editor:
-                    // The "Editor" tab uses the old ChatView, let's update it later if needed.
-                    // For now, let's ensure it has a consistent background.
-                    ChatView(appState: appState, core: PlueCore.shared)
-                        .background(DesignSystem.Colors.background)
-                case .farcaster:
-                    FarcasterView(appState: appState, core: PlueCore.shared)
-                case .diff:
-                    DiffView(appState: appState, core: PlueCore.shared)
-                case .worktree:
-                    WorktreeView(appState: appState, core: PlueCore.shared)
-                case .agent:
-                    AgentView(appState: appState, core: PlueCore.shared)
+                // 3. View Switching Logic with Enhanced Transitions
+                Group {
+                    switch appState.currentTab {
+                    case .prompt:
+                        VimPromptView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .farcaster:
+                        FarcasterView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .agent:
+                        AgentView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .terminal:
+                        TerminalView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .web:
+                        WebView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .editor:
+                        // The "Editor" tab uses the old ChatView, let's update it later if needed.
+                        // For now, let's ensure it has a consistent background.
+                        ChatView(appState: appState, core: PlueCore.shared)
+                            .background(DesignSystem.Colors.background)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .diff:
+                        DiffView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    case .worktree:
+                        WorktreeView(appState: appState, core: PlueCore.shared)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .move(edge: .leading).combined(with: .opacity)
+                            ))
+                    }
                 }
+                .animation(DesignSystem.Animation.tabSwitch, value: appState.currentTab)
             }
         }
         .background(DesignSystem.Colors.background(for: appState.currentTheme))
@@ -139,38 +172,43 @@ struct TabButton: View {
     private var title: String {
         switch tab {
         case .prompt: return "Prompt"
-        case .chat: return "Chat"
+        case .farcaster: return "Social"
+        case .agent: return "Agent"
         case .terminal: return "Terminal"
         case .web: return "Browser"
         case .editor: return "Editor"
-        case .farcaster: return "Social"
         case .diff: return "Diff"
         case .worktree: return "Worktree"
-        case .agent: return "Agent"
         }
     }
     
     private var icon: String {
         switch tab {
         case .prompt: return "doc.text.fill"
-        case .chat: return "bubble.left.and.bubble.right.fill"
+        case .farcaster: return "person.2.circle.fill"
+        case .agent: return "gearshape.2.fill"
         case .terminal: return "terminal.fill"
         case .web: return "globe"
         case .editor: return "curlybraces"
-        case .farcaster: return "person.2.circle.fill"
         case .diff: return "doc.on.doc.fill"
         case .worktree: return "arrow.triangle.branch"
-        case .agent: return "gearshape.2.fill"
         }
     }
 
     var body: some View {
-        Button(action: { selectedTab = tab }) {
+        Button(action: { 
+            withAnimation(DesignSystem.Animation.tabSwitch) {
+                selectedTab = tab 
+            }
+        }) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .medium))
+                    .scaleEffect(isSelected ? 1.0 : 0.9)
+                    .animation(DesignSystem.Animation.scaleIn.delay(DesignSystem.Animation.staggerDelay), value: isSelected)
                 Text(title)
                     .font(DesignSystem.Typography.labelMedium)
+                    .animation(DesignSystem.Animation.scaleIn.delay(DesignSystem.Animation.staggerDelay * 2), value: isSelected)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -178,10 +216,18 @@ struct TabButton: View {
             .background(
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
                     .fill(isSelected ? DesignSystem.Colors.surface : .clear)
+                    .scaleEffect(isSelected ? 1.0 : 0.98)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                    .stroke(isSelected ? DesignSystem.Colors.primary.opacity(0.3) : .clear, lineWidth: 1)
+                    .scaleEffect(isSelected ? 1.0 : 0.95)
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .animation(DesignSystem.Animation.quick, value: isSelected)
+        .scaleEffect(isSelected ? 1.02 : 1.0)
+        .animation(DesignSystem.Animation.tabSwitch, value: isSelected)
+        .hoverEffect()
     }
 }
 

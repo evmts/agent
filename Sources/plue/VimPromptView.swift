@@ -560,29 +560,9 @@ struct MarkdownPreviewView: View {
     let core: PlueCoreInterface
     let appState: AppState
     
-    private func askInChat() {
-        let prompt = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
-        core.handleEvent(.tabSwitched(.chat))
-        core.handleEvent(.chatMessageSent(prompt))
-    }
-    
-    private func launchClaudeCode() {
-        // Launch Claude Code CLI with the current prompt
-        let prompt = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if !prompt.isEmpty {
-            // Save prompt to a temp file and open with Claude Code
-            launchClaudeCodeWithPrompt(prompt)
-        } else {
-            // Just launch Claude Code
-            launchClaudeCodeCLI()
-        }
-    }
-    
     var body: some View {
         VStack(spacing: 0) {
-            // Header with Actions
+            // Header
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
@@ -596,47 +576,9 @@ struct MarkdownPreviewView: View {
                 
                 Spacer()
                 
-                // Action Buttons
-                HStack(spacing: DesignSystem.Spacing.sm) {
-                    Button(action: askInChat) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 11, weight: .medium))
-                            Text("chat")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(DesignSystem.Colors.primary)
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    
-                    Button(action: launchClaudeCode) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "terminal")
-                                .font(.system(size: 11, weight: .medium))
-                            Text("code")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(DesignSystem.Colors.surface(for: appState.currentTheme))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(DesignSystem.Colors.border(for: appState.currentTheme), lineWidth: 0.5)
-                                )
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
+                Text("PREVIEW")
+                    .font(DesignSystem.Typography.monoSmall)
+                    .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
             }
             .padding(DesignSystem.Spacing.md)
             .background(DesignSystem.Colors.surface(for: appState.currentTheme))

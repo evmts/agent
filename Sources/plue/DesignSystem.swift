@@ -185,10 +185,21 @@ struct DesignSystem {
     // MARK: - Animation Curves
     
     struct Animation {
+        // Core animations
         static let plueStandard = SwiftUI.Animation.easeOut(duration: 0.2)
         static let plueSmooth = SwiftUI.Animation.easeInOut(duration: 0.3)
         static let plueBounce = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.8)
         static let plueInteractive = SwiftUI.Animation.interactiveSpring(response: 0.3, dampingFraction: 0.8)
+        
+        // Specialized animations for enhanced UX
+        static let tabSwitch = SwiftUI.Animation.easeInOut(duration: 0.25)
+        static let messageAppear = SwiftUI.Animation.spring(response: 0.5, dampingFraction: 0.7)
+        static let buttonPress = SwiftUI.Animation.easeOut(duration: 0.15)
+        static let socialInteraction = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.6)
+        static let heartBeat = SwiftUI.Animation.spring(response: 0.2, dampingFraction: 0.5)
+        static let slideTransition = SwiftUI.Animation.easeInOut(duration: 0.35)
+        static let scaleIn = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.8)
+        static let staggerDelay = 0.05 // For staggered animations
         
         // Legacy names for compatibility
         static let quick = plueStandard
@@ -310,9 +321,15 @@ struct PrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(DesignSystem.Colors.primary)
                     .opacity(configuration.isPressed ? 0.8 : 1.0)
+                    .shadow(
+                        color: DesignSystem.Colors.primary.opacity(configuration.isPressed ? 0.4 : 0.2),
+                        radius: configuration.isPressed ? 2 : 4,
+                        x: 0,
+                        y: configuration.isPressed ? 1 : 2
+                    )
             )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(DesignSystem.Animation.plueStandard, value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(DesignSystem.Animation.buttonPress, value: configuration.isPressed)
     }
 }
 
@@ -320,18 +337,19 @@ struct GhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.white.opacity(0.7))
+            .foregroundColor(.white.opacity(configuration.isPressed ? 0.9 : 0.7))
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    .stroke(Color.white.opacity(configuration.isPressed ? 0.4 : 0.2), lineWidth: 1)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.white.opacity(configuration.isPressed ? 0.05 : 0))
+                            .fill(Color.white.opacity(configuration.isPressed ? 0.1 : 0))
                     )
             )
-            .animation(DesignSystem.Animation.plueStandard, value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(DesignSystem.Animation.buttonPress, value: configuration.isPressed)
     }
 }
 

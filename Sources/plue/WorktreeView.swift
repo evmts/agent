@@ -4,9 +4,18 @@ struct WorktreeView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
-    // We'll need a new state slice for this view
+    // Enhanced state management for worktree features
     @State private var worktrees: [GitWorktree] = GitWorktree.mockWorktrees
     @State private var selectedWorktreeId: String? = GitWorktree.mockWorktrees.first?.id
+    @State private var showCreateDialog: Bool = false
+    @State private var searchText: String = ""
+    @State private var filterStatus: WorktreeStatusFilter = .all
+    @State private var sortOrder: WorktreeSortOrder = .recentActivity
+    @State private var showDeleteConfirmation: Bool = false
+    @State private var worktreeToDelete: GitWorktree? = nil
+    @State private var isRefreshing: Bool = false
+    @State private var newWorktreeName: String = ""
+    @State private var newWorktreeBranch: String = ""
     
     var body: some View {
         HSplitView {
@@ -19,6 +28,26 @@ struct WorktreeView: View {
         }
         .background(DesignSystem.Colors.backgroundSecondary(for: appState.currentTheme))
         .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
+        .sheet(isPresented: $showCreateDialog) {
+            CreateWorktreeDialog(
+                newWorktreeName: $newWorktreeName,
+                newWorktreeBranch: $newWorktreeBranch,
+                onCancel: { showCreateDialog = false },
+                onCreate: createNewWorktree
+            )
+        }
+        .alert("Delete Worktree", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let worktree = worktreeToDelete {
+                    deleteWorktree(worktree)
+                }
+            }
+        } message: {
+            if let worktree = worktreeToDelete {
+                Text("Are you sure you want to delete the worktree '\\(worktree.branch)'? This action cannot be undone.")
+            }
+        }
     }
     
     private var worktreeList: some View {
@@ -57,17 +86,21 @@ struct WorktreeView: View {
             // The list itself
             ScrollView {
                 LazyVStack(spacing: 1) {
-                    ForEach(worktrees) { worktree in
+                    ForEach(Array(worktrees.enumerated()), id: \.element.id) { index, worktree in
                         WorktreeRow(
                             worktree: worktree, 
                             isSelected: selectedWorktreeId == worktree.id,
                             theme: appState.currentTheme
                         )
                         .onTapGesture {
-                            withAnimation(DesignSystem.Animation.quick) {
+                            withAnimation(DesignSystem.Animation.scaleIn) {
                                 selectedWorktreeId = worktree.id
                             }
                         }
+                        .animation(
+                            DesignSystem.Animation.slideTransition.delay(Double(index) * DesignSystem.Animation.staggerDelay),
+                            value: selectedWorktreeId
+                        )
                     }
                 }
                 .padding(.vertical, DesignSystem.Spacing.sm)
@@ -399,19 +432,42 @@ struct CommitDiffView: View {
                     Text("Diff content for \(commit.shortId)")
                         .font(DesignSystem.Typography.monoMedium)
                         .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity
+                        ))
                     
-                    // Mock diff content
+                    // Mock diff content with staggered lines
                     VStack(alignment: .leading, spacing: 2) {
-                        DiffLine(content: "- old implementation", type: .removed, theme: theme)
-                        DiffLine(content: "+ new improved implementation", type: .added, theme: theme)
-                        DiffLine(content: "  unchanged line", type: .context, theme: theme)
-                        DiffLine(content: "+ another addition", type: .added, theme: theme)
+                        let diffLines = [
+                            ("- old implementation", DiffLine.DiffLineType.removed),
+                            ("+ new improved implementation", DiffLine.DiffLineType.added),
+                            ("  unchanged line", DiffLine.DiffLineType.context),
+                            ("+ another addition", DiffLine.DiffLineType.added)
+                        ]
+                        
+                        ForEach(Array(diffLines.enumerated()), id: \.offset) { index, line in
+                            DiffLine(content: line.0, type: line.1, theme: theme)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .leading).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
+                                .animation(
+                                    DesignSystem.Animation.slideTransition.delay(Double(index) * DesignSystem.Animation.staggerDelay),
+                                    value: isExpanded
+                                )
+                        }
                     }
                     .padding(.vertical, DesignSystem.Spacing.sm)
                 }
                 .padding(.horizontal, DesignSystem.Spacing.xl)
                 .padding(.vertical, DesignSystem.Spacing.md)
                 .background(DesignSystem.Colors.background(for: theme))
+                .transition(.asymmetric(
+                    insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.95)),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
+                .animation(DesignSystem.Animation.smooth, value: isExpanded)
             }
         }
         .overlay(

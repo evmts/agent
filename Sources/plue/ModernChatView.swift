@@ -225,8 +225,8 @@ struct ModernChatView: View {
                             .padding(.top, DesignSystem.Spacing.massive)
                     }
                     
-                    // Professional message bubbles
-                    ForEach(appState.chatState.currentConversation?.messages ?? []) { message in
+                    // Professional message bubbles with enhanced animations
+                    ForEach(Array(appState.chatState.currentConversation?.messages.enumerated() ?? []), id: \.element.id) { index, message in
                         ProfessionalMessageBubbleView(
                             message: message,
                             isActive: activeMessageId == message.id,
@@ -235,14 +235,26 @@ struct ModernChatView: View {
                         .padding(.horizontal, DesignSystem.Spacing.xl)
                         .padding(.vertical, DesignSystem.Spacing.sm)
                         .id(message.id)
-                        .contentTransition()
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95)),
+                            removal: .move(edge: .top).combined(with: .opacity)
+                        ))
+                        .animation(
+                            DesignSystem.Animation.messageAppear.delay(Double(index) * DesignSystem.Animation.staggerDelay),
+                            value: appState.chatState.currentConversation?.messages.count
+                        )
                     }
                     
-                    // Enhanced typing indicator
+                    // Enhanced typing indicator with smooth appearance
                     if appState.chatState.isGenerating {
                         ProfessionalTypingIndicatorView()
                             .padding(.horizontal, DesignSystem.Spacing.xl)
                             .padding(.vertical, DesignSystem.Spacing.sm)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.8)),
+                                removal: .opacity.combined(with: .scale(scale: 0.8))
+                            ))
+                            .animation(DesignSystem.Animation.messageAppear, value: appState.chatState.isGenerating)
                     }
                     
                     // Bottom spacing for better scrolling
@@ -349,13 +361,21 @@ struct ModernChatView: View {
                         sendMessage()
                     }
                 
-                Button(action: sendMessage) {
+                Button(action: {
+                    withAnimation(DesignSystem.Animation.socialInteraction) {
+                        sendMessage()
+                    }
+                }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 28))
                         .foregroundColor(inputText.isEmpty ? .white.opacity(0.3) : DesignSystem.Colors.primary)
+                        .scaleEffect(inputText.isEmpty ? 0.9 : 1.0)
+                        .rotationEffect(.degrees(inputText.isEmpty ? 0 : 360))
+                        .animation(DesignSystem.Animation.buttonPress, value: inputText.isEmpty)
                 }
                 .disabled(inputText.isEmpty)
                 .buttonStyle(PlainButtonStyle())
+                .scaleEffect(inputText.isEmpty ? 0.95 : 1.0)
                 .animation(DesignSystem.Animation.plueStandard, value: inputText.isEmpty)
             }
             .padding(.horizontal, 20)
