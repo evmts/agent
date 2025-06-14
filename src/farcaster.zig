@@ -5,6 +5,14 @@ const crypto = std.crypto;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
+// Import our enhanced modules
+const config = @import("farcaster/config.zig");
+const rate_limiter = @import("farcaster/rate_limiter.zig");
+
+pub const ClientConfig = config.ClientConfig;
+pub const RetryPolicy = config.RetryPolicy;
+pub const RateLimiter = rate_limiter.RateLimiter;
+
 // Farcaster SDK for Zig
 // Based on Farcaster Hub HTTP API and protocol specifications
 // Hub: Pinata (hub.pinata.cloud) - free, reliable, no auth required
@@ -203,16 +211,48 @@ pub const FarcasterClient = struct {
     base_allocator: Allocator,  // For long-lived allocations
     http_arena: HttpArenaAllocator,  // For temporary HTTP/JSON operations
     http_client: http.Client,
-    base_url: []const u8,
+    config: ClientConfig,
     user_fid: u64,
     private_key: [64]u8, // Ed25519 private key (64 bytes for seed + extended)
     public_key: [32]u8,  // Ed25519 public key
+    rate_limiter: RateLimiter,
+    stats: ClientStats,
     
     const Self = @This();
     
-    /// Initialize FarcasterClient with smart allocation strategy
+    pub const ClientStats = struct {
+        total_requests: u64 = 0,
+        failed_requests: u64 = 0,
+        bytes_sent: u64 = 0,
+        bytes_received: u64 = 0,
+        rate_limit_hits: u64 = 0,
+        avg_response_time_ms: f64 = 0.0,
+        
+        pub fn recordRequest(self: *ClientStats, success: bool, bytes_sent: usize, bytes_received: usize, duration_ms: f64) void {
+            self.total_requests += 1;
+            if (!success) self.failed_requests += 1;
+            self.bytes_sent += bytes_sent;
+            self.bytes_received += bytes_received;
+            
+            // Update running average
+            const count = @as(f64, @floatFromInt(self.total_requests));
+            self.avg_response_time_ms = (self.avg_response_time_ms * (count - 1.0) + duration_ms) / count;
+        }
+        
+        pub fn recordRateLimitHit(self: *ClientStats) void {
+            self.rate_limit_hits += 1;
+        }
+    };
+    
+    /// Initialize FarcasterClient with configuration-driven setup
     /// Uses arena allocator for temporary operations, base allocator for persistent data
-    pub fn init(allocator: Allocator, user_fid: u64, private_key_hex: []const u8) !Self {
+    pub fn init(client_config: ClientConfig) !Self {
+        return initWithAllocator(client_config.allocator, client_config.user_fid, client_config.private_key_hex, client_config);
+    }
+    
+    /// Legacy initialization for backward compatibility
+    pub fn initWithAllocator(allocator: Allocator, user_fid: u64, private_key_hex: []const u8, client_config: ?ClientConfig) !Self {
+        const final_config = client_config orelse try ClientConfig.init(allocator, user_fid, private_key_hex);
         var private_key: [64]u8 = undefined;
         var public_key: [32]u8 = undefined;
         
@@ -248,20 +288,35 @@ pub const FarcasterClient = struct {
         const http_client = http.Client{ .allocator = allocator };
         errdefer http_client.deinit(); // ✅ Cleanup on error
         
+        var rate_limit = RateLimiter.init(
+            allocator,
+            final_config.rate_limit.max_requests,
+            final_config.rate_limit.window_ms,
+        );
+        rate_limit.setEnabled(final_config.rate_limit.enabled);
+        
         return Self{
             .base_allocator = allocator,
             .http_arena = HttpArenaAllocator.init(allocator),
             .http_client = http_client,
-            .base_url = "https://hub.pinata.cloud",
+            .config = final_config,
             .user_fid = user_fid,
             .private_key = private_key,
             .public_key = public_key,
+            .rate_limiter = rate_limit,
+            .stats = .{},
         };
     }
     
     pub fn deinit(self: *Self) void {
         self.http_client.deinit();
         self.http_arena.deinit();
+        self.rate_limiter.deinit();
+    }
+    
+    /// Get client statistics for monitoring
+    pub fn getStats(self: Self) ClientStats {
+        return self.stats;
     }
     
     // ===== Cast Operations =====
@@ -271,7 +326,7 @@ pub const FarcasterClient = struct {
         self.http_arena.reset();
         
         const arena_allocator = self.http_arena.allocator();
-        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/castsByFid?fid={d}&limit={d}", .{ self.base_url, fid, limit });
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/castsByFid?fid={d}&limit={d}", .{ self.config.base_url, fid, limit });
         
         const response_body = try self.httpGet(uri_str);
         
@@ -286,7 +341,7 @@ pub const FarcasterClient = struct {
         self.http_arena.reset();
         
         const arena_allocator = self.http_arena.allocator();
-        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/castsByParent?url={s}&limit={d}", .{ self.base_url, channel_url, limit });
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/castsByParent?url={s}&limit={d}", .{ self.config.base_url, channel_url, limit });
         
         const response_body = try self.httpGet(uri_str);
         
@@ -422,7 +477,7 @@ pub const FarcasterClient = struct {
         self.http_arena.reset();
         
         const arena_allocator = self.http_arena.allocator();
-        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/linksByTargetFid?target_fid={d}&link_type=follow", .{ self.base_url, fid });
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/linksByTargetFid?target_fid={d}&link_type=follow", .{ self.config.base_url, fid });
         
         const response_body = try self.httpGet(uri_str);
         
@@ -437,7 +492,7 @@ pub const FarcasterClient = struct {
         self.http_arena.reset();
         
         const arena_allocator = self.http_arena.allocator();
-        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/linksByFid?fid={d}&link_type=follow", .{ self.base_url, fid });
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/linksByFid?fid={d}&link_type=follow", .{ self.config.base_url, fid });
         
         const response_body = try self.httpGet(uri_str);
         
@@ -454,7 +509,7 @@ pub const FarcasterClient = struct {
         self.http_arena.reset();
         
         const arena_allocator = self.http_arena.allocator();
-        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/userDataByFid?fid={d}", .{ self.base_url, fid });
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/userDataByFid?fid={d}", .{ self.config.base_url, fid });
         
         const response_body = try self.httpGet(uri_str);
         
@@ -464,6 +519,20 @@ pub const FarcasterClient = struct {
     // ===== Internal HTTP and Message Handling =====
     
     fn httpGet(self: *Self, uri_str: []const u8) ![]u8 {
+        // Apply rate limiting
+        self.rate_limiter.checkLimit("http_get") catch |err| {
+            self.stats.recordRateLimitHit();
+            return err;
+        };
+        
+        const start_time = std.time.milliTimestamp();
+        var success = false;
+        var bytes_received: usize = 0;
+        defer {
+            const duration = @as(f64, @floatFromInt(std.time.milliTimestamp() - start_time));
+            self.stats.recordRequest(success, uri_str.len, bytes_received, duration);
+        }
+        
         const uri = try std.Uri.parse(uri_str);
         
         var header_buf: [8192]u8 = undefined;
@@ -477,11 +546,14 @@ pub const FarcasterClient = struct {
         try req.wait();
         
         if (req.response.status != .ok) {
+            std.log.err("HTTP GET failed with status: {}", .{req.response.status});
             return FarcasterError.HttpError;
         }
         
         // Use arena allocator for HTTP response - auto-freed on reset
-        const body = try req.reader().readAllAlloc(self.http_arena.allocator(), 16 * 1024 * 1024);
+        const body = try req.reader().readAllAlloc(self.http_arena.allocator(), self.config.max_response_size);
+        bytes_received = body.len;
+        success = true;
         return body;
     }
     
@@ -515,7 +587,8 @@ pub const FarcasterClient = struct {
     fn serializeMessageData(self: *Self, message_data: MessageData) ![]u8 {
         // This would normally be protobuf serialization
         // For now, we'll use JSON as a placeholder (the actual implementation would need protobuf)
-        var string = ArrayList(u8).init(self.allocator);
+        const arena_allocator = self.http_arena.allocator();
+        var string = ArrayList(u8).init(arena_allocator);
         errdefer string.deinit(); // ✅ Cleanup on error
         
         json.stringify(message_data, .{}, string.writer()) catch |err| {
@@ -526,8 +599,8 @@ pub const FarcasterClient = struct {
     }
     
     fn createSignedMessage(self: *Self, _: MessageData, hash: [32]u8, _: crypto.sign.Ed25519.Signature) ![]u8 {
-        // Create a simple JSON string manually to avoid complex HashMap serialization issues
-        // This is simplified - real implementation would use protobuf
+        // Use arena allocator for temporary message creation
+        const arena_allocator = self.http_arena.allocator();
         
         // Convert hash to hex string
         var hash_hex: [64]u8 = undefined;
@@ -538,12 +611,12 @@ pub const FarcasterClient = struct {
             \\{{"hash":"{s}","signature":"placeholder_signature","signatureScheme":"ED25519","hashScheme":"BLAKE3"}}
         ;
         
-        return try std.fmt.allocPrint(self.allocator, json_template, .{hash_hex});
+        return try std.fmt.allocPrint(arena_allocator, json_template, .{hash_hex});
     }
     
     fn httpPostMessage(self: *Self, message_bytes: []const u8) ![]const u8 {
-        const uri_str = try std.fmt.allocPrint(self.allocator, "{s}/v1/submitMessage", .{self.base_url});
-        defer self.allocator.free(uri_str);
+        const arena_allocator = self.http_arena.allocator();
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/submitMessage", .{self.config.base_url});
         
         const uri = try std.Uri.parse(uri_str);
         
@@ -565,19 +638,19 @@ pub const FarcasterClient = struct {
             return FarcasterError.HttpError;
         }
         
-        const body = try req.reader().readAllAlloc(self.allocator, 16 * 1024 * 1024);
+        const body = try req.reader().readAllAlloc(arena_allocator, 16 * 1024 * 1024);
         return body;
     }
     
     // ===== Response Parsing =====
     
     fn parseCastsResponse(self: *Self, response_body: []const u8) ![]FarcasterCast {
-        // Parse JSON response and convert to FarcasterCast structs
-        // This is a simplified implementation - real one would handle all message fields
-        var casts = ArrayList(FarcasterCast).init(self.allocator);
+        // Use arena allocator for temporary JSON parsing
+        const arena_allocator = self.http_arena.allocator();
+        var casts = ArrayList(FarcasterCast).init(arena_allocator);
         errdefer casts.deinit(); // ✅ Cleanup on error
         
-        const parsed = json.parseFromSlice(json.Value, self.allocator, response_body, .{}) catch |err| {
+        const parsed = json.parseFromSlice(json.Value, arena_allocator, response_body, .{}) catch |err| {
             std.log.err("Failed to parse JSON response: {}", .{err});
             return err;
         };
@@ -630,8 +703,9 @@ pub const FarcasterClient = struct {
     }
     
     fn parseFollowersResponse(self: *Self, _: []const u8) ![]FarcasterUser {
-        // Parse followers from links response
-        var users = ArrayList(FarcasterUser).init(self.allocator);
+        // Use arena allocator for temporary parsing
+        const arena_allocator = self.http_arena.allocator();
+        var users = ArrayList(FarcasterUser).init(arena_allocator);
         errdefer users.deinit(); // ✅ Cleanup on error
         
         // Implementation would parse link messages and extract follower FIDs
@@ -641,8 +715,9 @@ pub const FarcasterClient = struct {
     }
     
     fn parseFollowingResponse(self: *Self, _: []const u8) ![]FarcasterUser {
-        // Parse following from links response
-        var users = ArrayList(FarcasterUser).init(self.allocator);
+        // Use arena allocator for temporary parsing
+        const arena_allocator = self.http_arena.allocator();
+        var users = ArrayList(FarcasterUser).init(arena_allocator);
         errdefer users.deinit(); // ✅ Cleanup on error
         
         // Implementation would parse link messages and extract following FIDs
@@ -652,8 +727,9 @@ pub const FarcasterClient = struct {
     }
     
     fn parseUserProfileResponse(self: *Self, response_body: []const u8, fid: u64) !FarcasterUser {
-        // Parse user profile from userData response
-        const parsed = json.parseFromSlice(json.Value, self.allocator, response_body, .{}) catch |err| {
+        // Use arena allocator for JSON parsing
+        const arena_allocator = self.http_arena.allocator();
+        const parsed = json.parseFromSlice(json.Value, arena_allocator, response_body, .{}) catch |err| {
             std.log.err("Failed to parse user profile JSON: {}", .{err});
             return err;
         };
@@ -719,7 +795,13 @@ export fn fc_client_create(fid: u64, private_key_hex: ?[*:0]const u8) ?*Farcaste
     errdefer allocator.destroy(client); // ✅ Cleanup on error
     
     // Initialize client with comprehensive error handling
-    client.* = FarcasterClient.init(allocator, fid, key_slice) catch |err| {
+    const client_config = ClientConfig.init(allocator, fid, key_slice) catch |err| {
+        std.log.err("Failed to create client config: {}", .{err});
+        allocator.destroy(client);
+        return null;
+    };
+    
+    client.* = FarcasterClient.init(client_config) catch |err| {
         std.log.err("Failed to initialize FarcasterClient: {}", .{err});
         allocator.destroy(client);
         return null;
