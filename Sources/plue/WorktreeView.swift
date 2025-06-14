@@ -1,0 +1,466 @@
+import SwiftUI
+
+struct WorktreeView: View {
+    let appState: AppState
+    let core: PlueCoreInterface
+    
+    // We'll need a new state slice for this view
+    @State private var worktrees: [GitWorktree] = GitWorktree.mockWorktrees
+    @State private var selectedWorktreeId: String? = GitWorktree.mockWorktrees.first?.id
+    
+    var body: some View {
+        HSplitView {
+            // Left Panel: Worktree List
+            worktreeList
+                .frame(minWidth: 250, idealWidth: 300, maxWidth: 400)
+            
+            // Right Panel: Stacked Diff Visualization
+            stackedDiffDetail
+        }
+        .background(DesignSystem.Colors.backgroundSecondary(for: appState.currentTheme))
+        .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
+    }
+    
+    private var worktreeList: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Worktrees")
+                        .font(DesignSystem.Typography.titleSmall)
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                    
+                    Text("git parallel development")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                }
+                
+                Spacer()
+                
+                Button(action: createNewWorktree) { 
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Create new worktree")
+            }
+            .padding(DesignSystem.Spacing.md)
+            .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+            .overlay(
+                Rectangle()
+                    .frame(height: 0.5)
+                    .foregroundColor(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.3)),
+                alignment: .bottom
+            )
+
+            // The list itself
+            ScrollView {
+                LazyVStack(spacing: 1) {
+                    ForEach(worktrees) { worktree in
+                        WorktreeRow(
+                            worktree: worktree, 
+                            isSelected: selectedWorktreeId == worktree.id,
+                            theme: appState.currentTheme
+                        )
+                        .onTapGesture {
+                            withAnimation(DesignSystem.Animation.quick) {
+                                selectedWorktreeId = worktree.id
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, DesignSystem.Spacing.sm)
+            }
+            .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        }
+    }
+    
+    private var stackedDiffDetail: some View {
+        VStack {
+            if let worktree = worktrees.first(where: { $0.id == selectedWorktreeId }) {
+                // This contains the Graphite-style stacked diff view
+                GraphiteStackView(worktree: worktree, appState: appState)
+            } else {
+                // Empty state
+                VStack(spacing: DesignSystem.Spacing.xl) {
+                    Circle()
+                        .fill(DesignSystem.Colors.textTertiary(for: appState.currentTheme).opacity(0.1))
+                        .frame(width: 60, height: 60)
+                        .overlay(
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 24, weight: .light))
+                                .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                        )
+                    
+                    VStack(spacing: DesignSystem.Spacing.sm) {
+                        Text("no worktree selected")
+                            .font(DesignSystem.Typography.titleMedium)
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                        
+                        Text("select a worktree to view its stack")
+                            .font(DesignSystem.Typography.bodyMedium)
+                            .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DesignSystem.Colors.background(for: appState.currentTheme))
+            }
+        }
+    }
+    
+    private func createNewWorktree() {
+        // Mock implementation - would show a dialog to create new worktree
+        print("Create new worktree")
+    }
+}
+
+// Redesigned Row with Apple-style spacing and subtle interactions
+struct WorktreeRow: View {
+    let worktree: GitWorktree
+    let isSelected: Bool
+    let theme: DesignSystem.Theme
+    
+    var body: some View {
+        HStack(spacing: 16) { // Increased spacing for better breathing room
+            // Simplified status indicator with glow effect
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+                .overlay(
+                    Circle()
+                        .stroke(statusColor.opacity(0.3), lineWidth: 8)
+                        .blur(radius: 4)
+                        .opacity(isSelected ? 1 : 0)
+                )
+                .animation(DesignSystem.Animation.plueSmooth, value: isSelected)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text(worktree.branch)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(isSelected ? .white : .white.opacity(0.85))
+                    
+                    if worktree.isMain {
+                        Text("main")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.5))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.white.opacity(0.1)))
+                    }
+                }
+                
+                Text(timeAgoString)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.white.opacity(0.05) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .animation(DesignSystem.Animation.plueStandard, value: isSelected)
+    }
+    
+    private var statusColor: Color {
+        switch worktree.status {
+        case .clean: return DesignSystem.Colors.success
+        case .modified: return DesignSystem.Colors.warning
+        case .untracked: return DesignSystem.Colors.primary
+        case .conflicts: return DesignSystem.Colors.error
+        }
+    }
+    
+    private var abbreviatedPath: String {
+        let components = worktree.path.components(separatedBy: "/")
+        if components.count > 3 {
+            return ".../" + components.suffix(2).joined(separator: "/")
+        }
+        return worktree.path
+    }
+    
+    private var timeAgoString: String {
+        let now = Date()
+        let interval = now.timeIntervalSince(worktree.lastModified)
+        
+        if interval < 3600 {
+            let minutes = Int(interval / 60)
+            return "\(minutes)m ago"
+        } else if interval < 86400 {
+            let hours = Int(interval / 3600)
+            return "\(hours)h ago"
+        } else {
+            let days = Int(interval / 86400)
+            return "\(days)d ago"
+        }
+    }
+}
+
+// Extension for GitWorktreeStatus
+extension GitWorktreeStatus {
+    var displayName: String {
+        switch self {
+        case .clean: return "clean"
+        case .modified: return "modified"
+        case .untracked: return "untracked"
+        case .conflicts: return "conflicts"
+        }
+    }
+}
+
+// The advanced Graphite-style stack view with cleaner header
+struct GraphiteStackView: View {
+    let worktree: GitWorktree
+    let appState: AppState
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Cleaner header without bottom border
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(worktree.branch)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    Text("\(MockCommit.samples.count) commits")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 12) {
+                    Button("Pull") {
+                        print("Pull changes")
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                    
+                    Button("Push") {
+                        print("Push stack")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            .padding(24) // More generous padding
+            
+            // Stack visualization with better spacing
+            ScrollView {
+                VStack(spacing: 1) { // Minimal spacing
+                    ForEach(MockCommit.samples) { commit in
+                        CommitDiffView(
+                            commit: commit, 
+                            theme: appState.currentTheme
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+            }
+            .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        }
+    }
+}
+
+// Mock commit data
+struct MockCommit: Identifiable {
+    let id: String
+    let shortId: String
+    let message: String
+    let author: String
+    let timestamp: Date
+    let filesChanged: Int
+    let insertions: Int
+    let deletions: Int
+    
+    static let samples: [MockCommit] = [
+        MockCommit(
+            id: "a1b2c3d4e5f6",
+            shortId: "a1b2c3d",
+            message: "feat: Add agent coordination protocol",
+            author: "Developer",
+            timestamp: Date().addingTimeInterval(-3600),
+            filesChanged: 3,
+            insertions: 127,
+            deletions: 8
+        ),
+        MockCommit(
+            id: "b2c3d4e5f6a1",
+            shortId: "b2c3d4e",
+            message: "refactor: Improve the rendering engine",
+            author: "Developer",
+            timestamp: Date().addingTimeInterval(-7200),
+            filesChanged: 5,
+            insertions: 89,
+            deletions: 34
+        ),
+        MockCommit(
+            id: "c3d4e5f6a1b2",
+            shortId: "c3d4e5f",
+            message: "fix: Terminal cursor positioning bug",
+            author: "Developer",
+            timestamp: Date().addingTimeInterval(-10800),
+            filesChanged: 1,
+            insertions: 12,
+            deletions: 5
+        ),
+        MockCommit(
+            id: "d4e5f6a1b2c3",
+            shortId: "d4e5f6a",
+            message: "docs: Update README with new features",
+            author: "Developer",
+            timestamp: Date().addingTimeInterval(-14400),
+            filesChanged: 2,
+            insertions: 45,
+            deletions: 2
+        ),
+        MockCommit(
+            id: "e5f6a1b2c3d4",
+            shortId: "e5f6a1b",
+            message: "style: Apply consistent color scheme",
+            author: "Developer",
+            timestamp: Date().addingTimeInterval(-18000),
+            filesChanged: 8,
+            insertions: 203,
+            deletions: 156
+        )
+    ]
+}
+
+// Each commit in the stack is a collapsible diff
+struct CommitDiffView: View {
+    let commit: MockCommit
+    let theme: DesignSystem.Theme
+    @State private var isExpanded = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { 
+                withAnimation(DesignSystem.Animation.smooth) { 
+                    isExpanded.toggle() 
+                } 
+            }) {
+                HStack(spacing: DesignSystem.Spacing.md) {
+                    // Expand/collapse indicator
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
+                        .frame(width: 12)
+                    
+                    // Commit hash
+                    Text(commit.shortId)
+                        .font(DesignSystem.Typography.monoSmall)
+                        .foregroundColor(DesignSystem.Colors.primary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(DesignSystem.Colors.primary.opacity(0.1))
+                        )
+                    
+                    // Commit message
+                    Text(commit.message)
+                        .font(DesignSystem.Typography.bodyMedium)
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    // Stats
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Text("\(commit.filesChanged)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
+                        
+                        Text("+\(commit.insertions)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.success)
+                        
+                        Text("-\(commit.deletions)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.error)
+                    }
+                }
+                .padding(.horizontal, DesignSystem.Spacing.md)
+                .padding(.vertical, DesignSystem.Spacing.sm)
+                .background(DesignSystem.Colors.surface(for: theme))
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            if isExpanded {
+                // Here you would embed the actual DiffView for this commit
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+                    Text("Diff content for \(commit.shortId)")
+                        .font(DesignSystem.Typography.monoMedium)
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
+                    
+                    // Mock diff content
+                    VStack(alignment: .leading, spacing: 2) {
+                        DiffLine(content: "- old implementation", type: .removed, theme: theme)
+                        DiffLine(content: "+ new improved implementation", type: .added, theme: theme)
+                        DiffLine(content: "  unchanged line", type: .context, theme: theme)
+                        DiffLine(content: "+ another addition", type: .added, theme: theme)
+                    }
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+                }
+                .padding(.horizontal, DesignSystem.Spacing.xl)
+                .padding(.vertical, DesignSystem.Spacing.md)
+                .background(DesignSystem.Colors.background(for: theme))
+            }
+        }
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(DesignSystem.Colors.border(for: theme).opacity(0.2)),
+            alignment: .bottom
+        )
+    }
+}
+
+// Simple diff line component
+struct DiffLine: View {
+    let content: String
+    let type: DiffLineType
+    let theme: DesignSystem.Theme
+    
+    enum DiffLineType {
+        case added, removed, context
+    }
+    
+    var body: some View {
+        Text(content)
+            .font(DesignSystem.Typography.monoSmall)
+            .foregroundColor(textColor)
+            .padding(.horizontal, DesignSystem.Spacing.sm)
+            .padding(.vertical, 1)
+            .background(backgroundColor)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    private var textColor: Color {
+        switch type {
+        case .added: return DesignSystem.Colors.success
+        case .removed: return DesignSystem.Colors.error
+        case .context: return DesignSystem.Colors.textSecondary(for: theme)
+        }
+    }
+    
+    private var backgroundColor: Color {
+        switch type {
+        case .added: return DesignSystem.Colors.success.opacity(0.1)
+        case .removed: return DesignSystem.Colors.error.opacity(0.1)
+        case .context: return Color.clear
+        }
+    }
+}
+
+#Preview {
+    WorktreeView(appState: AppState.initial, core: PlueCore.shared)
+        .frame(width: 1200, height: 800)
+}
