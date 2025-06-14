@@ -10,7 +10,8 @@ enum TabType: Int, CaseIterable {
     case editor = 4
     case farcaster = 5
     case diff = 6
-    case agent = 7
+    case worktree = 7
+    case agent = 8
 }
 
 struct AppState {
