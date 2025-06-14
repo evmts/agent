@@ -185,26 +185,26 @@ struct DesignSystem {
     // MARK: - Animation Curves
     
     struct Animation {
-        // Core animations
-        static let plueStandard = SwiftUI.Animation.easeOut(duration: 0.2)
-        static let plueSmooth = SwiftUI.Animation.easeInOut(duration: 0.3)
-        static let plueBounce = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.8)
-        static let plueInteractive = SwiftUI.Animation.interactiveSpring(response: 0.3, dampingFraction: 0.8)
+        // Core animations - optimized for responsiveness
+        static let plueStandard = SwiftUI.Animation.easeOut(duration: 0.18)
+        static let plueSmooth = SwiftUI.Animation.easeInOut(duration: 0.25)
+        static let plueBounce = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.8)
+        static let plueInteractive = SwiftUI.Animation.interactiveSpring(response: 0.25, dampingFraction: 0.8)
         
-        // Specialized animations for enhanced UX
-        static let tabSwitch = SwiftUI.Animation.easeInOut(duration: 0.25)
-        static let messageAppear = SwiftUI.Animation.spring(response: 0.5, dampingFraction: 0.7)
-        static let buttonPress = SwiftUI.Animation.easeOut(duration: 0.15)
-        static let socialInteraction = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.6)
-        static let heartBeat = SwiftUI.Animation.spring(response: 0.2, dampingFraction: 0.5)
-        static let slideTransition = SwiftUI.Animation.easeInOut(duration: 0.35)
-        static let scaleIn = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.8)
-        static let staggerDelay = 0.05 // For staggered animations
+        // Specialized animations for enhanced UX - optimized for responsiveness
+        static let tabSwitch = SwiftUI.Animation.easeInOut(duration: 0.18)
+        static let messageAppear = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.75)
+        static let buttonPress = SwiftUI.Animation.easeOut(duration: 0.12)
+        static let socialInteraction = SwiftUI.Animation.spring(response: 0.25, dampingFraction: 0.7)
+        static let heartBeat = SwiftUI.Animation.spring(response: 0.15, dampingFraction: 0.6)
+        static let slideTransition = SwiftUI.Animation.easeInOut(duration: 0.22)
+        static let scaleIn = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.8)
+        static let staggerDelay = 0.03 // For staggered animations - faster
         
-        // Legacy names for compatibility
+        // Legacy names for compatibility - updated for speed
         static let quick = plueStandard
         static let smooth = plueSmooth
-        static let gentle = SwiftUI.Animation.easeInOut(duration: 0.5)
+        static let gentle = SwiftUI.Animation.easeInOut(duration: 0.25) // Much faster
         static let bouncy = plueBounce
         static let interactive = plueInteractive
     }

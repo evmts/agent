@@ -267,7 +267,7 @@ struct ModernChatView: View {
             .scrollIndicators(.never)
             .background(DesignSystem.Colors.backgroundSecondary)
             .onChange(of: appState.promptState.currentConversation?.messages.count) { _ in
-                withAnimation(DesignSystem.Animation.smooth) {
+                withAnimation(DesignSystem.Animation.plueStandard) {
                     if let lastMessage = appState.promptState.currentConversation?.messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
@@ -314,7 +314,7 @@ struct ModernChatView: View {
     
     private func minimalSuggestionButton(_ text: String, icon: String) -> some View {
         Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(DesignSystem.Animation.buttonPress) {
                 core.handleEvent(.promptMessageSent(text))
             }
         }) {
