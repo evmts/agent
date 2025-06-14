@@ -31,6 +31,7 @@ let package = Package(
                 "libplue",
                 "farcaster"
             ],
+            exclude: ["Info.plist"],
             linkerSettings: [
                 .unsafeFlags(["-Llib", "-lpluecore", "-lfarcaster"])
             ]),
