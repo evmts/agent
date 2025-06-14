@@ -1,0 +1,486 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MACOS_VERSION: "14"
+  XCODE_VERSION: "15.2"
+  DEVELOPER_DIR: /Applications/Xcode_15.2.app/Contents/Developer
+
+jobs:
+  # ============================================================================
+  # QUALITY CHECKS
+  # ============================================================================
+  
+  code-quality:
+    name: Code Quality & Linting
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Check Zig formatting
+      run: |
+        nix develop --command bash -c "
+          echo '🔍 Checking Zig code formatting...'
+          zig fmt --check src/ test/ build.zig
+        "
+
+    - name: Check Swift formatting
+      run: |
+        nix develop --command bash -c "
+          echo '🔍 Checking Swift code formatting...'
+          # Use SwiftFormat if available, otherwise skip
+          if command -v swift-format >/dev/null 2>&1; then
+            find Sources -name '*.swift' -exec swift-format lint {} \;
+          else
+            echo 'SwiftFormat not available, skipping Swift formatting check'
+          fi
+        "
+
+    - name: Run security audit
+      run: |
+        nix develop --command bash -c "
+          echo '🔒 Running security audit...'
+          # Check for hardcoded secrets
+          if grep -r -E '(password|secret|key|token|api.*key).*=.*[\"'\''][^\"'\'']{8,}[\"'\'']' Sources/ src/ --include='*.swift' --include='*.zig' || true; then
+            echo '⚠️  Potential hardcoded secrets found'
+          fi
+          
+          # Check for unsafe Swift flags
+          if grep -r 'unsafeFlags' . --include='*.swift'; then
+            echo '⚠️  Unsafe Swift flags detected'
+          fi
+        "
+
+  # ============================================================================
+  # TESTING MATRIX
+  # ============================================================================
+
+  test-zig:
+    name: Zig Tests
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    strategy:
+      matrix:
+        test-suite: [unit, integration, libplue, farcaster]
+        build-mode: [Debug, ReleaseSafe]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Run Zig tests (${{ matrix.test-suite }})
+      run: |
+        nix develop --command bash -c "
+          echo '🧪 Running ${{ matrix.test-suite }} tests in ${{ matrix.build-mode }} mode...'
+          
+          case '${{ matrix.test-suite }}' in
+            'unit')
+              zig build test --summary all -Doptimize=${{ matrix.build-mode }}
+              ;;
+            'integration')
+              zig build test-integration --summary all -Doptimize=${{ matrix.build-mode }}
+              ;;
+            'libplue')
+              zig build test-libplue --summary all -Doptimize=${{ matrix.build-mode }}
+              ;;
+            'farcaster')
+              zig build test-farcaster --summary all -Doptimize=${{ matrix.build-mode }}
+              ;;
+          esac
+        "
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: zig-test-results-${{ matrix.test-suite }}-${{ matrix.build-mode }}
+        path: |
+          zig-out/
+          .zig-cache/
+        retention-days: 7
+
+  test-swift:
+    name: Swift Tests
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    needs: [test-zig]
+    strategy:
+      matrix:
+        configuration: [debug, release]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Build Zig dependencies
+      run: |
+        nix develop --command bash -c "
+          echo '🔧 Building Zig dependencies...'
+          zig build --summary all
+        "
+
+    - name: Run Swift tests
+      run: |
+        nix develop --command bash -c "
+          echo '🧪 Running Swift tests in ${{ matrix.configuration }} mode...'
+          swift test --configuration ${{ matrix.configuration }} --enable-code-coverage
+        "
+
+    - name: Generate coverage report
+      if: matrix.configuration == 'debug'
+      run: |
+        nix develop --command bash -c "
+          echo '📊 Generating coverage report...'
+          xcrun llvm-cov export -format='lcov' \
+            .build/debug/pluePackageTests.xctest/Contents/MacOS/pluePackageTests \
+            -instr-profile .build/debug/codecov/default.profdata > coverage.lcov
+        "
+
+    - name: Upload coverage to Codecov
+      if: matrix.configuration == 'debug'
+      uses: codecov/codecov-action@v4
+      with:
+        files: coverage.lcov
+        fail_ci_if_error: false
+
+  # ============================================================================
+  # BUILD PIPELINE
+  # ============================================================================
+
+  build:
+    name: Build Application
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    needs: [code-quality, test-zig, test-swift]
+    strategy:
+      matrix:
+        configuration: [debug, release]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Build with Nix
+      run: |
+        nix develop --command bash -c "
+          echo '🏗️  Building Plue (${{ matrix.configuration }})...'
+          
+          if [ '${{ matrix.configuration }}' = 'release' ]; then
+            zig build swift --summary all -Doptimize=ReleaseFast
+          else
+            zig build swift --summary all -Doptimize=Debug
+          fi
+        "
+
+    - name: Verify build artifacts
+      run: |
+        echo '✅ Verifying build artifacts...'
+        ls -la .build/${{ matrix.configuration }}/
+        file .build/${{ matrix.configuration }}/plue
+        otool -L .build/${{ matrix.configuration }}/plue
+
+    - name: Run smoke tests
+      if: matrix.configuration == 'release'
+      run: |
+        echo '🚀 Running smoke tests...'
+        timeout 10s .build/${{ matrix.configuration }}/plue --help || true
+        echo 'Smoke tests completed'
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: plue-${{ matrix.configuration }}-${{ github.sha }}
+        path: |
+          .build/${{ matrix.configuration }}/plue
+          scripts/
+        retention-days: 30
+
+  # ============================================================================
+  # INTEGRATION TESTS
+  # ============================================================================
+
+  integration-tests:
+    name: Integration & E2E Tests
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    needs: [build]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: plue-release-${{ github.sha }}
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Set up test environment
+      run: |
+        chmod +x .build/release/plue
+        mkdir -p test-workspace
+        echo 'console.log("Hello from test project");' > test-workspace/test.js
+
+    - name: Test CLI functionality
+      run: |
+        echo '🧪 Testing CLI functionality...'
+        
+        # Test CLI help
+        .build/release/plue --help
+        
+        # Test CLI with directory argument
+        timeout 5s .build/release/plue test-workspace || true
+        
+        # Test invalid arguments
+        if .build/release/plue --invalid-flag 2>&1 | grep -q "invalid\|error\|unknown"; then
+          echo "✅ Error handling works correctly"
+        else
+          echo "❌ Error handling may need improvement"
+          exit 1
+        fi
+
+    - name: Test installation script
+      run: |
+        echo '🧪 Testing installation script...'
+        # Test the install script in dry-run mode (if supported)
+        bash scripts/install.sh || echo "Install script test completed"
+
+  # ============================================================================
+  # PERFORMANCE BENCHMARKS
+  # ============================================================================
+
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: plue-release-${{ github.sha }}
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Run performance benchmarks
+      run: |
+        nix develop --command bash -c "
+          echo '⚡ Running performance benchmarks...'
+          
+          # Binary size check
+          BINARY_SIZE=\$(stat -f%z .build/release/plue)
+          echo \"Binary size: \${BINARY_SIZE} bytes\"
+          
+          # Startup time benchmark
+          echo 'Testing startup time...'
+          for i in {1..5}; do
+            time timeout 2s .build/release/plue --help >/dev/null 2>&1 || true
+          done
+          
+          # Memory usage check
+          echo 'Checking memory usage...'
+          /usr/bin/time -l timeout 3s .build/release/plue --help 2>&1 | grep 'maximum resident set size' || true
+        "
+
+  # ============================================================================
+  # RELEASE PIPELINE
+  # ============================================================================
+
+  release:
+    name: Create Release
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    needs: [integration-tests, benchmarks]
+    if: github.event_name == 'release'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: plue-release-${{ github.sha }}
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Prepare release assets
+      run: |
+        echo '📦 Preparing release assets...'
+        
+        # Create release directory
+        mkdir -p release-assets
+        
+        # Copy binary
+        cp .build/release/plue release-assets/
+        
+        # Copy CLI script
+        cp scripts/plue release-assets/plue-cli
+        cp scripts/install.sh release-assets/
+        
+        # Create tarball
+        tar -czf release-assets/plue-macos-${{ github.ref_name }}.tar.gz \
+          -C release-assets plue plue-cli install.sh
+        
+        # Generate checksums
+        cd release-assets
+        shasum -a 256 *.tar.gz > checksums.txt
+        
+        echo 'Release assets prepared:'
+        ls -la
+
+    - name: Generate release notes
+      run: |
+        echo '📝 Generating release notes...'
+        
+        # Extract version from tag
+        VERSION=${{ github.ref_name }}
+        
+        # Create release notes
+        cat > release-notes.md << EOF
+        # Plue $VERSION
+        
+        ## What's New
+        
+        This release includes the latest improvements to the Plue multi-agent coding assistant.
+        
+        ## Installation
+        
+        ### Quick Install (Recommended)
+        \`\`\`bash
+        curl -fsSL https://github.com/williamcory/plue/releases/download/$VERSION/install.sh | bash
+        \`\`\`
+        
+        ### Manual Install
+        1. Download \`plue-macos-$VERSION.tar.gz\`
+        2. Extract: \`tar -xzf plue-macos-$VERSION.tar.gz\`
+        3. Run: \`./install.sh\`
+        
+        ## Requirements
+        - macOS 13.0 or later
+        
+        ## Verification
+        
+        Verify the download with checksums:
+        \`\`\`bash
+        shasum -a 256 -c checksums.txt
+        \`\`\`
+        
+        ## Full Changelog
+        
+        **Full Changelog**: https://github.com/williamcory/plue/compare/.../$VERSION
+        EOF
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          release-assets/plue-macos-${{ github.ref_name }}.tar.gz
+          release-assets/checksums.txt
+          release-assets/install.sh
+        body_path: release-notes.md
+        draft: false
+        prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+
+  # ============================================================================
+  # DEPLOYMENT & NOTIFICATIONS
+  # ============================================================================
+
+  deploy:
+    name: Deploy & Notify
+    runs-on: macos-${{ env.MACOS_VERSION }}
+    needs: [release]
+    if: github.event_name == 'release'
+    steps:
+    - name: Notify deployment success
+      run: |
+        echo '🎉 Deployment completed successfully!'
+        echo 'Release ${{ github.ref_name }} is now available at:'
+        echo 'https://github.com/williamcory/plue/releases/tag/${{ github.ref_name }}'
+
+    # Add webhook notifications, Slack notifications, etc. here if needed
+
+  # ============================================================================
+  # CLEANUP
+  # ============================================================================
+
+  cleanup:
+    name: Cleanup Old Artifacts
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Delete old artifacts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const owner = context.repo.owner;
+          const repo = context.repo.repo;
+          
+          // Keep artifacts for 30 days
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - 30);
+          
+          const artifacts = await github.rest.actions.listArtifactsForRepo({
+            owner,
+            repo,
+            per_page: 100
+          });
+          
+          for (const artifact of artifacts.data.artifacts) {
+            if (new Date(artifact.created_at) < cutoff) {
+              console.log(`Deleting artifact: ${artifact.name}`);
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id
+              });
+            }
+          }

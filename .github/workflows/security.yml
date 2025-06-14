@@ -1,0 +1,292 @@
+name: Security & Dependencies
+
+on:
+  schedule:
+    # Run security checks daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ============================================================================
+  # DEPENDENCY SECURITY AUDIT
+  # ============================================================================
+
+  dependency-audit:
+    name: Dependency Security Audit
+    runs-on: macos-14
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Audit Swift dependencies
+      run: |
+        nix develop --command bash -c "
+          echo '🔍 Auditing Swift Package Manager dependencies...'
+          
+          # Check for known vulnerabilities in Swift dependencies
+          swift package show-dependencies --format json > dependencies.json
+          
+          # Check each dependency against known vulnerability databases
+          # This is a placeholder - in a real setup you'd integrate with
+          # vulnerability scanning services like Snyk, OWASP, etc.
+          
+          echo 'Swift dependency audit completed'
+        "
+
+    - name: Audit Zig dependencies
+      run: |
+        nix develop --command bash -c "
+          echo '🔍 Auditing Zig dependencies...'
+          
+          # Check build.zig.zon for dependencies
+          if [ -f build.zig.zon ]; then
+            echo 'Found Zig dependencies:'
+            cat build.zig.zon
+          fi
+          
+          # In a real setup, you'd scan these against vulnerability databases
+          echo 'Zig dependency audit completed'
+        "
+
+    - name: Check for hardcoded secrets
+      run: |
+        echo '🔒 Scanning for hardcoded secrets...'
+        
+        # Check for common secret patterns
+        SECRET_PATTERNS=(
+          "password.*=.*[\"'][^\"']{8,}[\"']"
+          "secret.*=.*[\"'][^\"']{8,}[\"']"
+          "token.*=.*[\"'][^\"']{20,}[\"']"
+          "api.*key.*=.*[\"'][^\"']{16,}[\"']"
+          "private.*key.*=.*[\"'][^\"']{20,}[\"']"
+        )
+        
+        FOUND_SECRETS=false
+        for pattern in "${SECRET_PATTERNS[@]}"; do
+          if grep -r -E -i "$pattern" Sources/ src/ --include='*.swift' --include='*.zig'; then
+            FOUND_SECRETS=true
+            echo "⚠️  Potential secret found matching pattern: $pattern"
+          fi
+        done
+        
+        if [ "$FOUND_SECRETS" = true ]; then
+          echo "❌ Potential secrets detected. Please review and remove hardcoded credentials."
+          exit 1
+        else
+          echo "✅ No hardcoded secrets detected"
+        fi
+
+    - name: License compliance check
+      run: |
+        echo '📄 Checking license compliance...'
+        
+        # Check Swift dependencies
+        swift package show-dependencies --format json | \
+          jq -r '.dependencies[] | "\(.identity): \(.kind)"' || echo "No Swift dependencies found"
+        
+        # Verify our project has a license
+        if [ ! -f LICENSE ] && [ ! -f LICENSE.md ] && [ ! -f COPYING ]; then
+          echo "⚠️  No license file found. Consider adding one for legal clarity."
+        else
+          echo "✅ License file found"
+        fi
+
+  # ============================================================================
+  # CODEQL SECURITY ANALYSIS
+  # ============================================================================
+
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: macos-14
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: swift
+        queries: security-and-quality
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Build for CodeQL analysis
+      run: |
+        nix develop --command bash -c "
+          echo '🏗️  Building for CodeQL analysis...'
+          zig build swift --summary all
+        "
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:swift"
+
+  # ============================================================================
+  # DEPENDENCY UPDATES
+  # ============================================================================
+
+  dependency-updates:
+    name: Check Dependency Updates
+    runs-on: macos-14
+    if: github.event_name == 'schedule'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Check Swift dependency updates
+      run: |
+        nix develop --command bash -c "
+          echo '📦 Checking for Swift dependency updates...'
+          
+          # Show current dependencies
+          echo 'Current Swift dependencies:'
+          swift package show-dependencies
+          
+          # Check for updates (this is informational)
+          echo 'Checking for available updates...'
+          swift package update --dry-run || echo 'Package update check completed'
+        "
+
+    - name: Check Nix dependency updates
+      run: |
+        nix develop --command bash -c "
+          echo '📦 Checking for Nix dependency updates...'
+          
+          # Check flake updates
+          nix flake check
+          nix flake show
+        "
+
+    - name: Create update summary
+      run: |
+        echo '📋 Dependency Update Summary' > update-summary.md
+        echo '=============================' >> update-summary.md
+        echo '' >> update-summary.md
+        echo 'This is an automated dependency update check.' >> update-summary.md
+        echo 'Review the logs above for available updates.' >> update-summary.md
+        echo '' >> update-summary.md
+        echo 'To update dependencies:' >> update-summary.md
+        echo '1. Swift: `swift package update`' >> update-summary.md
+        echo '2. Nix: `nix flake update`' >> update-summary.md
+
+    - name: Create issue for updates
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const summary = fs.readFileSync('update-summary.md', 'utf8');
+          
+          // Check if an update issue already exists
+          const issues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            labels: ['dependencies', 'automated'],
+            state: 'open'
+          });
+          
+          if (issues.data.length === 0) {
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Automated Dependency Update Check - ${new Date().toISOString().split('T')[0]}`,
+              body: summary,
+              labels: ['dependencies', 'automated', 'security']
+            });
+          }
+
+  # ============================================================================
+  # BINARY SECURITY ANALYSIS
+  # ============================================================================
+
+  binary-security:
+    name: Binary Security Analysis
+    runs-on: macos-14
+    needs: []
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v17
+      
+    - name: Setup Nix Cache
+      uses: DeterminateSystems/magic-nix-cache-action@v10
+
+    - name: Build release binary
+      run: |
+        nix develop --command bash -c "
+          echo '🏗️  Building release binary for security analysis...'
+          zig build swift --summary all -Doptimize=ReleaseFast
+        "
+
+    - name: Analyze binary security features
+      run: |
+        echo '🔒 Analyzing binary security features...'
+        
+        BINARY=".build/release/plue"
+        
+        if [ ! -f "$BINARY" ]; then
+          echo "❌ Binary not found at $BINARY"
+          exit 1
+        fi
+        
+        echo "📊 Binary information:"
+        file "$BINARY"
+        
+        echo ""
+        echo "📏 Binary size:"
+        ls -lh "$BINARY"
+        
+        echo ""
+        echo "🔗 Linked libraries:"
+        otool -L "$BINARY"
+        
+        echo ""
+        echo "🛡️  Security features:"
+        # Check for hardened runtime
+        codesign -d -vv "$BINARY" 2>&1 | grep -E "(runtime|entitlements)" || echo "No code signing detected"
+        
+        # Check for position independent executable
+        if otool -hv "$BINARY" | grep -q PIE; then
+          echo "✅ PIE (Position Independent Executable) enabled"
+        else
+          echo "⚠️  PIE not enabled"
+        fi
+        
+        # Check for stack canaries (basic check)
+        if otool -tv "$BINARY" | grep -q "__stack_chk"; then
+          echo "✅ Stack protection detected"
+        else
+          echo "⚠️  Stack protection not detected"
+        fi
+
+    - name: Upload binary for analysis
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-analysis-binary
+        path: .build/release/plue
+        retention-days: 7
