@@ -101,49 +101,62 @@ struct DiffView: View {
             
             Spacer()
             
-            // Right side - Git actions
-            HStack(spacing: DesignSystem.Spacing.sm) {
-                // Refresh button
-                Button(action: refreshGitDiff) {
-                    HStack(spacing: 4) {
-                        Image(systemName: isRefreshing ? "arrow.clockwise" : "arrow.clockwise")
-                            .font(.system(size: 11, weight: .medium))
-                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                            .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
-                        Text("refresh")
-                            .font(.system(size: 10, weight: .medium))
+            // Right side - Git actions  
+            HStack(spacing: DesignSystem.Spacing.md) {
+                // NEW "Edit" Button
+                Button("Edit") {
+                    if let file = gitDiff.changedFiles.first(where: { $0.path == selectedFile }) {
+                        // This should switch to the editor tab and pass the file content
+                        print("Editing \(file.path)")
+                        core.handleEvent(.tabSwitched(.editor))
                     }
-                    .foregroundColor(DesignSystem.Colors.textTertiary)
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help("Refresh git diff")
+                .buttonStyle(GhostButtonStyle())
+                .disabled(selectedFile == nil)
                 
-                // Line numbers toggle
-                Button(action: { showLineNumbers.toggle() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: showLineNumbers ? "list.number" : "list.bullet")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("lines")
-                            .font(.system(size: 10, weight: .medium))
+                HStack(spacing: DesignSystem.Spacing.sm) {
+                    // Refresh button
+                    Button(action: refreshGitDiff) {
+                        HStack(spacing: 4) {
+                            Image(systemName: isRefreshing ? "arrow.clockwise" : "arrow.clockwise")
+                                .font(.system(size: 11, weight: .medium))
+                                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                                .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                            Text("refresh")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
                     }
-                    .foregroundColor(showLineNumbers ? DesignSystem.Colors.primary : DesignSystem.Colors.textTertiary)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .help("Toggle line numbers")
-                
-                // Stage all button  
-                Button(action: stageAll) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.circle")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("stage")
-                            .font(.system(size: 10, weight: .medium))
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Refresh git diff")
+                    
+                    // Line numbers toggle
+                    Button(action: { showLineNumbers.toggle() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: showLineNumbers ? "list.number" : "list.bullet")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("lines")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(showLineNumbers ? DesignSystem.Colors.primary : DesignSystem.Colors.textTertiary)
                     }
-                    .foregroundColor(DesignSystem.Colors.success)
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Toggle line numbers")
+                    
+                    // Stage all button  
+                    Button(action: stageAll) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("stage")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(DesignSystem.Colors.success)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Stage all changes")
+                    .disabled(gitDiff.changedFiles.isEmpty)
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help("Stage all changes")
-                .disabled(gitDiff.changedFiles.isEmpty)
             }
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)

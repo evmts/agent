@@ -4,7 +4,7 @@ const std = @import("std");
 /// Pre-allocates memory in chunks and doubles size when needed
 const SmartAllocator = struct {
     gpa: std.heap.GeneralPurposeAllocator(.{}),
-    arena: std.heap.ArenaAllocator,
+    arena: ?std.heap.ArenaAllocator,
     base_size: usize,
     current_size: usize,
     
@@ -12,27 +12,37 @@ const SmartAllocator = struct {
     const DEFAULT_BASE_SIZE = 64 * 1024; // Start with 64KB
     
     fn init() Self {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         return Self{
-            .gpa = gpa,
-            .arena = std.heap.ArenaAllocator.init(gpa.allocator()),
+            .gpa = std.heap.GeneralPurposeAllocator(.{}){},
+            .arena = null,
             .base_size = DEFAULT_BASE_SIZE,
             .current_size = DEFAULT_BASE_SIZE,
         };
     }
     
+    fn ensureArena(self: *Self) void {
+        if (self.arena == null) {
+            self.arena = std.heap.ArenaAllocator.init(self.gpa.allocator());
+        }
+    }
+    
     fn deinit(self: *Self) void {
-        self.arena.deinit();
+        if (self.arena) |*arena| {
+            arena.deinit();
+        }
         _ = self.gpa.deinit();
     }
     
     fn allocator(self: *Self) std.mem.Allocator {
-        return self.arena.allocator();
+        self.ensureArena();
+        return self.arena.?.allocator();
     }
     
     /// Reset arena for next operation - very fast!
     fn reset(self: *Self) void {
-        self.arena.deinit();
+        if (self.arena) |*arena| {
+            arena.deinit();
+        }
         // Double size if we're running out of space frequently
         self.current_size = @min(self.current_size * 2, 8 * 1024 * 1024); // Cap at 8MB
         self.arena = std.heap.ArenaAllocator.init(self.gpa.allocator());

@@ -161,31 +161,41 @@ pub const CastId = struct {
 
 /// Smart allocator wrapper for HTTP operations
 const HttpArenaAllocator = struct {
-    gpa: std.heap.GeneralPurposeAllocator(.{}),
-    arena: std.heap.ArenaAllocator,
+    base_allocator: Allocator,
+    arena: ?std.heap.ArenaAllocator,
     
     const Self = @This();
     
     fn init(base_allocator: Allocator) Self {
         return Self{
-            .gpa = std.heap.GeneralPurposeAllocator(.{}){},
-            .arena = std.heap.ArenaAllocator.init(base_allocator),
+            .base_allocator = base_allocator,
+            .arena = null,
         };
     }
     
+    fn ensureArena(self: *Self) void {
+        if (self.arena == null) {
+            self.arena = std.heap.ArenaAllocator.init(self.base_allocator);
+        }
+    }
+    
     fn deinit(self: *Self) void {
-        self.arena.deinit();
-        _ = self.gpa.deinit();
+        if (self.arena) |*arena| {
+            arena.deinit();
+        }
     }
     
     fn allocator(self: *Self) Allocator {
-        return self.arena.allocator();
+        self.ensureArena();
+        return self.arena.?.allocator();
     }
     
     /// Reset arena between HTTP operations for optimal performance
     fn reset(self: *Self) void {
-        self.arena.deinit();
-        self.arena = std.heap.ArenaAllocator.init(self.gpa.allocator());
+        if (self.arena) |*arena| {
+            arena.deinit();
+        }
+        self.arena = std.heap.ArenaAllocator.init(self.base_allocator);
     }
 };
 
