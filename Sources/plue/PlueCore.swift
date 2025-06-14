@@ -9,6 +9,8 @@ enum TabType: Int, CaseIterable {
     case web = 3
     case editor = 4
     case farcaster = 5
+    case diff = 6
+    case agent = 7
 }
 
 struct AppState {
@@ -16,6 +18,7 @@ struct AppState {
     let isInitialized: Bool
     let errorMessage: String?
     let openAIAvailable: Bool
+    let currentTheme: DesignSystem.Theme
     
     // Tab states
     let chatState: ChatState
@@ -24,18 +27,21 @@ struct AppState {
     let webState: WebState
     let editorState: EditorState
     let farcasterState: FarcasterState
+    let agentState: AgentState
     
     static let initial = AppState(
         currentTab: .prompt,
         isInitialized: true,
         errorMessage: nil,
         openAIAvailable: false,
+        currentTheme: .dark,
         chatState: ChatState.initial,
         terminalState: TerminalState.initial,
         vimState: VimState.initial,
         webState: WebState.initial,
         editorState: EditorState.initial,
-        farcasterState: FarcasterState.initial
+        farcasterState: FarcasterState.initial,
+        agentState: AgentState.initial
     )
 }
 
@@ -308,10 +314,165 @@ struct FarcasterChannel {
     ]
 }
 
+struct AgentState {
+    let conversations: [AgentConversation]
+    let currentConversationIndex: Int
+    let isProcessing: Bool
+    let currentWorkspace: GitWorktree?
+    let availableWorktrees: [GitWorktree]
+    let daggerSession: DaggerSession?
+    let workflowQueue: [AgentWorkflow]
+    let isExecutingWorkflow: Bool
+    
+    static let initial = AgentState(
+        conversations: [AgentConversation.initial],
+        currentConversationIndex: 0,
+        isProcessing: false,
+        currentWorkspace: nil,
+        availableWorktrees: [],
+        daggerSession: nil,
+        workflowQueue: [],
+        isExecutingWorkflow: false
+    )
+    
+    var currentConversation: AgentConversation? {
+        guard currentConversationIndex < conversations.count else { return nil }
+        return conversations[currentConversationIndex]
+    }
+}
+
+struct AgentConversation {
+    let id: String
+    let messages: [AgentMessage]
+    let createdAt: Date
+    let updatedAt: Date
+    let associatedWorktree: String?
+    
+    static let initial = AgentConversation(
+        id: UUID().uuidString,
+        messages: [
+            AgentMessage(
+                id: UUID().uuidString,
+                content: "Agent ready! I can help you with git worktrees, code execution in containers, and workflow automation.",
+                type: .system,
+                timestamp: Date(),
+                metadata: nil
+            )
+        ],
+        createdAt: Date(),
+        updatedAt: Date(),
+        associatedWorktree: nil
+    )
+}
+
+struct AgentMessage: Identifiable {
+    let id: String
+    let content: String
+    let type: AgentMessageType
+    let timestamp: Date
+    let metadata: AgentMessageMetadata?
+}
+
+enum AgentMessageType {
+    case user
+    case assistant
+    case system
+    case workflow
+    case error
+}
+
+struct AgentMessageMetadata {
+    let worktree: String?
+    let workflow: String?
+    let containerId: String?
+    let exitCode: Int?
+    let duration: TimeInterval?
+}
+
+struct GitWorktree {
+    let id: String
+    let path: String
+    let branch: String
+    let isMain: Bool
+    let lastModified: Date
+    let status: GitWorktreeStatus
+    
+    static let mockWorktrees: [GitWorktree] = [
+        GitWorktree(
+            id: "main",
+            path: "/Users/user/plue",
+            branch: "main",
+            isMain: true,
+            lastModified: Date().addingTimeInterval(-3600),
+            status: .clean
+        ),
+        GitWorktree(
+            id: "feature-branch",
+            path: "/Users/user/plue-feature",
+            branch: "feature/new-ui",
+            isMain: false,
+            lastModified: Date().addingTimeInterval(-1800),
+            status: .modified
+        )
+    ]
+}
+
+enum GitWorktreeStatus {
+    case clean
+    case modified
+    case untracked
+    case conflicts
+}
+
+struct DaggerSession {
+    let sessionId: String
+    let port: Int
+    let token: String
+    let isConnected: Bool
+    let startedAt: Date
+}
+
+struct AgentWorkflow {
+    let id: String
+    let name: String
+    let description: String
+    let steps: [WorkflowStep]
+    let status: WorkflowStatus
+    let createdAt: Date
+    let startedAt: Date?
+    let completedAt: Date?
+}
+
+struct WorkflowStep {
+    let id: String
+    let name: String
+    let command: String
+    let container: String?
+    let dependencies: [String]
+    let status: WorkflowStepStatus
+}
+
+enum WorkflowStatus {
+    case pending
+    case running
+    case completed
+    case failed
+    case cancelled
+}
+
+enum WorkflowStepStatus {
+    case pending
+    case running
+    case completed
+    case failed
+    case skipped
+}
+
 // MARK: - Events (Commands sent to core)
 
 enum AppEvent {
     case tabSwitched(TabType)
+    case themeToggled
     case chatMessageSent(String)
     case chatNewConversation
     case chatSelectConversation(Int)
@@ -331,6 +492,19 @@ enum AppEvent {
     case farcasterReplyToPost(String, String) // postId, replyContent
     case farcasterCreatePost(String)
     case farcasterRefreshFeed
+    
+    // Agent events
+    case agentMessageSent(String)
+    case agentNewConversation
+    case agentSelectConversation(Int)
+    case agentCreateWorktree(String, String) // branch, path
+    case agentSwitchWorktree(String) // worktreeId
+    case agentDeleteWorktree(String) // worktreeId
+    case agentRefreshWorktrees
+    case agentStartDaggerSession
+    case agentStopDaggerSession
+    case agentExecuteWorkflow(AgentWorkflow)
+    case agentCancelWorkflow(String) // workflowId
 }
 
 // MARK: - Core Interface
@@ -343,6 +517,7 @@ protocol PlueCoreInterface {
     
     // Lifecycle
     func initialize() -> Bool
+    func initialize(workingDirectory: String) -> Bool
     func shutdown()
 }
 
@@ -400,20 +575,31 @@ class MockPlueCore: PlueCoreInterface {
     }
     
     func initialize() -> Bool {
+        return initialize(workingDirectory: FileManager.default.currentDirectoryPath)
+    }
+    
+    func initialize(workingDirectory: String) -> Bool {
         queue.sync {
+            // Change to the specified working directory
+            FileManager.default.changeCurrentDirectoryPath(workingDirectory)
+            
             // Initialize core state with OpenAI availability
             currentState = AppState(
                 currentTab: .prompt,
                 isInitialized: true,
                 errorMessage: nil,
                 openAIAvailable: openAIService != nil,
+                currentTheme: .dark,
                 chatState: ChatState.initial,
                 terminalState: TerminalState.initial,
                 vimState: VimState.initial,
                 webState: WebState.initial,
                 editorState: EditorState.initial,
-                farcasterState: FarcasterState.initial
+                farcasterState: FarcasterState.initial,
+                agentState: AgentState.initial
             )
+            
+            print("PlueCore: Initialized with working directory: \(workingDirectory)")
             return true
         }
     }
@@ -428,25 +614,29 @@ class MockPlueCore: PlueCoreInterface {
     
     private func createUpdatedAppState(
         currentTab: TabType? = nil,
+        currentTheme: DesignSystem.Theme? = nil,
         errorMessage: String? = nil,
         chatState: ChatState? = nil,
         terminalState: TerminalState? = nil,
         vimState: VimState? = nil,
         webState: WebState? = nil,
         editorState: EditorState? = nil,
-        farcasterState: FarcasterState? = nil
+        farcasterState: FarcasterState? = nil,
+        agentState: AgentState? = nil
     ) -> AppState {
         return AppState(
             currentTab: currentTab ?? self.currentState.currentTab,
             isInitialized: self.currentState.isInitialized,
             errorMessage: errorMessage ?? self.currentState.errorMessage,
             openAIAvailable: self.openAIService != nil,
+            currentTheme: currentTheme ?? self.currentState.currentTheme,
             chatState: chatState ?? self.currentState.chatState,
             terminalState: terminalState ?? self.currentState.terminalState,
             vimState: vimState ?? self.currentState.vimState,
             webState: webState ?? self.currentState.webState,
             editorState: editorState ?? self.currentState.editorState,
-            farcasterState: farcasterState ?? self.currentState.farcasterState
+            farcasterState: farcasterState ?? self.currentState.farcasterState,
+            agentState: agentState ?? self.currentState.agentState
         )
     }
     
@@ -456,6 +646,10 @@ class MockPlueCore: PlueCoreInterface {
         switch event {
         case .tabSwitched(let tab):
             currentState = createUpdatedAppState(currentTab: tab)
+            
+        case .themeToggled:
+            let newTheme: DesignSystem.Theme = currentState.currentTheme == .dark ? .light : .dark
+            currentState = createUpdatedAppState(currentTheme: newTheme)
             
         case .chatMessageSent(let message):
             processChatMessage(message)
@@ -513,6 +707,40 @@ class MockPlueCore: PlueCoreInterface {
             
         case .farcasterRefreshFeed:
             refreshFarcasterFeed()
+            
+        // Agent events
+        case .agentMessageSent(let message):
+            processAgentMessage(message)
+            
+        case .agentNewConversation:
+            createNewAgentConversation()
+            
+        case .agentSelectConversation(let index):
+            selectAgentConversation(index)
+            
+        case .agentCreateWorktree(let branch, let path):
+            createWorktree(branch: branch, path: path)
+            
+        case .agentSwitchWorktree(let worktreeId):
+            switchWorktree(worktreeId)
+            
+        case .agentDeleteWorktree(let worktreeId):
+            deleteWorktree(worktreeId)
+            
+        case .agentRefreshWorktrees:
+            refreshWorktrees()
+            
+        case .agentStartDaggerSession:
+            startDaggerSession()
+            
+        case .agentStopDaggerSession:
+            stopDaggerSession()
+            
+        case .agentExecuteWorkflow(let workflow):
+            executeWorkflow(workflow)
+            
+        case .agentCancelWorkflow(let workflowId):
+            cancelWorkflow(workflowId)
         }
     }
     
@@ -1189,6 +1417,417 @@ class MockPlueCore: PlueCoreInterface {
                 self.currentState = self.createUpdatedAppState(farcasterState: refreshedState)
                 self.notifyStateChange()
             }
+        }
+    }
+    
+    // MARK: - Agent Event Handlers
+    
+    private func processAgentMessage(_ message: String) {
+        // Add user message
+        let userMessage = AgentMessage(
+            id: UUID().uuidString,
+            content: message,
+            type: .user,
+            timestamp: Date(),
+            metadata: AgentMessageMetadata(
+                worktree: currentState.agentState.currentWorkspace?.id,
+                workflow: nil,
+                containerId: nil,
+                exitCode: nil,
+                duration: nil
+            )
+        )
+        
+        var conversations = currentState.agentState.conversations
+        var currentConv = conversations[currentState.agentState.currentConversationIndex]
+        currentConv = AgentConversation(
+            id: currentConv.id,
+            messages: currentConv.messages + [userMessage],
+            createdAt: currentConv.createdAt,
+            updatedAt: Date(),
+            associatedWorktree: currentConv.associatedWorktree
+        )
+        conversations[currentState.agentState.currentConversationIndex] = currentConv
+        
+        // Update state with processing started
+        let newAgentState = AgentState(
+            conversations: conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: true,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Generate agent response
+        Task { [weak self] in
+            await self?.generateAgentResponse(for: message)
+        }
+    }
+    
+    private func generateAgentResponse(for input: String) async {
+        // Simulate processing delay
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+        
+        let responseContent = generateAgentResponseContent(for: input)
+        
+        // Update state with agent response
+        await updateStateWithAgentResponse(content: responseContent, type: .assistant)
+    }
+    
+    private func generateAgentResponseContent(for input: String) -> String {
+        let lowercaseInput = input.lowercased()
+        
+        if lowercaseInput.contains("worktree") {
+            return "I can help you with git worktrees! Use commands like 'create worktree <branch>' or 'list worktrees' to manage your parallel development environments."
+        } else if lowercaseInput.contains("dagger") {
+            return "Dagger integration allows me to execute workflows in containers. I can start a Dagger session and run isolated build/test processes for you."
+        } else if lowercaseInput.contains("workflow") {
+            return "I can create and execute custom workflows using Dagger. These run in containers for safety and reproducibility. What workflow would you like to create?"
+        } else {
+            return "I'm your development agent. I can help with git worktrees, container-based workflows via Dagger, and automating development tasks. What would you like me to help you with?"
+        }
+    }
+    
+    private func updateStateWithAgentResponse(content: String, type: AgentMessageType) async {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let agentMessage = AgentMessage(
+                id: UUID().uuidString,
+                content: content,
+                type: type,
+                timestamp: Date(),
+                metadata: AgentMessageMetadata(
+                    worktree: self.currentState.agentState.currentWorkspace?.id,
+                    workflow: nil,
+                    containerId: nil,
+                    exitCode: nil,
+                    duration: nil
+                )
+            )
+            
+            var conversations = self.currentState.agentState.conversations
+            var currentConv = conversations[self.currentState.agentState.currentConversationIndex]
+            currentConv = AgentConversation(
+                id: currentConv.id,
+                messages: currentConv.messages + [agentMessage],
+                createdAt: currentConv.createdAt,
+                updatedAt: Date(),
+                associatedWorktree: currentConv.associatedWorktree
+            )
+            conversations[self.currentState.agentState.currentConversationIndex] = currentConv
+            
+            let newAgentState = AgentState(
+                conversations: conversations,
+                currentConversationIndex: self.currentState.agentState.currentConversationIndex,
+                isProcessing: false,
+                currentWorkspace: self.currentState.agentState.currentWorkspace,
+                availableWorktrees: self.currentState.agentState.availableWorktrees,
+                daggerSession: self.currentState.agentState.daggerSession,
+                workflowQueue: self.currentState.agentState.workflowQueue,
+                isExecutingWorkflow: self.currentState.agentState.isExecutingWorkflow
+            )
+            
+            self.currentState = self.createUpdatedAppState(agentState: newAgentState)
+            
+            self.notifyStateChange()
+        }
+    }
+    
+    private func createNewAgentConversation() {
+        let newConv = AgentConversation(
+            id: UUID().uuidString,
+            messages: [
+                AgentMessage(
+                    id: UUID().uuidString,
+                    content: "New agent session started. How can I help you with development workflows?",
+                    type: .system,
+                    timestamp: Date(),
+                    metadata: nil
+                )
+            ],
+            createdAt: Date(),
+            updatedAt: Date(),
+            associatedWorktree: currentState.agentState.currentWorkspace?.id
+        )
+        
+        let conversations = currentState.agentState.conversations + [newConv]
+        let newAgentState = AgentState(
+            conversations: conversations,
+            currentConversationIndex: conversations.count - 1,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+    }
+    
+    private func selectAgentConversation(_ index: Int) {
+        guard index < currentState.agentState.conversations.count else { return }
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: index,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+    }
+    
+    private func createWorktree(branch: String, path: String) {
+        // Mock implementation - in real app would call git worktree add
+        let newWorktree = GitWorktree(
+            id: UUID().uuidString,
+            path: path,
+            branch: branch,
+            isMain: false,
+            lastModified: Date(),
+            status: .clean
+        )
+        
+        let updatedWorktrees = currentState.agentState.availableWorktrees + [newWorktree]
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: newWorktree,
+            availableWorktrees: updatedWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Add system message about worktree creation
+        Task { [weak self] in
+            await self?.updateStateWithAgentResponse(
+                content: "Created new worktree '\\(branch)' at \\(path)",
+                type: .system
+            )
+        }
+    }
+    
+    private func switchWorktree(_ worktreeId: String) {
+        guard let worktree = currentState.agentState.availableWorktrees.first(where: { $0.id == worktreeId }) else {
+            return
+        }
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: worktree,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Add system message about worktree switch
+        Task { [weak self] in
+            await self?.updateStateWithAgentResponse(
+                content: "Switched to worktree '\\(worktree.branch)' at \\(worktree.path)",
+                type: .system
+            )
+        }
+    }
+    
+    private func deleteWorktree(_ worktreeId: String) {
+        let updatedWorktrees = currentState.agentState.availableWorktrees.filter { $0.id != worktreeId }
+        let currentWorkspace = currentState.agentState.currentWorkspace?.id == worktreeId ? nil : currentState.agentState.currentWorkspace
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: currentWorkspace,
+            availableWorktrees: updatedWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Add system message about worktree deletion
+        Task { [weak self] in
+            await self?.updateStateWithAgentResponse(
+                content: "Deleted worktree with ID: \\(worktreeId)",
+                type: .system
+            )
+        }
+    }
+    
+    private func refreshWorktrees() {
+        // Mock implementation - would scan git worktrees in real app
+        let mockWorktrees = GitWorktree.mockWorktrees
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: mockWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+    }
+    
+    private func startDaggerSession() {
+        // Mock Dagger session - in real app would call `dagger engine` and capture port/token
+        let session = DaggerSession(
+            sessionId: UUID().uuidString,
+            port: 8080,
+            token: "mock-token-\(UUID().uuidString)",
+            isConnected: true,
+            startedAt: Date()
+        )
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: session,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Add system message about Dagger session
+        Task { [weak self] in
+            await self?.updateStateWithAgentResponse(
+                content: "Started Dagger session on port \\(session.port). Ready for container workflows.",
+                type: .system
+            )
+        }
+    }
+    
+    private func stopDaggerSession() {
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: nil,
+            workflowQueue: currentState.agentState.workflowQueue,
+            isExecutingWorkflow: currentState.agentState.isExecutingWorkflow
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Add system message about Dagger session stop
+        Task { [weak self] in
+            await self?.updateStateWithAgentResponse(
+                content: "Stopped Dagger session. Container workflows disabled.",
+                type: .system
+            )
+        }
+    }
+    
+    private func executeWorkflow(_ workflow: AgentWorkflow) {
+        // Mock workflow execution
+        let updatedWorkflow = AgentWorkflow(
+            id: workflow.id,
+            name: workflow.name,
+            description: workflow.description,
+            steps: workflow.steps,
+            status: .running,
+            createdAt: workflow.createdAt,
+            startedAt: Date(),
+            completedAt: nil
+        )
+        
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: [updatedWorkflow],
+            isExecutingWorkflow: true
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Simulate workflow execution
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+            await self?.completeWorkflow(workflow.id)
+        }
+    }
+    
+    private func completeWorkflow(_ workflowId: String) async {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let newAgentState = AgentState(
+                conversations: self.currentState.agentState.conversations,
+                currentConversationIndex: self.currentState.agentState.currentConversationIndex,
+                isProcessing: false,
+                currentWorkspace: self.currentState.agentState.currentWorkspace,
+                availableWorktrees: self.currentState.agentState.availableWorktrees,
+                daggerSession: self.currentState.agentState.daggerSession,
+                workflowQueue: [],
+                isExecutingWorkflow: false
+            )
+            
+            self.currentState = self.createUpdatedAppState(agentState: newAgentState)
+            self.notifyStateChange()
+        }
+        
+        // Add completion message
+        await updateStateWithAgentResponse(
+            content: "Workflow completed successfully! All steps executed in container environment.",
+            type: .workflow
+        )
+    }
+    
+    private func cancelWorkflow(_ workflowId: String) {
+        let newAgentState = AgentState(
+            conversations: currentState.agentState.conversations,
+            currentConversationIndex: currentState.agentState.currentConversationIndex,
+            isProcessing: false,
+            currentWorkspace: currentState.agentState.currentWorkspace,
+            availableWorktrees: currentState.agentState.availableWorktrees,
+            daggerSession: currentState.agentState.daggerSession,
+            workflowQueue: [],
+            isExecutingWorkflow: false
+        )
+        
+        currentState = createUpdatedAppState(agentState: newAgentState)
+        
+        // Add cancellation message
+        Task { [weak self] in
+            await self?.updateStateWithAgentResponse(
+                content: "Workflow cancelled by user request.",
+                type: .system
+            )
         }
     }
     

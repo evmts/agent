@@ -20,13 +20,14 @@ struct FarcasterView: View {
                 feedHeader
                 
                 Divider()
-                    .background(Color(red: 0.2, green: 0.2, blue: 0.25))
+                    .background(DesignSystem.Colors.border)
                 
                 // Posts feed
                 postsFeed
             }
         }
-        .background(Color(red: 0.05, green: 0.05, blue: 0.06))
+        // Use the main content background from the design system
+        .background(DesignSystem.Colors.backgroundSecondary)
     }
     
     // MARK: - Channel Sidebar
@@ -49,10 +50,10 @@ struct FarcasterView: View {
                 .help("Refresh feed")
             }
             .padding()
-            .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+            .background(DesignSystem.Colors.surface)
             
             Divider()
-                .background(Color(red: 0.2, green: 0.2, blue: 0.25))
+                .background(DesignSystem.Colors.border)
             
             // Channels list
             ScrollView {
@@ -62,7 +63,7 @@ struct FarcasterView: View {
                     }
                 }
             }
-            .background(Color(red: 0.06, green: 0.06, blue: 0.07))
+            .background(DesignSystem.Colors.background)
         }
     }
     
@@ -150,7 +151,7 @@ struct FarcasterView: View {
             .buttonStyle(PlainButtonStyle())
         }
         .padding()
-        .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+        .background(DesignSystem.Colors.surface)
     }
     
     // MARK: - Posts Feed
@@ -174,11 +175,11 @@ struct FarcasterView: View {
                     )
                     
                     Divider()
-                        .background(Color(red: 0.15, green: 0.15, blue: 0.18))
+                        .background(DesignSystem.Colors.border)
                 }
             }
         }
-        .background(Color(red: 0.05, green: 0.05, blue: 0.06))
+        .background(DesignSystem.Colors.background)
     }
     
     private var filteredPosts: [FarcasterPost] {
@@ -219,18 +220,18 @@ struct FarcasterView: View {
                     .focused($isNewPostFocused)
                     .frame(minHeight: 80)
                     .padding(8)
-                    .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+                    .background(DesignSystem.Colors.surface)
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(red: 0.2, green: 0.2, blue: 0.25), lineWidth: 1)
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
                     )
             }
             .padding()
-            .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+            .background(DesignSystem.Colors.surface)
             
             Divider()
-                .background(Color(red: 0.15, green: 0.15, blue: 0.18))
+                .background(DesignSystem.Colors.border)
         }
     }
 }
@@ -367,7 +368,7 @@ struct PostView: View {
                             .focused($isReplyFocused)
                             .frame(minHeight: 60)
                             .padding(8)
-                            .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+                            .background(DesignSystem.Colors.surface)
                             .cornerRadius(8)
                         
                         Button("Reply") {
@@ -387,7 +388,7 @@ struct PostView: View {
                     }
                 }
                 .padding()
-                .background(Color(red: 0.08, green: 0.08, blue: 0.09))
+                .background(DesignSystem.Colors.surface)
                 .cornerRadius(8)
             }
         }

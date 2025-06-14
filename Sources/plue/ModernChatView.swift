@@ -35,10 +35,10 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Professional Header Bar
+    // MARK: - Minimal Header Bar (Ghostty-inspired)
     private var professionalHeaderBar: some View {
-        HStack(spacing: DesignSystem.Spacing.lg) {
-            // Left side - Chat Navigation with professional styling
+        HStack(spacing: DesignSystem.Spacing.md) {
+            // Left side - Minimal Chat Navigation
             HStack(spacing: DesignSystem.Spacing.sm) {
                 // Previous chat button
                 Button(action: {
@@ -47,21 +47,21 @@ struct ModernChatView: View {
                     }
                 }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(appState.chatState.currentConversationIndex == 0 ? DesignSystem.Colors.textTertiary.opacity(0.3) : DesignSystem.Colors.textSecondary)
                 }
-                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .buttonStyle(PlainButtonStyle())
                 .help("Previous chat (⌘[)")
                 .disabled(appState.chatState.currentConversationIndex == 0)
-                .opacity(appState.chatState.currentConversationIndex == 0 ? 0.4 : 1.0)
                 
-                // Professional chat indicator
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Conversation")
-                        .font(DesignSystem.Typography.labelSmall)
+                // Minimal chat indicator
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("chat")
+                        .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.textTertiary)
                     
-                    Text("\(appState.chatState.currentConversationIndex + 1) of \(appState.chatState.conversations.count)")
-                        .font(DesignSystem.Typography.labelMedium)
+                    Text("\(appState.chatState.currentConversationIndex + 1)/\(appState.chatState.conversations.count)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(DesignSystem.Colors.textSecondary)
                 }
                 
@@ -74,9 +74,10 @@ struct ModernChatView: View {
                     }
                 }) {
                     Image(systemName: appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "chevron.right" : "plus")
-                        .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
                 }
-                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .buttonStyle(PlainButtonStyle())
                 .help(appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "Next chat (⌘])" : "New chat (⌘N)")
             }
             
@@ -87,36 +88,55 @@ struct ModernChatView: View {
             
             Spacer()
             
-            // Right side - Professional Actions
-            HStack(spacing: DesignSystem.Spacing.md) {
-                // Enhanced status indicator
-                StatusIndicator(
-                    status: appState.openAIAvailable ? .online : .warning,
-                    text: appState.openAIAvailable ? "AI Connected" : "Mock Mode"
-                )
+            // Right side - Minimal Actions
+            HStack(spacing: DesignSystem.Spacing.sm) {
+                // Minimal status indicator
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(appState.openAIAvailable ? DesignSystem.Colors.success : DesignSystem.Colors.warning)
+                        .frame(width: 6, height: 6)
+                    
+                    Text(appState.openAIAvailable ? "ai" : "mock")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
                 
                 Button(action: {}) {
                     Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
                 }
-                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .buttonStyle(PlainButtonStyle())
                 .help("Export conversation")
                 
                 Button(action: {}) {
                     Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
                 }
-                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .buttonStyle(PlainButtonStyle())
                 .help("Clear conversation")
+                
+                // Theme toggle button
+                Button(action: {
+                    core.handleEvent(.themeToggled)
+                }) {
+                    Image(systemName: appState.currentTheme == .dark ? "sun.max" : "moon")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Toggle theme")
             }
         }
-        .padding(.horizontal, DesignSystem.Spacing.xl)
-        .padding(.vertical, DesignSystem.Spacing.lg)
+        .padding(.horizontal, DesignSystem.Spacing.lg)
+        .padding(.vertical, DesignSystem.Spacing.md)
         .background(
             DesignSystem.Colors.surface
                 .overlay(
                     Rectangle()
-                        .frame(height: 1)
-                        .foregroundColor(DesignSystem.Colors.border)
-                        .opacity(0.6),
+                        .frame(height: 0.5)
+                        .foregroundColor(DesignSystem.Colors.border.opacity(0.3)),
                     alignment: .bottom
                 )
         )
@@ -230,165 +250,158 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Enhanced Welcome View
+    // MARK: - Minimal Welcome View (Ghostty-inspired)
     private var enhancedWelcomeView: some View {
-        VStack(spacing: DesignSystem.Spacing.xxxl) {
-            // Professional logo with enhanced styling
-            ZStack {
-                Circle()
-                    .fill(DesignSystem.Colors.accentGradient)
-                    .frame(width: 100, height: 100)
-                    .blur(radius: 20)
-                    .opacity(0.3)
-                
-                Circle()
-                    .fill(DesignSystem.Colors.surface)
-                    .frame(width: 80, height: 80)
-                    .overlay(
-                        Circle()
-                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
-                    )
-                    .overlay(
-                        Image(systemName: "brain.head.profile")
-                            .font(.system(size: 36, weight: .light))
-                            .foregroundColor(DesignSystem.Colors.primary)
-                    )
-            }
+        VStack(spacing: DesignSystem.Spacing.xxl) {
+            // Minimal logo
+            Circle()
+                .fill(DesignSystem.Colors.textTertiary.opacity(0.1))
+                .frame(width: 60, height: 60)
+                .overlay(
+                    Image(systemName: "terminal")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                )
             
-            VStack(spacing: DesignSystem.Spacing.md) {
-                Text("How can I help you today?")
-                    .font(DesignSystem.Typography.headlineSmall)
+            VStack(spacing: DesignSystem.Spacing.sm) {
+                Text("ready")
+                    .font(DesignSystem.Typography.titleMedium)
                     .foregroundColor(DesignSystem.Colors.textPrimary)
                 
-                Text("Ask me anything about your code, debug issues, or start a conversation. I'm here to help with your development workflow.")
+                Text("type a message to start")
                     .font(DesignSystem.Typography.bodyMedium)
                     .foregroundColor(DesignSystem.Colors.textSecondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(3)
             }
             
-            // Enhanced suggested prompts
-            VStack(spacing: DesignSystem.Spacing.sm) {
-                professionalSuggestionButton("Explain this code", icon: "doc.text.magnifyingglass")
-                professionalSuggestionButton("Help me debug an issue", icon: "ladybug.fill")
-                professionalSuggestionButton("Write a function for...", icon: "curlybraces")
-                professionalSuggestionButton("Review my implementation", icon: "checkmark.seal.fill")
+            // Minimal suggested prompts
+            VStack(spacing: 6) {
+                minimalSuggestionButton("explain code", icon: "doc.text")
+                minimalSuggestionButton("debug issue", icon: "ladybug")
+                minimalSuggestionButton("write function", icon: "curlybraces")
+                minimalSuggestionButton("review code", icon: "checkmark")
             }
         }
         .frame(maxWidth: 500)
         .multilineTextAlignment(.center)
     }
     
-    private func professionalSuggestionButton(_ text: String, icon: String) -> some View {
+    private func minimalSuggestionButton(_ text: String, icon: String) -> some View {
         Button(action: {
-            withAnimation(DesignSystem.Animation.smooth) {
+            withAnimation(.easeInOut(duration: 0.2)) {
                 core.handleEvent(.chatMessageSent(text))
             }
         }) {
-            HStack(spacing: DesignSystem.Spacing.md) {
+            HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.primary)
-                    .frame(width: DesignSystem.IconSize.large)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textTertiary)
+                    .frame(width: 16)
                 
                 Text(text)
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .font(DesignSystem.Typography.labelMedium)
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
                 
                 Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(DesignSystem.Colors.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 0.5)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .frame(maxWidth: 280)
+    }
+    
+    // MARK: - Minimal Input Area (Ghostty-inspired)
+    private var enhancedInputArea: some View {
+        VStack(spacing: 0) {
+            // Minimal separator
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(DesignSystem.Colors.border.opacity(0.3))
+            
+            HStack(spacing: DesignSystem.Spacing.md) {
+                // Minimal attachment button
+                Button(action: {}) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help("Attach file (⌘O)")
                 
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: DesignSystem.IconSize.small))
-                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                // Minimal Vim Chat Input
+                VimChatInputView(
+                    onMessageSent: { message in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            core.handleEvent(.chatMessageSent(message))
+                        }
+                    },
+                    onMessageUpdated: { message in
+                        core.handleEvent(.chatMessageSent(message))
+                    },
+                    onNavigateUp: {
+                        print("Navigate up - not implemented in core yet")
+                    },
+                    onNavigateDown: {
+                        print("Navigate down - not implemented in core yet")
+                    },
+                    onPreviousChat: {
+                        if appState.chatState.currentConversationIndex > 0 {
+                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
+                        }
+                    },
+                    onNextChat: {
+                        if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
+                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
+                        } else {
+                            core.handleEvent(.chatNewConversation)
+                        }
+                    }
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(DesignSystem.Colors.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 0.5)
+                        )
+                )
+                .frame(maxWidth: .infinity)
+                
+                // Minimal help indicator
+                VStack(alignment: .trailing, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(":w")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(DesignSystem.Colors.primary.opacity(0.8))
+                        Text("send")
+                            .font(.system(size: 9))
+                            .foregroundColor(DesignSystem.Colors.textTertiary)
+                    }
+                    
+                    HStack(spacing: 4) {
+                        Text("⌘[]")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(DesignSystem.Colors.textTertiary.opacity(0.6))
+                        Text("nav")
+                            .font(.system(size: 9))
+                            .foregroundColor(DesignSystem.Colors.textTertiary)
+                    }
+                }
+                .opacity(0.7)
             }
             .padding(.horizontal, DesignSystem.Spacing.lg)
             .padding(.vertical, DesignSystem.Spacing.md)
-            .secondarySurface()
-            .primaryBorder()
-        }
-        .buttonStyle(PlainButtonStyle())
-        .hoverEffect()
-        .frame(maxWidth: 400)
-    }
-    
-    // MARK: - Enhanced Input Area
-    private var enhancedInputArea: some View {
-        VStack(spacing: 0) {
-            // Professional separator
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(DesignSystem.Colors.border)
-                .opacity(0.8)
-            
-            HStack(spacing: DesignSystem.Spacing.lg) {
-                // Enhanced attachment button
-                Button(action: {}) {
-                    Image(systemName: "paperclip")
-                }
-                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
-                .help("Attach file (⌘O)")
-                
-                // Professional Vim Chat Input with enhanced styling
-                VStack(spacing: DesignSystem.Spacing.xs) {
-                    VimChatInputView(
-                        onMessageSent: { message in
-                            withAnimation(DesignSystem.Animation.smooth) {
-                                core.handleEvent(.chatMessageSent(message))
-                            }
-                        },
-                        onMessageUpdated: { message in
-                            core.handleEvent(.chatMessageSent(message))
-                        },
-                        onNavigateUp: {
-                            print("Navigate up - not implemented in core yet")
-                        },
-                        onNavigateDown: {
-                            print("Navigate down - not implemented in core yet")
-                        },
-                        onPreviousChat: {
-                            if appState.chatState.currentConversationIndex > 0 {
-                                core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
-                            }
-                        },
-                        onNextChat: {
-                            if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
-                                core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
-                            } else {
-                                core.handleEvent(.chatNewConversation)
-                            }
-                        }
-                    )
-                    .padding(.horizontal, DesignSystem.Spacing.md)
-                    .padding(.vertical, DesignSystem.Spacing.sm)
-                    .secondarySurface()
-                    .primaryBorder()
-                }
-                .frame(maxWidth: .infinity)
-                
-                // Professional help indicator
-                VStack(alignment: .trailing, spacing: DesignSystem.Spacing.xs) {
-                    HStack(spacing: DesignSystem.Spacing.xs) {
-                        Text(":w")
-                            .font(DesignSystem.Typography.monoSmall)
-                            .foregroundColor(DesignSystem.Colors.primary)
-                        Text("send")
-                            .font(DesignSystem.Typography.labelSmall)
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                    
-                    HStack(spacing: DesignSystem.Spacing.xs) {
-                        Text("⌘[/⌘]")
-                            .font(DesignSystem.Typography.monoSmall)
-                            .foregroundColor(DesignSystem.Colors.textTertiary)
-                        Text("navigate")
-                            .font(DesignSystem.Typography.labelSmall)
-                            .foregroundColor(DesignSystem.Colors.textSecondary)
-                    }
-                }
-                .opacity(0.8)
-            }
-            .padding(.horizontal, DesignSystem.Spacing.xl)
-            .padding(.vertical, DesignSystem.Spacing.lg)
             .background(DesignSystem.Colors.surface)
         }
     }
@@ -417,7 +430,7 @@ struct ProfessionalMessageBubbleView: View {
             HStack(alignment: .bottom, spacing: DesignSystem.Spacing.md) {
                 Text(message.content)
                     .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(.white)
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.vertical, DesignSystem.Spacing.md)
                     .background(

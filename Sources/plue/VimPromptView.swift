@@ -14,35 +14,40 @@ struct VimPromptView: View {
                 .ignoresSafeArea()
             
             HSplitView {
-                // Left side - Professional Terminal Interface
+                // Left side - Minimal Terminal Interface (Ghostty-inspired)
                 VStack(spacing: 0) {
-                    // Professional Header
-                    HStack(spacing: DesignSystem.Spacing.lg) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Terminal Editor")
-                                .font(DesignSystem.Typography.titleMedium)
+                    // Minimal Header
+                    HStack(spacing: DesignSystem.Spacing.md) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Terminal")
+                                .font(DesignSystem.Typography.labelMedium)
                                 .foregroundColor(DesignSystem.Colors.textPrimary)
                             
-                            Text("Edit prompts with your favorite editor")
-                                .font(DesignSystem.Typography.labelSmall)
-                                .foregroundColor(DesignSystem.Colors.textSecondary)
+                            Text("vim-mode editing")
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundColor(DesignSystem.Colors.textTertiary)
                         }
                         
                         Spacer()
                         
-                        // Enhanced Status Indicator
-                        StatusIndicator(
-                            status: appState.openAIAvailable ? .online : .warning,
-                            text: appState.openAIAvailable ? "AI Ready" : "Mock Mode"
-                        )
+                        // Minimal Status Indicator
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(appState.openAIAvailable ? DesignSystem.Colors.success : DesignSystem.Colors.warning)
+                                .frame(width: 6, height: 6)
+                            
+                            Text(appState.openAIAvailable ? "ready" : "mock")
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundColor(DesignSystem.Colors.textTertiary)
+                        }
                     }
-                    .padding(.horizontal, DesignSystem.Spacing.xl)
-                    .padding(.vertical, DesignSystem.Spacing.lg)
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                    .padding(.vertical, DesignSystem.Spacing.md)
                     .background(DesignSystem.Colors.surface)
                     .overlay(
                         Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(DesignSystem.Colors.border),
+                            .frame(height: 0.5)
+                            .foregroundColor(DesignSystem.Colors.border.opacity(0.3)),
                         alignment: .bottom
                     )
                     
@@ -52,89 +57,98 @@ struct VimPromptView: View {
                 }
                 .elevatedSurface()
             
-                // Right side - Professional Markdown Preview
+                // Right side - Minimal Preview Panel
                 VStack(spacing: 0) {
-                    // Professional Header with Action Buttons
-                    HStack(spacing: DesignSystem.Spacing.lg) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Markdown Preview")
-                                .font(DesignSystem.Typography.titleMedium)
+                    // Minimal Header with Actions
+                    HStack(spacing: DesignSystem.Spacing.md) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Preview")
+                                .font(DesignSystem.Typography.labelMedium)
                                 .foregroundColor(DesignSystem.Colors.textPrimary)
                             
-                            Text("Real-time preview of your prompt")
-                                .font(DesignSystem.Typography.labelSmall)
-                                .foregroundColor(DesignSystem.Colors.textSecondary)
+                            Text("live markdown")
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundColor(DesignSystem.Colors.textTertiary)
                         }
                         
                         Spacer()
                         
-                        // Professional Action Buttons
-                        HStack(spacing: DesignSystem.Spacing.md) {
+                        // Minimal Action Buttons
+                        HStack(spacing: DesignSystem.Spacing.sm) {
                             Button(action: askInChat) {
-                                HStack(spacing: DesignSystem.Spacing.xs) {
-                                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                                        .font(.system(size: DesignSystem.IconSize.small))
-                                    Text("Ask in Chat")
-                                        .font(DesignSystem.Typography.labelMedium)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "paperplane.fill")
+                                        .font(.system(size: 11, weight: .medium))
+                                    Text("chat")
+                                        .font(.system(size: 11, weight: .medium))
                                 }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(DesignSystem.Colors.primary)
+                                )
                             }
-                            .buttonStyle(PrimaryButtonStyle())
+                            .buttonStyle(PlainButtonStyle())
                             .disabled(promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             
                             Button(action: launchClaudeCode) {
-                                HStack(spacing: DesignSystem.Spacing.xs) {
-                                    Image(systemName: "terminal.fill")
-                                        .font(.system(size: DesignSystem.IconSize.small))
-                                    Text("Claude Code")
-                                        .font(DesignSystem.Typography.labelMedium)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "terminal")
+                                        .font(.system(size: 11, weight: .medium))
+                                    Text("code")
+                                        .font(.system(size: 11, weight: .medium))
                                 }
+                                .foregroundColor(DesignSystem.Colors.textSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(DesignSystem.Colors.surface)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .stroke(DesignSystem.Colors.border, lineWidth: 0.5)
+                                        )
+                                )
                             }
-                            .buttonStyle(SecondaryButtonStyle())
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
-                    .padding(.horizontal, DesignSystem.Spacing.xl)
-                    .padding(.vertical, DesignSystem.Spacing.lg)
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                    .padding(.vertical, DesignSystem.Spacing.md)
                     .background(DesignSystem.Colors.surface)
                     .overlay(
                         Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(DesignSystem.Colors.border),
+                            .frame(height: 0.5)
+                            .foregroundColor(DesignSystem.Colors.border.opacity(0.3)),
                         alignment: .bottom
                     )
                 
-                    // Enhanced Markdown Preview
+                    // Minimal Markdown Preview
                     if promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        VStack(spacing: DesignSystem.Spacing.xl) {
+                        VStack {
                             Spacer()
                             
-                            // Professional empty state
-                            VStack(spacing: DesignSystem.Spacing.lg) {
-                                ZStack {
-                                    Circle()
-                                        .fill(DesignSystem.Colors.primaryGradient)
-                                        .frame(width: 80, height: 80)
-                                        .blur(radius: 15)
-                                        .opacity(0.2)
-                                    
-                                    Circle()
-                                        .fill(DesignSystem.Colors.surface)
-                                        .frame(width: 64, height: 64)
-                                        .overlay(
-                                            Image(systemName: "doc.text.magnifyingglass")
-                                                .font(.system(size: 28, weight: .light))
-                                                .foregroundColor(DesignSystem.Colors.primary)
-                                        )
-                                }
+                            // Minimal empty state
+                            VStack(spacing: 12) {
+                                Circle()
+                                    .fill(DesignSystem.Colors.textTertiary.opacity(0.1))
+                                    .frame(width: 40, height: 40)
+                                    .overlay(
+                                        Image(systemName: "doc.text")
+                                            .font(.system(size: 16, weight: .light))
+                                            .foregroundColor(DesignSystem.Colors.textTertiary)
+                                    )
                                 
-                                VStack(spacing: DesignSystem.Spacing.sm) {
-                                    Text("Markdown Preview")
-                                        .font(DesignSystem.Typography.titleMedium)
-                                        .foregroundColor(DesignSystem.Colors.textPrimary)
-                                    
-                                    Text("Edit your prompt in the terminal editor\nto see a live preview here")
-                                        .font(DesignSystem.Typography.bodyMedium)
+                                VStack(spacing: 4) {
+                                    Text("empty")
+                                        .font(DesignSystem.Typography.labelMedium)
                                         .foregroundColor(DesignSystem.Colors.textSecondary)
-                                        .multilineTextAlignment(.center)
+                                    
+                                    Text("start typing to see preview")
+                                        .font(DesignSystem.Typography.caption)
+                                        .foregroundColor(DesignSystem.Colors.textTertiary)
                                 }
                             }
                             
