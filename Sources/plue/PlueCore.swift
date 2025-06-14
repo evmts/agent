@@ -769,25 +769,25 @@ class MockPlueCore: PlueCoreInterface {
             timestamp: Date()
         )
         
-        var conversations = currentState.chatState.conversations
-        var currentConv = conversations[currentState.chatState.currentConversationIndex]
-        currentConv = Conversation(
+        var conversations = currentState.promptState.conversations
+        var currentConv = conversations[currentState.promptState.currentConversationIndex]
+        currentConv = PromptConversation(
             id: currentConv.id,
             messages: currentConv.messages + [userMessage],
             createdAt: currentConv.createdAt,
             updatedAt: Date()
         )
-        conversations[currentState.chatState.currentConversationIndex] = currentConv
+        conversations[currentState.promptState.currentConversationIndex] = currentConv
         
         // Update state with generation started
-        let newChatState = ChatState(
+        let newPromptState = PromptState(
             conversations: conversations,
-            currentConversationIndex: currentState.chatState.currentConversationIndex,
+            currentConversationIndex: currentState.promptState.currentConversationIndex,
             isGenerating: true,
             generationProgress: 0.0
         )
         
-        currentState = createUpdatedAppState(chatState: newChatState)
+        currentState = createUpdatedAppState(promptState: newPromptState)
         
         // Generate AI response using OpenAI API
         Task { [weak self] in
@@ -807,7 +807,7 @@ class MockPlueCore: PlueCoreInterface {
         do {
             // Get conversation history for context
             let currentConversation = queue.sync { 
-                return currentState.chatState.currentConversation 
+                return currentState.promptState.currentConversation 
             }
             
             let conversationMessages = currentConversation?.messages ?? []
@@ -846,41 +846,41 @@ class MockPlueCore: PlueCoreInterface {
         queue.async { [weak self] in
             guard let self = self else { return }
             
-            let aiMessage = CoreMessage(
+            let aiMessage = PromptMessage(
                 id: UUID().uuidString,
                 content: content,
                 isUser: false,
                 timestamp: Date()
             )
             
-            var conversations = self.currentState.chatState.conversations
-            var currentConv = conversations[self.currentState.chatState.currentConversationIndex]
-            currentConv = Conversation(
+            var conversations = self.currentState.promptState.conversations
+            var currentConv = conversations[self.currentState.promptState.currentConversationIndex]
+            currentConv = PromptConversation(
                 id: currentConv.id,
                 messages: currentConv.messages + [aiMessage],
                 createdAt: currentConv.createdAt,
                 updatedAt: Date()
             )
-            conversations[self.currentState.chatState.currentConversationIndex] = currentConv
+            conversations[self.currentState.promptState.currentConversationIndex] = currentConv
             
-            let newChatState = ChatState(
+            let newPromptState = PromptState(
                 conversations: conversations,
-                currentConversationIndex: self.currentState.chatState.currentConversationIndex,
+                currentConversationIndex: self.currentState.promptState.currentConversationIndex,
                 isGenerating: false,
                 generationProgress: 1.0
             )
             
-            self.currentState = self.createUpdatedAppState(chatState: newChatState)
+            self.currentState = self.createUpdatedAppState(promptState: newPromptState)
             
             self.notifyStateChange()
         }
     }
     
     private func createNewConversation() {
-        let newConv = Conversation(
+        let newConv = PromptConversation(
             id: UUID().uuidString,
             messages: [
-                CoreMessage(
+                PromptMessage(
                     id: UUID().uuidString,
                     content: "New conversation started. How can I help you?",
                     isUser: false,
@@ -891,28 +891,28 @@ class MockPlueCore: PlueCoreInterface {
             updatedAt: Date()
         )
         
-        let conversations = currentState.chatState.conversations + [newConv]
-        let newChatState = ChatState(
+        let conversations = currentState.promptState.conversations + [newConv]
+        let newPromptState = PromptState(
             conversations: conversations,
             currentConversationIndex: conversations.count - 1,
             isGenerating: false,
             generationProgress: 0.0
         )
         
-        currentState = createUpdatedAppState(chatState: newChatState)
+        currentState = createUpdatedAppState(promptState: newPromptState)
     }
     
     private func selectConversation(_ index: Int) {
-        guard index < currentState.chatState.conversations.count else { return }
+        guard index < currentState.promptState.conversations.count else { return }
         
-        let newChatState = ChatState(
-            conversations: currentState.chatState.conversations,
+        let newPromptState = PromptState(
+            conversations: currentState.promptState.conversations,
             currentConversationIndex: index,
             isGenerating: false,
             generationProgress: 0.0
         )
         
-        currentState = createUpdatedAppState(chatState: newChatState)
+        currentState = createUpdatedAppState(promptState: newPromptState)
     }
     
     private func processTerminalInput(_ input: String) {
