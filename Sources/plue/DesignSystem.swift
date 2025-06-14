@@ -7,63 +7,83 @@ import AppKit
 /// Follows Apple's Human Interface Guidelines while establishing a unique, professional identity
 struct DesignSystem {
     
+    // MARK: - Theme Management
+    
+    enum Theme: String, CaseIterable {
+        case dark = "dark"
+        case light = "light"
+        
+        var displayName: String {
+            switch self {
+            case .dark: return "Dark"
+            case .light: return "Light"
+            }
+        }
+    }
+    
     // MARK: - Color Palette
     
     /// Primary color palette with semantic naming
     struct Colors {
         
-        // MARK: - Brand Colors
-        static let primary = Color(red: 0.0, green: 0.478, blue: 1.0)          // #007AFF - iOS Blue
-        static let primaryVariant = Color(red: 0.2, green: 0.6, blue: 1.0)     // Lighter variant
-        static let accent = Color(red: 0.345, green: 0.337, blue: 0.839)       // #5856D6 - Indigo
-        static let success = Color(red: 0.203, green: 0.780, blue: 0.349)      // #34C759 - Green
-        static let warning = Color(red: 1.0, green: 0.584, blue: 0.0)          // #FF9500 - Orange
-        static let error = Color(red: 1.0, green: 0.231, blue: 0.188)          // #FF3B30 - Red
+        // MARK: - Brand Colors (Used for accents, status, etc.)
+        static let primary = Color(red: 0.0, green: 0.478, blue: 1.0)      // #007AFF - iOS Blue
+        static let accent = Color(red: 0.345, green: 0.337, blue: 0.839)   // #5856D6 - Indigo
+        static let success = Color(red: 0.203, green: 0.780, blue: 0.349)  // #34C759 - Green
+        static let warning = Color(red: 1.0, green: 0.584, blue: 0.0)      // #FF9500 - Orange
+        static let error = Color(red: 1.0, green: 0.231, blue: 0.188)      // #FF3B30 - Red
         
-        // MARK: - Background Colors (Dark Mode Optimized)
-        static let background = Color(red: 0.043, green: 0.043, blue: 0.047)   // #0B0B0C - Deep dark
-        static let backgroundSecondary = Color(red: 0.067, green: 0.067, blue: 0.075) // #111113 - Card background
-        static let backgroundTertiary = Color(red: 0.094, green: 0.094, blue: 0.102)  // #181819 - Elevated surfaces
+        // MARK: - Core UI Palette (Ghostty-inspired minimalism)
+        // We will enforce these across the entire UI for consistency.
+        static let background = Color.black                                      // Pure black for window background
+        static let backgroundSecondary = Color(white: 0.05)                      // Slightly off-black for content areas
+        static let surface = Color(white: 0.12)                                  // Dark gray for elevated surfaces, inputs
+        static let border = Color(white: 0.2)                                    // Subtle borders
+        static let borderFocus = Color(red: 0.0, green: 0.478, blue: 1.0)        // Use brand blue for focus rings
         
-        // MARK: - Surface Colors
-        static let surface = Color(red: 0.118, green: 0.118, blue: 0.129)      // #1E1E21 - Primary surface
-        static let surfaceSecondary = Color(red: 0.149, green: 0.149, blue: 0.165) // #262629 - Secondary surface
-        static let surfaceTertiary = Color(red: 0.188, green: 0.188, blue: 0.208)   // #303035 - Tertiary surface
+        static let textPrimary = Color(white: 0.9)                               // Near-white for primary text
+        static let textSecondary = Color(white: 0.6)                             // Gray for secondary text
+        static let textTertiary = Color(white: 0.4)                              // Darker gray for tertiary/disabled text
+        static let textInverse = Color.black                                     // For text on light backgrounds
         
-        // MARK: - Text Colors
-        static let textPrimary = Color(red: 0.922, green: 0.922, blue: 0.961)  // #EBEBF5 - Primary text
-        static let textSecondary = Color(red: 0.635, green: 0.635, blue: 0.675) // #A2A2AC - Secondary text
-        static let textTertiary = Color(red: 0.486, green: 0.486, blue: 0.525)  // #7C7C86 - Tertiary text
-        static let textInverse = Color(red: 0.067, green: 0.067, blue: 0.075)   // #111113 - Text on light backgrounds
+        // MARK: - Legacy compatibility (keeping old names for backward compatibility)
+        static let backgroundTertiary = background
+        static let surfaceSecondary = surface
+        static let surfaceTertiary = surface
+        static let borderSecondary = border
         
-        // MARK: - Border Colors
-        static let border = Color(red: 0.188, green: 0.188, blue: 0.208)       // #303035 - Primary borders
-        static let borderSecondary = Color(red: 0.149, green: 0.149, blue: 0.165) // #262629 - Subtle borders
-        static let borderFocus = Color(red: 0.0, green: 0.478, blue: 1.0)      // Focus indicator
+        // MARK: - Theme-Adaptive Functions (for compatibility with theme system)
+        static func background(for theme: Theme) -> Color {
+            switch theme {
+            case .dark: return background
+            case .light: return Color.white
+            }
+        }
+        
+        static func surface(for theme: Theme) -> Color {
+            switch theme {
+            case .dark: return surface
+            case .light: return Color(red: 0.95, green: 0.95, blue: 0.95)
+            }
+        }
         
         // MARK: - Interactive States
-        static let interactive = Color(red: 0.0, green: 0.478, blue: 1.0)      // Interactive elements
-        static let interactiveHover = Color(red: 0.2, green: 0.6, blue: 1.0)   // Hover state
-        static let interactivePressed = Color(red: 0.0, green: 0.4, blue: 0.8) // Pressed state
-        static let interactiveDisabled = Color(red: 0.486, green: 0.486, blue: 0.525) // Disabled state
+        static let interactive = textPrimary
+        static let interactiveHover = textPrimary
+        static let interactivePressed = textTertiary
+        static let interactiveDisabled = textTertiary
         
         // MARK: - Gradients
         static let primaryGradient = LinearGradient(
-            colors: [primary, primaryVariant],
+            colors: [primary, accent],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
         
         static let accentGradient = LinearGradient(
-            colors: [accent, Color(red: 0.5, green: 0.4, blue: 0.9)],
+            colors: [accent, Color(red: 0.5, green: 0.5, blue: 1.0)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
-        )
-        
-        static let surfaceGradient = LinearGradient(
-            colors: [surface, surfaceSecondary],
-            startPoint: .top,
-            endPoint: .bottom
         )
     }
     
@@ -97,10 +117,10 @@ struct DesignSystem {
         static let labelMedium = Font.system(size: 12, weight: .medium, design: .default)
         static let labelSmall = Font.system(size: 11, weight: .medium, design: .default)
         
-        // MARK: - Monospace Fonts (Code/Terminal)
-        static let monoLarge = Font.system(size: 16, weight: .regular, design: .monospaced)
-        static let monoMedium = Font.system(size: 14, weight: .regular, design: .monospaced)
-        static let monoSmall = Font.system(size: 12, weight: .regular, design: .monospaced)
+        // MARK: - Monospace Fonts (Code/Terminal) - Ghostty-inspired terminal fonts
+        static let monoLarge = Font.system(size: 15, weight: .regular, design: .monospaced)
+        static let monoMedium = Font.system(size: 13, weight: .regular, design: .monospaced)
+        static let monoSmall = Font.system(size: 11, weight: .regular, design: .monospaced)
         
         // MARK: - Caption Fonts
         static let caption = Font.system(size: 10, weight: .regular, design: .default)
