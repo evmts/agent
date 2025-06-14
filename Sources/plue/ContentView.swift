@@ -1,133 +1,187 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var appState = AppState.initial
-    private let core = PlueCore.shared
+    @Binding var appState: AppState
     
+    // This will now handle the event dispatches
+    private func handleEvent(_ event: AppEvent) {
+        PlueCore.shared.handleEvent(event)
+    }
+
     var body: some View {
-        ZStack {
-            // Background gradient
-            DesignSystem.Colors.background
-                .ignoresSafeArea()
-            
-            // Professional tab interface
-            TabView(selection: Binding(
-                get: { TabType(rawValue: appState.currentTab.rawValue) ?? .prompt },
-                set: { newTab in
-                    core.handleEvent(.tabSwitched(newTab))
+        VStack(spacing: 0) {
+            // 1. Custom Title Bar with Integrated Tabs
+            CustomTitleBar(
+                selectedTab: Binding(
+                    get: { appState.currentTab },
+                    set: { newTab in handleEvent(.tabSwitched(newTab)) }
+                ),
+                currentTheme: appState.currentTheme,
+                onThemeToggle: { handleEvent(.themeToggled) }
+            )
+
+            // 2. Main Content Area
+            ZStack {
+                // Use theme-aware background
+                DesignSystem.Colors.background(for: appState.currentTheme)
+                    .ignoresSafeArea()
+
+                // 3. View Switching Logic
+                switch appState.currentTab {
+                case .prompt:
+                    VimPromptView(appState: appState, core: PlueCore.shared)
+                case .chat:
+                    ModernChatView(appState: appState, core: PlueCore.shared)
+                case .terminal:
+                    TerminalView(appState: appState, core: PlueCore.shared)
+                case .web:
+                    WebView(appState: appState, core: PlueCore.shared)
+                case .editor:
+                    // The "Editor" tab uses the old ChatView, let's update it later if needed.
+                    // For now, let's ensure it has a consistent background.
+                    ChatView(appState: appState, core: PlueCore.shared)
+                        .background(DesignSystem.Colors.background)
+                case .farcaster:
+                    FarcasterView(appState: appState, core: PlueCore.shared)
+                case .diff:
+                    DiffView(appState: appState, core: PlueCore.shared)
+                case .agent:
+                    AgentView(appState: appState, core: PlueCore.shared)
                 }
-            )) {
-                VimPromptView(appState: appState, core: core)
-                    .tabItem {
-                        TabItemView(
-                            icon: "doc.text.fill",
-                            title: "Prompt",
-                            isSelected: appState.currentTab == .prompt
-                        )
-                    }
-                    .tag(TabType.prompt)
-                
-                ModernChatView(appState: appState, core: core)
-                    .tabItem {
-                        TabItemView(
-                            icon: "bubble.left.and.bubble.right.fill",
-                            title: "Chat",
-                            isSelected: appState.currentTab == .chat
-                        )
-                    }
-                    .tag(TabType.chat)
-                
-                TerminalView(appState: appState, core: core)
-                    .tabItem {
-                        TabItemView(
-                            icon: "terminal.fill",
-                            title: "Terminal",
-                            isSelected: appState.currentTab == .terminal
-                        )
-                    }
-                    .tag(TabType.terminal)
-                
-                WebView(appState: appState, core: core)
-                    .tabItem {
-                        TabItemView(
-                            icon: "globe",
-                            title: "Browser",
-                            isSelected: appState.currentTab == .web
-                        )
-                    }
-                    .tag(TabType.web)
-                
-                ChatView(appState: appState, core: core)
-                    .tabItem {
-                        TabItemView(
-                            icon: "curlybraces",
-                            title: "Editor",
-                            isSelected: appState.currentTab == .editor
-                        )
-                    }
-                    .tag(TabType.editor)
-                
-                FarcasterView(appState: appState, core: core)
-                    .tabItem {
-                        TabItemView(
-                            icon: "person.2.circle.fill",
-                            title: "Social",
-                            isSelected: appState.currentTab == .farcaster
-                        )
-                    }
-                    .tag(TabType.farcaster)
             }
-            .preferredColorScheme(.dark)
-            .tint(DesignSystem.Colors.primary)
         }
+        .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
+        .onAppear(perform: configureWindow)
+    }
+    
+    private func configureWindow() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        window.backgroundColor = NSColor(DesignSystem.Colors.background)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        // Ensure the standard buttons are hidden since we have custom ones
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+    }
+}
+
+
+// MARK: - New Custom Title Bar View
+struct CustomTitleBar: View {
+    @Binding var selectedTab: TabType
+    let currentTheme: DesignSystem.Theme
+    let onThemeToggle: () -> Void
+    @State private var isHovered = false
+
+    private let windowActions: [WindowAction] = [.close, .minimize, .maximize]
+    private let windowActionColors: [Color] = [.red, .yellow, .green]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Window Controls (Traffic Lights)
+            HStack(spacing: 8) {
+                ForEach(0..<3) { i in
+                    CustomWindowButton(action: windowActions[i], color: windowActionColors[i])
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
+            .frame(height: 40) // Define a fixed height for the title bar area
+            .onHover { hover in isHovered = hover }
+
+            // Tab Buttons
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(TabType.allCases, id: \.self) { tab in
+                        TabButton(tab: tab, selectedTab: $selectedTab)
+                    }
+                }
+                .padding(.horizontal, 8)
+            }
+            
+            Spacer()
+            
+            // Theme Toggle Button
+            Button(action: onThemeToggle) {
+                Image(systemName: currentTheme == .dark ? "sun.max" : "moon")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textTertiary)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .help("Toggle theme")
+            .padding(.trailing, 12)
+        }
+        .background(DesignSystem.Colors.background)
         .onAppear {
-            setupAppearance()
-            // Initialize core and subscribe to state changes
-            _ = core.initialize()
-            core.subscribe { newState in
-                withAnimation(DesignSystem.Animation.smooth) {
-                    appState = newState
+            // This enables the window to be dragged by our custom title bar
+            DispatchQueue.main.async {
+                if let window = NSApplication.shared.windows.first {
+                    window.isMovableByWindowBackground = true
                 }
             }
         }
     }
-    
-    private func setupAppearance() {
-        // Configure window appearance for professional look
-        if let window = NSApplication.shared.windows.first {
-            window.backgroundColor = NSColor(DesignSystem.Colors.background)
-            window.titlebarAppearsTransparent = false
-            window.titleVisibility = .visible
-        }
-    }
 }
 
-// MARK: - Professional Tab Item Component
 
-struct TabItemView: View {
-    let icon: String
-    let title: String
-    let isSelected: Bool
+// MARK: - New Tab Button View
+struct TabButton: View {
+    let tab: TabType
+    @Binding var selectedTab: TabType
     
+    private var isSelected: Bool { selectedTab == tab }
+    
+    private var title: String {
+        switch tab {
+        case .prompt: return "Prompt"
+        case .chat: return "Chat"
+        case .terminal: return "Terminal"
+        case .web: return "Browser"
+        case .editor: return "Editor"
+        case .farcaster: return "Social"
+        case .diff: return "Diff"
+        case .agent: return "Agent"
+        }
+    }
+    
+    private var icon: String {
+        switch tab {
+        case .prompt: return "doc.text.fill"
+        case .chat: return "bubble.left.and.bubble.right.fill"
+        case .terminal: return "terminal.fill"
+        case .web: return "globe"
+        case .editor: return "curlybraces"
+        case .farcaster: return "person.2.circle.fill"
+        case .diff: return "doc.on.doc.fill"
+        case .agent: return "gearshape.2.fill"
+        }
+    }
+
     var body: some View {
-        VStack(spacing: DesignSystem.Spacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
-                .foregroundColor(isSelected ? DesignSystem.Colors.primary : DesignSystem.Colors.textSecondary)
-                .scaleEffect(isSelected ? 1.1 : 1.0)
-                .animation(DesignSystem.Animation.quick, value: isSelected)
-            
-            Text(title)
-                .font(DesignSystem.Typography.labelSmall)
-                .foregroundColor(isSelected ? DesignSystem.Colors.primary : DesignSystem.Colors.textSecondary)
+        Button(action: { selectedTab = tab }) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+                Text(title)
+                    .font(DesignSystem.Typography.labelMedium)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .foregroundColor(isSelected ? DesignSystem.Colors.textPrimary : DesignSystem.Colors.textTertiary)
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
+                    .fill(isSelected ? DesignSystem.Colors.surface : .clear)
+            )
         }
-        .padding(.vertical, DesignSystem.Spacing.xs)
-        .contentTransition()
+        .buttonStyle(PlainButtonStyle())
+        .animation(DesignSystem.Animation.quick, value: isSelected)
     }
 }
-
 
 #Preview {
-    ContentView()
+    ContentView(appState: .constant(AppState.initial))
         .frame(width: 1200, height: 800)
 }
