@@ -56,7 +56,7 @@ test "FarcasterClient initialization with test private key" {
     
     // This test key should fail - we're testing error handling
     const result = farcaster.FarcasterClient.init(allocator, 12345, test_private_key);
-    try testing.expectError(error.NonCanonical, result);
+    try testing.expectError(farcaster.FarcasterError.SigningError, result);
 }
 
 test "FarcasterClient initialization with invalid private key" {

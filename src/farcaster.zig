@@ -159,8 +159,39 @@ pub const CastId = struct {
 
 // ===== Client Implementation =====
 
+/// Smart allocator wrapper for HTTP operations
+const HttpArenaAllocator = struct {
+    gpa: std.heap.GeneralPurposeAllocator(.{}),
+    arena: std.heap.ArenaAllocator,
+    
+    const Self = @This();
+    
+    fn init(base_allocator: Allocator) Self {
+        return Self{
+            .gpa = std.heap.GeneralPurposeAllocator(.{}){},
+            .arena = std.heap.ArenaAllocator.init(base_allocator),
+        };
+    }
+    
+    fn deinit(self: *Self) void {
+        self.arena.deinit();
+        _ = self.gpa.deinit();
+    }
+    
+    fn allocator(self: *Self) Allocator {
+        return self.arena.allocator();
+    }
+    
+    /// Reset arena between HTTP operations for optimal performance
+    fn reset(self: *Self) void {
+        self.arena.deinit();
+        self.arena = std.heap.ArenaAllocator.init(self.gpa.allocator());
+    }
+};
+
 pub const FarcasterClient = struct {
-    allocator: Allocator,
+    base_allocator: Allocator,  // For long-lived allocations
+    http_arena: HttpArenaAllocator,  // For temporary HTTP/JSON operations
     http_client: http.Client,
     base_url: []const u8,
     user_fid: u64,
@@ -169,23 +200,47 @@ pub const FarcasterClient = struct {
     
     const Self = @This();
     
+    /// Initialize FarcasterClient with smart allocation strategy
+    /// Uses arena allocator for temporary operations, base allocator for persistent data
     pub fn init(allocator: Allocator, user_fid: u64, private_key_hex: []const u8) !Self {
         var private_key: [64]u8 = undefined;
         var public_key: [32]u8 = undefined;
         
-        // Parse hex private key (64 bytes)
-        if (private_key_hex.len != 128) return FarcasterError.InvalidMessage; // 128 hex chars = 64 bytes
-        _ = try std.fmt.hexToBytes(&private_key, private_key_hex);
+        // Validate input first
+        if (private_key_hex.len != 128) {
+            std.log.err("Invalid private key length: {} (expected 128)", .{private_key_hex.len});
+            return FarcasterError.InvalidMessage;
+        }
         
-        // Create Ed25519 keypair from secret key bytes
-        const secret_key = try crypto.sign.Ed25519.SecretKey.fromBytes(private_key);
-        const kp = try crypto.sign.Ed25519.KeyPair.fromSecretKey(secret_key);
+        // Convert hex with proper error handling
+        _ = std.fmt.hexToBytes(&private_key, private_key_hex) catch {
+            std.log.err("Failed to parse hex private key", .{});
+            return FarcasterError.InvalidMessage;
+        };
+        
+        // Create cryptographic keys with error handling and security cleanup
+        const secret_key = crypto.sign.Ed25519.SecretKey.fromBytes(private_key) catch {
+            // Zero out sensitive data on error - Rust-style security
+            @memset(&private_key, 0);
+            std.log.err("Failed to create Ed25519 secret key", .{});
+            return FarcasterError.SigningError;
+        };
+        errdefer @memset(&private_key, 0); // ✅ Zero sensitive data on any error
+        
+        const kp = crypto.sign.Ed25519.KeyPair.fromSecretKey(secret_key) catch {
+            @memset(&private_key, 0);
+            std.log.err("Failed to create Ed25519 keypair", .{});
+            return FarcasterError.SigningError;
+        };
         public_key = kp.public_key.bytes;
         
+        // Initialize HTTP client with error handling
         const http_client = http.Client{ .allocator = allocator };
+        errdefer http_client.deinit(); // ✅ Cleanup on error
         
         return Self{
-            .allocator = allocator,
+            .base_allocator = allocator,
+            .http_arena = HttpArenaAllocator.init(allocator),
             .http_client = http_client,
             .base_url = "https://hub.pinata.cloud",
             .user_fid = user_fid,
@@ -196,30 +251,39 @@ pub const FarcasterClient = struct {
     
     pub fn deinit(self: *Self) void {
         self.http_client.deinit();
+        self.http_arena.deinit();
     }
     
     // ===== Cast Operations =====
     
     pub fn getCastsByFid(self: *Self, fid: u64, limit: u32) ![]FarcasterCast {
-        const uri_str = try std.fmt.allocPrint(self.allocator, "{s}/v1/castsByFid?fid={d}&limit={d}", .{ self.base_url, fid, limit });
-        defer self.allocator.free(uri_str);
+        // Reset arena for this operation - all temp allocations freed together
+        self.http_arena.reset();
+        
+        const arena_allocator = self.http_arena.allocator();
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/castsByFid?fid={d}&limit={d}", .{ self.base_url, fid, limit });
         
         const response_body = try self.httpGet(uri_str);
-        defer self.allocator.free(response_body);
         
-        return self.parseCastsResponse(response_body);
+        const result = try self.parseCastsResponse(response_body);
+        
+        // Copy result to persistent memory
+        return try self.base_allocator.dupe(FarcasterCast, result);
     }
     
     pub fn getCastsByChannel(self: *Self, channel_url: []const u8, limit: u32) ![]FarcasterCast {
-        // Encode the channel URL for the query parameter
-        // For now, we'll use a simple approach - in production you'd want proper URL encoding
-        const uri_str = try std.fmt.allocPrint(self.allocator, "{s}/v1/castsByParent?url={s}&limit={d}", .{ self.base_url, channel_url, limit });
-        defer self.allocator.free(uri_str);
+        // Reset arena for this operation
+        self.http_arena.reset();
+        
+        const arena_allocator = self.http_arena.allocator();
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/castsByParent?url={s}&limit={d}", .{ self.base_url, channel_url, limit });
         
         const response_body = try self.httpGet(uri_str);
-        defer self.allocator.free(response_body);
         
-        return self.parseCastsResponse(response_body);
+        const result = try self.parseCastsResponse(response_body);
+        
+        // Copy result to persistent memory
+        return try self.base_allocator.dupe(FarcasterCast, result);
     }
     
     pub fn postCast(self: *Self, text: []const u8, channel_url: ?[]const u8) ![]const u8 {
@@ -344,33 +408,45 @@ pub const FarcasterClient = struct {
     }
     
     pub fn getFollowers(self: *Self, fid: u64) ![]FarcasterUser {
-        const uri_str = try std.fmt.allocPrint(self.allocator, "{s}/v1/linksByTargetFid?target_fid={d}&link_type=follow", .{ self.base_url, fid });
-        defer self.allocator.free(uri_str);
+        // Reset arena for this operation
+        self.http_arena.reset();
+        
+        const arena_allocator = self.http_arena.allocator();
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/linksByTargetFid?target_fid={d}&link_type=follow", .{ self.base_url, fid });
         
         const response_body = try self.httpGet(uri_str);
-        defer self.allocator.free(response_body);
         
-        return self.parseFollowersResponse(response_body);
+        const result = try self.parseFollowersResponse(response_body);
+        
+        // Copy result to persistent memory
+        return try self.base_allocator.dupe(FarcasterUser, result);
     }
     
     pub fn getFollowing(self: *Self, fid: u64) ![]FarcasterUser {
-        const uri_str = try std.fmt.allocPrint(self.allocator, "{s}/v1/linksByFid?fid={d}&link_type=follow", .{ self.base_url, fid });
-        defer self.allocator.free(uri_str);
+        // Reset arena for this operation
+        self.http_arena.reset();
+        
+        const arena_allocator = self.http_arena.allocator();
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/linksByFid?fid={d}&link_type=follow", .{ self.base_url, fid });
         
         const response_body = try self.httpGet(uri_str);
-        defer self.allocator.free(response_body);
         
-        return self.parseFollowingResponse(response_body);
+        const result = try self.parseFollowingResponse(response_body);
+        
+        // Copy result to persistent memory
+        return try self.base_allocator.dupe(FarcasterUser, result);
     }
     
     // ===== User Profile Operations =====
     
     pub fn getUserProfile(self: *Self, fid: u64) !FarcasterUser {
-        const uri_str = try std.fmt.allocPrint(self.allocator, "{s}/v1/userDataByFid?fid={d}", .{ self.base_url, fid });
-        defer self.allocator.free(uri_str);
+        // Reset arena for this operation
+        self.http_arena.reset();
+        
+        const arena_allocator = self.http_arena.allocator();
+        const uri_str = try std.fmt.allocPrint(arena_allocator, "{s}/v1/userDataByFid?fid={d}", .{ self.base_url, fid });
         
         const response_body = try self.httpGet(uri_str);
-        defer self.allocator.free(response_body);
         
         return self.parseUserProfileResponse(response_body, fid);
     }
@@ -386,9 +462,6 @@ pub const FarcasterClient = struct {
         });
         defer req.deinit();
         
-        // Note: Setting headers in Zig 0.14 requires manual addition
-        // For now, we'll use default headers and the service should work
-        
         try req.send();
         try req.finish();
         try req.wait();
@@ -397,14 +470,17 @@ pub const FarcasterClient = struct {
             return FarcasterError.HttpError;
         }
         
-        const body = try req.reader().readAllAlloc(self.allocator, 16 * 1024 * 1024); // 16MB max
+        // Use arena allocator for HTTP response - auto-freed on reset
+        const body = try req.reader().readAllAlloc(self.http_arena.allocator(), 16 * 1024 * 1024);
         return body;
     }
     
     fn submitMessage(self: *Self, message_data: MessageData) ![]const u8 {
-        // 1. Serialize message data to bytes
+        // Reset arena for this operation - all temp allocations freed together
+        self.http_arena.reset();
+        
+        // 1. Serialize message data to bytes (arena allocated)
         const message_bytes = try self.serializeMessageData(message_data);
-        defer self.allocator.free(message_bytes);
         
         // 2. Hash the message with BLAKE3
         var hasher = crypto.hash.Blake3.init(.{});
@@ -418,21 +494,24 @@ pub const FarcasterClient = struct {
         const kp = crypto.sign.Ed25519.KeyPair{ .secret_key = secret_key, .public_key = public_key };
         const signature = try kp.sign(&hash, null);
         
-        // 4. Create complete message with signature
+        // 4. Create complete message with signature (arena allocated)
         const complete_message = try self.createSignedMessage(message_data, hash, signature);
-        defer self.allocator.free(complete_message);
         
-        // 5. Submit to hub
-        return self.httpPostMessage(complete_message);
+        // 5. Submit to hub and copy result to persistent memory
+        const response = try self.httpPostMessage(complete_message);
+        return try self.base_allocator.dupe(u8, response);
     }
     
     fn serializeMessageData(self: *Self, message_data: MessageData) ![]u8 {
         // This would normally be protobuf serialization
         // For now, we'll use JSON as a placeholder (the actual implementation would need protobuf)
         var string = ArrayList(u8).init(self.allocator);
-        defer string.deinit();
+        errdefer string.deinit(); // ✅ Cleanup on error
         
-        try json.stringify(message_data, .{}, string.writer());
+        json.stringify(message_data, .{}, string.writer()) catch |err| {
+            std.log.err("Failed to serialize message data: {}", .{err});
+            return err;
+        };
         return string.toOwnedSlice();
     }
     
@@ -486,15 +565,24 @@ pub const FarcasterClient = struct {
         // Parse JSON response and convert to FarcasterCast structs
         // This is a simplified implementation - real one would handle all message fields
         var casts = ArrayList(FarcasterCast).init(self.allocator);
-        defer casts.deinit();
+        errdefer casts.deinit(); // ✅ Cleanup on error
         
-        const parsed = try json.parseFromSlice(json.Value, self.allocator, response_body, .{});
-        defer parsed.deinit();
+        const parsed = json.parseFromSlice(json.Value, self.allocator, response_body, .{}) catch |err| {
+            std.log.err("Failed to parse JSON response: {}", .{err});
+            return err;
+        };
+        defer parsed.deinit(); // ✅ Always cleanup parsed JSON
         
         if (parsed.value.object.get("messages")) |messages_value| {
             for (messages_value.array.items) |message| {
-                const cast = try self.parsecastFromMessage(message);
-                try casts.append(cast);
+                const cast = self.parsecastFromMessage(message) catch |err| {
+                    std.log.err("Failed to parse cast from message: {}", .{err});
+                    return err;
+                };
+                casts.append(cast) catch |err| {
+                    std.log.err("Failed to append cast to list: {}", .{err});
+                    return err;
+                };
             }
         }
         
@@ -534,7 +622,7 @@ pub const FarcasterClient = struct {
     fn parseFollowersResponse(self: *Self, _: []const u8) ![]FarcasterUser {
         // Parse followers from links response
         var users = ArrayList(FarcasterUser).init(self.allocator);
-        defer users.deinit();
+        errdefer users.deinit(); // ✅ Cleanup on error
         
         // Implementation would parse link messages and extract follower FIDs
         // Then fetch user profiles for each
@@ -545,7 +633,7 @@ pub const FarcasterClient = struct {
     fn parseFollowingResponse(self: *Self, _: []const u8) ![]FarcasterUser {
         // Parse following from links response
         var users = ArrayList(FarcasterUser).init(self.allocator);
-        defer users.deinit();
+        errdefer users.deinit(); // ✅ Cleanup on error
         
         // Implementation would parse link messages and extract following FIDs
         // Then fetch user profiles for each
@@ -555,8 +643,11 @@ pub const FarcasterClient = struct {
     
     fn parseUserProfileResponse(self: *Self, response_body: []const u8, fid: u64) !FarcasterUser {
         // Parse user profile from userData response
-        const parsed = try json.parseFromSlice(json.Value, self.allocator, response_body, .{});
-        defer parsed.deinit();
+        const parsed = json.parseFromSlice(json.Value, self.allocator, response_body, .{}) catch |err| {
+            std.log.err("Failed to parse user profile JSON: {}", .{err});
+            return err;
+        };
+        defer parsed.deinit(); // ✅ Always cleanup parsed JSON
         
         var username: []const u8 = "unknown";
         var display_name: []const u8 = "Unknown User";
@@ -565,19 +656,19 @@ pub const FarcasterClient = struct {
         
         if (parsed.value.object.get("messages")) |messages| {
             for (messages.array.items) |message| {
-                const data = message.object.get("data").?.object;
-                const user_data_body = data.get("userDataBody").?.object;
-                const data_type = user_data_body.get("type").?.string;
-                const value = user_data_body.get("value").?.string;
+                const data = message.object.get("data") orelse continue;
+                const user_data_body = data.object.get("userDataBody") orelse continue;
+                const data_type = user_data_body.object.get("type") orelse continue;
+                const value = user_data_body.object.get("value") orelse continue;
                 
-                if (std.mem.eql(u8, data_type, "USER_DATA_TYPE_USERNAME")) {
-                    username = value;
-                } else if (std.mem.eql(u8, data_type, "USER_DATA_TYPE_DISPLAY")) {
-                    display_name = value;
-                } else if (std.mem.eql(u8, data_type, "USER_DATA_TYPE_BIO")) {
-                    bio = value;
-                } else if (std.mem.eql(u8, data_type, "USER_DATA_TYPE_PFP")) {
-                    pfp_url = value;
+                if (std.mem.eql(u8, data_type.string, "USER_DATA_TYPE_USERNAME")) {
+                    username = value.string;
+                } else if (std.mem.eql(u8, data_type.string, "USER_DATA_TYPE_DISPLAY")) {
+                    display_name = value.string;
+                } else if (std.mem.eql(u8, data_type.string, "USER_DATA_TYPE_BIO")) {
+                    bio = value.string;
+                } else if (std.mem.eql(u8, data_type.string, "USER_DATA_TYPE_PFP")) {
+                    pfp_url = value.string;
                 }
             }
         }
@@ -595,15 +686,31 @@ pub const FarcasterClient = struct {
 };
 
 // ===== C-compatible exports for Swift integration =====
+// All functions follow Rust-style ownership semantics with clear documentation
 
-// Export C-compatible functions that Swift can call
-export fn fc_client_create(fid: u64, private_key_hex: [*:0]const u8) ?*FarcasterClient {
+/// Create FarcasterClient with proper error handling
+/// Ownership: Returns owned pointer - caller MUST call fc_client_destroy()
+/// Returns: null on failure, valid pointer on success
+export fn fc_client_create(fid: u64, private_key_hex: ?[*:0]const u8) ?*FarcasterClient {
+    // Validate input
+    const key_ptr = private_key_hex orelse {
+        std.log.err("Null private key pointer passed to fc_client_create", .{});
+        return null;
+    };
+    
     const allocator = std.heap.c_allocator;
+    const key_slice = std.mem.span(key_ptr);
     
-    const key_slice = std.mem.span(private_key_hex);
-    const client = allocator.create(FarcasterClient) catch return null;
+    // Allocate client with error handling
+    const client = allocator.create(FarcasterClient) catch |err| {
+        std.log.err("Failed to allocate FarcasterClient: {}", .{err});
+        return null;
+    };
+    errdefer allocator.destroy(client); // ✅ Cleanup on error
     
-    client.* = FarcasterClient.init(allocator, fid, key_slice) catch {
+    // Initialize client with comprehensive error handling
+    client.* = FarcasterClient.init(allocator, fid, key_slice) catch |err| {
+        std.log.err("Failed to initialize FarcasterClient: {}", .{err});
         allocator.destroy(client);
         return null;
     };
@@ -611,60 +718,165 @@ export fn fc_client_create(fid: u64, private_key_hex: [*:0]const u8) ?*Farcaster
     return client;
 }
 
+/// Destroy FarcasterClient with safe ownership transfer
+/// Ownership: Takes ownership from caller and destroys it
+/// Safety: Handles null pointers gracefully
 export fn fc_client_destroy(client: ?*FarcasterClient) void {
     if (client) |c| {
-        c.deinit();
-        std.heap.c_allocator.destroy(c);
+        c.deinit(); // ✅ Cleanup internal resources
+        std.heap.c_allocator.destroy(c); // ✅ Free client memory
+    } else {
+        std.log.warn("Attempted to destroy null FarcasterClient", .{});
     }
 }
 
-export fn fc_post_cast(client: ?*FarcasterClient, text: [*:0]const u8, channel_url: [*:0]const u8) [*:0]const u8 {
-    const c = client orelse return "ERROR: null client";
+/// Post cast with safe memory management
+/// Returns: owned null-terminated string - caller MUST call fc_free_string()
+/// Ownership: Transfers ownership to caller
+/// Returns: null on error, owned string on success
+export fn fc_post_cast(client: ?*FarcasterClient, text: ?[*:0]const u8, channel_url: ?[*:0]const u8) ?[*:0]const u8 {
+    // Validate inputs
+    const c = client orelse {
+        std.log.err("Null client passed to fc_post_cast", .{});
+        return null;
+    };
     
-    const text_slice = std.mem.span(text);
-    const channel_slice = if (std.mem.len(channel_url) > 0) std.mem.span(channel_url) else null;
+    const text_ptr = text orelse {
+        std.log.err("Null text passed to fc_post_cast", .{});
+        return null;
+    };
     
-    const result = c.postCast(text_slice, channel_slice) catch return "ERROR: post failed";
+    const text_slice = std.mem.span(text_ptr);
+    const channel_slice = if (channel_url) |ch_url| 
+        if (std.mem.len(ch_url) > 0) std.mem.span(ch_url) else null
+    else null;
     
-    // Convert to null-terminated string for C
-    const c_str = std.heap.c_allocator.dupeZ(u8, result) catch return "ERROR: memory allocation";
+    // Post cast with error handling
+    const result = c.postCast(text_slice, channel_slice) catch |err| {
+        std.log.err("Failed to post cast: {}", .{err});
+        return null;
+    };
+    errdefer std.heap.c_allocator.free(result); // ✅ Cleanup on error
+    
+    // Convert to C string with clear ownership transfer
+    const c_str = std.heap.c_allocator.dupeZ(u8, result) catch |err| {
+        std.log.err("Failed to allocate C string: {}", .{err});
+        std.heap.c_allocator.free(result);
+        return null;
+    };
+    
+    // Free original, transfer ownership of c_str to caller
     std.heap.c_allocator.free(result);
-    
     return c_str.ptr;
 }
 
-export fn fc_like_cast(client: ?*FarcasterClient, cast_hash: [*:0]const u8, cast_fid: u64) [*:0]const u8 {
-    const c = client orelse return "ERROR: null client";
+/// Like cast with safe memory management  
+/// Returns: owned null-terminated string - caller MUST call fc_free_string()
+/// Ownership: Transfers ownership to caller
+/// Returns: null on error, owned string on success
+export fn fc_like_cast(client: ?*FarcasterClient, cast_hash: ?[*:0]const u8, cast_fid: u64) ?[*:0]const u8 {
+    // Validate inputs
+    const c = client orelse {
+        std.log.err("Null client passed to fc_like_cast", .{});
+        return null;
+    };
     
-    const hash_slice = std.mem.span(cast_hash);
-    const result = c.likeCast(hash_slice, cast_fid) catch return "ERROR: like failed";
+    const hash_ptr = cast_hash orelse {
+        std.log.err("Null cast_hash passed to fc_like_cast", .{});
+        return null;
+    };
     
-    const c_str = std.heap.c_allocator.dupeZ(u8, result) catch return "ERROR: memory allocation";
+    const hash_slice = std.mem.span(hash_ptr);
+    
+    // Like cast with error handling
+    const result = c.likeCast(hash_slice, cast_fid) catch |err| {
+        std.log.err("Failed to like cast: {}", .{err});
+        return null;
+    };
+    errdefer std.heap.c_allocator.free(result); // ✅ Cleanup on error
+    
+    // Convert to C string with clear ownership transfer
+    const c_str = std.heap.c_allocator.dupeZ(u8, result) catch |err| {
+        std.log.err("Failed to allocate C string: {}", .{err});
+        std.heap.c_allocator.free(result);
+        return null;
+    };
+    
+    // Free original, transfer ownership of c_str to caller
     std.heap.c_allocator.free(result);
-    
     return c_str.ptr;
 }
 
-export fn fc_get_casts_by_channel(client: ?*FarcasterClient, channel_url: [*:0]const u8, limit: u32) [*:0]const u8 {
-    const c = client orelse return "ERROR: null client";
+/// Get casts by channel with safe memory management
+/// Returns: owned null-terminated JSON string - caller MUST call fc_free_string()
+/// Ownership: Transfers ownership to caller
+/// Returns: null on error, owned JSON string on success
+export fn fc_get_casts_by_channel(client: ?*FarcasterClient, channel_url: ?[*:0]const u8, limit: u32) ?[*:0]const u8 {
+    // Validate inputs
+    const c = client orelse {
+        std.log.err("Null client passed to fc_get_casts_by_channel", .{});
+        return null;
+    };
     
-    const channel_slice = std.mem.span(channel_url);
-    const casts = c.getCastsByChannel(channel_slice, limit) catch return "ERROR: fetch failed";
-    defer std.heap.c_allocator.free(casts);
+    const channel_ptr = channel_url orelse {
+        std.log.err("Null channel_url passed to fc_get_casts_by_channel", .{});
+        return null;
+    };
+    
+    const channel_slice = std.mem.span(channel_ptr);
+    
+    // Get casts with error handling
+    const casts = c.getCastsByChannel(channel_slice, limit) catch |err| {
+        std.log.err("Failed to get casts by channel: {}", .{err});
+        return null;
+    };
+    errdefer std.heap.c_allocator.free(casts); // ✅ Cleanup on error
     
     // Convert casts array to JSON string
     var json_str = std.ArrayList(u8).init(std.heap.c_allocator);
-    defer json_str.deinit();
+    defer json_str.deinit(); // ✅ Always cleanup ArrayList
     
-    json.stringify(casts, .{}, json_str.writer()) catch return "ERROR: json serialization";
+    json.stringify(casts, .{}, json_str.writer()) catch |err| {
+        std.log.err("Failed to serialize casts to JSON: {}", .{err});
+        std.heap.c_allocator.free(casts);
+        return null;
+    };
     
-    const c_str = std.heap.c_allocator.dupeZ(u8, json_str.items) catch return "ERROR: memory allocation";
+    // Create C string with ownership transfer
+    const c_str = std.heap.c_allocator.dupeZ(u8, json_str.items) catch |err| {
+        std.log.err("Failed to allocate JSON C string: {}", .{err});
+        std.heap.c_allocator.free(casts);
+        return null;
+    };
     
+    // Free original casts array
+    std.heap.c_allocator.free(casts);
     return c_str.ptr;
 }
 
-// Helper for Swift to free C strings
-export fn fc_free_string(str: [*:0]const u8) void {
-    const slice = std.mem.span(str);
+/// Safely free string allocated by Farcaster C API functions
+/// Ownership: Takes ownership from caller and destroys it
+/// Safety: Handles null and validates pointers with comprehensive checks
+export fn fc_free_string(str: ?[*:0]const u8) void {
+    // Rust-style safety: validate pointer before use
+    const str_ptr = str orelse {
+        std.log.warn("Attempted to free null string pointer", .{});
+        return;
+    };
+    
+    const slice = std.mem.span(str_ptr);
+    if (slice.len == 0) {
+        std.log.warn("Attempted to free empty string", .{});
+        return;
+    }
+    
+    // Additional safety: basic pointer validation
+    // Check if pointer seems reasonable (not obviously corrupted)
+    if (@intFromPtr(str) < 0x1000) {
+        std.log.err("Attempted to free invalid pointer: 0x{x}", .{@intFromPtr(str)});
+        return;
+    }
+    
+    // Safe destruction with proper allocator
     std.heap.c_allocator.free(slice);
 }

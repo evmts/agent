@@ -390,7 +390,7 @@ struct AgentMessageMetadata {
     let duration: TimeInterval?
 }
 
-struct GitWorktree {
+struct GitWorktree: Identifiable {
     let id: String
     let path: String
     let branch: String

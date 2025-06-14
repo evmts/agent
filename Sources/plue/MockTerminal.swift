@@ -77,15 +77,21 @@ class MockTerminal: ObservableObject {
     }
     
     func startSession() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        self.showConnectionStatus = true // Show it immediately
+        self.isConnected = false
+        clearScreen()
+        writeLineAt(row: 2, text: "Connecting to shell...", color: colors.cyan)
+        redraw()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self = self else { return }
             self.isConnected = true
-            self.showWelcomeMessage()
+            self.showWelcomeMessage() // This will clear the "Connecting..." message
+            self.showPrompt()
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                guard let self = self else { return }
+            // Hide the status indicator after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 self.showConnectionStatus = false
-                self.showPrompt()
             }
         }
     }
@@ -113,17 +119,14 @@ class MockTerminal: ObservableObject {
     
     private func showWelcomeMessage() {
         clearScreen()
-        
         let welcomeLines = [
             "Plue Terminal v1.0.0",
-            "",
-            "Connecting to shell..."
+            "Shell connected."
         ]
-        
         for (index, line) in welcomeLines.enumerated() {
-            writeLineAt(row: index + 2, text: line, color: colors.cyan)
+            writeLineAt(row: index, text: line, color: colors.cyan)
         }
-        
+        cursorRow = welcomeLines.count
         redraw()
     }
     
@@ -159,27 +162,24 @@ class MockTerminal: ObservableObject {
     }
     
     private func handleEnter() {
-        // Move to next line
-        cursorRow += 1
-        cursorCol = 0
+        let commandToProcess = currentCommand.trimmingCharacters(in: .whitespaces)
         
-        // Process command
-        processCommand(currentCommand.trimmingCharacters(in: .whitespaces))
+        // Move to the next line immediately
+        newLine()
         
-        // Show new prompt
-        if cursorRow >= rows - 1 {
-            scrollUp()
+        // Process the command
+        if !commandToProcess.isEmpty {
+            processCommand(commandToProcess)
         }
+        
+        // Show the next prompt
         showPrompt()
     }
     
+    // Make processCommand synchronous to avoid timing issues with the prompt
     private func processCommand(_ command: String) {
         commandHistory.append(command)
-        
-        // Simulate command execution
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.executeCommand(command)
-        }
+        executeCommand(command)
     }
     
     private func executeCommand(_ command: String) {

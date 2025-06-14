@@ -2,92 +2,196 @@ import SwiftUI
 import MetalKit
 import AppKit
 
+// MARK: - Terminal Tab Model
+struct TerminalTab: Identifiable {
+    let id: Int
+    let title: String
+    let isActive: Bool
+}
+
 struct TerminalView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
     @StateObject private var terminal = MockTerminal()
-    @State private var metalView: TerminalMetalView?
+    @State private var selectedTab = 0
+    @State private var tabs: [TerminalTab] = [TerminalTab(id: 0, title: "zsh", isActive: true)]
     @FocusState private var isTerminalFocused: Bool
     
     var body: some View {
-        GeometryReader { geometry in
+        VStack(spacing: 0) {
+            // Professional Terminal Header with Tabs
+            terminalHeader
+            
+            // Terminal Content Area
             ZStack {
-                // Terminal Metal View
-                TerminalMetalViewRepresentable(terminal: terminal)
-                    .focused($isTerminalFocused)
-                    .onAppear {
-                        isTerminalFocused = true
-                        // Start mock shell session
-                        terminal.startSession()
-                    }
-                    .background(Color.black)
+                // Background with subtle texture
+                DesignSystem.Colors.background(for: appState.currentTheme)
+                    .overlay(
+                        Rectangle()
+                            .fill(Color.black.opacity(0.9))
+                    )
                 
-                // Overlay for selection and cursor when not using Metal
-                if !terminal.useMetalRendering {
-                    terminalOverlay
-                }
-                
-                // Status overlay
-                if terminal.showConnectionStatus {
-                    connectionStatusOverlay
-                }
+                // Professional Terminal Content
+                professionalTerminalContent
             }
         }
-        .background(Color.black)
-        .onReceive(terminal.$needsRedraw) { _ in
-            // Force SwiftUI update when terminal content changes
-        }
+        .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
     }
     
-    // MARK: - Terminal Overlay (for non-Metal rendering) - Optimized
-    private var terminalOverlay: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(0..<min(terminal.rows, 50)), id: \.self) { row in
-                LazyHStack(spacing: 0) {
-                    ForEach(Array(0..<min(terminal.cols, 120)), id: \.self) { col in
-                        let cell = terminal.getCell(row: row, col: col)
-                        Text(String(cell.character))
-                            .font(.system(size: 14, design: .monospaced))
-                            .foregroundColor(cell.foregroundColor)
-                            .background(cell.backgroundColor)
-                            .frame(width: terminal.cellWidth, height: terminal.cellHeight)
+    // MARK: - Professional Terminal Header
+    private var terminalHeader: some View {
+        VStack(spacing: 0) {
+            // Tab Bar
+            HStack(spacing: 0) {
+                // Terminal Tabs
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 1) {
+                        ForEach(tabs) { tab in
+                            terminalTabButton(tab)
+                        }
+                        
+                        // Add Tab Button
+                        Button(action: addNewTab) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                                .frame(width: 24, height: 28)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(DesignSystem.Colors.surface(for: appState.currentTheme).opacity(0.5))
+                        )
                     }
+                    .padding(.horizontal, 12)
                 }
-            }
-        }
-        .background(Color.black)
-        .drawingGroup() // Flatten into single layer for better performance
-    }
-    
-    // MARK: - Connection Status Overlay
-    private var connectionStatusOverlay: some View {
-        VStack {
-            Spacer()
-            HStack {
+                
                 Spacer()
+                
+                // Connection Status
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(terminal.isConnected ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
+                        .fill(terminal.isConnected ? DesignSystem.Colors.success : DesignSystem.Colors.warning)
+                        .frame(width: 6, height: 6)
                     
-                    Text(terminal.isConnected ? "Connected" : "Connecting...")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white)
+                    Text(terminal.isConnected ? "ssh://server" : "connecting...")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.black.opacity(0.8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
-                )
                 .padding(.trailing, 16)
             }
-            .padding(.bottom, 16)
+            .frame(height: 40)
+            .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+            
+            // Subtle border
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.3))
+        }
+    }
+    
+    private func terminalTabButton(_ tab: TerminalTab) -> some View {
+        Button(action: { selectedTab = tab.id }) {
+            HStack(spacing: 6) {
+                Text(tab.title)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(
+                        tab.isActive 
+                            ? DesignSystem.Colors.textPrimary(for: appState.currentTheme)
+                            : DesignSystem.Colors.textSecondary(for: appState.currentTheme)
+                    )
+                
+                if tabs.count > 1 {
+                    Button(action: { closeTab(tab.id) }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(tab.isActive ? DesignSystem.Colors.background(for: appState.currentTheme) : Color.clear)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: - Professional Terminal Content
+    private var professionalTerminalContent: some View {
+        ScrollView([.horizontal, .vertical]) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(0..<min(terminal.rows, 50)), id: \.self) { row in
+                    LazyHStack(spacing: 0) {
+                        ForEach(Array(0..<min(terminal.cols, 120)), id: \.self) { col in
+                            let cell = terminal.getCell(row: row, col: col)
+                            Text(String(cell.character))
+                                .font(.custom("SF Mono", size: 13).weight(.regular))
+                                .foregroundColor(cell.foregroundColor)
+                                .background(cell.backgroundColor)
+                                .frame(width: 7.8, height: 16) // Precise character grid
+                        }
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .focused($isTerminalFocused)
+        .onAppear {
+            isTerminalFocused = true
+            terminal.startSession()
+        }
+        .background(Color.black)
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.2), lineWidth: 1)
+        )
+        .padding(16)
+    }
+    
+    // MARK: - Tab Management
+    private func addNewTab() {
+        let newTab = TerminalTab(
+            id: tabs.count,
+            title: "zsh \(tabs.count + 1)",
+            isActive: false
+        )
+        
+        // Deactivate current tabs
+        tabs = tabs.map { tab in
+            TerminalTab(id: tab.id, title: tab.title, isActive: false)
+        }
+        
+        tabs.append(newTab)
+        selectedTab = newTab.id
+        
+        // Activate the new tab
+        if let index = tabs.firstIndex(where: { $0.id == newTab.id }) {
+            tabs[index] = TerminalTab(id: newTab.id, title: newTab.title, isActive: true)
+        }
+    }
+    
+    private func closeTab(_ tabId: Int) {
+        guard tabs.count > 1 else { return }
+        
+        tabs.removeAll { $0.id == tabId }
+        
+        // If closed tab was active, activate the first tab
+        if selectedTab == tabId {
+            selectedTab = tabs.first?.id ?? 0
+            if let index = tabs.firstIndex(where: { $0.id == selectedTab }) {
+                tabs[index] = TerminalTab(
+                    id: tabs[index].id,
+                    title: tabs[index].title,
+                    isActive: true
+                )
+            }
         }
     }
 }

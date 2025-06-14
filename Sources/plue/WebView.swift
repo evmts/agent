@@ -1,133 +1,278 @@
 import SwiftUI
 import WebKit
 
+// MARK: - Browser Tab Model
+struct BrowserTab: Identifiable {
+    let id: Int
+    let title: String
+    let url: String
+    let isActive: Bool
+}
+
 struct WebView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
     @StateObject private var webViewModel = WebViewModel()
     @State private var urlString = "https://www.apple.com"
+    @State private var tabs: [BrowserTab] = [BrowserTab(id: 0, title: "New Tab", url: "https://www.apple.com", isActive: true)]
+    @State private var selectedTab = 0
     @FocusState private var isUrlFocused: Bool
     
     var body: some View {
         VStack(spacing: 0) {
-            // Navigation Bar
-            navigationBar
+            // Safari-style Browser Chrome
+            safariLikeChrome
             
-            // Web Content
-            WebViewRepresentable(webViewModel: webViewModel)
-                .background(Color.white)
+            // Web Content with proper framing
+            ZStack {
+                DesignSystem.Colors.surface(for: appState.currentTheme)
+                
+                WebViewRepresentable(webViewModel: webViewModel)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.2), lineWidth: 1)
+                    )
+                    .padding(8)
+            }
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
         .onAppear {
             webViewModel.loadURL(urlString)
         }
     }
     
-    // MARK: - Navigation Bar
-    private var navigationBar: some View {
-        HStack(spacing: 12) {
-            // Back button
-            Button(action: {
-                webViewModel.goBack()
-            }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(webViewModel.canGoBack ? .primary : .secondary)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .disabled(!webViewModel.canGoBack)
-            .help("Go back")
-            
-            // Forward button
-            Button(action: {
-                webViewModel.goForward()
-            }) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(webViewModel.canGoForward ? .primary : .secondary)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .disabled(!webViewModel.canGoForward)
-            .help("Go forward")
-            
-            // Reload button
-            Button(action: {
-                if webViewModel.isLoading {
-                    webViewModel.stopLoading()
-                } else {
-                    webViewModel.reload()
-                }
-            }) {
-                Image(systemName: webViewModel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.primary)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .help(webViewModel.isLoading ? "Stop loading" : "Reload page")
-            
-            // URL Bar
-            HStack {
-                Image(systemName: webViewModel.isSecure ? "lock.fill" : "globe")
-                    .font(.system(size: 14))
-                    .foregroundColor(webViewModel.isSecure ? .green : .secondary)
-                
-                TextField("Enter URL", text: $urlString)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .font(.system(size: 14))
-                    .focused($isUrlFocused)
-                    .onSubmit {
-                        webViewModel.loadURL(urlString)
-                        isUrlFocused = false
-                    }
-                    .onChange(of: webViewModel.currentURL) { newURL in
-                        if !isUrlFocused {
-                            urlString = newURL
+    // MARK: - Safari-like Browser Chrome
+    private var safariLikeChrome: some View {
+        VStack(spacing: 0) {
+            // Tab Bar
+            HStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 1) {
+                        ForEach(tabs) { tab in
+                            browserTabButton(tab)
                         }
+                        
+                        // Add Tab Button
+                        Button(action: addNewTab) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                                .frame(width: 28, height: 32)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(DesignSystem.Colors.surface(for: appState.currentTheme).opacity(0.5))
+                        )
                     }
+                    .padding(.horizontal, 12)
+                }
+                
+                Spacer()
+                
+                // Browser Controls
+                HStack(spacing: 8) {
+                    Button(action: { webViewModel.goBack() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(webViewModel.canGoBack ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!webViewModel.canGoBack)
+                    .help("Go back")
+                    
+                    Button(action: { webViewModel.goForward() }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(webViewModel.canGoForward ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(!webViewModel.canGoForward)
+                    .help("Go forward")
+                    
+                    Button(action: {
+                        if webViewModel.isLoading {
+                            webViewModel.stopLoading()
+                        } else {
+                            webViewModel.reload()
+                        }
+                    }) {
+                        Image(systemName: webViewModel.isLoading ? "xmark" : "arrow.clockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help(webViewModel.isLoading ? "Stop loading" : "Reload page")
+                }
+                .padding(.trailing, 16)
+            }
+            .frame(height: 40)
+            .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+            
+            // Address Bar
+            HStack(spacing: 12) {
+                // Security Indicator & URL Field
+                HStack(spacing: 8) {
+                    // Security Lock
+                    Image(systemName: webViewModel.isSecure ? "lock.fill" : "globe")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(webViewModel.isSecure ? DesignSystem.Colors.success : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    
+                    // URL TextField
+                    TextField("Search or enter website name", text: $urlString)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                        .focused($isUrlFocused)
+                        .onSubmit {
+                            webViewModel.loadURL(urlString)
+                            isUrlFocused = false
+                        }
+                        .onChange(of: webViewModel.currentURL) { newURL in
+                            if !isUrlFocused {
+                                urlString = newURL
+                            }
+                        }
+                    
+                    // Loading Indicator
+                    if webViewModel.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 16, height: 16)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(DesignSystem.Colors.background(for: appState.currentTheme))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.3), lineWidth: 1)
+                        )
+                )
+                
+                // Share & Bookmark
+                HStack(spacing: 8) {
+                    Button(action: {}) {
+                        Image(systemName: "bookmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Add bookmark")
+                    
+                    Button(action: {}) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Share")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+            
+            // Subtle border
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.3))
+        }
+    }
+    
+    private func browserTabButton(_ tab: BrowserTab) -> some View {
+        Button(action: { selectedTab = tab.id }) {
+            HStack(spacing: 6) {
+                // Favicon placeholder
+                Circle()
+                    .fill(DesignSystem.Colors.primary.opacity(0.1))
+                    .frame(width: 14, height: 14)
+                    .overlay(
+                        Image(systemName: "globe")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.primary)
+                    )
+                
+                Text(tab.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(
+                        tab.isActive 
+                            ? DesignSystem.Colors.textPrimary(for: appState.currentTheme)
+                            : DesignSystem.Colors.textSecondary(for: appState.currentTheme)
+                    )
+                    .lineLimit(1)
+                
+                if tabs.count > 1 {
+                    Button(action: { closeTab(tab.id) }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+            .frame(maxWidth: 200)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(NSColor.textBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
-                    )
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(tab.isActive ? DesignSystem.Colors.background(for: appState.currentTheme) : Color.clear)
             )
-            
-            // Home button
-            Button(action: {
-                urlString = "https://www.apple.com"
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: - Tab Management
+    private func addNewTab() {
+        let newTab = BrowserTab(
+            id: tabs.count,
+            title: "New Tab",
+            url: "https://www.apple.com",
+            isActive: false
+        )
+        
+        // Deactivate current tabs
+        tabs = tabs.map { tab in
+            BrowserTab(id: tab.id, title: tab.title, url: tab.url, isActive: false)
+        }
+        
+        tabs.append(newTab)
+        selectedTab = newTab.id
+        
+        // Activate the new tab
+        if let index = tabs.firstIndex(where: { $0.id == newTab.id }) {
+            tabs[index] = BrowserTab(id: newTab.id, title: newTab.title, url: newTab.url, isActive: true)
+        }
+        
+        // Load the default URL
+        urlString = newTab.url
+        webViewModel.loadURL(urlString)
+    }
+    
+    private func closeTab(_ tabId: Int) {
+        guard tabs.count > 1 else { return }
+        
+        tabs.removeAll { $0.id == tabId }
+        
+        // If closed tab was active, activate the first tab
+        if selectedTab == tabId {
+            selectedTab = tabs.first?.id ?? 0
+            if let index = tabs.firstIndex(where: { $0.id == selectedTab }) {
+                tabs[index] = BrowserTab(
+                    id: tabs[index].id,
+                    title: tabs[index].title,
+                    url: tabs[index].url,
+                    isActive: true
+                )
+                urlString = tabs[index].url
                 webViewModel.loadURL(urlString)
-            }) {
-                Image(systemName: "house")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.primary)
-            }
-            .buttonStyle(PlainButtonStyle())
-            .help("Go to home page")
-            
-            // Progress indicator
-            if webViewModel.isLoading {
-                ProgressView()
-                    .scaleEffect(0.7)
-                    .frame(width: 20, height: 20)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            Color(NSColor.controlBackgroundColor)
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color(NSColor.separatorColor))
-                        .opacity(0.6),
-                    alignment: .bottom
-                )
-        )
     }
 }
 

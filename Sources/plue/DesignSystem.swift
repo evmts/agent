@@ -26,46 +26,64 @@ struct DesignSystem {
     /// Primary color palette with semantic naming
     struct Colors {
         
-        // MARK: - Brand Colors (Used for accents, status, etc.)
-        static let primary = Color(red: 0.0, green: 0.478, blue: 1.0)      // #007AFF - iOS Blue
+        // MARK: - Brand Colors (Refined, softer palette)
+        static let primary = Color(red: 0.2, green: 0.6, blue: 1.0)        // Softer blue
         static let accent = Color(red: 0.345, green: 0.337, blue: 0.839)   // #5856D6 - Indigo
-        static let success = Color(red: 0.203, green: 0.780, blue: 0.349)  // #34C759 - Green
-        static let warning = Color(red: 1.0, green: 0.584, blue: 0.0)      // #FF9500 - Orange
-        static let error = Color(red: 1.0, green: 0.231, blue: 0.188)      // #FF3B30 - Red
+        static let success = Color(red: 0.3, green: 0.8, blue: 0.4)        // Softer green
+        static let warning = Color(red: 1.0, green: 0.7, blue: 0.2)        // Softer orange
+        static let error = Color(red: 1.0, green: 0.3, blue: 0.3)          // Softer red
         
-        // MARK: - Core UI Palette (Ghostty-inspired minimalism)
-        // We will enforce these across the entire UI for consistency.
-        static let background = Color.black                                      // Pure black for window background
-        static let backgroundSecondary = Color(white: 0.05)                      // Slightly off-black for content areas
-        static let surface = Color(white: 0.12)                                  // Dark gray for elevated surfaces, inputs
-        static let border = Color(white: 0.2)                                    // Subtle borders
-        static let borderFocus = Color(red: 0.0, green: 0.478, blue: 1.0)        // Use brand blue for focus rings
-        
-        static let textPrimary = Color(white: 0.9)                               // Near-white for primary text
-        static let textSecondary = Color(white: 0.6)                             // Gray for secondary text
-        static let textTertiary = Color(white: 0.4)                              // Darker gray for tertiary/disabled text
-        static let textInverse = Color.black                                     // For text on light backgrounds
-        
-        // MARK: - Legacy compatibility (keeping old names for backward compatibility)
-        static let backgroundTertiary = background
-        static let surfaceSecondary = surface
-        static let surfaceTertiary = surface
-        static let borderSecondary = border
-        
-        // MARK: - Theme-Adaptive Functions (for compatibility with theme system)
+        // MARK: - Theme-Aware Semantic Colors (Softer, more refined)
         static func background(for theme: Theme) -> Color {
-            switch theme {
-            case .dark: return background
-            case .light: return Color.white
-            }
+            theme == .dark ? Color(white: 0.04) : Color(white: 0.98) // #0A0A0A instead of pure black
         }
         
-        static func surface(for theme: Theme) -> Color {
-            switch theme {
-            case .dark: return surface
-            case .light: return Color(red: 0.95, green: 0.95, blue: 0.95)
-            }
+        static func backgroundSecondary(for theme: Theme) -> Color {
+            theme == .dark ? Color(white: 0.06) : Color.white // #0F0F0F
         }
+
+        static func surface(for theme: Theme) -> Color {
+            theme == .dark ? Color(white: 0.08) : Color(white: 0.94) // #141414
+        }
+        
+        static func surfaceSecondary(for theme: Theme) -> Color {
+            theme == .dark ? Color(white: 0.06) : Color(white: 0.92) // #0F0F0F
+        }
+        
+        static func border(for theme: Theme) -> Color {
+            theme == .dark ? Color.white.opacity(0.1) : Color(white: 0.85) // Much reduced opacity
+        }
+        
+        static func borderSecondary(for theme: Theme) -> Color {
+            theme == .dark ? Color.white.opacity(0.05) : Color(white: 0.9) // Very subtle
+        }
+        
+        static func textPrimary(for theme: Theme) -> Color {
+            theme == .dark ? Color(white: 0.9) : Color(white: 0.1)
+        }
+        
+        static func textSecondary(for theme: Theme) -> Color {
+            theme == .dark ? Color(white: 0.6) : Color(white: 0.4)
+        }
+        
+        static func textTertiary(for theme: Theme) -> Color {
+            theme == .dark ? Color(white: 0.4) : Color(white: 0.6)
+        }
+        
+        // MARK: - Legacy compatibility (updated with new values for backward compatibility)
+        static let background = Color(white: 0.04)          // Updated to softer black
+        static let backgroundSecondary = Color(white: 0.06) // Updated 
+        static let backgroundTertiary = Color(white: 0.04)  // Updated
+        static let surface = Color(white: 0.08)             // Updated
+        static let surfaceSecondary = Color(white: 0.06)    // Updated
+        static let surfaceTertiary = Color(white: 0.08)     // Updated
+        static let border = Color.white.opacity(0.1)        // Updated to reduced opacity
+        static let borderSecondary = Color.white.opacity(0.05) // Updated
+        static let borderFocus = Color(red: 0.2, green: 0.6, blue: 1.0) // Updated to softer blue
+        static let textPrimary = Color(white: 0.9)
+        static let textSecondary = Color(white: 0.6)
+        static let textTertiary = Color(white: 0.4)
+        static let textInverse = Color.black
         
         // MARK: - Interactive States
         static let interactive = textPrimary
@@ -167,11 +185,17 @@ struct DesignSystem {
     // MARK: - Animation Curves
     
     struct Animation {
-        static let quick = SwiftUI.Animation.easeOut(duration: 0.2)
-        static let smooth = SwiftUI.Animation.easeInOut(duration: 0.3)
+        static let plueStandard = SwiftUI.Animation.easeOut(duration: 0.2)
+        static let plueSmooth = SwiftUI.Animation.easeInOut(duration: 0.3)
+        static let plueBounce = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.8)
+        static let plueInteractive = SwiftUI.Animation.interactiveSpring(response: 0.3, dampingFraction: 0.8)
+        
+        // Legacy names for compatibility
+        static let quick = plueStandard
+        static let smooth = plueSmooth
         static let gentle = SwiftUI.Animation.easeInOut(duration: 0.5)
-        static let bouncy = SwiftUI.Animation.spring(response: 0.6, dampingFraction: 0.8)
-        static let interactive = SwiftUI.Animation.interactiveSpring(response: 0.3, dampingFraction: 0.8)
+        static let bouncy = plueBounce
+        static let interactive = plueInteractive
     }
     
     // MARK: - Icon Sizes
@@ -276,46 +300,58 @@ extension View {
 // MARK: - Professional Button Styles
 
 struct PrimaryButtonStyle: ButtonStyle {
-    @State private var isPressed = false
-    
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(DesignSystem.Typography.labelMedium)
+            .font(.system(size: 13, weight: .medium))
             .foregroundColor(.white)
-            .padding(.horizontal, DesignSystem.Spacing.lg)
-            .padding(.vertical, DesignSystem.Spacing.md)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
-                    .fill(DesignSystem.Colors.primaryGradient)
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(DesignSystem.Colors.primary)
+                    .opacity(configuration.isPressed ? 0.8 : 1.0)
             )
-            .interactiveScale(pressed: configuration.isPressed)
-            .shadow(
-                color: DesignSystem.Shadow.medium.color,
-                radius: DesignSystem.Shadow.medium.radius,
-                x: DesignSystem.Shadow.medium.x,
-                y: DesignSystem.Shadow.medium.y
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(DesignSystem.Animation.plueStandard, value: configuration.isPressed)
+    }
+}
+
+struct GhostButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.white.opacity(0.7))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.white.opacity(configuration.isPressed ? 0.05 : 0))
+                    )
             )
-            .hoverEffect()
+            .animation(DesignSystem.Animation.plueStandard, value: configuration.isPressed)
     }
 }
 
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(DesignSystem.Typography.labelMedium)
+            .font(.system(size: 13, weight: .medium))
             .foregroundColor(DesignSystem.Colors.textPrimary)
-            .padding(.horizontal, DesignSystem.Spacing.lg)
-            .padding(.vertical, DesignSystem.Spacing.md)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
+                RoundedRectangle(cornerRadius: 6)
                     .fill(DesignSystem.Colors.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.md)
+                        RoundedRectangle(cornerRadius: 6)
                             .stroke(DesignSystem.Colors.border, lineWidth: 1)
                     )
             )
-            .interactiveScale(pressed: configuration.isPressed)
-            .hoverEffect()
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(DesignSystem.Animation.plueStandard, value: configuration.isPressed)
     }
 }
 

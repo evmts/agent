@@ -69,7 +69,7 @@ jobs:
     needs: [validate-release]
     strategy:
       matrix:
-        target: [macos-x64, macos-arm64]
+        target: [macos-universal]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -85,18 +85,8 @@ jobs:
         nix develop --command bash -c "
           echo '🏗️  Building Plue ${{ needs.validate-release.outputs.version }} for ${{ matrix.target }}...'
           
-          # Set target architecture
-          case '${{ matrix.target }}' in
-            'macos-x64')
-              export TARGET_ARCH='x86_64-macos'
-              ;;
-            'macos-arm64')
-              export TARGET_ARCH='aarch64-macos'
-              ;;
-          esac
-          
-          # Build with optimization for release
-          zig build swift --summary all -Doptimize=ReleaseFast -Dtarget=\${TARGET_ARCH}
+          # Build with optimization for release (universal binary by default on macOS)
+          zig build swift --summary all -Doptimize=ReleaseFast
         "
 
     - name: Verify binary
@@ -190,61 +180,8 @@ jobs:
   # CREATE UNIVERSAL BINARY (OPTIONAL)
   # ============================================================================
 
-  create-universal:
-    name: Create Universal Binary
-    runs-on: macos-${{ env.MACOS_VERSION }}
-    needs: [build-release, validate-release]
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Download release artifacts
-      uses: actions/download-artifact@v4
-      with:
-        pattern: release-*
-        merge-multiple: true
-
-    - name: Create universal binary
-      run: |
-        echo '🔄 Creating universal binary...'
-        
-        VERSION=${{ needs.validate-release.outputs.version }}
-        
-        # Extract both architectures
-        tar -xzf "plue-${VERSION}-macos-x64.tar.gz"
-        tar -xzf "plue-${VERSION}-macos-arm64.tar.gz"
-        
-        # Create universal binary using lipo
-        mkdir -p "plue-${VERSION}-macos-universal"
-        
-        # Combine binaries
-        lipo -create \
-          "plue-${VERSION}-macos-x64/plue" \
-          "plue-${VERSION}-macos-arm64/plue" \
-          -output "plue-${VERSION}-macos-universal/plue"
-        
-        # Copy other files from x64 version
-        cp "plue-${VERSION}-macos-x64/plue-cli" "plue-${VERSION}-macos-universal/"
-        cp "plue-${VERSION}-macos-x64/install.sh" "plue-${VERSION}-macos-universal/"
-        cp "plue-${VERSION}-macos-x64/README.md" "plue-${VERSION}-macos-universal/" 2>/dev/null || true
-        cp "plue-${VERSION}-macos-x64/LICENSE"* "plue-${VERSION}-macos-universal/" 2>/dev/null || true
-        
-        # Verify universal binary
-        echo "Universal binary info:"
-        file "plue-${VERSION}-macos-universal/plue"
-        lipo -info "plue-${VERSION}-macos-universal/plue"
-        
-        # Create tarball
-        tar -czf "plue-${VERSION}-macos-universal.tar.gz" "plue-${VERSION}-macos-universal"
-        shasum -a 256 "plue-${VERSION}-macos-universal.tar.gz" > "plue-${VERSION}-macos-universal.tar.gz.sha256"
-
-    - name: Upload universal binary
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-universal
-        path: |
-          plue-${{ needs.validate-release.outputs.version }}-macos-universal.tar.gz
-          plue-${{ needs.validate-release.outputs.version }}-macos-universal.tar.gz.sha256
+  # Universal binary creation is handled by the build step since macOS runners
+  # build universal binaries by default. This step is no longer needed.
 
   # ============================================================================
   # RELEASE TESTING
@@ -253,12 +190,12 @@ jobs:
   test-release:
     name: Test Release Assets
     runs-on: macos-${{ env.MACOS_VERSION }}
-    needs: [create-universal, validate-release]
+    needs: [build-release, validate-release]
     steps:
-    - name: Download universal release
+    - name: Download release artifacts
       uses: actions/download-artifact@v4
       with:
-        name: release-universal
+        name: release-macos-universal
 
     - name: Test installation
       run: |
@@ -300,8 +237,7 @@ jobs:
     - name: Download all release artifacts
       uses: actions/download-artifact@v4
       with:
-        pattern: release-*
-        merge-multiple: true
+        name: release-macos-universal
 
     - name: Generate release notes
       run: |
@@ -344,10 +280,8 @@ jobs:
         2. Extract: \`tar -xzf plue-$VERSION-macos-universal.tar.gz\`
         3. Run: \`cd plue-$VERSION-macos-universal && ./install.sh\`
         
-        ### Architecture-Specific Downloads
-        - **Universal Binary** (Recommended): \`plue-$VERSION-macos-universal.tar.gz\`
-        - **Intel Macs**: \`plue-$VERSION-macos-x64.tar.gz\`
-        - **Apple Silicon**: \`plue-$VERSION-macos-arm64.tar.gz\`
+        ### Download
+        - **Universal Binary** (macOS): \`plue-$VERSION-macos-universal.tar.gz\`
         
         ## Requirements
         - macOS 13.0 or later

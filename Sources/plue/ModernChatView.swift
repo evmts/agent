@@ -1,11 +1,19 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Navigation Direction
+enum NavigationDirection {
+    case up
+    case down
+}
+
 struct ModernChatView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
     @State private var selectedModel = AIModel.plueCore
+    @State private var inputText: String = ""
+    @State private var activeMessageId: String? = nil
     @FocusState private var isInputFocused: Bool
     
     var body: some View {
@@ -219,11 +227,15 @@ struct ModernChatView: View {
                     
                     // Professional message bubbles
                     ForEach(appState.chatState.currentConversation?.messages ?? []) { message in
-                        ProfessionalMessageBubbleView(message: message)
-                            .padding(.horizontal, DesignSystem.Spacing.xl)
-                            .padding(.vertical, DesignSystem.Spacing.sm)
-                            .id(message.id)
-                            .contentTransition()
+                        ProfessionalMessageBubbleView(
+                            message: message,
+                            isActive: activeMessageId == message.id,
+                            theme: appState.currentTheme
+                        )
+                        .padding(.horizontal, DesignSystem.Spacing.xl)
+                        .padding(.vertical, DesignSystem.Spacing.sm)
+                        .id(message.id)
+                        .contentTransition()
                     }
                     
                     // Enhanced typing indicator
@@ -319,91 +331,100 @@ struct ModernChatView: View {
         .frame(maxWidth: 280)
     }
     
-    // MARK: - Minimal Input Area (Ghostty-inspired)
+    // MARK: - Simplified Chat Input - Clean and Apple-like
     private var enhancedInputArea: some View {
         VStack(spacing: 0) {
-            // Minimal separator
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(DesignSystem.Colors.border.opacity(0.3))
-            
-            HStack(spacing: DesignSystem.Spacing.md) {
-                // Minimal attachment button
-                Button(action: {}) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
+            // Floating input at bottom with subtle gradient fade
+            HStack(spacing: 12) {
+                TextField("Message", text: $inputText)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .font(.system(size: 14))
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .focused($isInputFocused)
+                    .onSubmit {
+                        sendMessage()
+                    }
+                
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(inputText.isEmpty ? .white.opacity(0.3) : DesignSystem.Colors.primary)
                 }
+                .disabled(inputText.isEmpty)
                 .buttonStyle(PlainButtonStyle())
-                .help("Attach file (⌘O)")
-                
-                // Minimal Vim Chat Input
-                VimChatInputView(
-                    onMessageSent: { message in
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            core.handleEvent(.chatMessageSent(message))
-                        }
-                    },
-                    onMessageUpdated: { message in
-                        core.handleEvent(.chatMessageSent(message))
-                    },
-                    onNavigateUp: {
-                        print("Navigate up - not implemented in core yet")
-                    },
-                    onNavigateDown: {
-                        print("Navigate down - not implemented in core yet")
-                    },
-                    onPreviousChat: {
-                        if appState.chatState.currentConversationIndex > 0 {
-                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
-                        }
-                    },
-                    onNextChat: {
-                        if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
-                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
-                        } else {
-                            core.handleEvent(.chatNewConversation)
-                        }
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(DesignSystem.Colors.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 0.5)
-                        )
-                )
-                .frame(maxWidth: .infinity)
-                
-                // Minimal help indicator
-                VStack(alignment: .trailing, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(":w")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundColor(DesignSystem.Colors.primary.opacity(0.8))
-                        Text("send")
-                            .font(.system(size: 9))
-                            .foregroundColor(DesignSystem.Colors.textTertiary)
-                    }
-                    
-                    HStack(spacing: 4) {
-                        Text("⌘[]")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundColor(DesignSystem.Colors.textTertiary.opacity(0.6))
-                        Text("nav")
-                            .font(.system(size: 9))
-                            .foregroundColor(DesignSystem.Colors.textTertiary)
-                    }
-                }
-                .opacity(0.7)
+                .animation(DesignSystem.Animation.plueStandard, value: inputText.isEmpty)
             }
-            .padding(.horizontal, DesignSystem.Spacing.lg)
-            .padding(.vertical, DesignSystem.Spacing.md)
-            .background(DesignSystem.Colors.surface)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(
+                // Subtle gradient fade at bottom
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: DesignSystem.Colors.backgroundSecondary(for: appState.currentTheme), location: 0.5)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 100)
+                .offset(y: -50)
+            )
         }
+    }
+    
+    // Simple send function
+    private func sendMessage() {
+        let message = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        
+        withAnimation(DesignSystem.Animation.plueStandard) {
+            core.handleEvent(.chatMessageSent(message))
+        }
+        
+        inputText = ""
+    }
+    
+    // MARK: - Navigation and Editing Logic
+    
+    private func navigateMessages(direction: NavigationDirection) {
+        guard let conversation = appState.chatState.currentConversation else { return }
+        let messages = conversation.messages
+        
+        if let currentActiveId = activeMessageId,
+           let currentIndex = messages.firstIndex(where: { $0.id == currentActiveId }) {
+            // Navigate from current active message
+            switch direction {
+            case .up:
+                if currentIndex > 0 {
+                    activeMessageId = messages[currentIndex - 1].id
+                }
+            case .down:
+                if currentIndex < messages.count - 1 {
+                    activeMessageId = messages[currentIndex + 1].id
+                }
+            }
+        } else {
+            // No active message, start from the most recent
+            switch direction {
+            case .up:
+                activeMessageId = messages.last?.id
+            case .down:
+                activeMessageId = messages.first?.id
+            }
+        }
+    }
+    
+    private func editActiveMessage() {
+        guard let activeId = activeMessageId,
+              let message = appState.chatState.currentConversation?.messages.first(where: { $0.id == activeId })
+        else { return }
+        
+        // Load message content into input field for editing
+        inputText = message.content
     }
     
 }
@@ -412,6 +433,8 @@ struct ModernChatView: View {
 
 struct ProfessionalMessageBubbleView: View {
     let message: CoreMessage
+    let isActive: Bool
+    let theme: DesignSystem.Theme
     
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -423,6 +446,16 @@ struct ProfessionalMessageBubbleView: View {
                 Spacer(minLength: 100)
             }
         }
+        .background(
+            // Highlight active message
+            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                .fill(isActive ? DesignSystem.Colors.primary.opacity(0.1) : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                        .stroke(isActive ? DesignSystem.Colors.primary.opacity(0.3) : Color.clear, lineWidth: 1)
+                )
+        )
+        .animation(DesignSystem.Animation.quick, value: isActive)
     }
     
     private var professionalUserMessageView: some View {
@@ -430,7 +463,7 @@ struct ProfessionalMessageBubbleView: View {
             HStack(alignment: .bottom, spacing: DesignSystem.Spacing.md) {
                 Text(message.content)
                     .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .foregroundColor(.white)
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.vertical, DesignSystem.Spacing.md)
                     .background(
@@ -480,12 +513,12 @@ struct ProfessionalMessageBubbleView: View {
                 
                 Text(message.content)
                     .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.vertical, DesignSystem.Spacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                            .fill(DesignSystem.Colors.surface)
+                            .fill(DesignSystem.Colors.surface(for: theme))
                     )
                     .primaryBorder()
                     .textSelection(.enabled)

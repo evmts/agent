@@ -209,15 +209,22 @@ jobs:
     - name: Verify build artifacts
       run: |
         echo '✅ Verifying build artifacts...'
-        ls -la .build/${{ matrix.configuration }}/
-        file .build/${{ matrix.configuration }}/plue
-        otool -L .build/${{ matrix.configuration }}/plue
+        BUILD_DIR=".build/${{ matrix.configuration }}"
+        if [ "${{ matrix.configuration }}" = "debug" ]; then
+          BUILD_DIR=".build/debug"
+        else
+          BUILD_DIR=".build/release"
+        fi
+        
+        ls -la "$BUILD_DIR/"
+        file "$BUILD_DIR/plue"
+        otool -L "$BUILD_DIR/plue"
 
     - name: Run smoke tests
       if: matrix.configuration == 'release'
       run: |
         echo '🚀 Running smoke tests...'
-        timeout 10s .build/${{ matrix.configuration }}/plue --help || true
+        timeout 10s .build/release/plue --help || true
         echo 'Smoke tests completed'
 
     - name: Upload build artifacts
@@ -225,7 +232,7 @@ jobs:
       with:
         name: plue-${{ matrix.configuration }}-${{ github.sha }}
         path: |
-          .build/${{ matrix.configuration }}/plue
+          .build/*/plue
           scripts/
         retention-days: 30
 
@@ -312,8 +319,8 @@ jobs:
           echo '⚡ Running performance benchmarks...'
           
           # Binary size check
-          BINARY_SIZE=\$(stat -f%z .build/release/plue)
-          echo \"Binary size: \${BINARY_SIZE} bytes\"
+          BINARY_SIZE=$(stat -f%z .build/release/plue)
+          echo "Binary size: ${BINARY_SIZE} bytes"
           
           # Startup time benchmark
           echo 'Testing startup time...'
