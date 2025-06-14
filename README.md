@@ -17,7 +17,9 @@ Plue is a native macOS application that provides an intelligent coding assistant
 - **💬 Modern Chat Interface** - Conversational AI interaction
 - **🖥️ Terminal Integration** - Built-in terminal functionality  
 - **🌐 Farcaster Integration** - Social coding features
+- **🔧 Agent Workflows** - Git worktree management and Dagger container integration
 - **⚡ High Performance** - Zig backend for optimal performance
+- **📂 Command Line Interface** - Open Plue from terminal like VSCode (`plue /path/to/project`)
 - **🍎 Native macOS** - Built specifically for macOS with native frameworks
 
 ## Architecture
@@ -53,6 +55,42 @@ nix develop
 ```
 
 ### 3. Build and Run
+
+```bash
+# Build the project
+zig build swift
+
+# Run the app
+zig build run
+
+# Or run the Swift executable directly
+.build/release/plue
+```
+
+### 4. Install Command Line Interface (Optional)
+
+Install the `plue` command globally for VSCode-like CLI usage:
+
+```bash
+# Install the CLI command globally
+./scripts/install.sh
+
+# Now you can use plue from anywhere
+plue                       # Open in current directory  
+plue ~/my-project         # Open in specific directory
+plue .                    # Open in current directory (explicit)
+```
+
+Example CLI usage:
+```bash
+cd ~/code/my-awesome-project
+plue                      # Opens Plue in this directory
+
+# Or open directly in any project
+plue ~/code/another-project
+```
+
+## Development
 
 ```bash
 # Build the complete project (Zig libraries + Swift application)
