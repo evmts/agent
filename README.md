@@ -20,8 +20,6 @@ Plue is a native macOS application that provides an intelligent coding assistant
 - **⚡ High Performance** - Zig backend for optimal performance
 - **🍎 Native macOS** - Built specifically for macOS with native frameworks
 
-<img width="999" alt="image" src="https://github.com/user-attachments/assets/b515f123-1243-4e8a-97ef-62763838adf2" />
-
 ## Architecture
 
 Plue uses a hybrid architecture:

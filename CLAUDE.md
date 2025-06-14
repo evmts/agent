@@ -11,10 +11,243 @@ This file serves as the comprehensive configuration and behavioral protocol for 
 
 ### File Structure
 - **Self-Referential Compliance**: Core governance principles
+- **Project Architecture**: Swift-Zig hybrid system design and communication patterns
 - **Prompt Engineering Standards**: Requirements for high-quality, replayable prompts
 - **Interactive Workflows**: Collaboration and approval processes
 - **Technical Protocols**: Commit workflows, testing, and multi-agent coordination
 - **Examples**: Concrete demonstrations of proper behavior
+
+## Project Architecture: Plue Swift-Zig Hybrid System
+
+### Overview
+
+Plue is a multi-agent coding assistant built with a **hybrid Swift-Zig architecture** that leverages the strengths of both languages:
+
+- **Swift Frontend**: Native macOS UI using SwiftUI for responsive user experience
+- **Zig Backend**: High-performance core libraries for business logic, state management, and integrations
+- **C FFI Bridge**: Clean interface layer enabling seamless Swift-Zig communication
+
+### Architecture Principles
+
+#### 1. Separation of Concerns
+
+**Swift Layer (UI & Presentation)**:
+- SwiftUI views and user interface components
+- User input handling and event routing
+- Visual state management and animations
+- Platform-specific integrations (WebKit, AppKit)
+- Quick prototyping and UI iteration
+
+**Zig Layer (Core Logic & State)**:
+- **ALL business logic and application state**
+- Data structures and algorithms
+- Network protocols and API integrations
+- File system operations and data persistence
+- Performance-critical computations
+- Memory-safe low-level operations
+
+#### 2. State Management Philosophy
+
+**CRITICAL PRINCIPLE**: Zig owns the canonical application state. Swift is primarily a presentation layer.
+
+- **Single Source of Truth**: Core application state lives in Zig
+- **Immutable State Updates**: State changes flow through Zig's controlled interfaces
+- **Event-Driven Communication**: Swift sends events to Zig, receives state updates
+- **No Duplicate State**: Avoid maintaining parallel state in Swift
+
+### Communication Patterns
+
+#### Swift → Zig Communication
+
+**Primary Pattern**: Event-based messaging through C FFI
+
+```swift
+// Swift sends events to Zig core
+core.handleEvent(.chatMessageSent("Hello"))
+core.handleEvent(.tabSwitched(.terminal))
+core.handleEvent(.farcasterPostCreated(content, channel))
+```
+
+**Event Types**:
+- User actions (button clicks, text input, navigation)
+- System events (app lifecycle, network changes)
+- Timer events (periodic updates, background tasks)
+
+#### Zig → Swift Communication
+
+**Primary Pattern**: State observation with immutable updates
+
+```swift
+// Swift observes Zig state changes
+@StateObject private var appState = AppState.initial
+// AppState mirrors Zig's internal state via C FFI
+```
+
+**State Update Flow**:
+1. Zig processes events and updates internal state
+2. Zig exposes state snapshots through C functions
+3. Swift polls or receives notifications of state changes
+4. Swift UI reactively updates based on new state
+
+#### C FFI Bridge Design
+
+**Export Pattern**: Zig exports C-compatible functions
+
+```zig
+// Core state management
+export fn plue_init() c_int;
+export fn plue_process_event(event_type: c_int, data: [*:0]const u8) c_int;
+export fn plue_get_state() [*:0]const u8; // JSON state snapshot
+
+// Specific domain functions
+export fn fc_post_cast(client: ?*anyopaque, text: [*:0]const u8, channel: [*:0]const u8) c_int;
+export fn fc_get_casts_by_channel(client: ?*anyopaque, channel: [*:0]const u8, limit: c_int) [*:0]const u8;
+```
+
+**Import Pattern**: Swift imports and calls Zig functions
+
+```swift
+// Import Zig functions
+@_silgen_name("plue_init") func plue_init() -> Int32
+@_silgen_name("plue_process_event") func plue_process_event(_ type: Int32, _ data: UnsafePointer<CChar>) -> Int32
+@_silgen_name("plue_get_state") func plue_get_state() -> UnsafePointer<CChar>
+```
+
+### Code Organization Guidelines
+
+#### Zig Code Structure (`src/`)
+
+**Core Modules**:
+- `main.zig` - Application entry point and coordination
+- `libplue.zig` - Primary Swift FFI interface and global state
+- `app.zig` - Application logic and event processing
+- `farcaster.zig` - Farcaster protocol implementation
+- Domain-specific modules for features
+
+**State Management**:
+```zig
+// Global application state (SINGLE SOURCE OF TRUTH)
+const AppState = struct {
+    chat_state: ChatState,
+    terminal_state: TerminalState,
+    farcaster_state: FarcasterState,
+    vim_state: VimState,
+    current_tab: TabType,
+    
+    pub fn processEvent(self: *AppState, event: AppEvent) void {
+        // Centralized state transitions
+    }
+};
+```
+
+**Memory Management**:
+- Use arena allocators for request/response cycles
+- Implement proper cleanup in deinit functions
+- Export memory management functions to Swift when needed
+
+#### Swift Code Structure (`Sources/plue/`)
+
+**Core Components**:
+- `App.swift` - SwiftUI app entry point
+- `ContentView.swift` - Main application layout and tab management
+- `PlueCore.swift` - Zig interface wrapper and state management
+- View-specific files for each major UI component
+
+**State Wrapper Pattern**:
+```swift
+// Wrapper that mirrors Zig state
+class AppState: ObservableObject {
+    @Published var chatState: ChatState
+    @Published var currentTab: Tab
+    @Published var isLoading: Bool
+    
+    func updateFromZig() {
+        // Sync with Zig's canonical state
+        let stateJson = String(cString: plue_get_state())
+        // Parse and update @Published properties
+    }
+}
+```
+
+#### Integration Points
+
+**File System Operations**: Always in Zig
+- Configuration file management
+- Log file writing
+- Temporary file handling
+- File watching and monitoring
+
+**Network Operations**: Always in Zig
+- API calls and HTTP requests
+- WebSocket connections
+- Protocol implementations (Farcaster, OpenAI)
+- Response parsing and validation
+
+**Data Processing**: Always in Zig
+- JSON parsing and serialization
+- Text processing and formatting
+- Cryptographic operations
+- Data validation and transformation
+
+### Development Guidelines
+
+#### When Adding New Features
+
+1. **Design State First**: Define data structures in Zig
+2. **Implement Logic in Zig**: All business rules and processing
+3. **Export FFI Interface**: Create C-compatible functions for Swift
+4. **Create Swift Wrapper**: Encapsulate Zig calls in Swift interface
+5. **Build UI Layer**: SwiftUI views that observe state changes
+
+#### Testing Strategy
+
+**Zig Testing**:
+- Unit tests for all business logic
+- Integration tests for FFI interfaces
+- Performance tests for critical paths
+- Memory leak detection
+
+**Swift Testing**:
+- UI component tests
+- User interaction simulation
+- Accessibility testing
+- Visual regression tests
+
+#### Performance Considerations
+
+**Minimize FFI Overhead**:
+- Batch state updates when possible
+- Use efficient serialization (JSON for complex data, direct values for simple data)
+- Avoid chatty interfaces between Swift and Zig
+
+**Memory Efficiency**:
+- Zig manages memory for long-lived data
+- Swift handles UI-specific temporary allocations
+- Clear ownership boundaries to prevent leaks
+
+### Common Anti-Patterns to Avoid
+
+❌ **Don't**: Duplicate business logic in Swift
+✅ **Do**: Keep all logic in Zig, Swift only handles presentation
+
+❌ **Don't**: Maintain parallel state in Swift and Zig
+✅ **Do**: Single source of truth in Zig, Swift observes changes
+
+❌ **Don't**: Call Zig functions from multiple Swift threads simultaneously
+✅ **Do**: Coordinate access through main queue or explicit synchronization
+
+❌ **Don't**: Store complex business data in Swift @State/@StateObject
+✅ **Do**: Store UI-specific presentation state only, get data from Zig
+
+### Future Architecture Evolution
+
+**Planned Improvements**:
+- WebAssembly compilation target for Zig components
+- Plugin architecture with dynamic loading
+- Distributed agent coordination across processes
+- Hot-reloading of Zig modules during development
+
+This architecture ensures clear separation of concerns, optimal performance, and maintainable code organization while leveraging the best aspects of both Swift and Zig.
 
 ## High-Quality Prompt Philosophy
 

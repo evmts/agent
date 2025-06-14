@@ -11,22 +11,23 @@ struct ModernChatView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background
-                Color(NSColor.controlBackgroundColor)
+                // Professional background
+                DesignSystem.Colors.background
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // Header Bar
-                    headerBar
+                    // Professional Header Bar
+                    professionalHeaderBar
                     
-                    // Chat Messages Area
-                    chatMessagesArea
+                    // Enhanced Chat Messages Area
+                    enhancedChatMessagesArea
                     
-                    // Input Area
-                    inputArea
+                    // Redesigned Input Area
+                    enhancedInputArea
                 }
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isInputFocused = true
@@ -34,11 +35,11 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Header Bar
-    private var headerBar: some View {
-        HStack {
-            // Left side - Chat Navigation
-            HStack(spacing: 8) {
+    // MARK: - Professional Header Bar
+    private var professionalHeaderBar: some View {
+        HStack(spacing: DesignSystem.Spacing.lg) {
+            // Left side - Chat Navigation with professional styling
+            HStack(spacing: DesignSystem.Spacing.sm) {
                 // Previous chat button
                 Button(action: {
                     if appState.chatState.currentConversationIndex > 0 {
@@ -46,17 +47,23 @@ struct ModernChatView: View {
                     }
                 }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help("Previous chat (^H)")
+                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .help("Previous chat (⌘[)")
                 .disabled(appState.chatState.currentConversationIndex == 0)
+                .opacity(appState.chatState.currentConversationIndex == 0 ? 0.4 : 1.0)
                 
-                // Chat indicator
-                Text("Chat \(appState.chatState.currentConversationIndex + 1) of \(appState.chatState.conversations.count)")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.secondary)
+                // Professional chat indicator
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Conversation")
+                        .font(DesignSystem.Typography.labelSmall)
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                    
+                    Text("\(appState.chatState.currentConversationIndex + 1) of \(appState.chatState.conversations.count)")
+                        .font(DesignSystem.Typography.labelMedium)
+                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                }
                 
                 // Next/New chat button
                 Button(action: {
@@ -67,155 +74,154 @@ struct ModernChatView: View {
                     }
                 }) {
                     Image(systemName: appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "chevron.right" : "plus")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help(appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "Next chat (^L)" : "New chat (^L)")
+                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .help(appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 ? "Next chat (⌘])" : "New chat (⌘N)")
             }
             
             Spacer()
             
-            // Center - Model Picker
-            modelPicker
+            // Center - Enhanced Model Picker
+            enhancedModelPicker
             
             Spacer()
             
-            // Right side - Actions
-            HStack(spacing: 12) {
-                // OpenAI Status Indicator
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(appState.openAIAvailable ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(appState.openAIAvailable ? "OpenAI" : "Mock")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+            // Right side - Professional Actions
+            HStack(spacing: DesignSystem.Spacing.md) {
+                // Enhanced status indicator
+                StatusIndicator(
+                    status: appState.openAIAvailable ? .online : .warning,
+                    text: appState.openAIAvailable ? "AI Connected" : "Mock Mode"
+                )
                 
                 Button(action: {}) {
                     Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
                 .help("Export conversation")
                 
                 Button(action: {}) {
                     Image(systemName: "trash")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
                 .help("Clear conversation")
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DesignSystem.Spacing.xl)
+        .padding(.vertical, DesignSystem.Spacing.lg)
         .background(
-            Color(NSColor.controlBackgroundColor)
+            DesignSystem.Colors.surface
                 .overlay(
                     Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color(NSColor.separatorColor))
+                        .frame(height: 1)
+                        .foregroundColor(DesignSystem.Colors.border)
                         .opacity(0.6),
                     alignment: .bottom
                 )
         )
     }
     
-    // MARK: - Model Picker
-    private var modelPicker: some View {
+    // MARK: - Enhanced Model Picker
+    private var enhancedModelPicker: some View {
         Menu {
             ForEach(AIModel.allCases, id: \.self) { model in
                 Button(action: {
-                    selectedModel = model
+                    withAnimation(DesignSystem.Animation.smooth) {
+                        selectedModel = model
+                    }
                 }) {
-                    HStack {
+                    HStack(spacing: DesignSystem.Spacing.sm) {
                         Circle()
                             .fill(model.statusColor)
-                            .frame(width: 8, height: 8)
+                            .frame(width: 10, height: 10)
                         
                         VStack(alignment: .leading, spacing: 2) {
                             Text(model.name)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(DesignSystem.Typography.labelMedium)
+                                .foregroundColor(DesignSystem.Colors.textPrimary)
+                            
                             Text(model.description)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundColor(DesignSystem.Colors.textSecondary)
                         }
                         
                         if selectedModel == model {
                             Spacer()
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12))
-                                .foregroundColor(.blue)
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: DesignSystem.IconSize.small))
+                                .foregroundColor(DesignSystem.Colors.primary)
                         }
                     }
+                    .padding(.horizontal, DesignSystem.Spacing.sm)
+                    .padding(.vertical, DesignSystem.Spacing.xs)
                 }
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: DesignSystem.Spacing.sm) {
                 Circle()
                     .fill(selectedModel.statusColor)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 10, height: 10)
                 
-                Text(selectedModel.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AI Model")
+                        .font(DesignSystem.Typography.labelSmall)
+                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                    
+                    Text(selectedModel.name)
+                        .font(DesignSystem.Typography.labelMedium)
+                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                }
                 
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: DesignSystem.IconSize.small))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(NSColor.controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
-                    )
-            )
+            .padding(.horizontal, DesignSystem.Spacing.md)
+            .padding(.vertical, DesignSystem.Spacing.sm)
+            .secondarySurface()
+            .primaryBorder()
         }
         .menuStyle(BorderlessButtonMenuStyle())
-        .frame(maxWidth: 200)
+        .frame(maxWidth: 240)
     }
     
-    // MARK: - Chat Messages Area
-    private var chatMessagesArea: some View {
+    // MARK: - Enhanced Chat Messages Area  
+    private var enhancedChatMessagesArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    // Welcome message at top
+                LazyVStack(spacing: DesignSystem.Spacing.lg) {
+                    // Enhanced welcome message
                     if appState.chatState.currentConversation?.messages.isEmpty ?? true {
-                        welcomeView
-                            .padding(.top, 60)
+                        enhancedWelcomeView
+                            .padding(.top, DesignSystem.Spacing.massive)
                     }
                     
-                    // Messages
+                    // Professional message bubbles
                     ForEach(appState.chatState.currentConversation?.messages ?? []) { message in
-                        CoreMessageBubbleView(message: message)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .id(message.id)
+                        ProfessionalMessageBubbleView(message: message)
+                            .padding(.horizontal, DesignSystem.Spacing.xl)
+                            .padding(.vertical, DesignSystem.Spacing.sm)
+                            .id(message.id)
+                            .contentTransition()
                     }
                     
-                    // Typing indicator
+                    // Enhanced typing indicator
                     if appState.chatState.isGenerating {
-                        TypingIndicatorView()
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
+                        ProfessionalTypingIndicatorView()
+                            .padding(.horizontal, DesignSystem.Spacing.xl)
+                            .padding(.vertical, DesignSystem.Spacing.sm)
                     }
                     
-                    // Bottom spacing
-                    Spacer(minLength: 20)
+                    // Bottom spacing for better scrolling
+                    Spacer(minLength: DesignSystem.Spacing.xl)
                 }
+                .padding(.vertical, DesignSystem.Spacing.lg)
             }
             .scrollIndicators(.never)
-            .background(Color(NSColor.textBackgroundColor))
+            .background(DesignSystem.Colors.backgroundSecondary)
             .onChange(of: appState.chatState.currentConversation?.messages.count) { _ in
-                withAnimation(.easeOut(duration: 0.3)) {
+                withAnimation(DesignSystem.Animation.smooth) {
                     if let lastMessage = appState.chatState.currentConversation?.messages.last {
                         proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
@@ -224,155 +230,321 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Welcome View
-    private var welcomeView: some View {
-        VStack(spacing: 24) {
-            // Logo/Icon
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.blue.opacity(0.1),
-                            Color.purple.opacity(0.05)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 80, height: 80)
-                .overlay(
-                    Image(systemName: "cpu")
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundColor(.blue.opacity(0.7))
-                )
-            
-            VStack(spacing: 12) {
-                Text("How can I help you today?")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(.primary)
+    // MARK: - Enhanced Welcome View
+    private var enhancedWelcomeView: some View {
+        VStack(spacing: DesignSystem.Spacing.xxxl) {
+            // Professional logo with enhanced styling
+            ZStack {
+                Circle()
+                    .fill(DesignSystem.Colors.accentGradient)
+                    .frame(width: 100, height: 100)
+                    .blur(radius: 20)
+                    .opacity(0.3)
                 
-                Text("Ask me anything about your code, or start a conversation.")
-                    .font(.system(size: 15))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+                Circle()
+                    .fill(DesignSystem.Colors.surface)
+                    .frame(width: 80, height: 80)
+                    .overlay(
+                        Circle()
+                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
+                    )
+                    .overlay(
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 36, weight: .light))
+                            .foregroundColor(DesignSystem.Colors.primary)
+                    )
             }
             
-            // Suggested prompts
-            VStack(spacing: 8) {
-                suggestionButton("Explain this code")
-                suggestionButton("Help me debug an issue")
-                suggestionButton("Write a function for...")
-                suggestionButton("Review my implementation")
+            VStack(spacing: DesignSystem.Spacing.md) {
+                Text("How can I help you today?")
+                    .font(DesignSystem.Typography.headlineSmall)
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                
+                Text("Ask me anything about your code, debug issues, or start a conversation. I'm here to help with your development workflow.")
+                    .font(DesignSystem.Typography.bodyMedium)
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+            
+            // Enhanced suggested prompts
+            VStack(spacing: DesignSystem.Spacing.sm) {
+                professionalSuggestionButton("Explain this code", icon: "doc.text.magnifyingglass")
+                professionalSuggestionButton("Help me debug an issue", icon: "ladybug.fill")
+                professionalSuggestionButton("Write a function for...", icon: "curlybraces")
+                professionalSuggestionButton("Review my implementation", icon: "checkmark.seal.fill")
             }
         }
+        .frame(maxWidth: 500)
+        .multilineTextAlignment(.center)
+    }
+    
+    private func professionalSuggestionButton(_ text: String, icon: String) -> some View {
+        Button(action: {
+            withAnimation(DesignSystem.Animation.smooth) {
+                core.handleEvent(.chatMessageSent(text))
+            }
+        }) {
+            HStack(spacing: DesignSystem.Spacing.md) {
+                Image(systemName: icon)
+                    .font(.system(size: DesignSystem.IconSize.medium, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.primary)
+                    .frame(width: DesignSystem.IconSize.large)
+                
+                Text(text)
+                    .font(DesignSystem.Typography.bodyMedium)
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                
+                Spacer()
+                
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: DesignSystem.IconSize.small))
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
+            }
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.vertical, DesignSystem.Spacing.md)
+            .secondarySurface()
+            .primaryBorder()
+        }
+        .buttonStyle(PlainButtonStyle())
+        .hoverEffect()
         .frame(maxWidth: 400)
     }
     
-    private func suggestionButton(_ text: String) -> some View {
-        Button(action: {
-            core.handleEvent(.chatMessageSent(text))
-        }) {
-            HStack {
-                Text(text)
-                    .font(.system(size: 14))
-                    .foregroundColor(.primary)
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(NSColor.controlBackgroundColor))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
-                    )
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .onHover { isHovered in
-            NSCursor.pointingHand.push()
-            if !isHovered {
-                NSCursor.pop()
-            }
-        }
-    }
-    
-    // MARK: - Input Area (Vim Buffer)
-    private var inputArea: some View {
+    // MARK: - Enhanced Input Area
+    private var enhancedInputArea: some View {
         VStack(spacing: 0) {
-            // Separator line
+            // Professional separator
             Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(Color(NSColor.separatorColor))
-                .opacity(0.6)
+                .frame(height: 1)
+                .foregroundColor(DesignSystem.Colors.border)
+                .opacity(0.8)
             
-            HStack(spacing: 16) {
-                // Attachment button
+            HStack(spacing: DesignSystem.Spacing.lg) {
+                // Enhanced attachment button
                 Button(action: {}) {
                     Image(systemName: "paperclip")
-                        .font(.system(size: 16))
-                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help("Attach file")
+                .buttonStyle(IconButtonStyle(size: DesignSystem.IconSize.medium))
+                .help("Attach file (⌘O)")
                 
-                // Vim Chat Input
-                VimChatInputView(
-                    onMessageSent: { message in
-                        core.handleEvent(.chatMessageSent(message))
-                    },
-                    onMessageUpdated: { message in
-                        // For now, treat updates as new messages
-                        // TODO: Implement proper message update in core
-                        core.handleEvent(.chatMessageSent(message))
-                    },
-                    onNavigateUp: {
-                        // TODO: Add navigation events to core
-                        print("Navigate up - not implemented in core yet")
-                    },
-                    onNavigateDown: {
-                        // TODO: Add navigation events to core
-                        print("Navigate down - not implemented in core yet")
-                    },
-                    onPreviousChat: {
-                        if appState.chatState.currentConversationIndex > 0 {
-                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
+                // Professional Vim Chat Input with enhanced styling
+                VStack(spacing: DesignSystem.Spacing.xs) {
+                    VimChatInputView(
+                        onMessageSent: { message in
+                            withAnimation(DesignSystem.Animation.smooth) {
+                                core.handleEvent(.chatMessageSent(message))
+                            }
+                        },
+                        onMessageUpdated: { message in
+                            core.handleEvent(.chatMessageSent(message))
+                        },
+                        onNavigateUp: {
+                            print("Navigate up - not implemented in core yet")
+                        },
+                        onNavigateDown: {
+                            print("Navigate down - not implemented in core yet")
+                        },
+                        onPreviousChat: {
+                            if appState.chatState.currentConversationIndex > 0 {
+                                core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex - 1))
+                            }
+                        },
+                        onNextChat: {
+                            if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
+                                core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
+                            } else {
+                                core.handleEvent(.chatNewConversation)
+                            }
                         }
-                    },
-                    onNextChat: {
-                        if appState.chatState.currentConversationIndex < appState.chatState.conversations.count - 1 {
-                            core.handleEvent(.chatSelectConversation(appState.chatState.currentConversationIndex + 1))
-                        } else {
-                            core.handleEvent(.chatNewConversation)
-                        }
-                    }
-                )
+                    )
+                    .padding(.horizontal, DesignSystem.Spacing.md)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+                    .secondarySurface()
+                    .primaryBorder()
+                }
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 8)
                 
-                // Help indicator
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(":w to send")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Text("^K up • ^J down")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Text("^H prev • ^L next")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.8))
+                // Professional help indicator
+                VStack(alignment: .trailing, spacing: DesignSystem.Spacing.xs) {
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Text(":w")
+                            .font(DesignSystem.Typography.monoSmall)
+                            .foregroundColor(DesignSystem.Colors.primary)
+                        Text("send")
+                            .font(DesignSystem.Typography.labelSmall)
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                    }
+                    
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Text("⌘[/⌘]")
+                            .font(DesignSystem.Typography.monoSmall)
+                            .foregroundColor(DesignSystem.Colors.textTertiary)
+                        Text("navigate")
+                            .font(DesignSystem.Typography.labelSmall)
+                            .foregroundColor(DesignSystem.Colors.textSecondary)
+                    }
                 }
+                .opacity(0.8)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 20)
-            .background(Color(NSColor.controlBackgroundColor))
+            .padding(.horizontal, DesignSystem.Spacing.xl)
+            .padding(.vertical, DesignSystem.Spacing.lg)
+            .background(DesignSystem.Colors.surface)
         }
     }
     
+}
+
+// MARK: - Professional Message Bubble View
+
+struct ProfessionalMessageBubbleView: View {
+    let message: CoreMessage
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            if message.isUser {
+                Spacer(minLength: 100)
+                professionalUserMessageView
+            } else {
+                professionalAssistantMessageView
+                Spacer(minLength: 100)
+            }
+        }
+    }
+    
+    private var professionalUserMessageView: some View {
+        VStack(alignment: .trailing, spacing: DesignSystem.Spacing.xs) {
+            HStack(alignment: .bottom, spacing: DesignSystem.Spacing.md) {
+                Text(message.content)
+                    .font(DesignSystem.Typography.bodyMedium)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                    .padding(.vertical, DesignSystem.Spacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                            .fill(DesignSystem.Colors.primaryGradient)
+                    )
+                    .textSelection(.enabled)
+                
+                // Enhanced user avatar
+                Circle()
+                    .fill(DesignSystem.Colors.primary.opacity(0.1))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Circle()
+                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
+                    )
+                    .overlay(
+                        Text("YOU")
+                            .font(DesignSystem.Typography.captionMedium)
+                            .foregroundColor(DesignSystem.Colors.primary)
+                    )
+            }
+            
+            Text(formatTime(message.timestamp))
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.textTertiary)
+                .padding(.trailing, 44)
+        }
+    }
+    
+    private var professionalAssistantMessageView: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
+                // Enhanced assistant avatar
+                Circle()
+                    .fill(DesignSystem.Colors.accentGradient)
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Circle()
+                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
+                    )
+                    .overlay(
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: DesignSystem.IconSize.medium))
+                            .foregroundColor(.white)
+                    )
+                
+                Text(message.content)
+                    .font(DesignSystem.Typography.bodyMedium)
+                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                    .padding(.vertical, DesignSystem.Spacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                            .fill(DesignSystem.Colors.surface)
+                    )
+                    .primaryBorder()
+                    .textSelection(.enabled)
+            }
+            
+            Text(formatTime(message.timestamp))
+                .font(DesignSystem.Typography.caption)
+                .foregroundColor(DesignSystem.Colors.textTertiary)
+                .padding(.leading, 44)
+        }
+    }
+    
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Professional Typing Indicator
+
+struct ProfessionalTypingIndicatorView: View {
+    @State private var animationPhase = 0
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
+            // Enhanced assistant avatar
+            Circle()
+                .fill(DesignSystem.Colors.accentGradient)
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Circle()
+                        .stroke(DesignSystem.Colors.border, lineWidth: 1)
+                )
+                .overlay(
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: DesignSystem.IconSize.medium))
+                        .foregroundColor(.white)
+                )
+            
+            // Professional typing animation
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                ForEach(0..<3) { index in
+                    Circle()
+                        .fill(DesignSystem.Colors.primary.opacity(0.6))
+                        .frame(width: 8, height: 8)
+                        .scaleEffect(animationPhase == index ? 1.3 : 0.7)
+                        .opacity(animationPhase == index ? 1.0 : 0.4)
+                        .animation(
+                            DesignSystem.Animation.smooth
+                                .repeatForever()
+                                .delay(Double(index) * 0.2),
+                            value: animationPhase
+                        )
+                }
+            }
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.vertical, DesignSystem.Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
+                    .fill(DesignSystem.Colors.surface)
+            )
+            .primaryBorder()
+            
+            Spacer()
+        }
+        .onAppear {
+            withAnimation {
+                animationPhase = 1
+            }
+        }
+    }
 }
 
 // MARK: - Core Message Bubble View

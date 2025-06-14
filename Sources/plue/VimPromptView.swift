@@ -9,120 +9,156 @@ struct VimPromptView: View {
     @State private var isTerminalFocused = false
     
     var body: some View {
-        HSplitView {
-            // Left side - Ghostty Terminal
-            VStack(spacing: 0) {
-                // Header with controls
-                HStack {
-                    Text("Prompt Terminal")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    
-                    // OpenAI Status Indicator
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(appState.openAIAvailable ? Color.green : Color.orange)
-                            .frame(width: 8, height: 8)
-                        Text(appState.openAIAvailable ? "OpenAI" : "Mock")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    Text("Use your favorite editor")
-                        .font(.caption)
-                        .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.55))
-                }
-                .padding()
-                .background(Color(red: 0.08, green: 0.08, blue: 0.09))
-                
-                Divider()
-                    .background(Color(red: 0.2, green: 0.2, blue: 0.25))
-                
-                // Terminal View
-                PromptTerminalView(terminal: promptTerminal, core: core)
-                    .background(Color.black)
-            }
+        ZStack {
+            DesignSystem.Colors.background
+                .ignoresSafeArea()
             
-            // Right side - Rich Markdown Preview
-            VStack(spacing: 0) {
-                // Header with action buttons
-                HStack {
-                    Text("Preview")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    
-                    Spacer()
-                    
-                    // Action buttons
-                    HStack(spacing: 12) {
-                        Button(action: askInChat) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "bubble.left.and.bubble.right")
-                                Text("Ask in Chat")
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
+            HSplitView {
+                // Left side - Professional Terminal Interface
+                VStack(spacing: 0) {
+                    // Professional Header
+                    HStack(spacing: DesignSystem.Spacing.lg) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Terminal Editor")
+                                .font(DesignSystem.Typography.titleMedium)
+                                .foregroundColor(DesignSystem.Colors.textPrimary)
+                            
+                            Text("Edit prompts with your favorite editor")
+                                .font(DesignSystem.Typography.labelSmall)
+                                .foregroundColor(DesignSystem.Colors.textSecondary)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .disabled(promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         
-                        Button(action: launchClaudeCode) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "terminal.fill")
-                                Text("Claude Code")
+                        Spacer()
+                        
+                        // Enhanced Status Indicator
+                        StatusIndicator(
+                            status: appState.openAIAvailable ? .online : .warning,
+                            text: appState.openAIAvailable ? "AI Ready" : "Mock Mode"
+                        )
+                    }
+                    .padding(.horizontal, DesignSystem.Spacing.xl)
+                    .padding(.vertical, DesignSystem.Spacing.lg)
+                    .background(DesignSystem.Colors.surface)
+                    .overlay(
+                        Rectangle()
+                            .frame(height: 1)
+                            .foregroundColor(DesignSystem.Colors.border),
+                        alignment: .bottom
+                    )
+                    
+                    // Enhanced Terminal View
+                    PromptTerminalView(terminal: promptTerminal, core: core)
+                        .background(DesignSystem.Colors.backgroundSecondary)
+                }
+                .elevatedSurface()
+            
+                // Right side - Professional Markdown Preview
+                VStack(spacing: 0) {
+                    // Professional Header with Action Buttons
+                    HStack(spacing: DesignSystem.Spacing.lg) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Markdown Preview")
+                                .font(DesignSystem.Typography.titleMedium)
+                                .foregroundColor(DesignSystem.Colors.textPrimary)
+                            
+                            Text("Real-time preview of your prompt")
+                                .font(DesignSystem.Typography.labelSmall)
+                                .foregroundColor(DesignSystem.Colors.textSecondary)
+                        }
+                        
+                        Spacer()
+                        
+                        // Professional Action Buttons
+                        HStack(spacing: DesignSystem.Spacing.md) {
+                            Button(action: askInChat) {
+                                HStack(spacing: DesignSystem.Spacing.xs) {
+                                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                                        .font(.system(size: DesignSystem.IconSize.small))
+                                    Text("Ask in Chat")
+                                        .font(DesignSystem.Typography.labelMedium)
+                                }
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.purple)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            
+                            Button(action: launchClaudeCode) {
+                                HStack(spacing: DesignSystem.Spacing.xs) {
+                                    Image(systemName: "terminal.fill")
+                                        .font(.system(size: DesignSystem.IconSize.small))
+                                    Text("Claude Code")
+                                        .font(DesignSystem.Typography.labelMedium)
+                                }
+                            }
+                            .buttonStyle(SecondaryButtonStyle())
                         }
-                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.horizontal, DesignSystem.Spacing.xl)
+                    .padding(.vertical, DesignSystem.Spacing.lg)
+                    .background(DesignSystem.Colors.surface)
+                    .overlay(
+                        Rectangle()
+                            .frame(height: 1)
+                            .foregroundColor(DesignSystem.Colors.border),
+                        alignment: .bottom
+                    )
+                
+                    // Enhanced Markdown Preview
+                    if promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(spacing: DesignSystem.Spacing.xl) {
+                            Spacer()
+                            
+                            // Professional empty state
+                            VStack(spacing: DesignSystem.Spacing.lg) {
+                                ZStack {
+                                    Circle()
+                                        .fill(DesignSystem.Colors.primaryGradient)
+                                        .frame(width: 80, height: 80)
+                                        .blur(radius: 15)
+                                        .opacity(0.2)
+                                    
+                                    Circle()
+                                        .fill(DesignSystem.Colors.surface)
+                                        .frame(width: 64, height: 64)
+                                        .overlay(
+                                            Image(systemName: "doc.text.magnifyingglass")
+                                                .font(.system(size: 28, weight: .light))
+                                                .foregroundColor(DesignSystem.Colors.primary)
+                                        )
+                                }
+                                
+                                VStack(spacing: DesignSystem.Spacing.sm) {
+                                    Text("Markdown Preview")
+                                        .font(DesignSystem.Typography.titleMedium)
+                                        .foregroundColor(DesignSystem.Colors.textPrimary)
+                                    
+                                    Text("Edit your prompt in the terminal editor\nto see a live preview here")
+                                        .font(DesignSystem.Typography.bodyMedium)
+                                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                                        .multilineTextAlignment(.center)
+                                }
+                            }
+                            
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(DesignSystem.Colors.backgroundSecondary)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                SwiftDownEditor(text: .constant(promptTerminal.currentContent))
+                                    .disabled(true)
+                            }
+                            .padding(DesignSystem.Spacing.xl)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .background(DesignSystem.Colors.backgroundSecondary)
                     }
                 }
-                .padding()
-                .background(Color(red: 0.08, green: 0.08, blue: 0.09))
-                
-                Divider()
-                    .background(Color(red: 0.2, green: 0.2, blue: 0.25))
-                
-                // Rich Markdown Preview
-                if promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    VStack {
-                        Spacer()
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 48))
-                            .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.35))
-                        Text("Markdown Preview")
-                            .font(.headline)
-                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.55))
-                        Text("Edit your prompt in the terminal")
-                            .font(.subheadline)
-                            .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.45))
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(red: 0.05, green: 0.05, blue: 0.06))
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            SwiftDownEditor(text: .constant(promptTerminal.currentContent))
-                                .disabled(true)
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .background(Color(red: 0.05, green: 0.05, blue: 0.06))
-                }
+                .elevatedSurface()
+                .frame(minWidth: 350)
             }
-            .frame(minWidth: 350)
         }
-        .background(Color(red: 0.05, green: 0.05, blue: 0.06))
+        .preferredColorScheme(.dark)
         .onAppear {
             promptTerminal.startSession()
         }
