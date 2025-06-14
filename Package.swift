@@ -18,16 +18,21 @@ let package = Package(
             name: "libplue",
             path: "include"
         ),
+        .systemLibrary(
+            name: "farcaster",
+            path: "src"
+        ),
         .executableTarget(
             name: "plue",
             dependencies: [
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "SwiftDown", package: "SwiftDown"),
                 .product(name: "CodeEditTextView", package: "CodeEditTextView"),
-                "libplue"
+                "libplue",
+                "farcaster"
             ],
             linkerSettings: [
-                .unsafeFlags(["-Llib", "-lpluecore"])
+                .unsafeFlags(["-Llib", "-lpluecore", "-lfarcaster"])
             ]),
     ]
 )

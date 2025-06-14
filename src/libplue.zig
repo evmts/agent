@@ -18,7 +18,7 @@ pub const GlobalState = struct {
     }
 
     pub fn processMessage(self: *GlobalState, message: []const u8) ?[]const u8 {
-        return try std.fmt.allocPrint(self.allocator, "Echo: {s}", .{message});
+        return std.fmt.allocPrint(self.allocator, "Echo: {s}", .{message}) catch null;
     }
 };
 
@@ -43,7 +43,7 @@ export fn plue_deinit() void {
 export fn plue_process_message(message: [*:0]const u8) [*:0]const u8 {
     var s = global_state orelse return "";
     const msg = std.mem.span(message);
-    const response = s.processMessage(msg) catch unreachable;
+    const response = s.processMessage(msg) orelse return "";
     defer s.allocator.free(response);
     const c_str = s.allocator.dupeZ(u8, response) catch return "";
     return c_str.ptr;

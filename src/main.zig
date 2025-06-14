@@ -1,7 +1,7 @@
 const std = @import("std");
-const App = @import("app.zig");
+const app_module = @import("app.zig");
 
 pub fn main() !void {
-    var app = App.init();
-    try app.run();
+    app_module.App.init();
+    app_module.App.run();
 }
