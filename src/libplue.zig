@@ -2,7 +2,7 @@ const std = @import("std");
 
 /// This global state is necessary so we can expose a C API
 /// We should not use it for anything else but the C API
-pub const GlobalState = struct {
+const GlobalState = struct {
     allocator: std.mem.Allocator,
     initialized: bool,
 
