@@ -35,6 +35,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Create Farcaster library module
+    const farcaster_mod = b.createModule(.{
+        .root_source_file = b.path("src/farcaster.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // We will also create a module for our other entry point, 'main.zig'.
     const exe_mod = b.createModule(.{
         // `root_source_file` is the Zig "entry point" of the module. If a module
@@ -67,11 +74,22 @@ pub fn build(b: *std.Build) void {
         .root_module = c_lib_mod,
     });
 
+    // Create Farcaster static library for Swift interop
+    const farcaster_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "farcaster",
+        .root_module = farcaster_mod,
+    });
+
+    // Link required libraries for HTTP and crypto
+    farcaster_lib.linkLibC();
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
     b.installArtifact(lib);
     b.installArtifact(c_lib);
+    b.installArtifact(farcaster_lib);
 
     const webui = b.dependency("webui", .{
         .target = target,
@@ -137,4 +155,28 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // Add Swift build step that depends on Zig libraries
+    const swift_build_cmd = b.addSystemCommand(&.{
+        "swift", "build", "--configuration", "release",
+        "-Xlinker", b.fmt("-L{s}", .{b.getInstallPath(.lib, "")}),
+    });
+    
+    // Swift build depends on all Zig libraries being built and installed
+    swift_build_cmd.step.dependOn(&lib.step);
+    swift_build_cmd.step.dependOn(&c_lib.step);
+    swift_build_cmd.step.dependOn(&farcaster_lib.step);
+    
+    // Create a step for building the complete project (Zig + Swift)
+    const build_all_step = b.step("swift", "Build complete project including Swift");
+    build_all_step.dependOn(&swift_build_cmd.step);
+    
+    // Add step to run the Swift executable
+    const swift_run_cmd = b.addSystemCommand(&.{
+        ".build/release/plue"
+    });
+    swift_run_cmd.step.dependOn(&swift_build_cmd.step);
+    
+    const run_swift_step = b.step("run-swift", "Run the Swift application");
+    run_swift_step.dependOn(&swift_run_cmd.step);
 }

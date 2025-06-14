@@ -21,7 +21,7 @@
           dontCheck = true;
         };
         
-        # Swift package
+        # Unified Swift + Zig package using integrated build
         swiftPackage = pkgs.stdenv.mkDerivation {
           pname = "plue";
           version = "0.0.0";
@@ -47,14 +47,11 @@
             # Copy Zig dependencies
             mkdir -p .zig-cache
             cp -r ${zigDeps}/* .zig-cache/ || true
-            
-            # Build Zig libraries first
-            zig build
           '';
           
           buildPhase = ''
-            # Build Swift package
-            swift build --configuration release
+            # Use integrated Zig build that includes Swift
+            zig build swift
           '';
           
           installPhase = ''
@@ -96,10 +93,10 @@
           shellHook = ''
             echo "🚀 Plue development environment"
             echo "Available commands:"
-            echo "  zig build      - Build Zig components"
-            echo "  swift build    - Build Swift package"
-            echo "  swift run      - Run the application"
-            echo "  nix build      - Build with Nix"
+            echo "  zig build        - Build Zig components only"
+            echo "  zig build swift  - Build complete project (Zig + Swift)"
+            echo "  zig build run-swift - Build and run Swift application"
+            echo "  nix build        - Build with Nix"
             echo ""
             echo "Environment ready!"
           '';
