@@ -136,9 +136,13 @@ class VimChatTerminal: ObservableObject {
             enterInsertMode()
         case "a":
             enterInsertMode()
-            cursorCol += 1
+            if cursorRow < bufferLines.count {
+                cursorCol = min(cursorCol + 1, bufferLines[cursorRow].count)
+            }
         case "A":
-            cursorCol = bufferLines[cursorRow].count
+            if cursorRow < bufferLines.count {
+                cursorCol = bufferLines[cursorRow].count
+            }
             enterInsertMode()
         case "o":
             bufferLines.insert("", at: cursorRow + 1)
@@ -170,7 +174,9 @@ class VimChatTerminal: ObservableObject {
         case "0":
             cursorCol = 0
         case "$":
-            cursorCol = max(0, bufferLines[cursorRow].count - 1)
+            if cursorRow < bufferLines.count {
+                cursorCol = max(0, bufferLines[cursorRow].count - 1)
+            }
         case "x":
             deleteCharacterAtCursor()
         case "dd":
@@ -352,8 +358,13 @@ class VimChatTerminal: ObservableObject {
     }
     
     private func moveWordForward() {
+        guard cursorRow < bufferLines.count else { return }
+        
         let line = bufferLines[cursorRow]
-        let startIndex = line.index(line.startIndex, offsetBy: cursorCol)
+        let safeCol = min(cursorCol, line.count)
+        guard safeCol < line.count else { return }
+        
+        let startIndex = line.index(line.startIndex, offsetBy: safeCol)
         
         if let spaceRange = line[startIndex...].firstIndex(of: " ") {
             cursorCol = line.distance(from: line.startIndex, to: spaceRange) + 1
@@ -363,10 +374,13 @@ class VimChatTerminal: ObservableObject {
     }
     
     private func moveWordBackward() {
-        let line = bufferLines[cursorRow]
-        guard cursorCol > 0 else { return }
+        guard cursorRow < bufferLines.count else { return }
         
-        let endIndex = line.index(line.startIndex, offsetBy: cursorCol - 1)
+        let line = bufferLines[cursorRow]
+        let safeCol = min(cursorCol, line.count)
+        guard safeCol > 0 else { return }
+        
+        let endIndex = line.index(line.startIndex, offsetBy: safeCol - 1)
         
         if let spaceRange = line[..<endIndex].lastIndex(of: " ") {
             cursorCol = line.distance(from: line.startIndex, to: spaceRange) + 1
@@ -392,17 +406,26 @@ class VimChatTerminal: ObservableObject {
     }
     
     private func insertText(_ text: String) {
+        // Bounds checking to prevent crashes
+        guard cursorRow < bufferLines.count else { return }
+        
         var line = bufferLines[cursorRow]
-        let insertIndex = line.index(line.startIndex, offsetBy: cursorCol)
+        
+        // Ensure cursorCol is within valid bounds
+        let safeCol = min(cursorCol, line.count)
+        let insertIndex = line.index(line.startIndex, offsetBy: safeCol)
         line.insert(contentsOf: text, at: insertIndex)
         bufferLines[cursorRow] = line
-        cursorCol += text.count
+        cursorCol = safeCol + text.count
     }
     
     private func insertNewline() {
+        guard cursorRow < bufferLines.count else { return }
+        
         let currentLine = bufferLines[cursorRow]
-        let leftPart = String(currentLine.prefix(cursorCol))
-        let rightPart = String(currentLine.suffix(currentLine.count - cursorCol))
+        let safeCol = min(cursorCol, currentLine.count)
+        let leftPart = String(currentLine.prefix(safeCol))
+        let rightPart = String(currentLine.suffix(currentLine.count - safeCol))
         
         bufferLines[cursorRow] = leftPart
         bufferLines.insert(rightPart, at: cursorRow + 1)
@@ -411,12 +434,17 @@ class VimChatTerminal: ObservableObject {
     }
     
     private func handleBackspace() {
+        guard cursorRow < bufferLines.count else { return }
+        
         if cursorCol > 0 {
             var line = bufferLines[cursorRow]
-            let removeIndex = line.index(line.startIndex, offsetBy: cursorCol - 1)
-            line.remove(at: removeIndex)
-            bufferLines[cursorRow] = line
-            cursorCol -= 1
+            let safeCol = min(cursorCol, line.count)
+            if safeCol > 0 {
+                let removeIndex = line.index(line.startIndex, offsetBy: safeCol - 1)
+                line.remove(at: removeIndex)
+                bufferLines[cursorRow] = line
+                cursorCol = safeCol - 1
+            }
         } else if cursorRow > 0 {
             // Join with previous line
             let currentLine = bufferLines.remove(at: cursorRow)
@@ -427,12 +455,15 @@ class VimChatTerminal: ObservableObject {
     }
     
     private func deleteCharacterAtCursor() {
-        guard cursorCol < bufferLines[cursorRow].count else { return }
+        guard cursorRow < bufferLines.count else { return }
         
-        var line = bufferLines[cursorRow]
-        let removeIndex = line.index(line.startIndex, offsetBy: cursorCol)
-        line.remove(at: removeIndex)
-        bufferLines[cursorRow] = line
+        let line = bufferLines[cursorRow]
+        guard cursorCol < line.count else { return }
+        
+        var mutableLine = line
+        let removeIndex = mutableLine.index(mutableLine.startIndex, offsetBy: cursorCol)
+        mutableLine.remove(at: removeIndex)
+        bufferLines[cursorRow] = mutableLine
     }
     
     private func deleteLine() {
@@ -601,9 +632,14 @@ class VimChatTerminal: ObservableObject {
     private func deleteCharacterSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
         if startRow == endRow {
             // Single line selection
+            guard startRow < bufferLines.count else { return }
             var line = bufferLines[startRow]
-            let startIndex = line.index(line.startIndex, offsetBy: startCol)
-            let endIndex = line.index(line.startIndex, offsetBy: min(endCol + 1, line.count))
+            let safeStartCol = min(startCol, line.count)
+            let safeEndCol = min(endCol, line.count - 1)
+            guard safeStartCol <= safeEndCol && safeStartCol < line.count else { return }
+            
+            let startIndex = line.index(line.startIndex, offsetBy: safeStartCol)
+            let endIndex = line.index(line.startIndex, offsetBy: min(safeEndCol + 1, line.count))
             line.removeSubrange(startIndex..<endIndex)
             bufferLines[startRow] = line
             cursorRow = startRow
