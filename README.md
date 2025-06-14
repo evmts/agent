@@ -1,8 +1,15 @@
-# Plue
+# Plue (under development)
 
 **A multi-agent coding assistant built with Swift and Zig**
 
 Plue is a native macOS application that provides an intelligent coding assistant interface with multiple interaction modes. It combines a modern Swift UI with high-performance Zig backend libraries to deliver a responsive and powerful development tool.
+
+![telegram-cloud-photo-size-1-5073602166656183840-y](https://github.com/user-attachments/assets/7e8c33a3-fe58-4d68-8a1f-d5c797ac5068)
+<img width="999" alt="image" src="https://github.com/user-attachments/assets/59a68f31-5739-43a3-8d26-905751e26ef4" />
+<img width="1005" alt="image" src="https://github.com/user-attachments/assets/8ba9a7db-7788-4592-9b32-fd892df35731" />
+<img width="1001" alt="image" src="https://github.com/user-attachments/assets/99a9b0e7-a20e-4aaf-866b-2c1835cd4047" />
+<img width="998" alt="image" src="https://github.com/user-attachments/assets/f49c7a0f-c468-43c1-ae43-065f84a66761" />
+
 
 ## Features
 
