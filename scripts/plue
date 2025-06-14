@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Plue CLI launcher script
+# Usage: plue [directory]
+# Similar to 'code' command for VSCode
+
+# Get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Path to the Plue executable (adjust based on your build setup)
+PLUE_APP="$SCRIPT_DIR/../.build/release/plue"
+
+# If PLUE_APP doesn't exist, try some other common locations
+if [ ! -f "$PLUE_APP" ]; then
+    # Try zig-out directory
+    PLUE_APP="$SCRIPT_DIR/../zig-out/bin/plue"
+fi
+
+if [ ! -f "$PLUE_APP" ]; then
+    # Try looking for the app bundle in typical macOS locations
+    PLUE_APP="/Applications/Plue.app/Contents/MacOS/plue"
+fi
+
+if [ ! -f "$PLUE_APP" ]; then
+    echo "Error: Plue executable not found. Please build the project first with 'zig build swift' or install the app."
+    exit 1
+fi
+
+# If no argument provided, use current directory
+if [ $# -eq 0 ]; then
+    DIRECTORY="$(pwd)"
+else
+    DIRECTORY="$1"
+    
+    # Convert relative path to absolute path
+    if [[ "$DIRECTORY" != /* ]]; then
+        DIRECTORY="$(cd "$DIRECTORY" 2>/dev/null && pwd)"
+        if [ $? -ne 0 ]; then
+            echo "Error: Directory '$1' does not exist"
+            exit 1
+        fi
+    fi
+    
+    # Check if directory exists
+    if [ ! -d "$DIRECTORY" ]; then
+        echo "Error: Directory '$DIRECTORY' does not exist"
+        exit 1
+    fi
+fi
+
+# Launch Plue with the specified directory
+echo "Opening Plue in: $DIRECTORY"
+exec "$PLUE_APP" "$DIRECTORY"
