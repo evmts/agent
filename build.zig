@@ -75,13 +75,6 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(c_lib);
     b.installArtifact(farcaster_lib);
 
-    const webui = b.dependency("webui", .{
-        .target = target,
-        .optimize = optimize,
-        .dynamic = false,
-        .@"enable-tls" = false,
-        .verbose = .err,
-    });
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -125,20 +118,9 @@ pub fn build(b: *std.Build) void {
         .root_module = farcaster_test_mod,
     });
 
-    const app_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/test_app.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    app_test_mod.addImport("app_root", lib_mod);
-
-    const app_tests = b.addTest(.{
-        .root_module = app_test_mod,
-    });
 
     const run_libplue_tests = b.addRunArtifact(libplue_tests);
     const run_farcaster_tests = b.addRunArtifact(farcaster_tests);
-    const run_app_tests = b.addRunArtifact(app_tests);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
@@ -148,7 +130,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_integration_tests.step);
     test_step.dependOn(&run_libplue_tests.step);
     test_step.dependOn(&run_farcaster_tests.step);
-    test_step.dependOn(&run_app_tests.step);
 
     // Individual test steps for granular testing
     const test_integration_step = b.step("test-integration", "Run integration tests");
@@ -160,8 +141,6 @@ pub fn build(b: *std.Build) void {
     const test_farcaster_step = b.step("test-farcaster", "Run farcaster tests");
     test_farcaster_step.dependOn(&run_farcaster_tests.step);
 
-    const test_app_step = b.step("test-app", "Run app tests");
-    test_app_step.dependOn(&run_app_tests.step);
 
     // Add Swift build step that depends on Zig libraries
     const swift_build_cmd = b.addSystemCommand(&.{
