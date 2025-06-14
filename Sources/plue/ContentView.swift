@@ -47,6 +47,13 @@ struct ContentView: View {
                     Text("Code Editor")
                 }
                 .tag(TabType.editor)
+            
+            FarcasterView(appState: appState, core: core)
+                .tabItem {
+                    Image(systemName: "person.2")
+                    Text("Farcaster")
+                }
+                .tag(TabType.farcaster)
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
         .onAppear {

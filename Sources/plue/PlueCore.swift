@@ -8,6 +8,7 @@ enum TabType: Int, CaseIterable {
     case terminal = 2
     case web = 3
     case editor = 4
+    case farcaster = 5
 }
 
 struct AppState {
@@ -22,6 +23,7 @@ struct AppState {
     let vimState: VimState
     let webState: WebState
     let editorState: EditorState
+    let farcasterState: FarcasterState
     
     static let initial = AppState(
         currentTab: .prompt,
@@ -32,7 +34,8 @@ struct AppState {
         terminalState: TerminalState.initial,
         vimState: VimState.initial,
         webState: WebState.initial,
-        editorState: EditorState.initial
+        editorState: EditorState.initial,
+        farcasterState: FarcasterState.initial
     )
 }
 
@@ -194,6 +197,117 @@ struct EditorState {
     )
 }
 
+struct FarcasterState {
+    let selectedChannel: String
+    let posts: [FarcasterPost]
+    let channels: [FarcasterChannel]
+    let isLoading: Bool
+    
+    static let initial = FarcasterState(
+        selectedChannel: "dev",
+        posts: FarcasterPost.mockPosts,
+        channels: FarcasterChannel.mockChannels,
+        isLoading: false
+    )
+}
+
+struct FarcasterPost: Identifiable {
+    let id: String
+    let author: FarcasterUser
+    let content: String
+    let timestamp: Date
+    let channel: String
+    let likes: Int
+    let recasts: Int
+    let replies: Int
+    let isLiked: Bool
+    let isRecast: Bool
+    
+    static let mockPosts: [FarcasterPost] = [
+        FarcasterPost(
+            id: "1",
+            author: FarcasterUser(username: "dwr", displayName: "Dan Romero", avatarURL: ""),
+            content: "Building the future of decentralized social on Farcaster. The protocol is designed for developers who want to build without platform risk.",
+            timestamp: Date().addingTimeInterval(-3600),
+            channel: "dev",
+            likes: 42,
+            recasts: 15,
+            replies: 8,
+            isLiked: false,
+            isRecast: false
+        ),
+        FarcasterPost(
+            id: "2", 
+            author: FarcasterUser(username: "vitalik", displayName: "Vitalik Buterin", avatarURL: ""),
+            content: "Interesting developments in decentralized social protocols. The composability potential is huge.",
+            timestamp: Date().addingTimeInterval(-7200),
+            channel: "dev",
+            likes: 128,
+            recasts: 34,
+            replies: 22,
+            isLiked: true,
+            isRecast: false
+        ),
+        FarcasterPost(
+            id: "3",
+            author: FarcasterUser(username: "jessepollak", displayName: "Jesse Pollak", avatarURL: ""),
+            content: "Working on some exciting new features for Base. Can't wait to share what we're building! 🔵",
+            timestamp: Date().addingTimeInterval(-10800),
+            channel: "dev",
+            likes: 89,
+            recasts: 21,
+            replies: 12,
+            isLiked: false,
+            isRecast: true
+        ),
+        FarcasterPost(
+            id: "4",
+            author: FarcasterUser(username: "balajis", displayName: "Balaji", avatarURL: ""),
+            content: "The future is decentralized. Social networks, money, computation - all moving towards peer-to-peer architectures.",
+            timestamp: Date().addingTimeInterval(-14400),
+            channel: "dev", 
+            likes: 203,
+            recasts: 67,
+            replies: 45,
+            isLiked: true,
+            isRecast: false
+        ),
+        FarcasterPost(
+            id: "5",
+            author: FarcasterUser(username: "farcaster", displayName: "Farcaster", avatarURL: ""),
+            content: "Welcome to the decentralized social revolution! Build whatever you want on top of the Farcaster protocol. No ads, no algorithms, just pure social interaction.",
+            timestamp: Date().addingTimeInterval(-18000),
+            channel: "dev",
+            likes: 156,
+            recasts: 78,
+            replies: 29,
+            isLiked: false,
+            isRecast: false
+        )
+    ]
+}
+
+struct FarcasterUser {
+    let username: String
+    let displayName: String
+    let avatarURL: String
+}
+
+struct FarcasterChannel {
+    let id: String
+    let name: String
+    let description: String
+    let memberCount: Int
+    
+    static let mockChannels: [FarcasterChannel] = [
+        FarcasterChannel(id: "dev", name: "Dev", description: "For developers building on Farcaster", memberCount: 1234),
+        FarcasterChannel(id: "crypto", name: "Crypto", description: "Cryptocurrency and DeFi discussions", memberCount: 5678),
+        FarcasterChannel(id: "art", name: "Art", description: "Digital art and NFT community", memberCount: 2345),
+        FarcasterChannel(id: "memes", name: "Memes", description: "The best memes on the internet", memberCount: 9876),
+        FarcasterChannel(id: "music", name: "Music", description: "Share and discover music", memberCount: 3456)
+    ]
+}
+
 // MARK: - Events (Commands sent to core)
 
 enum AppEvent {
@@ -211,6 +325,12 @@ enum AppEvent {
     case webReload
     case editorContentChanged(String)
     case editorSave
+    case farcasterSelectChannel(String)
+    case farcasterLikePost(String)
+    case farcasterRecastPost(String)
+    case farcasterReplyToPost(String, String) // postId, replyContent
+    case farcasterCreatePost(String)
+    case farcasterRefreshFeed
 }
 
 // MARK: - Core Interface
@@ -232,6 +352,7 @@ class MockPlueCore: PlueCoreInterface {
     private var currentState: AppState = AppState.initial
     private var stateCallbacks: [(AppState) -> Void] = []
     private let openAIService: OpenAIService?
+    private let farcasterService: FarcasterService?
     
     // Thread-safe access using serial queue
     private let queue = DispatchQueue(label: "plue.core", qos: .userInteractive)
@@ -244,6 +365,14 @@ class MockPlueCore: PlueCoreInterface {
         } catch {
             self.openAIService = nil
             print("PlueCore: OpenAI service not available (\(error.localizedDescription)), using mock responses")
+        }
+        
+        // Try to initialize Farcaster service, fall back to mock data if not available
+        self.farcasterService = FarcasterService.createTestService()
+        if farcasterService != nil {
+            print("PlueCore: Farcaster service initialized successfully")
+        } else {
+            print("PlueCore: Farcaster service not available, using mock data")
         }
     }
     
@@ -282,7 +411,8 @@ class MockPlueCore: PlueCoreInterface {
                 terminalState: TerminalState.initial,
                 vimState: VimState.initial,
                 webState: WebState.initial,
-                editorState: EditorState.initial
+                editorState: EditorState.initial,
+                farcasterState: FarcasterState.initial
             )
             return true
         }
@@ -303,7 +433,8 @@ class MockPlueCore: PlueCoreInterface {
         terminalState: TerminalState? = nil,
         vimState: VimState? = nil,
         webState: WebState? = nil,
-        editorState: EditorState? = nil
+        editorState: EditorState? = nil,
+        farcasterState: FarcasterState? = nil
     ) -> AppState {
         return AppState(
             currentTab: currentTab ?? self.currentState.currentTab,
@@ -314,7 +445,8 @@ class MockPlueCore: PlueCoreInterface {
             terminalState: terminalState ?? self.currentState.terminalState,
             vimState: vimState ?? self.currentState.vimState,
             webState: webState ?? self.currentState.webState,
-            editorState: editorState ?? self.currentState.editorState
+            editorState: editorState ?? self.currentState.editorState,
+            farcasterState: farcasterState ?? self.currentState.farcasterState
         )
     }
     
@@ -363,6 +495,24 @@ class MockPlueCore: PlueCoreInterface {
             
         case .editorSave:
             saveEditor()
+            
+        case .farcasterSelectChannel(let channelId):
+            selectFarcasterChannel(channelId)
+            
+        case .farcasterLikePost(let postId):
+            likeFarcasterPost(postId)
+            
+        case .farcasterRecastPost(let postId):
+            recastFarcasterPost(postId)
+            
+        case .farcasterReplyToPost(let postId, let replyContent):
+            replyToFarcasterPost(postId, replyContent)
+            
+        case .farcasterCreatePost(let content):
+            createFarcasterPost(content)
+            
+        case .farcasterRefreshFeed:
+            refreshFarcasterFeed()
         }
     }
     
@@ -707,6 +857,339 @@ class MockPlueCore: PlueCoreInterface {
         )
         
         currentState = createUpdatedAppState(editorState: newEditorState)
+    }
+    
+    // MARK: - Farcaster Event Handlers
+    
+    private func selectFarcasterChannel(_ channelId: String) {
+        let newFarcasterState = FarcasterState(
+            selectedChannel: channelId,
+            posts: currentState.farcasterState.posts,
+            channels: currentState.farcasterState.channels,
+            isLoading: false
+        )
+        
+        currentState = createUpdatedAppState(farcasterState: newFarcasterState)
+    }
+    
+    private func likeFarcasterPost(_ postId: String) {
+        if let farcasterService = farcasterService {
+            // Use real Farcaster API
+            Task { [weak self] in
+                do {
+                    // First update UI optimistically
+                    await self?.updatePostLikeOptimistic(postId, isLiked: true)
+                    
+                    // Find the post to get the author FID
+                    guard let self = self,
+                          let post = self.currentState.farcasterState.posts.first(where: { $0.id == postId }),
+                          let authorFid = UInt64(post.author.username) else {
+                        print("PlueCore: Could not find post or author FID for like")
+                        return
+                    }
+                    
+                    let result = try await farcasterService.likeCast(castHash: postId, authorFid: authorFid)
+                    print("PlueCore: Liked cast successfully: \(result)")
+                } catch {
+                    print("PlueCore: Failed to like cast: \(error)")
+                    // Revert optimistic update on error
+                    await self?.updatePostLikeOptimistic(postId, isLiked: false)
+                }
+            }
+        } else {
+            // Use mock behavior
+            likeFarcasterPostMock(postId)
+        }
+    }
+    
+    private func likeFarcasterPostMock(_ postId: String) {
+        var updatedPosts = currentState.farcasterState.posts
+        
+        if let index = updatedPosts.firstIndex(where: { $0.id == postId }) {
+            let post = updatedPosts[index]
+            let newPost = FarcasterPost(
+                id: post.id,
+                author: post.author,
+                content: post.content,
+                timestamp: post.timestamp,
+                channel: post.channel,
+                likes: post.isLiked ? post.likes - 1 : post.likes + 1,
+                recasts: post.recasts,
+                replies: post.replies,
+                isLiked: !post.isLiked,
+                isRecast: post.isRecast
+            )
+            updatedPosts[index] = newPost
+        }
+        
+        let newFarcasterState = FarcasterState(
+            selectedChannel: currentState.farcasterState.selectedChannel,
+            posts: updatedPosts,
+            channels: currentState.farcasterState.channels,
+            isLoading: false
+        )
+        
+        currentState = createUpdatedAppState(farcasterState: newFarcasterState)
+    }
+    
+    private func updatePostLikeOptimistic(_ postId: String, isLiked: Bool) async {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            var updatedPosts = self.currentState.farcasterState.posts
+            
+            if let index = updatedPosts.firstIndex(where: { $0.id == postId }) {
+                let post = updatedPosts[index]
+                let newPost = FarcasterPost(
+                    id: post.id,
+                    author: post.author,
+                    content: post.content,
+                    timestamp: post.timestamp,
+                    channel: post.channel,
+                    likes: isLiked ? post.likes + 1 : post.likes - 1,
+                    recasts: post.recasts,
+                    replies: post.replies,
+                    isLiked: isLiked,
+                    isRecast: post.isRecast
+                )
+                updatedPosts[index] = newPost
+            }
+            
+            let newFarcasterState = FarcasterState(
+                selectedChannel: self.currentState.farcasterState.selectedChannel,
+                posts: updatedPosts,
+                channels: self.currentState.farcasterState.channels,
+                isLoading: false
+            )
+            
+            self.currentState = self.createUpdatedAppState(farcasterState: newFarcasterState)
+            self.notifyStateChange()
+        }
+    }
+    
+    private func recastFarcasterPost(_ postId: String) {
+        var updatedPosts = currentState.farcasterState.posts
+        
+        if let index = updatedPosts.firstIndex(where: { $0.id == postId }) {
+            let post = updatedPosts[index]
+            let newPost = FarcasterPost(
+                id: post.id,
+                author: post.author,
+                content: post.content,
+                timestamp: post.timestamp,
+                channel: post.channel,
+                likes: post.likes,
+                recasts: post.isRecast ? post.recasts - 1 : post.recasts + 1,
+                replies: post.replies,
+                isLiked: post.isLiked,
+                isRecast: !post.isRecast
+            )
+            updatedPosts[index] = newPost
+        }
+        
+        let newFarcasterState = FarcasterState(
+            selectedChannel: currentState.farcasterState.selectedChannel,
+            posts: updatedPosts,
+            channels: currentState.farcasterState.channels,
+            isLoading: false
+        )
+        
+        currentState = createUpdatedAppState(farcasterState: newFarcasterState)
+    }
+    
+    private func replyToFarcasterPost(_ postId: String, _ replyContent: String) {
+        var updatedPosts = currentState.farcasterState.posts
+        
+        // Increment reply count on original post
+        if let index = updatedPosts.firstIndex(where: { $0.id == postId }) {
+            let post = updatedPosts[index]
+            let updatedPost = FarcasterPost(
+                id: post.id,
+                author: post.author,
+                content: post.content,
+                timestamp: post.timestamp,
+                channel: post.channel,
+                likes: post.likes,
+                recasts: post.recasts,
+                replies: post.replies + 1,
+                isLiked: post.isLiked,
+                isRecast: post.isRecast
+            )
+            updatedPosts[index] = updatedPost
+        }
+        
+        // Create reply post
+        let replyPost = FarcasterPost(
+            id: UUID().uuidString,
+            author: FarcasterUser(username: "you", displayName: "You", avatarURL: ""),
+            content: replyContent,
+            timestamp: Date(),
+            channel: currentState.farcasterState.selectedChannel,
+            likes: 0,
+            recasts: 0,
+            replies: 0,
+            isLiked: false,
+            isRecast: false
+        )
+        
+        updatedPosts.append(replyPost)
+        
+        let newFarcasterState = FarcasterState(
+            selectedChannel: currentState.farcasterState.selectedChannel,
+            posts: updatedPosts,
+            channels: currentState.farcasterState.channels,
+            isLoading: false
+        )
+        
+        currentState = createUpdatedAppState(farcasterState: newFarcasterState)
+    }
+    
+    private func createFarcasterPost(_ content: String) {
+        if let farcasterService = farcasterService {
+            // Use real Farcaster API
+            Task { [weak self] in
+                do {
+                    let result = try await farcasterService.postCast(text: content)
+                    print("PlueCore: Posted cast successfully: \(result)")
+                    
+                    // Refresh the feed after posting
+                    await self?.refreshFarcasterFeedReal()
+                } catch {
+                    print("PlueCore: Failed to post cast: \(error)")
+                    // Fall back to mock behavior
+                    self?.createMockFarcasterPost(content)
+                }
+            }
+        } else {
+            // Use mock behavior
+            createMockFarcasterPost(content)
+        }
+    }
+    
+    private func createMockFarcasterPost(_ content: String) {
+        let newPost = FarcasterPost(
+            id: UUID().uuidString,
+            author: FarcasterUser(username: "you", displayName: "You", avatarURL: ""),
+            content: content,
+            timestamp: Date(),
+            channel: currentState.farcasterState.selectedChannel,
+            likes: 0,
+            recasts: 0,
+            replies: 0,
+            isLiked: false,
+            isRecast: false
+        )
+        
+        let updatedPosts = currentState.farcasterState.posts + [newPost]
+        
+        let newFarcasterState = FarcasterState(
+            selectedChannel: currentState.farcasterState.selectedChannel,
+            posts: updatedPosts,
+            channels: currentState.farcasterState.channels,
+            isLoading: false
+        )
+        
+        currentState = createUpdatedAppState(farcasterState: newFarcasterState)
+    }
+    
+    private func refreshFarcasterFeed() {
+        if let farcasterService = farcasterService {
+            // Use real Farcaster API
+            Task { [weak self] in
+                await self?.refreshFarcasterFeedReal()
+            }
+        } else {
+            // Use mock behavior
+            refreshFarcasterFeedMock()
+        }
+    }
+    
+    private func refreshFarcasterFeedReal() async {
+        // Set loading state
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let loadingState = FarcasterState(
+                selectedChannel: self.currentState.farcasterState.selectedChannel,
+                posts: self.currentState.farcasterState.posts,
+                channels: self.currentState.farcasterState.channels,
+                isLoading: true
+            )
+            
+            self.currentState = self.createUpdatedAppState(farcasterState: loadingState)
+            self.notifyStateChange()
+        }
+        
+        // Fetch real data
+        do {
+            guard let farcasterService = farcasterService else { return }
+            
+            let casts = try await farcasterService.getCasts(limit: 25)
+            let posts = farcasterService.convertToFarcasterPosts(casts)
+            
+            queue.async { [weak self] in
+                guard let self = self else { return }
+                
+                let refreshedState = FarcasterState(
+                    selectedChannel: self.currentState.farcasterState.selectedChannel,
+                    posts: posts,
+                    channels: self.currentState.farcasterState.channels,
+                    isLoading: false
+                )
+                
+                self.currentState = self.createUpdatedAppState(farcasterState: refreshedState)
+                self.notifyStateChange()
+            }
+            
+            print("PlueCore: Refreshed Farcaster feed with \(posts.count) posts")
+        } catch {
+            print("PlueCore: Failed to refresh Farcaster feed: \(error)")
+            
+            // Reset loading state on error
+            queue.async { [weak self] in
+                guard let self = self else { return }
+                
+                let refreshedState = FarcasterState(
+                    selectedChannel: self.currentState.farcasterState.selectedChannel,
+                    posts: self.currentState.farcasterState.posts,
+                    channels: self.currentState.farcasterState.channels,
+                    isLoading: false
+                )
+                
+                self.currentState = self.createUpdatedAppState(farcasterState: refreshedState)
+                self.notifyStateChange()
+            }
+        }
+    }
+    
+    private func refreshFarcasterFeedMock() {
+        // Set loading state
+        let loadingState = FarcasterState(
+            selectedChannel: currentState.farcasterState.selectedChannel,
+            posts: currentState.farcasterState.posts,
+            channels: currentState.farcasterState.channels,
+            isLoading: true
+        )
+        
+        currentState = createUpdatedAppState(farcasterState: loadingState)
+        
+        // Simulate network delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.queue.async {
+                guard let self = self else { return }
+                
+                // Reset loading state
+                let refreshedState = FarcasterState(
+                    selectedChannel: self.currentState.farcasterState.selectedChannel,
+                    posts: self.currentState.farcasterState.posts,
+                    channels: self.currentState.farcasterState.channels,
+                    isLoading: false
+                )
+                
+                self.currentState = self.createUpdatedAppState(farcasterState: refreshedState)
+                self.notifyStateChange()
+            }
+        }
     }
     
     private func notifyStateChange() {
