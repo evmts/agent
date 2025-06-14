@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) void {
 
     // Create Farcaster library module with dependencies
     const farcaster_mod = b.createModule(.{
-        .root_source_file = b.path("src/farcaster.zig"),
+        .root_source_file = b.path("src/farcaster/farcaster.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -74,7 +74,6 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
     b.installArtifact(c_lib);
     b.installArtifact(farcaster_lib);
-
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -118,7 +117,6 @@ pub fn build(b: *std.Build) void {
         .root_module = farcaster_test_mod,
     });
 
-
     const run_libplue_tests = b.addRunArtifact(libplue_tests);
     const run_farcaster_tests = b.addRunArtifact(farcaster_tests);
 
@@ -140,7 +138,6 @@ pub fn build(b: *std.Build) void {
 
     const test_farcaster_step = b.step("test-farcaster", "Run farcaster tests");
     test_farcaster_step.dependOn(&run_farcaster_tests.step);
-
 
     // Add Swift build step that depends on Zig libraries
     const swift_build_cmd = b.addSystemCommand(&.{

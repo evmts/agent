@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "plue",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),

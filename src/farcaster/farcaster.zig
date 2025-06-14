@@ -6,8 +6,8 @@ const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 // Import our enhanced modules
-const config = @import("farcaster/config.zig");
-const rate_limiter = @import("farcaster/rate_limiter.zig");
+const config = @import("config.zig");
+const rate_limiter = @import("rate_limiter.zig");
 
 pub const ClientConfig = config.ClientConfig;
 pub const RetryPolicy = config.RetryPolicy;
