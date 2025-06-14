@@ -116,7 +116,6 @@ class MockTerminal: ObservableObject {
         
         let welcomeLines = [
             "Plue Terminal v1.0.0",
-            "Built with libghostty architecture patterns",
             "",
             "Connecting to shell..."
         ]
