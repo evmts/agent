@@ -31,3 +31,7 @@ lib/
 *.a
 *.dylib
 test_integration
+
+# Nix
+result
+result-*
