@@ -420,8 +420,10 @@ struct DiffView: View {
                         EnhancedGitFileRow(
                             file: file,
                             isSelected: selectedFile == file.path,
+                            isStaged: stageSelections.contains(file.path),
                             theme: appState.currentTheme,
-                            onSelect: { selectedFile = file.path }
+                            onSelect: { selectedFile = file.path },
+                            onStageToggle: { toggleFileStaging(file.path) }
                         )
                     }
                 }
@@ -482,12 +484,23 @@ struct DiffView: View {
                     .background(DesignSystem.Colors.surface(for: appState.currentTheme))
                     
                     // Enhanced diff content
-                    SyntaxHighlightedDiffView(
-                        file: file,
-                        showLineNumbers: showLineNumbers,
-                        syntaxHighlighting: syntaxHighlighting,
-                        theme: appState.currentTheme
-                    )
+                    if conflictResolutionMode && file.hasConflicts {
+                        ConflictResolutionView(
+                            file: file,
+                            selectedConflict: $selectedConflict,
+                            theme: appState.currentTheme
+                        )
+                    } else {
+                        SyntaxHighlightedDiffView(
+                            file: file,
+                            showLineNumbers: showLineNumbers,
+                            syntaxHighlighting: syntaxHighlighting,
+                            showWhitespace: showWhitespace,
+                            contextLines: contextLines,
+                            searchText: searchText,
+                            theme: appState.currentTheme
+                        )
+                    }
                 }
             } else {
                 enhancedSelectFilePrompt
@@ -1159,7 +1172,140 @@ struct ConflictResolutionView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Conflict resolution header
-                HStack {\n                    Text(\"Merge Conflicts\")\n                        .font(.system(size: 16, weight: .semibold))\n                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))\n                    \n                    Spacer()\n                    \n                    Text(\"\\(file.conflicts.count) conflicts\")\n                        .font(.system(size: 12, weight: .medium))\n                        .foregroundColor(DesignSystem.Colors.error)\n                        .padding(.horizontal, 8)\n                        .padding(.vertical, 4)\n                        .background(\n                            RoundedRectangle(cornerRadius: 4)\n                                .fill(DesignSystem.Colors.error.opacity(0.1))\n                        )\n                }\n                .padding(.horizontal, 16)\n                \n                // Conflict sections\n                ForEach(file.conflicts) { conflict in\n                    ConflictCard(\n                        conflict: conflict,\n                        isSelected: selectedConflict?.id == conflict.id,\n                        theme: theme,\n                        onSelect: { selectedConflict = conflict }\n                    )\n                }\n            }\n            .padding(.vertical, 16)\n        }\n        .background(DesignSystem.Colors.background(for: theme))\n    }\n}\n\nstruct ConflictCard: View {\n    let conflict: ConflictSection\n    let isSelected: Bool\n    let theme: DesignSystem.Theme\n    let onSelect: () -> Void\n    \n    var body: some View {\n        VStack(alignment: .leading, spacing: 12) {\n            // Conflict header\n            HStack {\n                Text(\"Lines \\(conflict.startLine)-\\(conflict.endLine)\")\n                    .font(.system(size: 12, weight: .semibold, design: .monospaced))\n                    .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))\n                \n                Spacer()\n                \n                HStack(spacing: 8) {\n                    Button(\"Accept Ours\") {\n                        acceptOurs()\n                    }\n                    .buttonStyle(SecondaryButtonStyle())\n                    \n                    Button(\"Accept Theirs\") {\n                        acceptTheirs()\n                    }\n                    .buttonStyle(SecondaryButtonStyle())\n                    \n                    Button(\"Edit\") {\n                        onSelect()\n                    }\n                    .buttonStyle(PrimaryButtonStyle())\n                }\n            }\n            \n            // Conflict content\n            VStack(alignment: .leading, spacing: 8) {\n                // Our version\n                VStack(alignment: .leading, spacing: 4) {\n                    Text(\"HEAD (Current)\")\n                        .font(.system(size: 10, weight: .semibold))\n                        .foregroundColor(DesignSystem.Colors.success)\n                    \n                    Text(conflict.ourContent)\n                        .font(.system(size: 11, design: .monospaced))\n                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))\n                        .padding(.horizontal, 12)\n                        .padding(.vertical, 8)\n                        .background(\n                            RoundedRectangle(cornerRadius: 6)\n                                .fill(DesignSystem.Colors.success.opacity(0.1))\n                                .overlay(\n                                    RoundedRectangle(cornerRadius: 6)\n                                        .stroke(DesignSystem.Colors.success.opacity(0.3), lineWidth: 1)\n                                )\n                        )\n                }\n                \n                // Their version\n                VStack(alignment: .leading, spacing: 4) {\n                    Text(\"Incoming\")\n                        .font(.system(size: 10, weight: .semibold))\n                        .foregroundColor(DesignSystem.Colors.primary)\n                    \n                    Text(conflict.theirContent)\n                        .font(.system(size: 11, design: .monospaced))\n                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))\n                        .padding(.horizontal, 12)\n                        .padding(.vertical, 8)\n                        .background(\n                            RoundedRectangle(cornerRadius: 6)\n                                .fill(DesignSystem.Colors.primary.opacity(0.1))\n                                .overlay(\n                                    RoundedRectangle(cornerRadius: 6)\n                                        .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)\n                                )\n                        )\n                }\n            }\n        }\n        .padding(16)\n        .background(\n            RoundedRectangle(cornerRadius: 8)\n                .fill(DesignSystem.Colors.surface(for: theme))\n                .overlay(\n                    RoundedRectangle(cornerRadius: 8)\n                        .stroke(isSelected ? DesignSystem.Colors.primary : DesignSystem.Colors.border(for: theme).opacity(0.3), lineWidth: isSelected ? 2 : 1)\n                )\n        )\n        .padding(.horizontal, 16)\n    }\n    \n    private func acceptOurs() {\n        print(\"Accepting our version for conflict at lines \\(conflict.startLine)-\\(conflict.endLine)\")\n    }\n    \n    private func acceptTheirs() {\n        print(\"Accepting their version for conflict at lines \\(conflict.startLine)-\\(conflict.endLine)\")\n    }\n}"
+                HStack {
+                    Text("Merge Conflicts")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
+                    
+                    Spacer()
+                    
+                    Text("\(file.conflicts.count) conflicts")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.error)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(DesignSystem.Colors.error.opacity(0.1))
+                        )
+                }
+                .padding(.horizontal, 16)
+                
+                // Conflict sections
+                ForEach(file.conflicts) { conflict in
+                    ConflictCard(
+                        conflict: conflict,
+                        isSelected: selectedConflict?.id == conflict.id,
+                        theme: theme,
+                        onSelect: { selectedConflict = conflict }
+                    )
+                }
+            }
+            .padding(.vertical, 16)
+        }
+        .background(DesignSystem.Colors.background(for: theme))
+    }
+}
+
+struct ConflictCard: View {
+    let conflict: ConflictSection
+    let isSelected: Bool
+    let theme: DesignSystem.Theme
+    let onSelect: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Conflict header
+            HStack {
+                Text("Lines \(conflict.startLine)-\(conflict.endLine)")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
+                
+                Spacer()
+                
+                HStack(spacing: 8) {
+                    Button("Accept Ours") {
+                        acceptOurs()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    
+                    Button("Accept Theirs") {
+                        acceptTheirs()
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    
+                    Button("Edit") {
+                        onSelect()
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            
+            // Conflict content
+            VStack(alignment: .leading, spacing: 8) {
+                // Our version
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("HEAD (Current)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.success)
+                    
+                    Text(conflict.ourContent)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(DesignSystem.Colors.success.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(DesignSystem.Colors.success.opacity(0.3), lineWidth: 1)
+                                )
+                        )
+                }
+                
+                // Their version
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Incoming")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(DesignSystem.Colors.primary)
+                    
+                    Text(conflict.theirContent)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(DesignSystem.Colors.primary.opacity(0.1))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
+                                )
+                        )
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesignSystem.Colors.surface(for: theme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isSelected ? DesignSystem.Colors.primary : DesignSystem.Colors.border(for: theme).opacity(0.3), lineWidth: isSelected ? 2 : 1)
+                )
+        )
+        .padding(.horizontal, 16)
+    }
+    
+    private func acceptOurs() {
+        print("Accepting our version for conflict at lines \(conflict.startLine)-\(conflict.endLine)")
+    }
+    
+    private func acceptTheirs() {
+        print("Accepting their version for conflict at lines \(conflict.startLine)-\(conflict.endLine)")
+    }
+}
 
 // Git diff data models
 struct GitDiffData {
