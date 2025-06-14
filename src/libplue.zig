@@ -2,18 +2,15 @@ const std = @import("std");
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var initialized = false;
 
 /// Initialize the global state
 export fn plue_init() c_int {
-    initialized = true;
     return 0;
 }
 
 /// Cleanup all resources
 export fn plue_deinit() void {
     _ = gpa.deinit();
-    initialized = false;
 }
 
 /// Process message and return response
@@ -21,20 +18,15 @@ export fn plue_deinit() void {
 export fn plue_process_message(message: ?[*:0]const u8) ?[*:0]const u8 {
     const msg_ptr = message orelse return null;
     const msg = std.mem.span(msg_ptr);
-    
-    if (!initialized or msg.len == 0 or msg.len > 10 * 1024) {
+    if (msg.len == 0 or msg.len > 10 * 1024) {
         return null;
     }
-    
     const allocator = gpa.allocator();
-    const response = std.fmt.allocPrintZ(allocator, "Echo: {s}", .{msg}) catch return null;
+    const response = std.fmt.allocPrintZ(allocator, "Echo: {s}", .{msg}) catch @panic("Unable to allocate memory");
     return response.ptr;
 }
 
 /// Free string allocated by plue_process_message
-export fn plue_free_string(str: ?[*:0]const u8) void {
-    if (str) |s| {
-        const slice = std.mem.span(s);
-        gpa.allocator().free(slice);
-    }
+export fn plue_free_string(str: [*:0]const u8) void {
+    gpa.allocator().free(std.mem.span(str));
 }
