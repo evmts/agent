@@ -169,4 +169,17 @@ pub fn build(b: *std.Build) void {
 
     const run_swift_step = b.step("run-swift", "Run the Swift application");
     run_swift_step.dependOn(&swift_run_cmd.step);
+
+    // Development server with file watching
+    const dev_step = b.step("dev", "Development server with file watching and smart rebuilds");
+    const dev_cmd = b.addSystemCommand(&.{
+        "zig", "run", 
+        b.pathFromRoot("dev_server.zig"),
+        "--", 
+        b.build_root.path orelse ".",
+    });
+    dev_cmd.step.dependOn(&lib.step);
+    dev_cmd.step.dependOn(&c_lib.step);
+    dev_cmd.step.dependOn(&farcaster_lib.step);
+    dev_step.dependOn(&dev_cmd.step);
 }
