@@ -14,6 +14,7 @@ struct AppState {
     let currentTab: TabType
     let isInitialized: Bool
     let errorMessage: String?
+    let openAIAvailable: Bool
     
     // Tab states
     let chatState: ChatState
@@ -26,6 +27,7 @@ struct AppState {
         currentTab: .prompt,
         isInitialized: true,
         errorMessage: nil,
+        openAIAvailable: false,
         chatState: ChatState.initial,
         terminalState: TerminalState.initial,
         vimState: VimState.initial,
@@ -229,9 +231,21 @@ protocol PlueCoreInterface {
 class MockPlueCore: PlueCoreInterface {
     private var currentState: AppState = AppState.initial
     private var stateCallbacks: [(AppState) -> Void] = []
+    private let openAIService: OpenAIService?
     
     // Thread-safe access using serial queue
     private let queue = DispatchQueue(label: "plue.core", qos: .userInteractive)
+    
+    init() {
+        // Try to initialize OpenAI service, fall back to mock responses if not available
+        do {
+            self.openAIService = try OpenAIService()
+            print("PlueCore: OpenAI service initialized successfully")
+        } catch {
+            self.openAIService = nil
+            print("PlueCore: OpenAI service not available (\(error.localizedDescription)), using mock responses")
+        }
+    }
     
     func getCurrentState() -> AppState {
         return queue.sync {
@@ -258,8 +272,18 @@ class MockPlueCore: PlueCoreInterface {
     
     func initialize() -> Bool {
         queue.sync {
-            // Initialize core state
-            currentState = AppState.initial
+            // Initialize core state with OpenAI availability
+            currentState = AppState(
+                currentTab: .prompt,
+                isInitialized: true,
+                errorMessage: nil,
+                openAIAvailable: openAIService != nil,
+                chatState: ChatState.initial,
+                terminalState: TerminalState.initial,
+                vimState: VimState.initial,
+                webState: WebState.initial,
+                editorState: EditorState.initial
+            )
             return true
         }
     }
@@ -270,21 +294,36 @@ class MockPlueCore: PlueCoreInterface {
         }
     }
     
+    // MARK: - Helper Methods
+    
+    private func createUpdatedAppState(
+        currentTab: TabType? = nil,
+        errorMessage: String? = nil,
+        chatState: ChatState? = nil,
+        terminalState: TerminalState? = nil,
+        vimState: VimState? = nil,
+        webState: WebState? = nil,
+        editorState: EditorState? = nil
+    ) -> AppState {
+        return AppState(
+            currentTab: currentTab ?? self.currentState.currentTab,
+            isInitialized: self.currentState.isInitialized,
+            errorMessage: errorMessage ?? self.currentState.errorMessage,
+            openAIAvailable: self.openAIService != nil,
+            chatState: chatState ?? self.currentState.chatState,
+            terminalState: terminalState ?? self.currentState.terminalState,
+            vimState: vimState ?? self.currentState.vimState,
+            webState: webState ?? self.currentState.webState,
+            editorState: editorState ?? self.currentState.editorState
+        )
+    }
+    
     // MARK: - Private Event Processing
     
     private func processEvent(_ event: AppEvent) {
         switch event {
         case .tabSwitched(let tab):
-            currentState = AppState(
-                currentTab: tab,
-                isInitialized: currentState.isInitialized,
-                errorMessage: currentState.errorMessage,
-                chatState: currentState.chatState,
-                terminalState: currentState.terminalState,
-                vimState: currentState.vimState,
-                webState: currentState.webState,
-                editorState: currentState.editorState
-            )
+            currentState = createUpdatedAppState(currentTab: tab)
             
         case .chatMessageSent(let message):
             processChatMessage(message)
@@ -354,61 +393,93 @@ class MockPlueCore: PlueCoreInterface {
             generationProgress: 0.0
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: newChatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(chatState: newChatState)
         
-        // Simulate AI response generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.queue.async {
-                self?.generateAIResponse(for: message)
-                self?.notifyStateChange()
-            }
+        // Generate AI response using OpenAI API
+        Task { [weak self] in
+            await self?.generateAIResponse(for: message)
         }
     }
     
-    private func generateAIResponse(for input: String) {
-        let aiMessage = CoreMessage(
-            id: UUID().uuidString,
-            content: "Zig Core Response: I understand you're asking about '\(input)'. This response is generated by the Zig core engine with proper threading and state management.",
-            isUser: false,
-            timestamp: Date()
-        )
+    private func generateAIResponse(for input: String) async {
+        guard let openAIService = openAIService else {
+            // Fallback to mock response if OpenAI service not available
+            await generateMockAIResponse(for: input)
+            return
+        }
         
-        var conversations = currentState.chatState.conversations
-        var currentConv = conversations[currentState.chatState.currentConversationIndex]
-        currentConv = Conversation(
-            id: currentConv.id,
-            messages: currentConv.messages + [aiMessage],
-            createdAt: currentConv.createdAt,
-            updatedAt: Date()
-        )
-        conversations[currentState.chatState.currentConversationIndex] = currentConv
+        let responseContent: String
         
-        let newChatState = ChatState(
-            conversations: conversations,
-            currentConversationIndex: currentState.chatState.currentConversationIndex,
-            isGenerating: false,
-            generationProgress: 1.0
-        )
+        do {
+            // Get conversation history for context
+            let currentConversation = queue.sync { 
+                return currentState.chatState.currentConversation 
+            }
+            
+            let conversationMessages = currentConversation?.messages ?? []
+            let openAIMessages = openAIService.convertToOpenAIMessages(conversationMessages)
+            
+            // Add the new user message
+            let allMessages = openAIMessages + [OpenAIMessage(role: "user", content: input)]
+            
+            print("PlueCore: Sending request to OpenAI API...")
+            responseContent = try await openAIService.sendChatMessage(
+                messages: allMessages,
+                model: "gpt-4",
+                temperature: 0.7
+            )
+            print("PlueCore: Received response from OpenAI API")
+            
+        } catch {
+            print("PlueCore: OpenAI API error: \(error.localizedDescription)")
+            responseContent = "I apologize, but I'm having trouble connecting to the AI service right now. Error: \(error.localizedDescription)"
+        }
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: newChatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        // Update state with AI response
+        await updateStateWithAIResponse(content: responseContent)
+    }
+    
+    private func generateMockAIResponse(for input: String) async {
+        // Simulate API delay
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        
+        let mockResponse = "Mock Response: I understand you're asking about '\(input)'. This is a placeholder response since the OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable to enable real AI responses."
+        
+        await updateStateWithAIResponse(content: mockResponse)
+    }
+    
+    private func updateStateWithAIResponse(content: String) async {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            
+            let aiMessage = CoreMessage(
+                id: UUID().uuidString,
+                content: content,
+                isUser: false,
+                timestamp: Date()
+            )
+            
+            var conversations = self.currentState.chatState.conversations
+            var currentConv = conversations[self.currentState.chatState.currentConversationIndex]
+            currentConv = Conversation(
+                id: currentConv.id,
+                messages: currentConv.messages + [aiMessage],
+                createdAt: currentConv.createdAt,
+                updatedAt: Date()
+            )
+            conversations[self.currentState.chatState.currentConversationIndex] = currentConv
+            
+            let newChatState = ChatState(
+                conversations: conversations,
+                currentConversationIndex: self.currentState.chatState.currentConversationIndex,
+                isGenerating: false,
+                generationProgress: 1.0
+            )
+            
+            self.currentState = self.createUpdatedAppState(chatState: newChatState)
+            
+            self.notifyStateChange()
+        }
     }
     
     private func createNewConversation() {
@@ -434,16 +505,7 @@ class MockPlueCore: PlueCoreInterface {
             generationProgress: 0.0
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: newChatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(chatState: newChatState)
     }
     
     private func selectConversation(_ index: Int) {
@@ -456,16 +518,7 @@ class MockPlueCore: PlueCoreInterface {
             generationProgress: 0.0
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: newChatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(chatState: newChatState)
     }
     
     private func processTerminalInput(_ input: String) {
@@ -483,16 +536,7 @@ class MockPlueCore: PlueCoreInterface {
             needsRedraw: true
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: newTerminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(terminalState: newTerminalState)
     }
     
     private func executeCommand(_ command: String) -> String {
@@ -523,16 +567,7 @@ class MockPlueCore: PlueCoreInterface {
             needsRedraw: true
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: newTerminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(terminalState: newTerminalState)
     }
     
     private func processVimKeypress(key: String, modifiers: UInt32) {
@@ -564,16 +599,7 @@ class MockPlueCore: PlueCoreInterface {
             visualSelection: currentState.vimState.visualSelection
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: newVimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(vimState: newVimState)
     }
     
     private func setVimContent(_ content: String) {
@@ -587,16 +613,7 @@ class MockPlueCore: PlueCoreInterface {
             visualSelection: nil
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: newVimState,
-            webState: currentState.webState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(vimState: newVimState)
     }
     
     private func navigateWeb(to url: String) {
@@ -609,16 +626,7 @@ class MockPlueCore: PlueCoreInterface {
             pageTitle: "Loading..."
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: newWebState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(webState: newWebState)
         
         // Simulate loading completion
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -633,16 +641,7 @@ class MockPlueCore: PlueCoreInterface {
                     pageTitle: "Loaded Page"
                 )
                 
-                self.currentState = AppState(
-                    currentTab: self.currentState.currentTab,
-                    isInitialized: self.currentState.isInitialized,
-                    errorMessage: self.currentState.errorMessage,
-                    chatState: self.currentState.chatState,
-                    terminalState: self.currentState.terminalState,
-                    vimState: self.currentState.vimState,
-                    webState: completedWebState,
-                    editorState: self.currentState.editorState
-                )
+                self.currentState = self.createUpdatedAppState(webState: completedWebState)
                 
                 self.notifyStateChange()
             }
@@ -659,16 +658,7 @@ class MockPlueCore: PlueCoreInterface {
             pageTitle: "Previous Page"
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: newWebState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(webState: newWebState)
     }
     
     private func webGoForward() {
@@ -681,16 +671,7 @@ class MockPlueCore: PlueCoreInterface {
             pageTitle: "Next Page"
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: newWebState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(webState: newWebState)
     }
     
     private func webReload() {
@@ -703,16 +684,7 @@ class MockPlueCore: PlueCoreInterface {
             pageTitle: "Reloading..."
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: newWebState,
-            editorState: currentState.editorState
-        )
+        currentState = createUpdatedAppState(webState: newWebState)
     }
     
     private func updateEditorContent(_ content: String) {
@@ -723,16 +695,7 @@ class MockPlueCore: PlueCoreInterface {
             hasUnsavedChanges: true
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: newEditorState
-        )
+        currentState = createUpdatedAppState(editorState: newEditorState)
     }
     
     private func saveEditor() {
@@ -743,16 +706,7 @@ class MockPlueCore: PlueCoreInterface {
             hasUnsavedChanges: false
         )
         
-        currentState = AppState(
-            currentTab: currentState.currentTab,
-            isInitialized: currentState.isInitialized,
-            errorMessage: currentState.errorMessage,
-            chatState: currentState.chatState,
-            terminalState: currentState.terminalState,
-            vimState: currentState.vimState,
-            webState: currentState.webState,
-            editorState: newEditorState
-        )
+        currentState = createUpdatedAppState(editorState: newEditorState)
     }
     
     private func notifyStateChange() {

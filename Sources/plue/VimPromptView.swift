@@ -17,6 +17,16 @@ struct VimPromptView: View {
                         .font(.headline)
                         .foregroundColor(.white)
                     
+                    // OpenAI Status Indicator
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(appState.openAIAvailable ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(appState.openAIAvailable ? "OpenAI" : "Mock")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    
                     Button(showPreview ? "Edit" : "Preview") {
                         showPreview.toggle()
                     }

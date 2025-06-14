@@ -83,6 +83,16 @@ struct ModernChatView: View {
             
             // Right side - Actions
             HStack(spacing: 12) {
+                // OpenAI Status Indicator
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(appState.openAIAvailable ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(appState.openAIAvailable ? "OpenAI" : "Mock")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
                 Button(action: {}) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 14))
