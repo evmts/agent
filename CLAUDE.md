@@ -249,6 +249,69 @@ class AppState: ObservableObject {
 
 This architecture ensures clear separation of concerns, optimal performance, and maintainable code organization while leveraging the best aspects of both Swift and Zig.
 
+## Essential Documentation References
+
+### Zig Programming Language Documentation
+
+**Primary Zig Documentation**:
+- **Zig Language Reference**: https://ziglang.org/documentation/0.14.1/
+  - Complete language specification and syntax reference
+  - Memory management patterns and allocator usage
+  - Comptime programming and metaprogramming
+  - Error handling with error unions and error sets
+  - Cross-compilation and build system configuration
+
+**Zig Standard Library Documentation**:
+- **Zig std Library**: https://ziglang.org/documentation/master/std/
+  - Standard library modules and functions
+  - Data structures (ArrayList, HashMap, etc.)
+  - I/O operations and file system interfaces
+  - Networking and HTTP client/server implementations
+  - JSON parsing and serialization utilities
+  - Testing framework and debugging tools
+
+**Key Zig Concepts for this Project**:
+- **Allocators**: Use arena allocators for request/response cycles, general purpose allocator for long-lived data
+- **Error Handling**: Leverage error unions for robust error propagation across FFI boundaries
+- **Comptime**: Use for configuration and code generation, especially for FFI interface generation
+- **Memory Safety**: Zero-cost abstractions while maintaining memory safety guarantees
+- **C Interoperability**: Export functions with `export fn` for Swift FFI integration
+
+### Swift Programming Language Documentation
+
+**Swift Language Guide**:
+- **The Swift Programming Language**: https://docs.swift.org/swift-book/documentation/the-swift-programming-language/aboutthelanguagereference/
+  - Complete Swift language reference and syntax
+  - SwiftUI framework patterns and declarative UI design
+  - Objective-C interoperability and C function imports
+  - Memory management with ARC (Automatic Reference Counting)
+  - Concurrency with async/await and actors
+
+**Key Swift Concepts for this Project**:
+- **SwiftUI**: Declarative UI framework for reactive user interfaces
+- **@StateObject/@ObservableObject**: State management patterns for UI reactivity
+- **C Interoperability**: Using `@_silgen_name` for importing C functions from Zig
+- **Combine Framework**: Reactive programming for handling state changes
+- **Property Wrappers**: @Published, @State, @Binding for UI state management
+
+### Cross-Language Integration Patterns
+
+**FFI Best Practices**:
+- **Data Serialization**: Use JSON for complex data structures, direct C types for simple values
+- **Memory Management**: Clear ownership boundaries between Swift ARC and Zig allocators
+- **Error Propagation**: Consistent error handling patterns across language boundaries
+- **Threading**: Coordinate access to shared state through main queue or explicit synchronization
+- **Performance**: Minimize FFI overhead through batched operations and efficient serialization
+
+**Documentation Usage Guidelines**:
+1. **Reference First**: Always consult official documentation before implementing language-specific features
+2. **Best Practices**: Follow established patterns from the documentation rather than inventing custom approaches
+3. **Version Compatibility**: Ensure compatibility with the documented versions (Zig 0.14.1, Swift current)
+4. **Code Examples**: Use documented patterns and idioms as the foundation for implementation
+5. **Standard Library Preference**: Prefer standard library solutions over custom implementations when available
+
+This documentation foundation ensures that all code follows established language conventions and leverages the full power of both Zig and Swift ecosystems.
+
 ## High-Quality Prompt Philosophy
 
 **Prompts are as critical as code.** High-quality prompts enable:
@@ -401,6 +464,7 @@ Every prompt must be engineered with the same rigor applied to production code.
 - **Error Handling**: Consistent error union patterns, cross-agent error propagation
 - **Performance Optimization**: Allocation patterns, concurrent operations, resource sharing
 - **Build System Integration**: Package management, dependency resolution, incremental compilation
+- **Build Command**: ALWAYS use `zig build` (not `swift build`) - the Zig build system wraps and manages the Swift build process
 
 ## Interactive Collaboration Requirements
 
