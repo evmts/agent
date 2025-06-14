@@ -55,7 +55,9 @@ test "FarcasterClient initialization with test private key" {
     const test_private_key = "1234567890abcdef" ** 8; // 128 chars
     
     // This test key should fail - we're testing error handling
-    const result = farcaster.FarcasterClient.init(allocator, 12345, test_private_key);
+    // This should pass config validation but fail at Ed25519 key creation
+    const client_config = try farcaster.ClientConfig.init(allocator, 12345, test_private_key);
+    const result = farcaster.FarcasterClient.init(client_config);
     try testing.expectError(farcaster.FarcasterError.SigningError, result);
 }
 
@@ -66,8 +68,8 @@ test "FarcasterClient initialization with invalid private key" {
 
     const invalid_key = "invalid_key";
     
-    const result = farcaster.FarcasterClient.init(allocator, 12345, invalid_key);
-    try testing.expectError(farcaster.FarcasterError.InvalidMessage, result);
+    const result = farcaster.ClientConfig.init(allocator, 12345, invalid_key);
+    try testing.expectError(error.InvalidPrivateKey, result);
 }
 
 test "MessageType enum values" {
