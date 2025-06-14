@@ -66,13 +66,72 @@ struct WorktreeView: View {
                 
                 Spacer()
                 
-                Button(action: createNewWorktree) { 
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                HStack(spacing: 8) {
+                    // Search and filter controls
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                        
+                        TextField("Search worktrees...", text: $searchText)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 11))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(DesignSystem.Colors.background(for: appState.currentTheme))
+                    )
+                    .frame(maxWidth: 120)
+                    
+                    // Filter menu
+                    Menu {
+                        Button("All") { filterStatus = .all }
+                        Button("Clean") { filterStatus = .clean }
+                        Button("Modified") { filterStatus = .modified }
+                        Button("Conflicts") { filterStatus = .conflicts }
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                    }
+                    .menuStyle(BorderlessButtonMenuStyle())
+                    .help("Filter worktrees")
+                    
+                    // Sort menu
+                    Menu {
+                        Button("Recent Activity") { sortOrder = .recentActivity }
+                        Button("Alphabetical") { sortOrder = .alphabetical }
+                        Button("Status") { sortOrder = .status }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                    }
+                    .menuStyle(BorderlessButtonMenuStyle())
+                    .help("Sort worktrees")
+                    
+                    // Refresh button
+                    Button(action: refreshWorktrees) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                            .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Refresh worktrees")
+                    
+                    // Create new worktree
+                    Button(action: { showCreateDialog = true }) { 
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Create new worktree")
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help("Create new worktree")
             }
             .padding(DesignSystem.Spacing.md)
             .background(DesignSystem.Colors.surface(for: appState.currentTheme))
@@ -143,9 +202,82 @@ struct WorktreeView: View {
         }
     }
     
+    // MARK: - Computed Properties
+    
+    private var filteredAndSortedWorktrees: [GitWorktree] {
+        let filtered = worktrees.filter { worktree in
+            // Search filter
+            let matchesSearch = searchText.isEmpty || 
+                               worktree.branch.localizedCaseInsensitiveContains(searchText) ||
+                               worktree.path.localizedCaseInsensitiveContains(searchText)
+            
+            // Status filter
+            let matchesStatus: Bool
+            switch filterStatus {
+            case .all: matchesStatus = true
+            case .clean: matchesStatus = worktree.status == .clean
+            case .modified: matchesStatus = worktree.status == .modified
+            case .conflicts: matchesStatus = worktree.status == .conflicts
+            }
+            
+            return matchesSearch && matchesStatus
+        }
+        
+        // Sort
+        switch sortOrder {
+        case .recentActivity:
+            return filtered.sorted { $0.lastModified > $1.lastModified }
+        case .alphabetical:
+            return filtered.sorted { $0.branch < $1.branch }
+        case .status:
+            return filtered.sorted { $0.status.sortOrder < $1.status.sortOrder }
+        }
+    }
+    
+    // MARK: - Actions
+    
+    private func refreshWorktrees() {
+        isRefreshing = true
+        // Simulate refresh
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            isRefreshing = false
+            // In real implementation, would reload from git
+        }
+    }
+    
     private func createNewWorktree() {
-        // Mock implementation - would show a dialog to create new worktree
-        print("Create new worktree")
+        print("Creating worktree: \\(newWorktreeName) on branch: \\(newWorktreeBranch)")
+        showCreateDialog = false
+        newWorktreeName = ""
+        newWorktreeBranch = ""
+    }
+    
+    private func switchToWorktree(_ worktree: GitWorktree) {
+        print("Switching to worktree: \\(worktree.branch)")
+    }
+    
+    private func pullWorktree(_ worktree: GitWorktree) {
+        print("Pulling changes for: \\(worktree.branch)")
+    }
+    
+    private func pushWorktree(_ worktree: GitWorktree) {
+        print("Pushing changes for: \\(worktree.branch)")
+    }
+    
+    private func openInFinder(_ worktree: GitWorktree) {
+        print("Opening \\(worktree.path) in Finder")
+    }
+    
+    private func openInTerminal(_ worktree: GitWorktree) {
+        print("Opening \\(worktree.path) in Terminal")
+    }
+    
+    private func deleteWorktree(_ worktree: GitWorktree) {
+        print("Deleting worktree: \\(worktree.branch)")
+        worktrees.removeAll { $0.id == worktree.id }
+        if selectedWorktreeId == worktree.id {
+            selectedWorktreeId = worktrees.first?.id
+        }
     }
 }
 
@@ -513,6 +645,114 @@ struct DiffLine: View {
         case .removed: return DesignSystem.Colors.error.opacity(0.1)
         case .context: return Color.clear
         }
+    }
+}
+
+// MARK: - Supporting Types
+
+enum WorktreeStatusFilter: CaseIterable {
+    case all, clean, modified, conflicts
+    
+    var displayName: String {
+        switch self {
+        case .all: return "All"
+        case .clean: return "Clean"
+        case .modified: return "Modified"
+        case .conflicts: return "Conflicts"
+        }
+    }
+}
+
+enum WorktreeSortOrder: CaseIterable {
+    case recentActivity, alphabetical, status
+    
+    var displayName: String {
+        switch self {
+        case .recentActivity: return "Recent Activity"
+        case .alphabetical: return "Alphabetical"
+        case .status: return "Status"
+        }
+    }
+}
+
+extension GitWorktreeStatus {
+    var sortOrder: Int {
+        switch self {
+        case .conflicts: return 0
+        case .modified: return 1
+        case .untracked: return 2
+        case .clean: return 3
+        }
+    }
+}
+
+// MARK: - CreateWorktreeDialog
+
+struct CreateWorktreeDialog: View {
+    @Binding var newWorktreeName: String
+    @Binding var newWorktreeBranch: String
+    let onCancel: () -> Void
+    let onCreate: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Header
+            HStack {
+                Text("Create New Worktree")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Form
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Worktree Name")
+                        .font(.headline)
+                    
+                    TextField("feature/my-awesome-feature", text: $newWorktreeName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Branch")
+                        .font(.headline)
+                    
+                    TextField("main", text: $newWorktreeBranch)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                
+                Text("This will create a new git worktree in a parallel directory, allowing you to work on multiple branches simultaneously.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Actions
+            HStack {
+                Spacer()
+                
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(SecondaryButtonStyle())
+                
+                Button("Create") {
+                    onCreate()
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(newWorktreeName.isEmpty || newWorktreeBranch.isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(12)
     }
 }
 
