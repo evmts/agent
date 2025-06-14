@@ -5,15 +5,16 @@ struct VimPromptView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
-    @State private var showPreview = false
+    @StateObject private var promptTerminal = PromptTerminal()
+    @State private var isTerminalFocused = false
     
     var body: some View {
         HSplitView {
-            // Left side - Editor
+            // Left side - Ghostty Terminal
             VStack(spacing: 0) {
                 // Header with controls
                 HStack {
-                    Text("Prompt Editor")
+                    Text("Prompt Terminal")
                         .font(.headline)
                         .foregroundColor(.white)
                     
@@ -27,36 +28,11 @@ struct VimPromptView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Button(showPreview ? "Edit" : "Preview") {
-                        showPreview.toggle()
-                    }
-                    .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
-                    
                     Spacer()
                     
-                    Text("⌘+Enter to send")
+                    Text("Use your favorite editor")
                         .font(.caption)
                         .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.55))
-                    
-                    Button(action: processPrompt) {
-                        HStack(spacing: 6) {
-                            if appState.editorState.hasUnsavedChanges {
-                                ProgressView()
-                                    .scaleEffect(0.6)
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            } else {
-                                Image(systemName: "paperplane.fill")
-                            }
-                            Text("Send")
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color(red: 0.0, green: 0.48, blue: 1.0))
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                    }
-                    .disabled(appState.editorState.hasUnsavedChanges || appState.editorState.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .keyboardShortcut(.return, modifiers: .command)
                 }
                 .padding()
                 .background(Color(red: 0.08, green: 0.08, blue: 0.09))
@@ -64,39 +40,49 @@ struct VimPromptView: View {
                 Divider()
                     .background(Color(red: 0.2, green: 0.2, blue: 0.25))
                 
-                // Editor or Preview
-                if showPreview {
-                    ScrollView {
-                        SwiftDownEditor(text: .constant(appState.editorState.content))
-                            .disabled(true)
-                            .padding()
-                    }
-                    .background(Color(red: 0.05, green: 0.05, blue: 0.06))
-                } else {
-                    // For now, use SwiftDown editor - vim support coming soon
-                    SwiftDownEditor(text: Binding(
-                        get: { appState.editorState.content },
-                        set: { newContent in core.handleEvent(.editorContentChanged(newContent)) }
-                    ))
-                        .background(Color(red: 0.05, green: 0.05, blue: 0.06))
-                }
+                // Terminal View
+                PromptTerminalView(terminal: promptTerminal, core: core)
+                    .background(Color.black)
             }
             
-            // Right side - Responses (same as before)
+            // Right side - Rich Markdown Preview
             VStack(spacing: 0) {
-                // Header
+                // Header with action buttons
                 HStack {
-                    Text("Responses")
+                    Text("Preview")
                         .font(.headline)
                         .foregroundColor(.white)
                     
                     Spacer()
                     
-                    if !(appState.chatState.currentConversation?.messages.isEmpty ?? true) {
-                        Button("Clear") {
-                            core.handleEvent(.chatNewConversation)
+                    // Action buttons
+                    HStack(spacing: 12) {
+                        Button(action: askInChat) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "bubble.left.and.bubble.right")
+                                Text("Ask in Chat")
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
                         }
-                        .foregroundColor(Color(red: 0.0, green: 0.48, blue: 1.0))
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        
+                        Button(action: launchClaudeCode) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "terminal.fill")
+                                Text("Claude Code")
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
                 .padding()
@@ -105,17 +91,17 @@ struct VimPromptView: View {
                 Divider()
                     .background(Color(red: 0.2, green: 0.2, blue: 0.25))
                 
-                // Responses List
-                if appState.chatState.currentConversation?.messages.isEmpty ?? true {
+                // Rich Markdown Preview
+                if promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     VStack {
                         Spacer()
-                        Image(systemName: "terminal")
+                        Image(systemName: "doc.text")
                             .font(.system(size: 48))
                             .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.35))
-                        Text("No responses yet")
+                        Text("Markdown Preview")
                             .font(.headline)
                             .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.55))
-                        Text("Send a prompt with ⌘+Enter")
+                        Text("Edit your prompt in the terminal")
                             .font(.subheadline)
                             .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.45))
                         Spacer()
@@ -124,34 +110,109 @@ struct VimPromptView: View {
                     .background(Color(red: 0.05, green: 0.05, blue: 0.06))
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(appState.chatState.currentConversation?.messages ?? []) { message in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(message.content)
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.primary)
-                                        .padding()
-                                        .background(Color(red: 0.08, green: 0.08, blue: 0.09))
-                                        .cornerRadius(8)
-                                }
-                            }
+                        VStack(alignment: .leading, spacing: 0) {
+                            SwiftDownEditor(text: .constant(promptTerminal.currentContent))
+                                .disabled(true)
                         }
                         .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .background(Color(red: 0.05, green: 0.05, blue: 0.06))
                 }
             }
-            .frame(minWidth: 300)
+            .frame(minWidth: 350)
         }
         .background(Color(red: 0.05, green: 0.05, blue: 0.06))
+        .onAppear {
+            promptTerminal.startSession()
+        }
     }
     
-    private func processPrompt() {
-        let prompt = appState.editorState.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    // MARK: - Action Functions
+    
+    private func askInChat() {
+        let prompt = promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         
-        // Send prompt to core
+        // Switch to chat tab and send the prompt
+        core.handleEvent(.tabSwitched(.chat))
         core.handleEvent(.chatMessageSent(prompt))
+    }
+    
+    private func launchClaudeCode() {
+        // Launch Claude Code CLI with the current prompt
+        let prompt = promptTerminal.currentContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if !prompt.isEmpty {
+            // Save prompt to a temp file and open with Claude Code
+            launchClaudeCodeWithPrompt(prompt)
+        } else {
+            // Just launch Claude Code
+            launchClaudeCodeCLI()
+        }
+    }
+    
+    private func launchClaudeCodeWithPrompt(_ prompt: String) {
+        Task {
+            do {
+                // Create a temporary file with the prompt
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("plue_prompt_\(UUID().uuidString).md")
+                
+                try prompt.write(to: tempURL, atomically: true, encoding: .utf8)
+                
+                // Launch Claude Code with the file
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/local/bin/claude_code")
+                process.arguments = [tempURL.path]
+                
+                try process.run()
+                
+                print("Launched Claude Code with prompt: \(tempURL.path)")
+            } catch {
+                print("Failed to launch Claude Code: \(error)")
+                // Fallback to opening in default editor
+                openInDefaultEditor(prompt)
+            }
+        }
+    }
+    
+    private func launchClaudeCodeCLI() {
+        Task {
+            do {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/local/bin/claude_code")
+                process.arguments = []
+                
+                try process.run()
+                
+                print("Launched Claude Code CLI")
+            } catch {
+                print("Failed to launch Claude Code CLI: \(error)")
+                // Fallback to terminal
+                openTerminal()
+            }
+        }
+    }
+    
+    private func openInDefaultEditor(_ content: String) {
+        // Fallback: create temp file and open with system default
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plue_prompt_\(UUID().uuidString).md")
+        
+        do {
+            try content.write(to: tempURL, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.open(tempURL)
+        } catch {
+            print("Failed to create temp file: \(error)")
+        }
+    }
+    
+    private func openTerminal() {
+        // Open Terminal.app as fallback
+        if let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+            NSWorkspace.shared.openApplication(at: terminalURL, configuration: NSWorkspace.OpenConfiguration())
+        }
     }
 }
 
