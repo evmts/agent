@@ -93,9 +93,9 @@
           shellHook = ''
             echo "🚀 Plue development environment"
             echo "Available commands:"
-            echo "  zig build        - Build Zig components only"
+            echo "  zig build        - Build complete project (Zig + Swift)"
+            echo "  zig build run    - Build and run Swift application"
             echo "  zig build swift  - Build complete project (Zig + Swift)"
-            echo "  zig build run-swift - Build and run Swift application"
             echo "  nix build        - Build with Nix"
             echo ""
             echo "Environment ready!"

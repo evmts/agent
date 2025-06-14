@@ -129,12 +129,6 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
-
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
@@ -171,11 +165,20 @@ pub fn build(b: *std.Build) void {
     const build_all_step = b.step("swift", "Build complete project including Swift");
     build_all_step.dependOn(&swift_build_cmd.step);
     
+    // Make the default install step also build Swift
+    b.getInstallStep().dependOn(&swift_build_cmd.step);
+    
     // Add step to run the Swift executable
     const swift_run_cmd = b.addSystemCommand(&.{
         ".build/release/plue"
     });
     swift_run_cmd.step.dependOn(&swift_build_cmd.step);
+    
+    // This creates a build step. It will be visible in the `zig build --help` menu,
+    // and can be selected like this: `zig build run`
+    // This will evaluate the `run` step rather than the default, which is "install".
+    const run_step = b.step("run", "Run the Swift app");
+    run_step.dependOn(&swift_run_cmd.step);
     
     const run_swift_step = b.step("run-swift", "Run the Swift application");
     run_swift_step.dependOn(&swift_run_cmd.step);
