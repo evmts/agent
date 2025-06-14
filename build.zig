@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Create Farcaster library module
+    // Create Farcaster library module with dependencies
     const farcaster_mod = b.createModule(.{
         .root_source_file = b.path("src/farcaster.zig"),
         .target = target,
