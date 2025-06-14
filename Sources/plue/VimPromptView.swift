@@ -506,7 +506,6 @@ struct PromptProcessingIndicatorView: View {
     }
 }
 
-// A new reusable Vim Buffer component
 struct VimBufferView: View {
     @Binding var content: String
     let title: String
@@ -553,7 +552,6 @@ struct VimBufferView: View {
     }
 }
 
-// A new reusable Markdown Preview component
 struct MarkdownPreviewView: View {
     let content: String
     let title: String
@@ -624,201 +622,8 @@ struct MarkdownPreviewView: View {
                 SwiftDownEditor(text: .constant(content))
                     .disabled(true)
                     .padding(DesignSystem.Spacing.lg)
-                .background(DesignSystem.Colors.backgroundSecondary(for: appState.currentTheme))
+                    .background(DesignSystem.Colors.backgroundSecondary(for: appState.currentTheme))
             }
-        }
-    }
-    
-    private func launchClaudeCodeWithPrompt(_ prompt: String) {
-        Task {
-            do {
-                // Create a temporary file with the prompt
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("plue_prompt_\(UUID().uuidString).md")
-                
-                try prompt.write(to: tempURL, atomically: true, encoding: .utf8)
-                
-                // Try to find Claude Code executable in common locations
-                let possiblePaths = [
-                    "/usr/local/bin/claude_code",
-                    "/opt/homebrew/bin/claude_code",
-                    "/usr/bin/claude_code",
-                    URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/bin/claude_code").path,
-                    "/usr/local/bin/claude-code",
-                    "/opt/homebrew/bin/claude-code"
-                ]
-                
-                var claudeCodePath: String?
-                for path in possiblePaths {
-                    if FileManager.default.fileExists(atPath: path) {
-                        claudeCodePath = path
-                        break
-                    }
-                }
-                
-                guard let executablePath = claudeCodePath else {
-                    // Show alert that Claude Code is not found
-                    DispatchQueue.main.async {
-                        self.showClaudeCodeNotFoundAlert(prompt: prompt, tempURL: tempURL)
-                    }
-                    return
-                }
-                
-                // Launch Claude Code with the file
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executablePath)
-                process.arguments = [tempURL.path]
-                
-                try process.run()
-                
-                print("Launched Claude Code with prompt: \(tempURL.path)")
-                
-                // Show success notification
-                DispatchQueue.main.async {
-                    self.showNotification(title: "Claude Code Launched", message: "Prompt opened in Claude Code")
-                }
-                
-            } catch {
-                print("Failed to launch Claude Code: \(error)")
-                DispatchQueue.main.async {
-                    self.showErrorAlert(error: error, prompt: prompt)
-                }
-            }
-        }
-    }
-    
-    private func launchClaudeCodeCLI() {
-        Task {
-            do {
-                // Try to find Claude Code executable in common locations
-                let possiblePaths = [
-                    "/usr/local/bin/claude_code",
-                    "/opt/homebrew/bin/claude_code",
-                    "/usr/bin/claude_code",
-                    URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/bin/claude_code").path,
-                    "/usr/local/bin/claude-code",
-                    "/opt/homebrew/bin/claude-code"
-                ]
-                
-                var claudeCodePath: String?
-                for path in possiblePaths {
-                    if FileManager.default.fileExists(atPath: path) {
-                        claudeCodePath = path
-                        break
-                    }
-                }
-                
-                guard let executablePath = claudeCodePath else {
-                    // Show alert that Claude Code is not found
-                    DispatchQueue.main.async {
-                        self.showClaudeCodeNotFoundAlert(prompt: nil, tempURL: nil)
-                    }
-                    return
-                }
-                
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: executablePath)
-                process.arguments = []
-                
-                try process.run()
-                
-                print("Launched Claude Code CLI")
-                
-                // Show success notification
-                DispatchQueue.main.async {
-                    self.showNotification(title: "Claude Code Launched", message: "Claude Code CLI opened")
-                }
-                
-            } catch {
-                print("Failed to launch Claude Code CLI: \(error)")
-                DispatchQueue.main.async {
-                    self.showErrorAlert(error: error, prompt: nil)
-                }
-            }
-        }
-    }
-    
-    private func openInDefaultEditor(_ content: String) {
-        // Fallback: create temp file and open with system default
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("plue_prompt_\(UUID().uuidString).md")
-        
-        do {
-            try content.write(to: tempURL, atomically: true, encoding: .utf8)
-            NSWorkspace.shared.open(tempURL)
-        } catch {
-            print("Failed to create temp file: \(error)")
-        }
-    }
-    
-    private func openTerminal() {
-        // Open Terminal.app as fallback
-        if let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
-            NSWorkspace.shared.openApplication(at: terminalURL, configuration: NSWorkspace.OpenConfiguration())
-        }
-    }
-    
-    // MARK: - User Feedback Methods
-    
-    private func showNotification(title: String, message: String) {
-        let notification = UNMutableNotificationContent()
-        notification.title = title
-        notification.body = message
-        notification.sound = .default
-        
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: notification,
-            trigger: nil
-        )
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Notification error: \(error)")
-            }
-        }
-    }
-    
-    private func showClaudeCodeNotFoundAlert(prompt: String?, tempURL: URL?) {
-        let alert = NSAlert()
-        alert.messageText = "Claude Code Not Found"
-        alert.informativeText = """
-        Claude Code CLI is not installed or not found in common locations.
-        
-        Please install Claude Code CLI or make sure it's in your PATH.
-        
-        Common installation locations:
-        • /usr/local/bin/claude_code
-        • /opt/homebrew/bin/claude_code
-        • ~/.local/bin/claude_code
-        """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open in Default Editor")
-        alert.addButton(withTitle: "Cancel")
-        
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn, let prompt = prompt {
-            openInDefaultEditor(prompt)
-        }
-    }
-    
-    private func showErrorAlert(error: Error, prompt: String?) {
-        let alert = NSAlert()
-        alert.messageText = "Failed to Launch Claude Code"
-        alert.informativeText = "Error: \(error.localizedDescription)"
-        alert.alertStyle = .warning
-        
-        if let prompt = prompt {
-            alert.addButton(withTitle: "Open in Default Editor")
-            alert.addButton(withTitle: "Cancel")
-            
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                openInDefaultEditor(prompt)
-            }
-        } else {
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
         }
     }
 }
