@@ -33,6 +33,25 @@ Plue uses a hybrid architecture:
   - Core processing logic
 - **Unified Build System** - Integrated build process using Zig as the orchestrator
 
+### Build System Decision
+
+Currently, Plue uses **Swift Package Manager (SPM)** rather than an Xcode project. This decision was made to:
+- Simplify the initial development process
+- Maintain a clean, code-based project structure
+- Allow easier contributions without requiring Xcode
+
+We follow a two-stage build process similar to Ghostty:
+1. **Stage 1**: Build Zig libraries in Nix environment for reproducibility
+2. **Stage 2**: Build Swift executable outside Nix (due to SPM not being available in Nix)
+
+**Future Migration**: We may migrate to a full Xcode project (`.xcodeproj`) in the future for:
+- Better macOS app integration and entitlements
+- Native code signing workflow
+- Asset catalogs and resource management
+- iOS/iPadOS support
+
+This migration would follow Ghostty's approach of maintaining a dedicated Xcode project for the macOS app while keeping Zig components separate.
+
 ## Requirements
 
 - **macOS 13.0+** (Ventura or later)
@@ -200,23 +219,36 @@ All dependencies are automatically managed and pinned for reproducible builds.
 ### Local Development
 
 ```bash
-nix develop    # Enter environment
-zig build      # Build everything
-zig build run  # Run the application
+# Enter Nix development environment
+nix develop
+
+# Build only Zig libraries
+zig build
+
+# Build complete project (Zig + Swift)
+zig build swift
+
+# Run the application
+zig build run
 ```
+
+**Note**: The Nix environment provides Zig 0.14.1 and Swift 5.8. Swift Package Manager is not currently available in the Nix Swift package, so `zig build swift` uses the system Swift as a workaround.
 
 ### Production/CI
 
 ```bash
-nix build      # Reproducible production build
+nix build      # Reproducible production build (currently builds Zig libraries only)
 nix run        # Run the built application
 ```
 
 ### Manual Swift Build (if needed)
 
 ```bash
-# If you need to build Swift directly
-swift build --configuration release
+# Build Zig libraries first
+zig build
+
+# Then build Swift with system Swift
+swift build --configuration release -Xlinker -Lzig-out/lib
 ```
 
 ## Contributing
