@@ -103,6 +103,54 @@ void ghostty_terminal_draw(void);
  */
 void ghostty_terminal_send_text(const char* text);
 
+// ============================================================================
+// Mini Terminal - Simplified terminal implementation
+// ============================================================================
+
+/**
+ * Initialize the mini terminal.
+ * 
+ * @return 0 on success, -1 on failure
+ */
+int mini_terminal_init(void);
+
+/**
+ * Start the terminal process.
+ * 
+ * @return 0 on success, -1 on failure
+ */
+int mini_terminal_start(void);
+
+/**
+ * Stop the terminal process.
+ */
+void mini_terminal_stop(void);
+
+/**
+ * Write text to the terminal.
+ * 
+ * @param text Null-terminated text string to write
+ * @return 0 on success, -1 on failure
+ */
+int mini_terminal_write(const char* text);
+
+/**
+ * Read output from the terminal.
+ * 
+ * @param buffer Buffer to read data into
+ * @param size Maximum bytes to read
+ * @return Number of bytes read
+ */
+size_t mini_terminal_read(unsigned char* buffer, size_t size);
+
+/**
+ * Send a command to the terminal (adds newline).
+ * 
+ * @param cmd Null-terminated command string
+ * @return 0 on success, -1 on failure
+ */
+int mini_terminal_send_command(const char* cmd);
+
 #ifdef __cplusplus
 }
 #endif
