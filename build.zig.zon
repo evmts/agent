@@ -40,6 +40,10 @@
             .hash = "webui-2.5.0-beta.4-pxqD5esSNwCHzwq6ndnW-ShzC_nPNAzGu13l4Unk0rFl",
             .url = "https://github.com/webui-dev/webui/archive/699119f42fc64ae42c9121bc4749b740f71949af.tar.gz",
         },
+        .ghostty = .{
+            .url = "https://github.com/ghostty-org/ghostty/archive/b46673e63151f495c973d3043bf20612f80deda0.tar.gz",
+            .hash = "ghostty-1.1.4-5UdBC49Q9QIhEpOaAYni2oEs7vFlVUQ_chpVl9VFAJQM",
+        },
         // See `zig fetch --save <url>` for a command-line interface for adding dependencies.
         //.example = .{
         //    // When updating this field to a new URL, be sure to delete the corresponding
