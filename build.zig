@@ -94,10 +94,12 @@ pub fn build(b: *std.Build) void {
 
     // Get Ghostty dependency (for future integration)
     // TODO: Use this once we resolve Ghostty's build dependencies
-    _ = b.dependency("ghostty", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    // NOTE: Commented out for now as Ghostty's build requires Metal shaders
+    // and other resources that aren't available in our context
+    // _ = b.dependency("ghostty", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
 
     // Create Ghostty terminal module that wraps Ghostty's embedded API
     const ghostty_terminal_mod = b.createModule(.{
@@ -112,9 +114,17 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    
+    // Create mini terminal module - our minimal terminal implementation
+    const mini_terminal_mod = b.createModule(.{
+        .root_source_file = b.path("src/mini_terminal.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     // Add ghostty terminal module to c_lib_mod so libplue can use it
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
+    c_lib_mod.addImport("mini_terminal", mini_terminal_mod);
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -145,10 +155,18 @@ pub fn build(b: *std.Build) void {
         .name = "ghostty_terminal",
         .root_module = ghostty_terminal_mod,
     });
+    
+    // Create mini terminal static library for Swift interop
+    const mini_terminal_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "mini_terminal",
+        .root_module = mini_terminal_mod,
+    });
 
     // Link required libraries
     farcaster_lib.linkLibC();
     ghostty_terminal_lib.linkLibC();
+    mini_terminal_lib.linkLibC();
     
     // Link with Ghostty library if available from Nix
     if (b.option([]const u8, "ghostty-lib-path", "Path to Ghostty library directory")) |lib_path| {
@@ -176,6 +194,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(c_lib);
     b.installArtifact(farcaster_lib);
     b.installArtifact(ghostty_terminal_lib);
+    b.installArtifact(mini_terminal_lib);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -252,13 +271,15 @@ pub fn build(b: *std.Build) void {
     swift_build_cmd.step.dependOn(&c_lib.step);
     swift_build_cmd.step.dependOn(&farcaster_lib.step);
     swift_build_cmd.step.dependOn(&ghostty_terminal_lib.step);
+    swift_build_cmd.step.dependOn(&mini_terminal_lib.step);
 
     // Create a step for building the complete project (Zig + Swift)
     const build_all_step = b.step("swift", "Build complete project including Swift");
     build_all_step.dependOn(&swift_build_cmd.step);
 
     // Make the default install step also build Swift
-    b.getInstallStep().dependOn(&swift_build_cmd.step);
+    // NOTE: Commented out to allow building Zig libraries independently in Nix
+    // b.getInstallStep().dependOn(&swift_build_cmd.step);
 
     // Add step to run the Swift executable
     const swift_run_cmd = b.addSystemCommand(&.{".build/release/plue"});
@@ -285,5 +306,6 @@ pub fn build(b: *std.Build) void {
     dev_cmd.step.dependOn(&c_lib.step);
     dev_cmd.step.dependOn(&farcaster_lib.step);
     dev_cmd.step.dependOn(&ghostty_terminal_lib.step);
+    dev_cmd.step.dependOn(&mini_terminal_lib.step);
     dev_step.dependOn(&dev_cmd.step);
 }
