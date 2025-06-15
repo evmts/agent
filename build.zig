@@ -121,10 +121,18 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    
+    // Create PTY terminal module - proper pseudo-terminal implementation
+    const pty_terminal_mod = b.createModule(.{
+        .root_source_file = b.path("src/pty_terminal.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     // Add ghostty terminal module to c_lib_mod so libplue can use it
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
     c_lib_mod.addImport("mini_terminal", mini_terminal_mod);
+    c_lib_mod.addImport("pty_terminal", pty_terminal_mod);
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -162,11 +170,19 @@ pub fn build(b: *std.Build) void {
         .name = "mini_terminal",
         .root_module = mini_terminal_mod,
     });
+    
+    // Create PTY terminal static library for Swift interop
+    const pty_terminal_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "pty_terminal",
+        .root_module = pty_terminal_mod,
+    });
 
     // Link required libraries
     farcaster_lib.linkLibC();
     ghostty_terminal_lib.linkLibC();
     mini_terminal_lib.linkLibC();
+    pty_terminal_lib.linkLibC();
     
     // Link with Ghostty library if available from Nix
     if (b.option([]const u8, "ghostty-lib-path", "Path to Ghostty library directory")) |lib_path| {
@@ -195,6 +211,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(farcaster_lib);
     b.installArtifact(ghostty_terminal_lib);
     b.installArtifact(mini_terminal_lib);
+    b.installArtifact(pty_terminal_lib);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.

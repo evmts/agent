@@ -52,7 +52,7 @@ struct ContentView: View {
                         AgentView(appState: appState, core: PlueCore.shared)
                             .transition(transitionForTab(.agent))
                     case .terminal:
-                        TerminalView(appState: appState, core: PlueCore.shared)
+                        ProperTerminalView(appState: appState, core: PlueCore.shared)
                             .transition(transitionForTab(.terminal))
                     case .web:
                         WebView(appState: appState, core: PlueCore.shared)
