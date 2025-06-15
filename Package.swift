@@ -33,7 +33,7 @@ let package = Package(
             ],
             exclude: ["Info.plist"],
             linkerSettings: [
-                .unsafeFlags(["-Llib", "-lpluecore", "-lfarcaster"])
+                .unsafeFlags(["-Llib", "-lpluecore", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lghostty_stubs"])
             ]),
     ]
 )
