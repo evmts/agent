@@ -36,17 +36,43 @@ Plue uses a hybrid architecture:
 ## Requirements
 
 - **macOS 13.0+** (Ventura or later)
-- **Nix** - For reproducible builds and development environment
+- **Nix** - Required for dependency management (enforced at build time)
 
 ## Quick Start
 
 ### 1. Install Nix
 
+The project requires Nix for managing dependencies like Ghostty terminal emulator.
+
+**macOS/Linux:**
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+sh <(curl -L https://nixos.org/nix/install) --daemon
 ```
 
-### 2. Clone and Enter Development Environment
+**Platform-specific notes:**
+
+**macOS:**
+- You may need to create the /nix directory first:
+  ```bash
+  sudo mkdir /nix && sudo chown $USER /nix
+  ```
+- On Apple Silicon, Rosetta 2 may be needed:
+  ```bash
+  softwareupdate --install-rosetta
+  ```
+
+**Linux:**
+- SELinux users may need additional configuration
+- Ubuntu/Debian users should use the --daemon flag
+
+### 2. Enable Flakes
+
+After installation, enable flakes by adding to `~/.config/nix/nix.conf`:
+```
+experimental-features = nix-command flakes
+```
+
+### 3. Clone and Enter Development Environment
 
 ```bash
 git clone <repository-url>
@@ -92,12 +118,21 @@ plue ~/code/another-project
 
 ## Development
 
+The build system enforces Nix usage to ensure all dependencies are available:
+
 ```bash
 # Build the complete project (Zig libraries + Swift application)
 zig build
 
 # Build and run the application
 zig build run
+```
+
+**Note:** If you try to build outside of Nix, you'll see an error with installation instructions.
+
+To bypass the Nix check (not recommended - some features won't work):
+```bash
+zig build -Dskip-nix-check=true
 ```
 
 ## Development Workflow
