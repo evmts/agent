@@ -4,6 +4,56 @@ const std = @import("std");
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
+    // Check if we're building within Nix environment
+    const in_nix = std.process.getEnvVarOwned(b.allocator, "IN_NIX_SHELL") catch null;
+    const nix_check_override = b.option(bool, "skip-nix-check", "Skip the Nix environment check") orelse false;
+    
+    if (in_nix == null and !nix_check_override) {
+        std.log.err("\n" ++
+            "╔════════════════════════════════════════════════════════════════════╗\n" ++
+            "║                    Nix Environment Required                        ║\n" ++
+            "╠════════════════════════════════════════════════════════════════════╣\n" ++
+            "║ This project requires Nix to manage dependencies (e.g., Ghostty).  ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ To install Nix:                                                    ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ macOS/Linux:                                                       ║\n" ++
+            "║   $ sh <(curl -L https://nixos.org/nix/install) --daemon          ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ After installation:                                                ║\n" ++
+            "║   1. Restart your terminal                                         ║\n" ++
+            "║   2. Enable flakes by adding to ~/.config/nix/nix.conf:           ║\n" ++
+            "║      experimental-features = nix-command flakes                    ║\n" ++
+            "║   3. Run: nix develop                                              ║\n" ++
+            "║   4. Then: zig build                                               ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ Platform-specific notes:                                           ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ macOS:                                                             ║\n" ++
+            "║   - You may need to create /nix directory first:                  ║\n" ++
+            "║     $ sudo mkdir /nix && sudo chown $USER /nix                    ║\n" ++
+            "║   - On Apple Silicon, Rosetta 2 may be needed:                    ║\n" ++
+            "║     $ softwareupdate --install-rosetta                             ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ Linux:                                                             ║\n" ++
+            "║   - SELinux users may need additional configuration               ║\n" ++
+            "║   - Ubuntu/Debian users should use the --daemon flag              ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ To bypass this check (not recommended):                            ║\n" ++
+            "║   $ zig build -Dskip-nix-check=true                                ║\n" ++
+            "║                                                                    ║\n" ++
+            "║ Learn more:                                                        ║\n" ++
+            "║   - https://nixos.org/download.html                               ║\n" ++
+            "║   - https://nixos.wiki/wiki/Flakes                                ║\n" ++
+            "╚════════════════════════════════════════════════════════════════════╝\n", .{});
+        std.process.exit(1);
+    }
+    
+    if (in_nix) |_| {
+        b.allocator.free(in_nix.?);
+        std.log.info("✓ Building within Nix environment", .{});
+    }
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -42,6 +92,30 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Get Ghostty dependency (for future integration)
+    // TODO: Use this once we resolve Ghostty's build dependencies
+    _ = b.dependency("ghostty", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Create Ghostty terminal module that wraps Ghostty's embedded API
+    const ghostty_terminal_mod = b.createModule(.{
+        .root_source_file = b.path("src/ghostty_terminal.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    // Create Ghostty stubs module for fallback when not using Nix
+    const ghostty_stubs_mod = b.createModule(.{
+        .root_source_file = b.path("src/ghostty_stubs.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Add ghostty terminal module to c_lib_mod so libplue can use it
+    c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
+
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -65,8 +139,35 @@ pub fn build(b: *std.Build) void {
         .root_module = farcaster_mod,
     });
 
-    // Link required libraries for HTTP and crypto
+    // Create Ghostty terminal static library for Swift interop
+    const ghostty_terminal_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "ghostty_terminal",
+        .root_module = ghostty_terminal_mod,
+    });
+
+    // Link required libraries
     farcaster_lib.linkLibC();
+    ghostty_terminal_lib.linkLibC();
+    
+    // Link with Ghostty library if available from Nix
+    if (b.option([]const u8, "ghostty-lib-path", "Path to Ghostty library directory")) |lib_path| {
+        ghostty_terminal_lib.addLibraryPath(.{ .cwd_relative = lib_path });
+        ghostty_terminal_lib.linkSystemLibrary2("ghostty", .{ .needed = true });
+        
+        if (b.option([]const u8, "ghostty-include-path", "Path to Ghostty include directory")) |inc_path| {
+            ghostty_terminal_lib.addIncludePath(.{ .cwd_relative = inc_path });
+        }
+    } else {
+        // No Ghostty library available, compile and link stubs
+        const ghostty_stubs_lib = b.addStaticLibrary(.{
+            .name = "ghostty_stubs",
+            .root_module = ghostty_stubs_mod,
+        });
+        ghostty_terminal_lib.linkLibrary(ghostty_stubs_lib);
+        // Also install the stubs library so it can be linked
+        b.installArtifact(ghostty_stubs_lib);
+    }
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
@@ -74,6 +175,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
     b.installArtifact(c_lib);
     b.installArtifact(farcaster_lib);
+    b.installArtifact(ghostty_terminal_lib);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -149,6 +251,7 @@ pub fn build(b: *std.Build) void {
     swift_build_cmd.step.dependOn(&lib.step);
     swift_build_cmd.step.dependOn(&c_lib.step);
     swift_build_cmd.step.dependOn(&farcaster_lib.step);
+    swift_build_cmd.step.dependOn(&ghostty_terminal_lib.step);
 
     // Create a step for building the complete project (Zig + Swift)
     const build_all_step = b.step("swift", "Build complete project including Swift");
@@ -181,5 +284,6 @@ pub fn build(b: *std.Build) void {
     dev_cmd.step.dependOn(&lib.step);
     dev_cmd.step.dependOn(&c_lib.step);
     dev_cmd.step.dependOn(&farcaster_lib.step);
+    dev_cmd.step.dependOn(&ghostty_terminal_lib.step);
     dev_step.dependOn(&dev_cmd.step);
 }
