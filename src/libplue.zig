@@ -1,4 +1,5 @@
 const std = @import("std");
+const ghostty_terminal = @import("ghostty_terminal");
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -30,3 +31,6 @@ export fn plue_process_message(message: ?[*:0]const u8) ?[*:0]const u8 {
 export fn plue_free_string(str: [*:0]const u8) void {
     gpa.allocator().free(std.mem.span(str));
 }
+
+// Re-export Ghostty terminal functions for Swift FFI
+pub usingnamespace ghostty_terminal;
