@@ -5,12 +5,12 @@ const app = @import("app.zig");
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var app_state: ?*app.AppState = null;
+var app_state: ?*app = null;
 
 /// Initialize the global state
 export fn plue_init() c_int {
     const allocator = gpa.allocator();
-    app_state = app.AppState.init(allocator) catch return -1;
+    app_state = app.init(allocator) catch return -1;
     return 0;
 }
 
@@ -28,13 +28,13 @@ export fn plue_deinit() void {
 export fn plue_get_state() app.CAppState {
     const state = app_state orelse return std.mem.zeroes(app.CAppState);
     const allocator = gpa.allocator();
-    
+
     return state.toCApp(allocator) catch return std.mem.zeroes(app.CAppState);
 }
 
 /// Free resources allocated in CAppState
 export fn plue_free_state(c_state: app.CAppState) void {
-    app.AppState.freeCApp(c_state, gpa.allocator());
+    app.freeCApp(c_state, gpa.allocator());
 }
 
 /// Process an event with JSON data
@@ -43,19 +43,19 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
     const state = app_state orelse return -1;
     const data_ptr = json_data orelse return -1;
     const data = std.mem.span(data_ptr);
-    
+
     // Create event data
     var event = app.EventData{
         .type = @enumFromInt(event_type),
     };
-    
+
     // Parse additional JSON data if provided
     if (data.len > 0) {
         // For simple string values, just use the data directly
         // In a real implementation, we'd parse JSON properly
         event.string_value = data;
     }
-    
+
     app.processEvent(state, event) catch return -1;
     return 0;
 }

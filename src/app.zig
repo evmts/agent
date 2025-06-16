@@ -1,5 +1,136 @@
 const std = @import("std");
 
+// Core application state
+const AppState = @This();
+
+current_tab: TabType,
+is_initialized: bool,
+error_message: ?[]const u8,
+openai_available: bool,
+current_theme: Theme,
+
+prompt: PromptState,
+terminal: TerminalState,
+web: WebState,
+vim: VimState,
+agent: AgentState,
+
+allocator: std.mem.Allocator,
+
+pub fn init(allocator: std.mem.Allocator) !*AppState {
+    const state = try allocator.create(AppState);
+    state.* = .{
+        .current_tab = .prompt,
+        .is_initialized = true,
+        .error_message = null,
+        .openai_available = false,
+        .current_theme = .dark,
+        .prompt = .{
+            .processing = false,
+            .current_content = try allocator.dupe(u8, "# Your Prompt\n\nStart typing your prompt here."),
+        },
+        .terminal = .{
+            .rows = 24,
+            .cols = 80,
+            .content = try allocator.dupe(u8, ""),
+            .is_running = false,
+        },
+        .web = .{
+            .can_go_back = false,
+            .can_go_forward = false,
+            .is_loading = false,
+            .current_url = try allocator.dupe(u8, "https://www.apple.com"),
+            .page_title = try allocator.dupe(u8, "New Tab"),
+        },
+        .vim = .{
+            .mode = .normal,
+            .content = try allocator.dupe(u8, ""),
+            .cursor_row = 0,
+            .cursor_col = 0,
+            .status_line = try allocator.dupe(u8, "-- NORMAL --"),
+        },
+        .agent = .{
+            .processing = false,
+            .dagger_connected = false,
+        },
+        .allocator = allocator,
+    };
+    return state;
+}
+
+pub fn deinit(self: *AppState) void {
+    if (self.error_message) |msg| {
+        self.allocator.free(msg);
+    }
+    self.allocator.free(self.prompt.current_content);
+    self.allocator.free(self.terminal.content);
+    self.allocator.free(self.web.current_url);
+    self.allocator.free(self.web.page_title);
+    self.allocator.free(self.vim.content);
+    self.allocator.free(self.vim.status_line);
+    self.allocator.destroy(self);
+}
+
+pub fn toCApp(self: *const AppState, allocator: std.mem.Allocator) !CAppState {
+    // Helper function to convert slice to null-terminated string
+    const toNullTerminated = struct {
+        fn convert(alloc: std.mem.Allocator, slice: []const u8) ![*:0]const u8 {
+            const result = try alloc.allocSentinel(u8, slice.len, 0);
+            @memcpy(result, slice);
+            return result;
+        }
+    }.convert;
+
+    return CAppState{
+        .current_tab = self.current_tab,
+        .is_initialized = self.is_initialized,
+        .error_message = if (self.error_message) |msg| try toNullTerminated(allocator, msg) else @as([*:0]const u8, @ptrCast("")),
+        .openai_available = self.openai_available,
+        .current_theme = self.current_theme,
+        .prompt = .{
+            .processing = self.prompt.processing,
+            .current_content = try toNullTerminated(allocator, self.prompt.current_content),
+        },
+        .terminal = .{
+            .rows = self.terminal.rows,
+            .cols = self.terminal.cols,
+            .content = try toNullTerminated(allocator, self.terminal.content),
+            .is_running = self.terminal.is_running,
+        },
+        .web = .{
+            .can_go_back = self.web.can_go_back,
+            .can_go_forward = self.web.can_go_forward,
+            .is_loading = self.web.is_loading,
+            .current_url = try toNullTerminated(allocator, self.web.current_url),
+            .page_title = try toNullTerminated(allocator, self.web.page_title),
+        },
+        .vim = .{
+            .mode = self.vim.mode,
+            .content = try toNullTerminated(allocator, self.vim.content),
+            .cursor_row = self.vim.cursor_row,
+            .cursor_col = self.vim.cursor_col,
+            .status_line = try toNullTerminated(allocator, self.vim.status_line),
+        },
+        .agent = .{
+            .processing = self.agent.processing,
+            .dagger_connected = self.agent.dagger_connected,
+        },
+    };
+}
+
+pub fn freeCApp(c_state: CAppState, allocator: std.mem.Allocator) void {
+    // Free all allocated strings
+    // Check if error_message is not the empty string literal
+    if (std.mem.span(c_state.error_message).len > 0) {
+        allocator.free(std.mem.span(c_state.error_message));
+    }
+    allocator.free(std.mem.span(c_state.prompt.current_content));
+    allocator.free(std.mem.span(c_state.terminal.content));
+    allocator.free(std.mem.span(c_state.web.current_url));
+    allocator.free(std.mem.span(c_state.web.page_title));
+    allocator.free(std.mem.span(c_state.vim.content));
+    allocator.free(std.mem.span(c_state.vim.status_line));
+}
 // Tab types matching Swift TabType enum
 pub const TabType = enum(c_int) {
     prompt = 0,
@@ -107,144 +238,12 @@ pub const CAppState = extern struct {
     error_message: [*:0]const u8,
     openai_available: bool,
     current_theme: Theme,
-    
+
     prompt: CPromptState,
     terminal: CTerminalState,
     web: CWebState,
     vim: CVimState,
     agent: CAgentState,
-};
-
-// Core application state
-pub const AppState = struct {
-    current_tab: TabType,
-    is_initialized: bool,
-    error_message: ?[]const u8,
-    openai_available: bool,
-    current_theme: Theme,
-
-    prompt: PromptState,
-    terminal: TerminalState,
-    web: WebState,
-    vim: VimState,
-    agent: AgentState,
-
-    allocator: std.mem.Allocator,
-
-    pub fn init(allocator: std.mem.Allocator) !*AppState {
-        const state = try allocator.create(AppState);
-        state.* = .{
-            .current_tab = .prompt,
-            .is_initialized = true,
-            .error_message = null,
-            .openai_available = false,
-            .current_theme = .dark,
-            .prompt = .{
-                .processing = false,
-                .current_content = try allocator.dupe(u8, "# Your Prompt\n\nStart typing your prompt here."),
-            },
-            .terminal = .{
-                .rows = 24,
-                .cols = 80,
-                .content = try allocator.dupe(u8, ""),
-                .is_running = false,
-            },
-            .web = .{
-                .can_go_back = false,
-                .can_go_forward = false,
-                .is_loading = false,
-                .current_url = try allocator.dupe(u8, "https://www.apple.com"),
-                .page_title = try allocator.dupe(u8, "New Tab"),
-            },
-            .vim = .{
-                .mode = .normal,
-                .content = try allocator.dupe(u8, ""),
-                .cursor_row = 0,
-                .cursor_col = 0,
-                .status_line = try allocator.dupe(u8, "-- NORMAL --"),
-            },
-            .agent = .{
-                .processing = false,
-                .dagger_connected = false,
-            },
-            .allocator = allocator,
-        };
-        return state;
-    }
-
-    pub fn deinit(self: *AppState) void {
-        if (self.error_message) |msg| {
-            self.allocator.free(msg);
-        }
-        self.allocator.free(self.prompt.current_content);
-        self.allocator.free(self.terminal.content);
-        self.allocator.free(self.web.current_url);
-        self.allocator.free(self.web.page_title);
-        self.allocator.free(self.vim.content);
-        self.allocator.free(self.vim.status_line);
-        self.allocator.destroy(self);
-    }
-
-    pub fn toCApp(self: *const AppState, allocator: std.mem.Allocator) !CAppState {
-        // Helper function to convert slice to null-terminated string
-        const toNullTerminated = struct {
-            fn convert(alloc: std.mem.Allocator, slice: []const u8) ![*:0]const u8 {
-                const result = try alloc.allocSentinel(u8, slice.len, 0);
-                @memcpy(result, slice);
-                return result;
-            }
-        }.convert;
-
-        return CAppState{
-            .current_tab = self.current_tab,
-            .is_initialized = self.is_initialized,
-            .error_message = if (self.error_message) |msg| try toNullTerminated(allocator, msg) else @as([*:0]const u8, @ptrCast("")),
-            .openai_available = self.openai_available,
-            .current_theme = self.current_theme,
-            .prompt = .{
-                .processing = self.prompt.processing,
-                .current_content = try toNullTerminated(allocator, self.prompt.current_content),
-            },
-            .terminal = .{
-                .rows = self.terminal.rows,
-                .cols = self.terminal.cols,
-                .content = try toNullTerminated(allocator, self.terminal.content),
-                .is_running = self.terminal.is_running,
-            },
-            .web = .{
-                .can_go_back = self.web.can_go_back,
-                .can_go_forward = self.web.can_go_forward,
-                .is_loading = self.web.is_loading,
-                .current_url = try toNullTerminated(allocator, self.web.current_url),
-                .page_title = try toNullTerminated(allocator, self.web.page_title),
-            },
-            .vim = .{
-                .mode = self.vim.mode,
-                .content = try toNullTerminated(allocator, self.vim.content),
-                .cursor_row = self.vim.cursor_row,
-                .cursor_col = self.vim.cursor_col,
-                .status_line = try toNullTerminated(allocator, self.vim.status_line),
-            },
-            .agent = .{
-                .processing = self.agent.processing,
-                .dagger_connected = self.agent.dagger_connected,
-            },
-        };
-    }
-
-    pub fn freeCApp(c_state: CAppState, allocator: std.mem.Allocator) void {
-        // Free all allocated strings
-        // Check if error_message is not the empty string literal
-        if (std.mem.span(c_state.error_message).len > 0) {
-            allocator.free(std.mem.span(c_state.error_message));
-        }
-        allocator.free(std.mem.span(c_state.prompt.current_content));
-        allocator.free(std.mem.span(c_state.terminal.content));
-        allocator.free(std.mem.span(c_state.web.current_url));
-        allocator.free(std.mem.span(c_state.web.page_title));
-        allocator.free(std.mem.span(c_state.vim.content));
-        allocator.free(std.mem.span(c_state.vim.status_line));
-    }
 };
 
 // Event types matching Swift AppEvent enum

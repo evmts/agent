@@ -6,12 +6,12 @@ test "toCApp converts AppState to CAppState correctly" {
     const allocator = testing.allocator;
 
     // Create an AppState
-    const state = try app.AppState.init(allocator);
+    const state = try app.init(allocator);
     defer state.deinit();
 
     // Convert to CAppState
     const c_state = try state.toCApp(allocator);
-    defer app.AppState.freeCApp(c_state, allocator);
+    defer app.freeCApp(c_state, allocator);
 
     // Verify basic fields
     try testing.expectEqual(app.TabType.prompt, c_state.current_tab);
@@ -51,11 +51,11 @@ test "toCApp converts AppState to CAppState correctly" {
 test "toCApp handles null error_message correctly" {
     const allocator = testing.allocator;
 
-    const state = try app.AppState.init(allocator);
+    const state = try app.init(allocator);
     defer state.deinit();
 
     const c_state = try state.toCApp(allocator);
-    defer app.AppState.freeCApp(c_state, allocator);
+    defer app.freeCApp(c_state, allocator);
 
     // error_message should be empty string when null
     try testing.expectEqualStrings("", std.mem.span(c_state.error_message));
@@ -64,14 +64,14 @@ test "toCApp handles null error_message correctly" {
 test "toCApp handles non-null error_message correctly" {
     const allocator = testing.allocator;
 
-    const state = try app.AppState.init(allocator);
+    const state = try app.init(allocator);
     defer state.deinit();
 
     // Set an error message
     state.error_message = try allocator.dupe(u8, "Test error");
 
     const c_state = try state.toCApp(allocator);
-    defer app.AppState.freeCApp(c_state, allocator);
+    defer app.freeCApp(c_state, allocator);
 
     // error_message should contain the expected text
     try testing.expectEqualStrings("Test error", std.mem.span(c_state.error_message));
@@ -80,14 +80,14 @@ test "toCApp handles non-null error_message correctly" {
 test "freeCApp properly frees allocated memory" {
     const allocator = testing.allocator;
 
-    const state = try app.AppState.init(allocator);
+    const state = try app.init(allocator);
     defer state.deinit();
 
     // Set an error message to test null pointer handling
     state.error_message = try allocator.dupe(u8, "Test error");
 
     const c_state = try state.toCApp(allocator);
-    
+
     // This should not leak memory
-    app.AppState.freeCApp(c_state, allocator);
+    app.freeCApp(c_state, allocator);
 }
