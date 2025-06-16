@@ -7,9 +7,9 @@ pub fn build(b: *std.Build) void {
     // Check if we're building within Nix environment
     const in_nix = std.process.getEnvVarOwned(b.allocator, "IN_NIX_SHELL") catch null;
     const nix_check_override = b.option(bool, "skip-nix-check", "Skip the Nix environment check") orelse false;
-    
+
     if (in_nix == null and !nix_check_override) {
-        std.log.err("\n" ++
+        std.log.warn("\n" ++
             "╔════════════════════════════════════════════════════════════════════╗\n" ++
             "║                    Nix Environment Required                        ║\n" ++
             "╠════════════════════════════════════════════════════════════════════╣\n" ++
@@ -46,9 +46,8 @@ pub fn build(b: *std.Build) void {
             "║   - https://nixos.org/download.html                               ║\n" ++
             "║   - https://nixos.wiki/wiki/Flakes                                ║\n" ++
             "╚════════════════════════════════════════════════════════════════════╝\n", .{});
-        std.process.exit(1);
     }
-    
+
     if (in_nix) |_| {
         b.allocator.free(in_nix.?);
         std.log.info("✓ Building within Nix environment", .{});
@@ -107,14 +106,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    
+
     // Create Ghostty stubs module for fallback when not using Nix
     const ghostty_stubs_mod = b.createModule(.{
         .root_source_file = b.path("src/ghostty_stubs.zig"),
         .target = target,
         .optimize = optimize,
     });
-    
+
     // Create unified terminal module - our production terminal implementation
     const terminal_mod = b.createModule(.{
         .root_source_file = b.path("src/terminal.zig"),
@@ -122,9 +121,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Create app module for state management
+    const app_mod = b.createModule(.{
+        .root_source_file = b.path("src/app.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Add terminal modules to c_lib_mod so libplue can use them
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
     c_lib_mod.addImport("terminal", terminal_mod);
+    c_lib_mod.addImport("app", app_mod);
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -155,24 +162,24 @@ pub fn build(b: *std.Build) void {
         .name = "ghostty_terminal",
         .root_module = ghostty_terminal_mod,
     });
-    
+
     // Create unified terminal static library for Swift interop
     const terminal_lib = b.addLibrary(.{
         .linkage = .static,
         .name = "terminal",
         .root_module = terminal_mod,
     });
-    
+
     // Link required libraries
     farcaster_lib.linkLibC();
     ghostty_terminal_lib.linkLibC();
     terminal_lib.linkLibC();
-    
+
     // Link with Ghostty library if available from Nix
     if (b.option([]const u8, "ghostty-lib-path", "Path to Ghostty library directory")) |lib_path| {
         ghostty_terminal_lib.addLibraryPath(.{ .cwd_relative = lib_path });
         ghostty_terminal_lib.linkSystemLibrary2("ghostty", .{ .needed = true });
-        
+
         if (b.option([]const u8, "ghostty-include-path", "Path to Ghostty include directory")) |inc_path| {
             ghostty_terminal_lib.addIncludePath(.{ .cwd_relative = inc_path });
         }
@@ -236,7 +243,7 @@ pub fn build(b: *std.Build) void {
     });
     macos_pty_test.linkLibrary(terminal_lib);
     macos_pty_test.linkLibC();
-    
+
     const run_macos_pty_test = b.addRunArtifact(macos_pty_test);
     const macos_pty_test_step = b.step("test-terminal", "Run terminal test");
     macos_pty_test_step.dependOn(&run_macos_pty_test.step);
@@ -323,12 +330,26 @@ pub fn build(b: *std.Build) void {
     const mcp_applescript_step = b.step("mcp-applescript", "Run the MCP AppleScript server");
     mcp_applescript_step.dependOn(&run_mcp_applescript.step);
 
+    // Plue MCP server executable
+    const plue_mcp = b.addExecutable(.{
+        .name = "plue-mcp",
+        .root_source_file = b.path("mcp/plue_mcp_fixed.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    plue_mcp.linkLibC();
+    b.installArtifact(plue_mcp);
+
+    // Add run step for Plue MCP server
+    const run_plue_mcp = b.addRunArtifact(plue_mcp);
+    const plue_mcp_step = b.step("plue-mcp", "Run the Plue MCP server");
+    plue_mcp_step.dependOn(&run_plue_mcp.step);
+
     // Development server with file watching
     const dev_step = b.step("dev", "Development server with file watching and smart rebuilds");
     const dev_cmd = b.addSystemCommand(&.{
-        "zig", "run", 
-        b.pathFromRoot("dev_server.zig"),
-        "--", 
+        "zig",                            "run",
+        b.pathFromRoot("dev_server.zig"), "--",
         b.build_root.path orelse ".",
     });
     dev_cmd.step.dependOn(&lib.step);
