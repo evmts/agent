@@ -35,15 +35,17 @@ struct ContentView: View {
 
             // 2. Main Content Area
             ZStack {
-                // Use theme-aware background
-                DesignSystem.Colors.background(for: appState.currentTheme)
+                // Use native macOS background with material
+                Rectangle()
+                    .fill(DesignSystem.Colors.background(for: appState.currentTheme))
+                    .background(DesignSystem.Materials.adaptive(for: appState.currentTheme))
                     .ignoresSafeArea()
 
                 // 3. View Switching Logic with Smart Contextual Transitions
                 Group {
                     switch appState.currentTab {
                     case .prompt:
-                        VimPromptView(appState: appState, core: PlueCore.shared)
+                        ModernChatView(appState: appState, core: PlueCore.shared)
                             .transition(transitionForTab(.prompt))
                     case .farcaster:
                         FarcasterView(appState: appState, core: PlueCore.shared)
@@ -58,10 +60,9 @@ struct ContentView: View {
                         WebView(appState: appState, core: PlueCore.shared)
                             .transition(transitionForTab(.web))
                     case .editor:
-                        // The "Editor" tab uses the old ChatView, let's update it later if needed.
-                        // For now, let's ensure it has a consistent background.
-                        ChatView(appState: appState, core: PlueCore.shared)
-                            .background(DesignSystem.Colors.background)
+                        // TODO: Implement proper code editor view
+                        // For now, using EditorView as placeholder
+                        EditorView(appState: appState, core: PlueCore.shared)
                             .transition(transitionForTab(.editor))
                     case .diff:
                         DiffView(appState: appState, core: PlueCore.shared)
@@ -84,14 +85,20 @@ struct ContentView: View {
     
     private func configureWindow() {
         guard let window = NSApplication.shared.windows.first else { return }
-        window.backgroundColor = NSColor(DesignSystem.Colors.background)
+        window.backgroundColor = NSColor(DesignSystem.Colors.background(for: appState.currentTheme))
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
-        // Ensure the standard buttons are hidden since we have custom ones
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.isMovableByWindowBackground = true
+        
+        // Configure window appearance
+        window.appearance = NSAppearance(named: appState.currentTheme == .dark ? .darkAqua : .aqua)
+        window.minSize = NSSize(width: 800, height: 600)
+        
+        // Don't hide the standard buttons, just let our custom ones handle the actions
+        window.standardWindowButton(.closeButton)?.alphaValue = 0
+        window.standardWindowButton(.miniaturizeButton)?.alphaValue = 0
+        window.standardWindowButton(.zoomButton)?.alphaValue = 0
     }
 }
 
@@ -112,6 +119,8 @@ struct CustomTitleBar: View {
             HStack(spacing: 8) {
                 ForEach(0..<3) { i in
                     CustomWindowButton(action: windowActions[i], color: windowActionColors[i])
+                        .opacity(isHovered ? 1.0 : 0.4)
+                        .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
             }
             .padding(.leading, 12)
@@ -119,37 +128,60 @@ struct CustomTitleBar: View {
             .frame(height: 40) // Define a fixed height for the title bar area
             .onHover { hover in isHovered = hover }
 
-            // Tab Buttons
+            // Tab Buttons with visual separator
+            Divider()
+                .frame(width: 1, height: 16)
+                .background(DesignSystem.Colors.border(for: currentTheme))
+                .padding(.horizontal, 4)
+            
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     ForEach(TabType.allCases, id: \.self) { tab in
-                        TabButton(tab: tab, selectedTab: $selectedTab)
+                        TabButton(tab: tab, selectedTab: $selectedTab, theme: currentTheme)
                     }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 4)
             }
             
             Spacer()
             
-            // Theme Toggle Button
+            // Theme Toggle Button with better styling
             Button(action: onThemeToggle) {
-                Image(systemName: currentTheme == .dark ? "sun.max" : "moon")
+                Image(systemName: currentTheme == .dark ? "sun.max.fill" : "moon.fill")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.textTertiary)
+                    .foregroundColor(DesignSystem.Colors.textSecondary(for: currentTheme))
+                    .padding(6)
+                    .background(
+                        Circle()
+                            .fill(DesignSystem.Colors.surface(for: currentTheme))
+                    )
+                    .overlay(
+                        Circle()
+                            .strokeBorder(DesignSystem.Colors.border(for: currentTheme), lineWidth: 0.5)
+                    )
             }
             .buttonStyle(PlainButtonStyle())
             .help("Toggle theme")
             .padding(.trailing, 12)
         }
-        .background(DesignSystem.Colors.background)
-        .onAppear {
-            // This enables the window to be dragged by our custom title bar
-            DispatchQueue.main.async {
-                if let window = NSApplication.shared.windows.first {
-                    window.isMovableByWindowBackground = true
+        .frame(height: 40)
+        .background(
+            ZStack {
+                // Base background
+                DesignSystem.Colors.background(for: currentTheme)
+                
+                // Material effect for depth
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                
+                // Bottom border
+                VStack {
+                    Spacer()
+                    Divider()
+                        .background(DesignSystem.Colors.border(for: currentTheme))
                 }
             }
-        }
+        )
     }
 }
 
@@ -158,6 +190,8 @@ struct CustomTitleBar: View {
 struct TabButton: View {
     let tab: TabType
     @Binding var selectedTab: TabType
+    let theme: DesignSystem.Theme
+    @State private var isHovered = false
     
     private var isSelected: Bool { selectedTab == tab }
     
@@ -167,7 +201,7 @@ struct TabButton: View {
         case .farcaster: return "Social"
         case .agent: return "Agent"
         case .terminal: return "Terminal"
-        case .web: return "Browser"
+        case .web: return "Web"
         case .editor: return "Editor"
         case .diff: return "Diff"
         case .worktree: return "Worktree"
@@ -176,14 +210,14 @@ struct TabButton: View {
     
     private var icon: String {
         switch tab {
-        case .prompt: return "doc.text.fill"
-        case .farcaster: return "person.2.circle.fill"
-        case .agent: return "gearshape.2.fill"
-        case .terminal: return "terminal.fill"
-        case .web: return "globe"
-        case .editor: return "curlybraces"
-        case .diff: return "doc.on.doc.fill"
-        case .worktree: return "arrow.triangle.branch"
+        case .prompt: return "bubble.left.and.bubble.right"
+        case .farcaster: return "person.2.wave.2"
+        case .agent: return "brain"
+        case .terminal: return "terminal"
+        case .web: return "safari"
+        case .editor: return "doc.text"
+        case .diff: return "arrow.left.arrow.right"
+        case .worktree: return "folder.badge.gearshape"
         }
     }
 
@@ -193,33 +227,39 @@ struct TabButton: View {
                 selectedTab = tab 
             }
         }) {
-            HStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
-                    .scaleEffect(isSelected ? 1.0 : 0.9)
-                    .animation(DesignSystem.Animation.scaleIn.delay(DesignSystem.Animation.staggerDelay), value: isSelected)
+                    .font(.system(size: 16, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
                 Text(title)
-                    .font(DesignSystem.Typography.labelMedium)
-                    .animation(DesignSystem.Animation.scaleIn.delay(DesignSystem.Animation.staggerDelay * 2), value: isSelected)
+                    .font(.system(size: 10, weight: .regular))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .foregroundColor(isSelected ? DesignSystem.Colors.textPrimary : DesignSystem.Colors.textTertiary)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
-                    .fill(isSelected ? DesignSystem.Colors.surface : .clear)
-                    .scaleEffect(isSelected ? 1.0 : 0.98)
+            .frame(width: 60, height: 40)
+            .foregroundColor(
+                isSelected ? DesignSystem.Colors.primary :
+                isHovered ? DesignSystem.Colors.textPrimary(for: theme) :
+                DesignSystem.Colors.textSecondary(for: theme)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.sm)
-                    .stroke(isSelected ? DesignSystem.Colors.primary.opacity(0.3) : .clear, lineWidth: 1)
-                    .scaleEffect(isSelected ? 1.0 : 0.95)
+            .background(
+                ZStack {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(DesignSystem.Colors.primary.opacity(0.1))
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(DesignSystem.Colors.primary.opacity(0.2), lineWidth: 0.5)
+                    } else if isHovered {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(DesignSystem.Colors.surface(for: theme).opacity(0.5))
+                    }
+                }
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isSelected ? 1.02 : 1.0)
-        .animation(DesignSystem.Animation.tabSwitch, value: isSelected)
-        .hoverEffect()
+        .onHover { hover in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hover
+            }
+        }
     }
 }
 
