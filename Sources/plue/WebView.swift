@@ -13,11 +13,11 @@ struct WebView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
-    @StateObject private var webViewModel = WebViewModel()
-    @State private var urlString = "https://www.apple.com"
+    @State private var urlString = ""
     @State private var tabs: [BrowserTab] = [BrowserTab(id: 0, title: "New Tab", url: "https://www.apple.com", isActive: true)]
     @State private var selectedTab = 0
     @FocusState private var isUrlFocused: Bool
+    @State private var webView: WKWebView?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -28,19 +28,24 @@ struct WebView: View {
             ZStack {
                 DesignSystem.Colors.surface(for: appState.currentTheme)
                 
-                WebViewRepresentable(webViewModel: webViewModel)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.2), lineWidth: 1)
-                    )
-                    .padding(8)
+                WebViewRepresentable(
+                    webView: $webView,
+                    appState: appState,
+                    core: core
+                )
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.2), lineWidth: 1)
+                )
+                .padding(8)
             }
         }
         .background(DesignSystem.Colors.background(for: appState.currentTheme))
         .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
         .onAppear {
-            webViewModel.loadURL(urlString)
+            urlString = appState.webCurrentUrl
+            loadURL(urlString)
         }
     }
     
@@ -75,37 +80,37 @@ struct WebView: View {
                 
                 // Browser Controls
                 HStack(spacing: 8) {
-                    Button(action: { webViewModel.goBack() }) {
+                    Button(action: { goBack() }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(webViewModel.canGoBack ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                            .foregroundColor(appState.webCanGoBack ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(!webViewModel.canGoBack)
+                    .disabled(!appState.webCanGoBack)
                     .help("Go back")
                     
-                    Button(action: { webViewModel.goForward() }) {
+                    Button(action: { goForward() }) {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(webViewModel.canGoForward ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                            .foregroundColor(appState.webCanGoForward ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(!webViewModel.canGoForward)
+                    .disabled(!appState.webCanGoForward)
                     .help("Go forward")
                     
                     Button(action: {
-                        if webViewModel.isLoading {
-                            webViewModel.stopLoading()
+                        if appState.webIsLoading {
+                            stopLoading()
                         } else {
-                            webViewModel.reload()
+                            reload()
                         }
                     }) {
-                        Image(systemName: webViewModel.isLoading ? "xmark" : "arrow.clockwise")
+                        Image(systemName: appState.webIsLoading ? "xmark" : "arrow.clockwise")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .help(webViewModel.isLoading ? "Stop loading" : "Reload page")
+                    .help(appState.webIsLoading ? "Stop loading" : "Reload page")
                 }
                 .padding(.trailing, 16)
             }
@@ -117,9 +122,9 @@ struct WebView: View {
                 // Security Indicator & URL Field
                 HStack(spacing: 8) {
                     // Security Lock
-                    Image(systemName: webViewModel.isSecure ? "lock.fill" : "globe")
+                    Image(systemName: appState.webCurrentUrl.hasPrefix("https://") ? "lock.fill" : "globe")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(webViewModel.isSecure ? DesignSystem.Colors.success : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                        .foregroundColor(appState.webCurrentUrl.hasPrefix("https://") ? DesignSystem.Colors.success : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                     
                     // URL TextField
                     TextField("Search or enter website name", text: $urlString)
@@ -128,17 +133,17 @@ struct WebView: View {
                         .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
                         .focused($isUrlFocused)
                         .onSubmit {
-                            webViewModel.loadURL(urlString)
+                            loadURL(urlString)
                             isUrlFocused = false
                         }
-                        .onChange(of: webViewModel.currentURL) { newURL in
+                        .onChange(of: appState.webCurrentUrl) { newURL in
                             if !isUrlFocused {
                                 urlString = newURL
                             }
                         }
                     
                     // Loading Indicator
-                    if webViewModel.isLoading {
+                    if appState.webIsLoading {
                         ProgressView()
                             .scaleEffect(0.6)
                             .frame(width: 16, height: 16)
@@ -251,7 +256,7 @@ struct WebView: View {
         
         // Load the default URL
         urlString = newTab.url
-        webViewModel.loadURL(urlString)
+        loadURL(urlString)
     }
     
     private func closeTab(_ tabId: Int) {
@@ -270,29 +275,13 @@ struct WebView: View {
                     isActive: true
                 )
                 urlString = tabs[index].url
-                webViewModel.loadURL(urlString)
+                loadURL(urlString)
             }
         }
     }
-}
-
-// MARK: - Web View Model
-class WebViewModel: ObservableObject {
-    @Published var canGoBack = false
-    @Published var canGoForward = false
-    @Published var isLoading = false
-    @Published var currentURL = ""
-    @Published var isSecure = false
-    @Published var pageTitle = ""
     
-    private var webView: WKWebView?
-    
-    func setWebView(_ webView: WKWebView) {
-        self.webView = webView
-        updateNavigationState()
-    }
-    
-    func loadURL(_ urlString: String) {
+    // MARK: - Web Navigation Methods
+    private func loadURL(_ urlString: String) {
         guard let webView = webView else { return }
         
         var finalURLString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -306,43 +295,39 @@ class WebViewModel: ObservableObject {
         
         let request = URLRequest(url: url)
         webView.load(request)
-    }
-    
-    func goBack() {
-        webView?.goBack()
-    }
-    
-    func goForward() {
-        webView?.goForward()
-    }
-    
-    func reload() {
-        webView?.reload()
-    }
-    
-    func stopLoading() {
-        webView?.stopLoading()
-    }
-    
-    func updateNavigationState() {
-        guard let webView = webView else { return }
         
-        // Prevent race conditions during rapid tab switching
-        DispatchQueue.main.async { [weak self, weak webView] in
-            guard let self = self, let webView = webView else { return }
-            
-            self.canGoBack = webView.canGoBack
-            self.canGoForward = webView.canGoForward
-            self.currentURL = webView.url?.absoluteString ?? ""
-            self.isSecure = webView.url?.scheme == "https"
-            self.pageTitle = webView.title ?? ""
-        }
+        // Send event to Zig
+        core.handleEvent(.webNavigate(finalURLString))
+    }
+    
+    private func goBack() {
+        webView?.goBack()
+        core.handleEvent(.webGoBack)
+    }
+    
+    private func goForward() {
+        webView?.goForward()
+        core.handleEvent(.webGoForward)
+    }
+    
+    private func reload() {
+        webView?.reload()
+        core.handleEvent(.webReload)
+    }
+    
+    private func stopLoading() {
+        webView?.stopLoading()
     }
 }
 
+// MARK: - Web View Model (REMOVED - State now in AppState)
+// WebViewModel has been removed in favor of centralized state management
+
 // MARK: - WKWebView Representable
 struct WebViewRepresentable: NSViewRepresentable {
-    let webViewModel: WebViewModel
+    @Binding var webView: WKWebView?
+    let appState: AppState
+    let core: PlueCoreInterface
     
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
