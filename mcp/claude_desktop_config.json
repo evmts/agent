@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "plue": {
+      "command": "zig",
+      "args": ["build", "run", "-Doptimize=ReleaseFast", "--", "plue-mcp"],
+      "cwd": "/Users/williamcory/plue",
+      "env": {},
+      "description": "Plue Multi-Agent Coding Assistant MCP Server"
+    }
+  }
+}
