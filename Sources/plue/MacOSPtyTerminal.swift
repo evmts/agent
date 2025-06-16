@@ -1,38 +1,35 @@
 import Foundation
 
-// Import PTY terminal C functions
-@_silgen_name("pty_terminal_init") 
-func pty_terminal_init() -> Int32
+// Import macOS PTY C functions
+@_silgen_name("macos_pty_init") 
+func macos_pty_init() -> Int32
 
-@_silgen_name("pty_terminal_start") 
-func pty_terminal_start() -> Int32
+@_silgen_name("macos_pty_start") 
+func macos_pty_start() -> Int32
 
-@_silgen_name("pty_terminal_stop") 
-func pty_terminal_stop()
+@_silgen_name("macos_pty_stop") 
+func macos_pty_stop()
 
-@_silgen_name("pty_terminal_write") 
-func pty_terminal_write(_ data: UnsafePointer<UInt8>, _ len: Int) -> Int
+@_silgen_name("macos_pty_write") 
+func macos_pty_write(_ data: UnsafePointer<UInt8>, _ len: Int) -> Int
 
-@_silgen_name("pty_terminal_read") 
-func pty_terminal_read(_ buffer: UnsafeMutablePointer<UInt8>, _ bufferLen: Int) -> Int
+@_silgen_name("macos_pty_read") 
+func macos_pty_read(_ buffer: UnsafeMutablePointer<UInt8>, _ bufferLen: Int) -> Int
 
-@_silgen_name("pty_terminal_send_text") 
-func pty_terminal_send_text(_ text: UnsafePointer<CChar>)
+@_silgen_name("macos_pty_send_text") 
+func macos_pty_send_text(_ text: UnsafePointer<CChar>)
 
-@_silgen_name("pty_terminal_resize") 
-func pty_terminal_resize(_ cols: UInt16, _ rows: UInt16)
+@_silgen_name("macos_pty_deinit") 
+func macos_pty_deinit()
 
-@_silgen_name("pty_terminal_deinit") 
-func pty_terminal_deinit()
-
-/// PTY Terminal - Proper pseudo-terminal implementation
-class PtyTerminal: ObservableObject {
-    static let shared = PtyTerminal()
+/// macOS PTY Terminal - Minimal working PTY implementation
+class MacOSPtyTerminal: ObservableObject {
+    static let shared = MacOSPtyTerminal()
     
     @Published var output: String = ""
     @Published var isRunning: Bool = false
     
-    private let readQueue = DispatchQueue(label: "com.plue.pty.read", qos: .utility)
+    private let readQueue = DispatchQueue(label: "com.plue.macos.pty.read", qos: .utility)
     private var isReading = false
     private let bufferSize = 4096
     
@@ -40,12 +37,12 @@ class PtyTerminal: ObservableObject {
     
     /// Initialize the terminal
     func initialize() -> Bool {
-        let result = pty_terminal_init()
+        let result = macos_pty_init()
         if result == 0 {
-            print("PTY terminal initialized successfully")
+            print("macOS PTY initialized successfully")
             return true
         } else {
-            print("Failed to initialize PTY terminal")
+            print("Failed to initialize macOS PTY")
             return false
         }
     }
@@ -54,14 +51,14 @@ class PtyTerminal: ObservableObject {
     func start() -> Bool {
         guard !isRunning else { return true }
         
-        let result = pty_terminal_start()
+        let result = macos_pty_start()
         if result == 0 {
             isRunning = true
             startReadingOutput()
-            print("PTY terminal started")
+            print("macOS PTY started")
             return true
         } else {
-            print("Failed to start PTY terminal")
+            print("Failed to start macOS PTY")
             return false
         }
     }
@@ -69,9 +66,9 @@ class PtyTerminal: ObservableObject {
     /// Stop the terminal
     func stop() {
         isReading = false
-        pty_terminal_stop()
+        macos_pty_stop()
         isRunning = false
-        print("PTY terminal stopped")
+        print("macOS PTY stopped")
     }
     
     /// Send text to the terminal
@@ -79,7 +76,7 @@ class PtyTerminal: ObservableObject {
         guard isRunning else { return }
         
         text.withCString { cString in
-            pty_terminal_send_text(cString)
+            macos_pty_send_text(cString)
         }
     }
     
@@ -93,12 +90,6 @@ class PtyTerminal: ObservableObject {
         output = ""
     }
     
-    /// Resize the terminal
-    func resize(cols: Int, rows: Int) {
-        guard isRunning else { return }
-        pty_terminal_resize(UInt16(cols), UInt16(rows))
-    }
-    
     // Private methods
     
     private func startReadingOutput() {
@@ -109,17 +100,18 @@ class PtyTerminal: ObservableObject {
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: self.bufferSize)
             defer { buffer.deallocate() }
             
-            print("PTY read thread started")
+            print("macOS PTY read thread started")
             
             while self.isReading && self.isRunning {
-                let bytesRead = pty_terminal_read(buffer, self.bufferSize)
+                let bytesRead = macos_pty_read(buffer, self.bufferSize)
                 
                 if bytesRead > 0 {
-                    print("PTY read \(bytesRead) bytes")
+                    print("macOS PTY read \(bytesRead) bytes")
                     let data = Data(bytes: buffer, count: bytesRead)
                     if let newOutput = String(data: data, encoding: .utf8) {
                         DispatchQueue.main.async {
                             self.output += newOutput
+                            print("Terminal output now: \(self.output.suffix(100))")
                             
                             // Limit output buffer size
                             if self.output.count > 100000 {
@@ -133,17 +125,17 @@ class PtyTerminal: ObservableObject {
                     Thread.sleep(forTimeInterval: 0.01) // 10ms
                 } else {
                     // Error occurred
-                    print("Error reading from PTY: \(bytesRead)")
+                    print("Error reading from macOS PTY: \(bytesRead)")
                     break
                 }
             }
             
-            print("PTY read thread exiting")
+            print("macOS PTY read thread exiting")
         }
     }
     
     deinit {
         stop()
-        pty_terminal_deinit()
+        macos_pty_deinit()
     }
 }
