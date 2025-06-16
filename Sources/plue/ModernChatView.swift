@@ -19,8 +19,10 @@ struct ModernChatView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Professional background
-                DesignSystem.Colors.background
+                // Native macOS background with material
+                Rectangle()
+                    .fill(DesignSystem.Colors.background(for: appState.currentTheme))
+                    .background(DesignSystem.Materials.regular)
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -43,10 +45,10 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Minimal Header Bar (Ghostty-inspired)
+    // MARK: - Native macOS Header Bar
     private var professionalHeaderBar: some View {
         HStack(spacing: DesignSystem.Spacing.md) {
-            // Left side - Minimal Chat Navigation
+            // Left side - Chat Navigation with native styling
             HStack(spacing: DesignSystem.Spacing.sm) {
                 // Previous chat button
                 Button(action: {
@@ -55,25 +57,36 @@ struct ModernChatView: View {
                     }
                 }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(appState.promptState.currentConversationIndex == 0 ? DesignSystem.Colors.textTertiary.opacity(0.3) : DesignSystem.Colors.textSecondary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(appState.promptState.currentConversationIndex == 0 ? DesignSystem.Colors.textTertiary(for: appState.currentTheme) : DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
                 .buttonStyle(PlainButtonStyle())
                 .help("Previous chat (⌘[)")
                 .disabled(appState.promptState.currentConversationIndex == 0)
+                .opacity(appState.promptState.currentConversationIndex == 0 ? 0.5 : 1.0)
                 
-                // Minimal chat indicator
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("chat")
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
+                // Native macOS-style chat indicator
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Conversation \(appState.promptState.currentConversationIndex + 1)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
                     
-                    Text("\(appState.promptState.currentConversationIndex + 1)/\(appState.promptState.conversations.count)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    Text("\(appState.promptState.conversations.count) total")
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(DesignSystem.Colors.surface(for: appState.currentTheme))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(DesignSystem.Colors.border(for: appState.currentTheme), lineWidth: 0.5)
+                        )
+                )
                 
-                // Next/New chat button
+                // Next/New chat button with native styling
                 Button(action: {
                     if appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 {
                         core.handleEvent(.promptSelectConversation(appState.promptState.currentConversationIndex + 1))
@@ -81,9 +94,10 @@ struct ModernChatView: View {
                         core.handleEvent(.promptNewConversation)
                     }
                 }) {
-                    Image(systemName: appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 ? "chevron.right" : "plus")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(DesignSystem.Colors.textSecondary)
+                    Image(systemName: appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 ? "chevron.right" : "plus.circle")
+                        .font(.system(size: 11, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
                 .buttonStyle(PlainButtonStyle())
                 .help(appState.promptState.currentConversationIndex < appState.promptState.conversations.count - 1 ? "Next chat (⌘])" : "New chat (⌘N)")
@@ -138,19 +152,25 @@ struct ModernChatView: View {
             }
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)
-        .padding(.vertical, DesignSystem.Spacing.md)
+        .padding(.vertical, DesignSystem.Spacing.sm)
         .background(
-            DesignSystem.Colors.surface
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(DesignSystem.Colors.border.opacity(0.3)),
-                    alignment: .bottom
-                )
+            ZStack {
+                // Material background for native feel
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                
+                // Subtle overlay
+                DesignSystem.Colors.surface(for: appState.currentTheme).opacity(0.3)
+            }
+            .overlay(
+                Divider()
+                    .background(DesignSystem.Colors.border(for: appState.currentTheme)),
+                alignment: .bottom
+            )
         )
     }
     
-    // MARK: - Enhanced Model Picker
+    // MARK: - Native macOS Model Picker
     private var enhancedModelPicker: some View {
         Menu {
             ForEach(AIModel.allCases, id: \.self) { model in
@@ -159,59 +179,58 @@ struct ModernChatView: View {
                         selectedModel = model
                     }
                 }) {
-                    HStack(spacing: DesignSystem.Spacing.sm) {
-                        Circle()
-                            .fill(model.statusColor)
-                            .frame(width: 10, height: 10)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(model.name)
-                                .font(DesignSystem.Typography.labelMedium)
-                                .foregroundColor(DesignSystem.Colors.textPrimary)
-                            
-                            Text(model.description)
-                                .font(DesignSystem.Typography.caption)
-                                .foregroundColor(DesignSystem.Colors.textSecondary)
+                    HStack {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.name)
+                                    .font(.system(size: 13))
+                                
+                                Text(model.description)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                            }
+                        } icon: {
+                            Circle()
+                                .fill(model.statusColor)
+                                .frame(width: 8, height: 8)
                         }
                         
+                        Spacer()
+                        
                         if selectedModel == model {
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: DesignSystem.IconSize.small))
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(DesignSystem.Colors.primary)
                         }
                     }
-                    .padding(.horizontal, DesignSystem.Spacing.sm)
-                    .padding(.vertical, DesignSystem.Spacing.xs)
                 }
             }
         } label: {
-            HStack(spacing: DesignSystem.Spacing.sm) {
+            HStack(spacing: 6) {
                 Circle()
                     .fill(selectedModel.statusColor)
-                    .frame(width: 10, height: 10)
+                    .frame(width: 8, height: 8)
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("AI Model")
-                        .font(DesignSystem.Typography.labelSmall)
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                    
-                    Text(selectedModel.name)
-                        .font(DesignSystem.Typography.labelMedium)
-                        .foregroundColor(DesignSystem.Colors.textPrimary)
-                }
+                Text(selectedModel.name)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
                 
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: DesignSystem.IconSize.small))
-                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
             }
-            .padding(.horizontal, DesignSystem.Spacing.md)
-            .padding(.vertical, DesignSystem.Spacing.sm)
-            .secondarySurface()
-            .primaryBorder()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(DesignSystem.Colors.surface(for: appState.currentTheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(DesignSystem.Colors.border(for: appState.currentTheme), lineWidth: 0.5)
+                    )
+            )
         }
         .menuStyle(BorderlessButtonMenuStyle())
-        .frame(maxWidth: 240)
     }
     
     // MARK: - Enhanced Chat Messages Area  
@@ -228,10 +247,17 @@ struct ModernChatView: View {
                     // Professional message bubbles with enhanced animations
                     if let messages = appState.promptState.currentConversation?.messages {
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            ProfessionalMessageBubbleView(
+                            UnifiedMessageBubbleView(
                                 message: message,
+                                style: .professional,
                                 isActive: activeMessageId == message.id,
-                                theme: appState.currentTheme
+                                theme: appState.currentTheme,
+                                onTap: { tappedMessage in
+                                    if tappedMessage.type != .user {
+                                        print("AI message tapped: \(tappedMessage.id)")
+                                        activeMessageId = tappedMessage.id
+                                    }
+                                }
                             )
                             .padding(.horizontal, DesignSystem.Spacing.xl)
                             .padding(.vertical, DesignSystem.Spacing.sm)
@@ -276,27 +302,38 @@ struct ModernChatView: View {
         }
     }
     
-    // MARK: - Minimal Welcome View (Ghostty-inspired)
+    // MARK: - Native macOS Welcome View
     private var enhancedWelcomeView: some View {
         VStack(spacing: DesignSystem.Spacing.xxl) {
-            // Minimal logo
-            Circle()
-                .fill(DesignSystem.Colors.textTertiary.opacity(0.1))
-                .frame(width: 60, height: 60)
-                .overlay(
-                    Image(systemName: "terminal")
-                        .font(.system(size: 24, weight: .light))
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                )
+            // Native macOS icon style
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                DesignSystem.Colors.primary.opacity(0.2),
+                                DesignSystem.Colors.primary.opacity(0.1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 72, height: 72)
+                
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 32, weight: .regular, design: .rounded))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundColor(DesignSystem.Colors.primary)
+            }
             
             VStack(spacing: DesignSystem.Spacing.sm) {
-                Text("ready")
-                    .font(DesignSystem.Typography.titleMedium)
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                Text("Welcome to Plue")
+                    .font(.system(size: 22, weight: .medium, design: .rounded))
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
                 
-                Text("type a message to start")
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                Text("Start a conversation to begin")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                     .multilineTextAlignment(.center)
             }
             
@@ -315,85 +352,132 @@ struct ModernChatView: View {
     private func minimalSuggestionButton(_ text: String, icon: String) -> some View {
         Button(action: {
             withAnimation(DesignSystem.Animation.buttonPress) {
-                core.handleEvent(.promptMessageSent(text))
+                inputText = text
+                isInputFocused = true
             }
         }) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.textTertiary)
-                    .frame(width: 16)
+                    .font(.system(size: 13, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundColor(DesignSystem.Colors.primary)
+                    .frame(width: 20)
                 
-                Text(text)
-                    .font(DesignSystem.Typography.labelMedium)
-                    .foregroundColor(DesignSystem.Colors.textSecondary)
+                Text(text.capitalized)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
                 
                 Spacer()
+                
+                Image(systemName: "arrow.right.circle")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(DesignSystem.Colors.surface)
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(DesignSystem.Materials.regular)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(DesignSystem.Colors.surface(for: appState.currentTheme).opacity(0.5))
+                    )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(DesignSystem.Colors.border(for: appState.currentTheme), lineWidth: 0.5)
                     )
             )
         }
         .buttonStyle(PlainButtonStyle())
-        .frame(maxWidth: 280)
+        .frame(maxWidth: 320)
     }
     
-    // MARK: - Simplified Chat Input - Clean and Apple-like
+    // MARK: - Native macOS Chat Input
     private var enhancedInputArea: some View {
         VStack(spacing: 0) {
-            // Floating input at bottom with subtle gradient fade
+            // Native macOS input field
             HStack(spacing: 12) {
-                TextField("Message", text: $inputText)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .font(.system(size: 14))
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.white.opacity(0.08))
-                    )
-                    .focused($isInputFocused)
-                    .onSubmit {
-                        sendMessage()
+                HStack(spacing: 8) {
+                    // Attachment button
+                    Button(action: {}) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                     }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("Attach file")
+                    
+                    // Input field with native styling
+                    TextField("Message", text: $inputText, axis: .vertical)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 13))
+                        .lineLimit(1...5)
+                        .focused($isInputFocused)
+                        .onSubmit {
+                            if !inputText.isEmpty {
+                                sendMessage()
+                            }
+                        }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(DesignSystem.Colors.surface(for: appState.currentTheme))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(
+                                    isInputFocused ? DesignSystem.Colors.primary : DesignSystem.Colors.border(for: appState.currentTheme),
+                                    lineWidth: isInputFocused ? 1 : 0.5
+                                )
+                        )
+                )
+                .animation(.easeInOut(duration: 0.15), value: isInputFocused)
                 
+                // Native macOS send button
                 Button(action: {
-                    withAnimation(DesignSystem.Animation.socialInteraction) {
+                    withAnimation(DesignSystem.Animation.buttonPress) {
                         sendMessage()
                     }
                 }) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(inputText.isEmpty ? .white.opacity(0.3) : DesignSystem.Colors.primary)
-                        .scaleEffect(inputText.isEmpty ? 0.9 : 1.0)
-                        .rotationEffect(.degrees(inputText.isEmpty ? 0 : 360))
-                        .animation(DesignSystem.Animation.buttonPress, value: inputText.isEmpty)
+                    ZStack {
+                        Circle()
+                            .fill(inputText.isEmpty ? 
+                                DesignSystem.Colors.surface(for: appState.currentTheme) : 
+                                DesignSystem.Colors.primary
+                            )
+                            .frame(width: 32, height: 32)
+                        
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(inputText.isEmpty ? 
+                                DesignSystem.Colors.textTertiary(for: appState.currentTheme) : 
+                                .white
+                            )
+                    }
                 }
                 .disabled(inputText.isEmpty)
                 .buttonStyle(PlainButtonStyle())
-                .scaleEffect(inputText.isEmpty ? 0.95 : 1.0)
-                .animation(DesignSystem.Animation.plueStandard, value: inputText.isEmpty)
+                .help("Send message (⏎)")
+                .opacity(inputText.isEmpty ? 0.6 : 1.0)
+                .animation(.easeInOut(duration: 0.15), value: inputText.isEmpty)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .padding(.vertical, 12)
             .background(
-                // Subtle gradient fade at bottom
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: DesignSystem.Colors.backgroundSecondary(for: appState.currentTheme), location: 0.5)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                // Native macOS toolbar-style background
+                ZStack {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                    
+                    DesignSystem.Colors.background(for: appState.currentTheme)
+                        .opacity(0.8)
+                }
+                .overlay(
+                    Divider()
+                        .background(DesignSystem.Colors.border(for: appState.currentTheme)),
+                    alignment: .top
                 )
-                .frame(height: 100)
-                .offset(y: -50)
             )
         }
     }
@@ -453,112 +537,7 @@ struct ModernChatView: View {
 
 // MARK: - Professional Message Bubble View
 
-struct ProfessionalMessageBubbleView: View {
-    let message: PromptMessage
-    let isActive: Bool
-    let theme: DesignSystem.Theme
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            if message.type == .user {
-                Spacer(minLength: 100)
-                professionalUserMessageView
-            } else {
-                professionalAssistantMessageView
-                Spacer(minLength: 100)
-            }
-        }
-        .background(
-            // Highlight active message
-            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                .fill(isActive ? DesignSystem.Colors.primary.opacity(0.1) : Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                        .stroke(isActive ? DesignSystem.Colors.primary.opacity(0.3) : Color.clear, lineWidth: 1)
-                )
-        )
-        .animation(DesignSystem.Animation.quick, value: isActive)
-    }
-    
-    private var professionalUserMessageView: some View {
-        VStack(alignment: .trailing, spacing: DesignSystem.Spacing.xs) {
-            HStack(alignment: .bottom, spacing: DesignSystem.Spacing.md) {
-                Text(message.content)
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, DesignSystem.Spacing.lg)
-                    .padding(.vertical, DesignSystem.Spacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                            .fill(DesignSystem.Colors.primaryGradient)
-                    )
-                    .textSelection(.enabled)
-                
-                // Enhanced user avatar
-                Circle()
-                    .fill(DesignSystem.Colors.primary.opacity(0.1))
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Circle()
-                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
-                    )
-                    .overlay(
-                        Text("YOU")
-                            .font(DesignSystem.Typography.captionMedium)
-                            .foregroundColor(DesignSystem.Colors.primary)
-                    )
-            }
-            
-            Text(formatTime(message.timestamp))
-                .font(DesignSystem.Typography.caption)
-                .foregroundColor(DesignSystem.Colors.textTertiary)
-                .padding(.trailing, 44)
-        }
-    }
-    
-    private var professionalAssistantMessageView: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-            HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
-                // Enhanced assistant avatar
-                Circle()
-                    .fill(DesignSystem.Colors.accentGradient)
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Circle()
-                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
-                    )
-                    .overlay(
-                        Image(systemName: "brain.head.profile")
-                            .font(.system(size: DesignSystem.IconSize.medium))
-                            .foregroundColor(.white)
-                    )
-                
-                Text(message.content)
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
-                    .padding(.horizontal, DesignSystem.Spacing.lg)
-                    .padding(.vertical, DesignSystem.Spacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.lg)
-                            .fill(DesignSystem.Colors.surface(for: theme))
-                    )
-                    .primaryBorder()
-                    .textSelection(.enabled)
-            }
-            
-            Text(formatTime(message.timestamp))
-                .font(DesignSystem.Typography.caption)
-                .foregroundColor(DesignSystem.Colors.textTertiary)
-                .padding(.leading, 44)
-        }
-    }
-    
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-}
+// ProfessionalMessageBubbleView has been replaced by UnifiedMessageBubbleView with .professional style
 
 // MARK: - Professional Typing Indicator
 
