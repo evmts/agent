@@ -349,56 +349,50 @@ struct WebViewRepresentable: NSViewRepresentable {
         // Allow back/forward gestures
         webView.allowsBackForwardNavigationGestures = true
         
-        // Set the web view in the view model
-        webViewModel.setWebView(webView)
+        // Store the web view
+        DispatchQueue.main.async {
+            self.webView = webView
+        }
         
         return webView
     }
     
     func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Update handled by the view model
+        // Updates handled by coordinator
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(webViewModel: webViewModel)
+        Coordinator(appState: appState, core: core)
     }
     
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        let webViewModel: WebViewModel
+        let appState: AppState
+        let core: PlueCoreInterface
         
-        init(webViewModel: WebViewModel) {
-            self.webViewModel = webViewModel
+        init(appState: AppState, core: PlueCoreInterface) {
+            self.appState = appState
+            self.core = core
         }
         
         // MARK: - WKNavigationDelegate
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            DispatchQueue.main.async {
-                self.webViewModel.isLoading = true
-                self.webViewModel.updateNavigationState()
-            }
+            // Notify Zig about loading state
+            // In real implementation, Zig would update state and Swift would observe
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            DispatchQueue.main.async {
-                self.webViewModel.isLoading = false
-                self.webViewModel.updateNavigationState()
-            }
+            // Notify Zig about navigation complete
+            // In real implementation, Zig would update state and Swift would observe
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            DispatchQueue.main.async {
-                self.webViewModel.isLoading = false
-                self.webViewModel.updateNavigationState()
-            }
             print("WebView navigation failed: \(error.localizedDescription)")
+            // Notify Zig about navigation failure
         }
         
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            DispatchQueue.main.async {
-                self.webViewModel.isLoading = false
-                self.webViewModel.updateNavigationState()
-            }
             print("WebView provisional navigation failed: \(error.localizedDescription)")
+            // Notify Zig about provisional navigation failure
         }
         
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

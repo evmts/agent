@@ -2,7 +2,8 @@ import SwiftUI
 import AppKit
 
 struct VimChatInputView: View {
-    @StateObject private var vimTerminal = VimChatTerminal()
+    let appState: AppState
+    let core: PlueCoreInterface
     @FocusState private var isTerminalFocused: Bool
     
     let onMessageSent: (String) -> Void
