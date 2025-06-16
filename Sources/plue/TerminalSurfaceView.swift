@@ -47,14 +47,14 @@ class TerminalSurfaceView: NSView {
     func startTerminal() {
         guard !isInitialized else { return }
         
-        // Initialize macOS PTY
-        if macos_pty_init() != 0 {
+        // Initialize terminal
+        if terminal_init() != 0 {
             onError?(TerminalError.initializationFailed)
             return
         }
         
-        // Start PTY
-        if macos_pty_start() != 0 {
+        // Start terminal
+        if terminal_start() != 0 {
             onError?(TerminalError.startFailed)
             return
         }
@@ -71,8 +71,8 @@ class TerminalSurfaceView: NSView {
         readSource = nil
         
         if isInitialized {
-            macos_pty_stop()
-            macos_pty_deinit()
+            terminal_stop()
+            terminal_deinit()
             isInitialized = false
         }
     }
@@ -81,7 +81,7 @@ class TerminalSurfaceView: NSView {
     
     private func setupReadHandler() {
         // Get the file descriptor from our Zig backend
-        let fd = macos_pty_get_fd()
+        let fd = terminal_get_fd()
         guard fd >= 0 else {
             onError?(TerminalError.invalidFileDescriptor)
             return
@@ -106,7 +106,7 @@ class TerminalSurfaceView: NSView {
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
         
-        let bytesRead = macos_pty_read(buffer, bufferSize)
+        let bytesRead = terminal_read(buffer, bufferSize)
         
         if bytesRead > 0 {
             let data = Data(bytes: buffer, count: bytesRead)
@@ -127,7 +127,7 @@ class TerminalSurfaceView: NSView {
         guard isInitialized else { return }
         
         text.withCString { cString in
-            macos_pty_send_text(cString)
+            terminal_send_text(cString)
         }
     }
     
@@ -189,8 +189,8 @@ class TerminalSurfaceView: NSView {
             cols = newCols
             rows = newRows
             
-            // Update PTY size
-            macos_pty_resize(UInt16(cols), UInt16(rows))
+            // Update terminal size
+            terminal_resize(UInt16(cols), UInt16(rows))
         }
     }
     
@@ -282,8 +282,8 @@ enum TerminalError: LocalizedError {
 
 // MARK: - C Function Imports
 
-@_silgen_name("macos_pty_get_fd")
-func macos_pty_get_fd() -> Int32
+@_silgen_name("terminal_get_fd")
+func terminal_get_fd() -> Int32
 
-@_silgen_name("macos_pty_resize")
-func macos_pty_resize(_ cols: UInt16, _ rows: UInt16)
+@_silgen_name("terminal_resize")
+func terminal_resize(_ cols: UInt16, _ rows: UInt16)

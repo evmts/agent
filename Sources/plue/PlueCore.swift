@@ -518,6 +518,11 @@ enum AppEvent {
     case agentStopDaggerSession
     case agentExecuteWorkflow(AgentWorkflow)
     case agentCancelWorkflow(String) // workflowId
+    
+    // AppleScript support events
+    case chatMessageSent(String)
+    case fileOpened(String)
+    case fileSaved
 }
 
 // MARK: - Core Interface
@@ -758,6 +763,18 @@ class MockPlueCore: PlueCoreInterface {
             
         case .agentCancelWorkflow(let workflowId):
             cancelWorkflow(workflowId)
+            
+        // AppleScript support events
+        case .chatMessageSent(let message):
+            processPromptMessage(message) // Route to prompt messages
+            
+        case .fileOpened(let path):
+            // For now, just log - could integrate with editor state later
+            print("File opened: \(path)")
+            
+        case .fileSaved:
+            // For now, just log - could integrate with editor state later
+            print("File saved")
         }
     }
     
