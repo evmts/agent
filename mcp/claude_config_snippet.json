@@ -1,0 +1,12 @@
+{
+  "comment": "Add this to your Claude Desktop config at ~/Library/Application Support/Claude/claude_desktop_config.json",
+  "mcpServers": {
+    "plue": {
+      "command": "/path/to/plue/.zig-cache/o/c4993e92b94bf908263b6ab42edeaa3e/plue-mcp",
+      "args": [],
+      "cwd": "/path/to/plue",
+      "env": {},
+      "description": "Plue Multi-Agent Coding Assistant MCP Server"
+    }
+  }
+}
