@@ -19,6 +19,14 @@ pub const Theme = enum(c_int) {
     light = 1,
 };
 
+// Vim modes
+pub const VimMode = enum(c_int) {
+    normal = 0,
+    insert = 1,
+    visual = 2,
+    command = 3,
+};
+
 // Message types
 pub const MessageType = enum(c_int) {
     user = 0,
@@ -42,6 +50,21 @@ pub const AppState = struct {
     terminal_rows: u32,
     terminal_cols: u32,
     terminal_content: []const u8,
+    terminal_is_running: bool,
+    
+    // Web state
+    web_can_go_back: bool,
+    web_can_go_forward: bool,
+    web_is_loading: bool,
+    web_current_url: []const u8,
+    web_page_title: []const u8,
+    
+    // Vim state
+    vim_mode: VimMode,
+    vim_content: []const u8,
+    vim_cursor_row: u32,
+    vim_cursor_col: u32,
+    vim_status_line: []const u8,
     
     // Agent state
     agent_processing: bool,
@@ -62,6 +85,17 @@ pub const AppState = struct {
             .terminal_rows = 24,
             .terminal_cols = 80,
             .terminal_content = try allocator.dupe(u8, ""),
+            .terminal_is_running = false,
+            .web_can_go_back = false,
+            .web_can_go_forward = false,
+            .web_is_loading = false,
+            .web_current_url = try allocator.dupe(u8, "https://www.apple.com"),
+            .web_page_title = try allocator.dupe(u8, "New Tab"),
+            .vim_mode = .normal,
+            .vim_content = try allocator.dupe(u8, ""),
+            .vim_cursor_row = 0,
+            .vim_cursor_col = 0,
+            .vim_status_line = try allocator.dupe(u8, "-- NORMAL --"),
             .agent_processing = false,
             .agent_dagger_connected = false,
             .allocator = allocator,
@@ -75,6 +109,10 @@ pub const AppState = struct {
         }
         self.allocator.free(self.prompt_current_content);
         self.allocator.free(self.terminal_content);
+        self.allocator.free(self.web_current_url);
+        self.allocator.free(self.web_page_title);
+        self.allocator.free(self.vim_content);
+        self.allocator.free(self.vim_status_line);
         self.allocator.destroy(self);
     }
     
@@ -93,6 +131,17 @@ pub const AppState = struct {
             .terminal_rows = self.terminal_rows,
             .terminal_cols = self.terminal_cols,
             .terminal_content = self.terminal_content,
+            .terminal_is_running = self.terminal_is_running,
+            .web_can_go_back = self.web_can_go_back,
+            .web_can_go_forward = self.web_can_go_forward,
+            .web_is_loading = self.web_is_loading,
+            .web_current_url = self.web_current_url,
+            .web_page_title = self.web_page_title,
+            .vim_mode = @intFromEnum(self.vim_mode),
+            .vim_content = self.vim_content,
+            .vim_cursor_row = self.vim_cursor_row,
+            .vim_cursor_col = self.vim_cursor_col,
+            .vim_status_line = self.vim_status_line,
             .agent_processing = self.agent_processing,
             .agent_dagger_connected = self.agent_dagger_connected,
         }, .{}, string.writer());
