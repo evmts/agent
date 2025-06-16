@@ -256,6 +256,43 @@ pub fn processEvent(state: *AppState, event: EventData) !void {
         .agent_stop_dagger_session => {
             state.agent_dagger_connected = false;
         },
+        .vim_keypress => {
+            if (event.string_value) |key| {
+                // Handle vim key events
+                // For now, just update content as a placeholder
+                const new_content = try std.fmt.allocPrint(
+                    state.allocator,
+                    "{s}{s}",
+                    .{ state.vim_content, key }
+                );
+                state.allocator.free(state.vim_content);
+                state.vim_content = new_content;
+            }
+        },
+        .vim_set_content => {
+            if (event.string_value) |content| {
+                const new_content = try state.allocator.dupe(u8, content);
+                state.allocator.free(state.vim_content);
+                state.vim_content = new_content;
+            }
+        },
+        .web_navigate => {
+            if (event.string_value) |url| {
+                const new_url = try state.allocator.dupe(u8, url);
+                state.allocator.free(state.web_current_url);
+                state.web_current_url = new_url;
+                state.web_is_loading = true;
+            }
+        },
+        .web_go_back => {
+            state.web_can_go_back = false; // Will be updated by webview
+        },
+        .web_go_forward => {
+            state.web_can_go_forward = false; // Will be updated by webview
+        },
+        .web_reload => {
+            state.web_is_loading = true;
+        },
         else => {
             // Handle other events as needed
         },
