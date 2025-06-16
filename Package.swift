@@ -36,7 +36,7 @@ let package = Package(
                 .process("Plue.sdef")
             ],
             linkerSettings: [
-                .unsafeFlags(["-Llib", "-lpluecore", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lghostty_stubs", "-lterminal"])
+                .unsafeFlags(["-Llib", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lghostty_stubs", "-lterminal"])
             ]),
     ]
 )
