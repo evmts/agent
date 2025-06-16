@@ -31,7 +31,7 @@ let package = Package(
                 "libplue",
                 "farcaster"
             ],
-            exclude: ["Info.plist"],
+            exclude: ["Info.plist", "UnifiedMessageBubbleDocumentation.md"],
             resources: [
                 .process("Plue.sdef")
             ],
