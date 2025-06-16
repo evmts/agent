@@ -425,6 +425,8 @@ struct AgentView: View {
                 
                 // Agent Chat Input
                 VimChatInputView(
+                    appState: appState,
+                    core: core,
                     onMessageSent: { message in
                         withAnimation(.easeInOut(duration: 0.2)) {
                             core.handleEvent(.agentMessageSent(message))

@@ -1,5 +1,4 @@
 const std = @import("std");
-const json = std.json;
 
 // Tab types matching Swift TabType enum
 pub const TabType = enum(c_int) {
@@ -34,6 +33,88 @@ pub const MessageType = enum(c_int) {
     system = 2,
 };
 
+pub const PromptState = struct {
+    processing: bool,
+    current_content: []const u8,
+};
+
+pub const TerminalState = struct {
+    rows: u32,
+    cols: u32,
+    content: []const u8,
+    is_running: bool,
+};
+
+pub const WebState = struct {
+    can_go_back: bool,
+    can_go_forward: bool,
+    is_loading: bool,
+    current_url: []const u8,
+    page_title: []const u8,
+};
+
+pub const VimState = struct {
+    mode: VimMode,
+    content: []const u8,
+    cursor_row: u32,
+    cursor_col: u32,
+    status_line: []const u8,
+};
+
+pub const AgentState = struct {
+    processing: bool,
+    dagger_connected: bool,
+};
+
+// C-compatible state structs
+pub const CPromptState = extern struct {
+    processing: bool,
+    current_content: [*:0]const u8,
+};
+
+pub const CTerminalState = extern struct {
+    rows: u32,
+    cols: u32,
+    content: [*:0]const u8,
+    is_running: bool,
+};
+
+pub const CWebState = extern struct {
+    can_go_back: bool,
+    can_go_forward: bool,
+    is_loading: bool,
+    current_url: [*:0]const u8,
+    page_title: [*:0]const u8,
+};
+
+pub const CVimState = extern struct {
+    mode: VimMode,
+    content: [*:0]const u8,
+    cursor_row: u32,
+    cursor_col: u32,
+    status_line: [*:0]const u8,
+};
+
+pub const CAgentState = extern struct {
+    processing: bool,
+    dagger_connected: bool,
+};
+
+// C-compatible application state
+pub const CAppState = extern struct {
+    current_tab: TabType,
+    is_initialized: bool,
+    error_message: [*:0]const u8,
+    openai_available: bool,
+    current_theme: Theme,
+    
+    prompt: CPromptState,
+    terminal: CTerminalState,
+    web: CWebState,
+    vim: CVimState,
+    agent: CAgentState,
+};
+
 // Core application state
 pub const AppState = struct {
     current_tab: TabType,
@@ -41,37 +122,15 @@ pub const AppState = struct {
     error_message: ?[]const u8,
     openai_available: bool,
     current_theme: Theme,
-    
-    // Prompt state
-    prompt_processing: bool,
-    prompt_current_content: []const u8,
-    
-    // Terminal state
-    terminal_rows: u32,
-    terminal_cols: u32,
-    terminal_content: []const u8,
-    terminal_is_running: bool,
-    
-    // Web state
-    web_can_go_back: bool,
-    web_can_go_forward: bool,
-    web_is_loading: bool,
-    web_current_url: []const u8,
-    web_page_title: []const u8,
-    
-    // Vim state
-    vim_mode: VimMode,
-    vim_content: []const u8,
-    vim_cursor_row: u32,
-    vim_cursor_col: u32,
-    vim_status_line: []const u8,
-    
-    // Agent state
-    agent_processing: bool,
-    agent_dagger_connected: bool,
-    
+
+    prompt: PromptState,
+    terminal: TerminalState,
+    web: WebState,
+    vim: VimState,
+    agent: AgentState,
+
     allocator: std.mem.Allocator,
-    
+
     pub fn init(allocator: std.mem.Allocator) !*AppState {
         const state = try allocator.create(AppState);
         state.* = .{
@@ -80,73 +139,111 @@ pub const AppState = struct {
             .error_message = null,
             .openai_available = false,
             .current_theme = .dark,
-            .prompt_processing = false,
-            .prompt_current_content = try allocator.dupe(u8, "# Your Prompt\n\nStart typing your prompt here."),
-            .terminal_rows = 24,
-            .terminal_cols = 80,
-            .terminal_content = try allocator.dupe(u8, ""),
-            .terminal_is_running = false,
-            .web_can_go_back = false,
-            .web_can_go_forward = false,
-            .web_is_loading = false,
-            .web_current_url = try allocator.dupe(u8, "https://www.apple.com"),
-            .web_page_title = try allocator.dupe(u8, "New Tab"),
-            .vim_mode = .normal,
-            .vim_content = try allocator.dupe(u8, ""),
-            .vim_cursor_row = 0,
-            .vim_cursor_col = 0,
-            .vim_status_line = try allocator.dupe(u8, "-- NORMAL --"),
-            .agent_processing = false,
-            .agent_dagger_connected = false,
+            .prompt = .{
+                .processing = false,
+                .current_content = try allocator.dupe(u8, "# Your Prompt\n\nStart typing your prompt here."),
+            },
+            .terminal = .{
+                .rows = 24,
+                .cols = 80,
+                .content = try allocator.dupe(u8, ""),
+                .is_running = false,
+            },
+            .web = .{
+                .can_go_back = false,
+                .can_go_forward = false,
+                .is_loading = false,
+                .current_url = try allocator.dupe(u8, "https://www.apple.com"),
+                .page_title = try allocator.dupe(u8, "New Tab"),
+            },
+            .vim = .{
+                .mode = .normal,
+                .content = try allocator.dupe(u8, ""),
+                .cursor_row = 0,
+                .cursor_col = 0,
+                .status_line = try allocator.dupe(u8, "-- NORMAL --"),
+            },
+            .agent = .{
+                .processing = false,
+                .dagger_connected = false,
+            },
             .allocator = allocator,
         };
         return state;
     }
-    
+
     pub fn deinit(self: *AppState) void {
         if (self.error_message) |msg| {
             self.allocator.free(msg);
         }
-        self.allocator.free(self.prompt_current_content);
-        self.allocator.free(self.terminal_content);
-        self.allocator.free(self.web_current_url);
-        self.allocator.free(self.web_page_title);
-        self.allocator.free(self.vim_content);
-        self.allocator.free(self.vim_status_line);
+        self.allocator.free(self.prompt.current_content);
+        self.allocator.free(self.terminal.content);
+        self.allocator.free(self.web.current_url);
+        self.allocator.free(self.web.page_title);
+        self.allocator.free(self.vim.content);
+        self.allocator.free(self.vim.status_line);
         self.allocator.destroy(self);
     }
-    
-    pub fn toJson(self: *const AppState, allocator: std.mem.Allocator) ![]const u8 {
-        var string = std.ArrayList(u8).init(allocator);
-        defer string.deinit();
-        
-        try json.stringify(.{
-            .current_tab = @intFromEnum(self.current_tab),
+
+    pub fn toCApp(self: *const AppState, allocator: std.mem.Allocator) !CAppState {
+        // Helper function to convert slice to null-terminated string
+        const toNullTerminated = struct {
+            fn convert(alloc: std.mem.Allocator, slice: []const u8) ![*:0]const u8 {
+                const result = try alloc.allocSentinel(u8, slice.len, 0);
+                @memcpy(result, slice);
+                return result;
+            }
+        }.convert;
+
+        return CAppState{
+            .current_tab = self.current_tab,
             .is_initialized = self.is_initialized,
-            .error_message = self.error_message,
+            .error_message = if (self.error_message) |msg| try toNullTerminated(allocator, msg) else @as([*:0]const u8, @ptrCast("")),
             .openai_available = self.openai_available,
-            .current_theme = @intFromEnum(self.current_theme),
-            .prompt_processing = self.prompt_processing,
-            .prompt_current_content = self.prompt_current_content,
-            .terminal_rows = self.terminal_rows,
-            .terminal_cols = self.terminal_cols,
-            .terminal_content = self.terminal_content,
-            .terminal_is_running = self.terminal_is_running,
-            .web_can_go_back = self.web_can_go_back,
-            .web_can_go_forward = self.web_can_go_forward,
-            .web_is_loading = self.web_is_loading,
-            .web_current_url = self.web_current_url,
-            .web_page_title = self.web_page_title,
-            .vim_mode = @intFromEnum(self.vim_mode),
-            .vim_content = self.vim_content,
-            .vim_cursor_row = self.vim_cursor_row,
-            .vim_cursor_col = self.vim_cursor_col,
-            .vim_status_line = self.vim_status_line,
-            .agent_processing = self.agent_processing,
-            .agent_dagger_connected = self.agent_dagger_connected,
-        }, .{}, string.writer());
-        
-        return try string.toOwnedSlice();
+            .current_theme = self.current_theme,
+            .prompt = .{
+                .processing = self.prompt.processing,
+                .current_content = try toNullTerminated(allocator, self.prompt.current_content),
+            },
+            .terminal = .{
+                .rows = self.terminal.rows,
+                .cols = self.terminal.cols,
+                .content = try toNullTerminated(allocator, self.terminal.content),
+                .is_running = self.terminal.is_running,
+            },
+            .web = .{
+                .can_go_back = self.web.can_go_back,
+                .can_go_forward = self.web.can_go_forward,
+                .is_loading = self.web.is_loading,
+                .current_url = try toNullTerminated(allocator, self.web.current_url),
+                .page_title = try toNullTerminated(allocator, self.web.page_title),
+            },
+            .vim = .{
+                .mode = self.vim.mode,
+                .content = try toNullTerminated(allocator, self.vim.content),
+                .cursor_row = self.vim.cursor_row,
+                .cursor_col = self.vim.cursor_col,
+                .status_line = try toNullTerminated(allocator, self.vim.status_line),
+            },
+            .agent = .{
+                .processing = self.agent.processing,
+                .dagger_connected = self.agent.dagger_connected,
+            },
+        };
+    }
+
+    pub fn freeCApp(c_state: CAppState, allocator: std.mem.Allocator) void {
+        // Free all allocated strings
+        // Check if error_message is not the empty string literal
+        if (std.mem.span(c_state.error_message).len > 0) {
+            allocator.free(std.mem.span(c_state.error_message));
+        }
+        allocator.free(std.mem.span(c_state.prompt.current_content));
+        allocator.free(std.mem.span(c_state.terminal.content));
+        allocator.free(std.mem.span(c_state.web.current_url));
+        allocator.free(std.mem.span(c_state.web.page_title));
+        allocator.free(std.mem.span(c_state.vim.content));
+        allocator.free(std.mem.span(c_state.vim.status_line));
     }
 };
 
@@ -196,12 +293,6 @@ pub const EventData = struct {
     string_value: ?[]const u8 = null,
     int_value: ?i32 = null,
     int_value2: ?i32 = null,
-    
-    pub fn parse(json_str: []const u8, allocator: std.mem.Allocator) !EventData {
-        const parsed = try json.parseFromSlice(EventData, allocator, json_str, .{});
-        defer parsed.deinit();
-        return parsed.value;
-    }
 };
 
 // Process events and update state
@@ -218,80 +309,72 @@ pub fn processEvent(state: *AppState, event: EventData) !void {
         .terminal_input => {
             if (event.string_value) |input| {
                 // Process terminal input
-                const new_content = try std.fmt.allocPrint(
-                    state.allocator,
-                    "{s}{s}",
-                    .{ state.terminal_content, input }
-                );
-                state.allocator.free(state.terminal_content);
-                state.terminal_content = new_content;
+                const new_content = try std.fmt.allocPrint(state.allocator, "{s}{s}", .{ state.terminal.content, input });
+                state.allocator.free(state.terminal.content);
+                state.terminal.content = new_content;
             }
         },
         .terminal_resize => {
             if (event.int_value) |rows| {
                 if (event.int_value2) |cols| {
-                    state.terminal_rows = @intCast(rows);
-                    state.terminal_cols = @intCast(cols);
+                    state.terminal.rows = @intCast(rows);
+                    state.terminal.cols = @intCast(cols);
                 }
             }
         },
         .prompt_content_updated => {
             if (event.string_value) |content| {
                 const new_content = try state.allocator.dupe(u8, content);
-                state.allocator.free(state.prompt_current_content);
-                state.prompt_current_content = new_content;
+                state.allocator.free(state.prompt.current_content);
+                state.prompt.current_content = new_content;
             }
         },
         .prompt_message_sent => {
-            state.prompt_processing = true;
+            state.prompt.processing = true;
             // In a real implementation, this would trigger AI processing
             // For now, we'll just toggle the processing state
         },
         .agent_message_sent => {
-            state.agent_processing = true;
+            state.agent.processing = true;
         },
         .agent_start_dagger_session => {
-            state.agent_dagger_connected = true;
+            state.agent.dagger_connected = true;
         },
         .agent_stop_dagger_session => {
-            state.agent_dagger_connected = false;
+            state.agent.dagger_connected = false;
         },
         .vim_keypress => {
             if (event.string_value) |key| {
                 // Handle vim key events
                 // For now, just update content as a placeholder
-                const new_content = try std.fmt.allocPrint(
-                    state.allocator,
-                    "{s}{s}",
-                    .{ state.vim_content, key }
-                );
-                state.allocator.free(state.vim_content);
-                state.vim_content = new_content;
+                const new_content = try std.fmt.allocPrint(state.allocator, "{s}{s}", .{ state.vim.content, key });
+                state.allocator.free(state.vim.content);
+                state.vim.content = new_content;
             }
         },
         .vim_set_content => {
             if (event.string_value) |content| {
                 const new_content = try state.allocator.dupe(u8, content);
-                state.allocator.free(state.vim_content);
-                state.vim_content = new_content;
+                state.allocator.free(state.vim.content);
+                state.vim.content = new_content;
             }
         },
         .web_navigate => {
             if (event.string_value) |url| {
                 const new_url = try state.allocator.dupe(u8, url);
-                state.allocator.free(state.web_current_url);
-                state.web_current_url = new_url;
-                state.web_is_loading = true;
+                state.allocator.free(state.web.current_url);
+                state.web.current_url = new_url;
+                state.web.is_loading = true;
             }
         },
         .web_go_back => {
-            state.web_can_go_back = false; // Will be updated by webview
+            state.web.can_go_back = false; // Will be updated by webview
         },
         .web_go_forward => {
-            state.web_can_go_forward = false; // Will be updated by webview
+            state.web.can_go_forward = false; // Will be updated by webview
         },
         .web_reload => {
-            state.web_is_loading = true;
+            state.web.is_loading = true;
         },
         else => {
             // Handle other events as needed

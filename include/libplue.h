@@ -1,6 +1,9 @@
 #ifndef LIBPLUE_H
 #define LIBPLUE_H
 
+#include <stddef.h>
+#include <sys/types.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,12 +36,92 @@ const char* plue_process_message(const char* message);
  */
 void plue_free_string(const char* str);
 
+// Enums matching Zig definitions
+typedef enum {
+    TabTypePrompt = 0,
+    TabTypeFarcaster = 1,
+    TabTypeAgent = 2,
+    TabTypeTerminal = 3,
+    TabTypeWeb = 4,
+    TabTypeEditor = 5,
+    TabTypeDiff = 6,
+    TabTypeWorktree = 7
+} TabType;
+
+typedef enum {
+    ThemeDark = 0,
+    ThemeLight = 1
+} Theme;
+
+typedef enum {
+    VimModeNormal = 0,
+    VimModeInsert = 1,
+    VimModeVisual = 2,
+    VimModeCommand = 3
+} VimMode;
+
+// C-compatible state structs
+typedef struct {
+    _Bool processing;
+    const char* current_content;
+} CPromptState;
+
+typedef struct {
+    unsigned int rows;
+    unsigned int cols;
+    const char* content;
+    _Bool is_running;
+} CTerminalState;
+
+typedef struct {
+    _Bool can_go_back;
+    _Bool can_go_forward;
+    _Bool is_loading;
+    const char* current_url;
+    const char* page_title;
+} CWebState;
+
+typedef struct {
+    VimMode mode;
+    const char* content;
+    unsigned int cursor_row;
+    unsigned int cursor_col;
+    const char* status_line;
+} CVimState;
+
+typedef struct {
+    _Bool processing;
+    _Bool dagger_connected;
+} CAgentState;
+
+// Main application state
+typedef struct {
+    TabType current_tab;
+    _Bool is_initialized;
+    const char* error_message;
+    _Bool openai_available;
+    Theme current_theme;
+    
+    CPromptState prompt;
+    CTerminalState terminal;
+    CWebState web;
+    CVimState vim;
+    CAgentState agent;
+} CAppState;
+
 /**
- * Get current application state as JSON.
+ * Get current application state as C struct.
  * 
- * @return Null-terminated JSON string (must be freed with plue_free_string)
+ * @return CAppState struct (must call plue_free_state when done)
  */
-const char* plue_get_state(void);
+CAppState plue_get_state(void);
+
+/**
+ * Free resources allocated in CAppState.
+ * 
+ * @param state The state struct to free
+ */
+void plue_free_state(CAppState state);
 
 /**
  * Process an event with optional JSON data.

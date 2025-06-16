@@ -1,4 +1,5 @@
 import Foundation
+import libplue
 
 // MARK: - FFI Function Declarations
 
@@ -9,7 +10,10 @@ func plue_init() -> Int32
 func plue_deinit()
 
 @_silgen_name("plue_get_state")
-func plue_get_state() -> UnsafePointer<CChar>?
+func plue_get_state() -> CAppState
+
+@_silgen_name("plue_free_state")
+func plue_free_state(_ state: CAppState)
 
 @_silgen_name("plue_process_event")
 func plue_process_event(_ eventType: Int32, _ jsonData: UnsafePointer<CChar>?) -> Int32
@@ -99,28 +103,104 @@ class LivePlueCore: PlueCoreInterface {
     }
     
     private func fetchStateFromZig() -> AppState? {
-        guard let statePtr = plue_get_state() else {
-            print("LivePlueCore: Failed to get state from Zig")
-            return nil
+        let cState = plue_get_state()
+        defer { plue_free_state(cState) }
+        
+        // Convert C strings to Swift strings safely
+        let errorMessage = cState.error_message != nil && String(cString: cState.error_message).isEmpty == false 
+            ? String(cString: cState.error_message) 
+            : nil
+            
+        // Create prompt state
+        let promptState = PromptState(
+            conversations: PromptState.initial.conversations,
+            currentConversationIndex: PromptState.initial.currentConversationIndex,
+            currentPromptContent: String(cString: cState.prompt.current_content),
+            isProcessing: cState.prompt.processing
+        )
+        
+        // Create terminal state
+        let terminalState = TerminalState(
+            buffer: Array(repeating: Array(repeating: CoreTerminalCell.empty, count: Int(cState.terminal.cols)), count: Int(cState.terminal.rows)),
+            cursor: CursorPosition(row: 0, col: 0),
+            dimensions: TerminalDimensions(rows: Int(cState.terminal.rows), cols: Int(cState.terminal.cols)),
+            isConnected: cState.terminal.is_running,
+            currentCommand: String(cString: cState.terminal.content),
+            needsRedraw: false
+        )
+        
+        // Create web state
+        let webState = WebState(
+            currentURL: String(cString: cState.web.current_url),
+            canGoBack: cState.web.can_go_back,
+            canGoForward: cState.web.can_go_forward,
+            isLoading: cState.web.is_loading,
+            isSecure: String(cString: cState.web.current_url).hasPrefix("https://"),
+            pageTitle: String(cString: cState.web.page_title)
+        )
+        
+        // Create vim state
+        let vimMode: CoreVimMode
+        switch cState.vim.mode {
+        case VimModeNormal: vimMode = .normal
+        case VimModeInsert: vimMode = .insert
+        case VimModeVisual: vimMode = .visual
+        case VimModeCommand: vimMode = .command
+        default: vimMode = .normal
         }
         
-        defer { plue_free_string(statePtr) }
+        let vimState = VimState(
+            mode: vimMode,
+            buffer: String(cString: cState.vim.content).components(separatedBy: "\n"),
+            cursor: CursorPosition(row: Int(cState.vim.cursor_row), col: Int(cState.vim.cursor_col)),
+            statusLine: String(cString: cState.vim.status_line),
+            visualSelection: nil
+        )
         
-        let stateJson = String(cString: statePtr)
+        // Create agent state
+        var agentState = AgentState.initial
+        agentState = AgentState(
+            conversations: agentState.conversations,
+            currentConversationIndex: agentState.currentConversationIndex,
+            isProcessing: cState.agent.processing,
+            currentWorkspace: agentState.currentWorkspace,
+            availableWorktrees: agentState.availableWorktrees,
+            daggerSession: cState.agent.dagger_connected ? agentState.daggerSession : nil,
+            workflowQueue: agentState.workflowQueue,
+            isExecutingWorkflow: agentState.isExecutingWorkflow
+        )
         
-        guard let data = stateJson.data(using: .utf8) else {
-            print("LivePlueCore: Failed to convert state JSON to data")
-            return nil
+        // Map tab type
+        let tabType: TabType
+        switch cState.current_tab {
+        case TabTypePrompt: tabType = .prompt
+        case TabTypeFarcaster: tabType = .farcaster
+        case TabTypeAgent: tabType = .agent
+        case TabTypeTerminal: tabType = .terminal
+        case TabTypeWeb: tabType = .web
+        case TabTypeEditor: tabType = .editor
+        case TabTypeDiff: tabType = .diff
+        case TabTypeWorktree: tabType = .worktree
+        default: tabType = .prompt
         }
         
-        do {
-            let zigState = try JSONDecoder().decode(ZigAppState.self, from: data)
-            return zigState.toAppState()
-        } catch {
-            print("LivePlueCore: Failed to decode state JSON: \(error)")
-            print("LivePlueCore: JSON was: \(stateJson)")
-            return nil
-        }
+        // Map theme
+        let theme: DesignSystem.Theme = cState.current_theme == ThemeDark ? .dark : .light
+        
+        return AppState(
+            currentTab: tabType,
+            isInitialized: cState.is_initialized,
+            errorMessage: errorMessage,
+            openAIAvailable: cState.openai_available,
+            currentTheme: theme,
+            promptState: promptState,
+            terminalState: terminalState,
+            vimState: vimState,
+            webState: webState,
+            editorState: EditorState.initial,
+            farcasterState: FarcasterState.initial,
+            agentState: agentState
+        )
     }
     
     private func sendEventToZig(_ event: AppEvent) {
@@ -249,67 +329,3 @@ class LivePlueCore: PlueCoreInterface {
     }
 }
 
-// MARK: - Zig State Decoding
-
-private struct ZigAppState: Decodable {
-    let current_tab: Int
-    let is_initialized: Bool
-    let error_message: String?
-    let openai_available: Bool
-    let current_theme: Int
-    let prompt_processing: Bool
-    let prompt_current_content: String
-    let terminal_rows: Int
-    let terminal_cols: Int
-    let terminal_content: String
-    let agent_processing: Bool
-    let agent_dagger_connected: Bool
-    
-    func toAppState() -> AppState {
-        // For now, create a minimal state with the core values
-        // In a full implementation, we'd map all the nested states
-        var promptState = PromptState.initial
-        promptState = PromptState(
-            conversations: promptState.conversations,
-            currentConversationIndex: promptState.currentConversationIndex,
-            currentPromptContent: prompt_current_content,
-            isProcessing: prompt_processing
-        )
-        
-        let terminalState = TerminalState(
-            buffer: Array(repeating: Array(repeating: CoreTerminalCell.empty, count: terminal_cols), count: terminal_rows),
-            cursor: CursorPosition(row: 0, col: 0),
-            dimensions: TerminalDimensions(rows: terminal_rows, cols: terminal_cols),
-            isConnected: true,
-            currentCommand: "",
-            needsRedraw: false
-        )
-        
-        var agentState = AgentState.initial
-        agentState = AgentState(
-            conversations: agentState.conversations,
-            currentConversationIndex: agentState.currentConversationIndex,
-            isProcessing: agent_processing,
-            currentWorkspace: agentState.currentWorkspace,
-            availableWorktrees: agentState.availableWorktrees,
-            daggerSession: agent_dagger_connected ? agentState.daggerSession : nil,
-            workflowQueue: agentState.workflowQueue,
-            isExecutingWorkflow: agentState.isExecutingWorkflow
-        )
-        
-        return AppState(
-            currentTab: TabType(rawValue: current_tab) ?? .prompt,
-            isInitialized: is_initialized,
-            errorMessage: error_message,
-            openAIAvailable: openai_available,
-            currentTheme: current_theme == 0 ? .dark : .light,
-            promptState: promptState,
-            terminalState: terminalState,
-            vimState: VimState.initial,
-            webState: WebState.initial,
-            editorState: EditorState.initial,
-            farcasterState: FarcasterState.initial,
-            agentState: agentState
-        )
-    }
-}

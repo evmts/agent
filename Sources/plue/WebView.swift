@@ -44,7 +44,7 @@ struct WebView: View {
         .background(DesignSystem.Colors.background(for: appState.currentTheme))
         .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
         .onAppear {
-            urlString = appState.webCurrentUrl
+            urlString = appState.webState.currentURL
             loadURL(urlString)
         }
     }
@@ -83,34 +83,34 @@ struct WebView: View {
                     Button(action: { goBack() }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(appState.webCanGoBack ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                            .foregroundColor(appState.webState.canGoBack ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(!appState.webCanGoBack)
+                    .disabled(!appState.webState.canGoBack)
                     .help("Go back")
                     
                     Button(action: { goForward() }) {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(appState.webCanGoForward ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                            .foregroundColor(appState.webState.canGoForward ? DesignSystem.Colors.textPrimary(for: appState.currentTheme) : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(!appState.webCanGoForward)
+                    .disabled(!appState.webState.canGoForward)
                     .help("Go forward")
                     
                     Button(action: {
-                        if appState.webIsLoading {
+                        if appState.webState.isLoading {
                             stopLoading()
                         } else {
                             reload()
                         }
                     }) {
-                        Image(systemName: appState.webIsLoading ? "xmark" : "arrow.clockwise")
+                        Image(systemName: appState.webState.isLoading ? "xmark" : "arrow.clockwise")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .help(appState.webIsLoading ? "Stop loading" : "Reload page")
+                    .help(appState.webState.isLoading ? "Stop loading" : "Reload page")
                 }
                 .padding(.trailing, 16)
             }
@@ -122,9 +122,9 @@ struct WebView: View {
                 // Security Indicator & URL Field
                 HStack(spacing: 8) {
                     // Security Lock
-                    Image(systemName: appState.webCurrentUrl.hasPrefix("https://") ? "lock.fill" : "globe")
+                    Image(systemName: appState.webState.currentURL.hasPrefix("https://") ? "lock.fill" : "globe")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(appState.webCurrentUrl.hasPrefix("https://") ? DesignSystem.Colors.success : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                        .foregroundColor(appState.webState.currentURL.hasPrefix("https://") ? DesignSystem.Colors.success : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                     
                     // URL TextField
                     TextField("Search or enter website name", text: $urlString)
@@ -136,14 +136,14 @@ struct WebView: View {
                             loadURL(urlString)
                             isUrlFocused = false
                         }
-                        .onChange(of: appState.webCurrentUrl) { newURL in
+                        .onChange(of: appState.webState.currentURL) { newURL in
                             if !isUrlFocused {
                                 urlString = newURL
                             }
                         }
                     
                     // Loading Indicator
-                    if appState.webIsLoading {
+                    if appState.webState.isLoading {
                         ProgressView()
                             .scaleEffect(0.6)
                             .frame(width: 16, height: 16)

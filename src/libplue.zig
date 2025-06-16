@@ -23,18 +23,18 @@ export fn plue_deinit() void {
     _ = gpa.deinit();
 }
 
-/// Get current state as JSON
-/// Returns: owned null-terminated string - caller MUST call plue_free_string()
-export fn plue_get_state() ?[*:0]const u8 {
-    const state = app_state orelse return null;
+/// Get current state as C struct
+/// Returns: CAppState struct - caller MUST call plue_free_state() when done
+export fn plue_get_state() app.CAppState {
+    const state = app_state orelse return std.mem.zeroes(app.CAppState);
     const allocator = gpa.allocator();
     
-    const json_str = state.toJson(allocator) catch return null;
-    defer allocator.free(json_str);
-    
-    const result = allocator.allocSentinel(u8, json_str.len, 0) catch return null;
-    @memcpy(result, json_str);
-    return result;
+    return state.toCApp(allocator) catch return std.mem.zeroes(app.CAppState);
+}
+
+/// Free resources allocated in CAppState
+export fn plue_free_state(c_state: app.CAppState) void {
+    app.AppState.freeCApp(c_state, gpa.allocator());
 }
 
 /// Process an event with JSON data

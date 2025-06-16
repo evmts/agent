@@ -66,10 +66,10 @@ struct TerminalView: View {
                 // Status Indicator
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(appState.terminalIsRunning ? DesignSystem.Colors.success : DesignSystem.Colors.error)
+                        .fill(appState.terminalState.isConnected ? DesignSystem.Colors.success : DesignSystem.Colors.error)
                         .frame(width: 8, height: 8)
                     
-                    Text(appState.terminalIsRunning ? "Connected" : "Disconnected")
+                    Text(appState.terminalState.isConnected ? "Connected" : "Disconnected")
                         .font(.system(size: 12))
                         .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
