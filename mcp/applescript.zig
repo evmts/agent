@@ -14,7 +14,7 @@ const JsonRpcRequest = struct {
 const JsonRpcResponse = struct {
     jsonrpc: []const u8 = "2.0",
     result: ?json.Value = null,
-    error: ?JsonRpcError = null,
+    @"error": ?JsonRpcError = null,
     id: ?json.Value = null,
 };
 
@@ -301,7 +301,7 @@ pub const AppleScriptMcpServer = struct {
 
     fn createErrorResponse(self: *AppleScriptMcpServer, id: ?json.Value, code: i32, message: []const u8) !json.Parsed(JsonRpcResponse) {
         const response = JsonRpcResponse{
-            .error = JsonRpcError{
+            .@"error" = JsonRpcError{
                 .code = code,
                 .message = message,
             },
