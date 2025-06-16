@@ -189,7 +189,11 @@ struct AgentView: View {
                     
                     // Agent message bubbles
                     ForEach(appState.agentState.currentConversation?.messages ?? []) { message in
-                        AgentMessageBubbleView(message: message)
+                        UnifiedMessageBubbleView(
+                            message: UnifiedAgentMessage(agentMessage: message),
+                            style: .compact,
+                            theme: appState.currentTheme
+                        )
                             .padding(.horizontal, DesignSystem.Spacing.lg)
                             .padding(.vertical, DesignSystem.Spacing.xs)
                             .id(message.id)
@@ -502,151 +506,7 @@ struct AgentView: View {
 
 // MARK: - Agent Message Bubble View
 
-struct AgentMessageBubbleView: View {
-    let message: AgentMessage
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            if message.type == .user {
-                Spacer(minLength: 100)
-                userMessageView
-            } else {
-                systemMessageView
-                Spacer(minLength: 100)
-            }
-        }
-    }
-    
-    private var userMessageView: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            HStack(alignment: .bottom, spacing: 12) {
-                Text(message.content)
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(DesignSystem.Colors.primary)
-                    )
-                    .textSelection(.enabled)
-                
-                // User avatar
-                Circle()
-                    .fill(DesignSystem.Colors.primary.opacity(0.1))
-                    .frame(width: 28, height: 28)
-                    .overlay(
-                        Circle()
-                            .stroke(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
-                    )
-                    .overlay(
-                        Text("U")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(DesignSystem.Colors.primary)
-                    )
-            }
-            
-            Text(formatTime(message.timestamp))
-                .font(.system(size: 9))
-                .foregroundColor(DesignSystem.Colors.textTertiary)
-                .padding(.trailing, 36)
-        }
-    }
-    
-    private var systemMessageView: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 12) {
-                // Agent avatar
-                Circle()
-                    .fill(agentAvatarColor)
-                    .frame(width: 28, height: 28)
-                    .overlay(
-                        Circle()
-                            .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 1)
-                    )
-                    .overlay(
-                        Image(systemName: agentAvatarIcon)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                    )
-                
-                Text(message.content)
-                    .font(DesignSystem.Typography.bodyMedium)
-                    .foregroundColor(messageTextColor)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(messageBackgroundColor)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(DesignSystem.Colors.border.opacity(0.3), lineWidth: 0.5)
-                            )
-                    )
-                    .textSelection(.enabled)
-            }
-            
-            HStack(spacing: 4) {
-                Text(formatTime(message.timestamp))
-                    .font(.system(size: 9))
-                    .foregroundColor(DesignSystem.Colors.textTertiary)
-                
-                if let metadata = message.metadata, let worktree = metadata.worktree {
-                    Text("•")
-                        .font(.system(size: 9))
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                    
-                    Text(worktree)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                }
-            }
-            .padding(.leading, 36)
-        }
-    }
-    
-    private var agentAvatarColor: Color {
-        switch message.type {
-        case .system: return DesignSystem.Colors.textTertiary.opacity(0.6)
-        case .assistant: return DesignSystem.Colors.accent
-        case .workflow: return DesignSystem.Colors.success
-        case .error: return DesignSystem.Colors.error
-        case .user: return DesignSystem.Colors.primary
-        }
-    }
-    
-    private var agentAvatarIcon: String {
-        switch message.type {
-        case .system: return "info.circle"
-        case .assistant: return "gearshape.2"
-        case .workflow: return "arrow.triangle.2.circlepath"
-        case .error: return "exclamationmark.triangle"
-        case .user: return "person"
-        }
-    }
-    
-    private var messageTextColor: Color {
-        switch message.type {
-        case .error: return DesignSystem.Colors.error
-        case .workflow: return DesignSystem.Colors.success
-        default: return DesignSystem.Colors.textPrimary
-        }
-    }
-    
-    private var messageBackgroundColor: Color {
-        switch message.type {
-        case .error: return DesignSystem.Colors.error.opacity(0.1)
-        case .workflow: return DesignSystem.Colors.success.opacity(0.1)
-        default: return DesignSystem.Colors.surface
-        }
-    }
-    
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-}
+// AgentMessageBubbleView has been replaced by UnifiedMessageBubbleView with .compact style
 
 // MARK: - Agent Processing Indicator
 
