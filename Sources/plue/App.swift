@@ -3,6 +3,11 @@ import SwiftUI
 struct PlueApp: App {
     @StateObject private var appStateContainer = AppStateContainer()
 
+    init() {
+        // Initialize AppleScript support
+        _ = PlueAppleScriptSupport.shared
+    }
+
     var body: some Scene {
         WindowGroup {
             // Directly use the main ContentView

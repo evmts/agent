@@ -14,5 +14,11 @@
     <false/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppleScriptEnabled</key>
+    <true/>
+    <key>OSAScriptingDefinition</key>
+    <string>Plue.sdef</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Plue uses AppleScript to control Terminal and other applications for automation purposes.</string>
 </dict>
 </plist>

@@ -32,8 +32,11 @@ let package = Package(
                 "farcaster"
             ],
             exclude: ["Info.plist"],
+            resources: [
+                .process("Plue.sdef")
+            ],
             linkerSettings: [
-                .unsafeFlags(["-Llib", "-lpluecore", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lghostty_stubs", "-lmini_terminal", "-lpty_terminal", "-lmacos_pty"])
+                .unsafeFlags(["-Llib", "-lpluecore", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lghostty_stubs", "-lterminal"])
             ]),
     ]
 )

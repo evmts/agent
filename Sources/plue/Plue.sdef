@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Plue Terminology">
+    
+    <!-- Suite definition -->
+    <suite name="Plue Suite" code="Plue" description="Commands for controlling Plue application">
+        
+        <!-- Terminal Commands -->
+        <command name="run terminal command" code="PlueRTrm" description="Run a command in Terminal">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="terminalCommand" code="tcmd" type="text" description="The command to run in Terminal">
+                <cocoa key="terminalCommand"/>
+            </parameter>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of the command"/>
+        </command>
+        
+        <command name="run terminal command in new tab" code="PlueRTNT" description="Run a command in a new Terminal tab">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="terminalCommand" code="tcmd" type="text" description="The command to run in Terminal">
+                <cocoa key="terminalCommand"/>
+            </parameter>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of the command"/>
+        </command>
+        
+        <command name="get terminal output" code="PlueGTOp" description="Get the output from the current Terminal window">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Terminal output"/>
+        </command>
+        
+        <command name="close terminal window" code="PlueCTWn" description="Close the front Terminal window">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of the operation"/>
+        </command>
+        
+        <!-- Chat Commands -->
+        <command name="send chat message" code="PlueSCht" description="Send a message to the chat">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="message" code="mssg" type="text" description="The message to send">
+                <cocoa key="message"/>
+            </parameter>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of sending the message"/>
+        </command>
+        
+        <command name="get chat messages" code="PlueGCht" description="Get all chat messages">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="All chat messages"/>
+        </command>
+        
+        <!-- Navigation Commands -->
+        <command name="switch to tab" code="PlueSTab" description="Switch to a specific tab">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="tab" code="tabN" type="text" description="The tab to switch to (chat, terminal, prompt, or web)">
+                <cocoa key="tab"/>
+            </parameter>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of switching tabs"/>
+        </command>
+        
+        <!-- File Commands -->
+        <command name="open file" code="PlueOpFl" description="Open a file in Plue">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="path" code="path" type="text" description="The path to the file to open">
+                <cocoa key="path"/>
+            </parameter>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of opening the file"/>
+        </command>
+        
+        <command name="save file" code="PlueSvFl" description="Save the current file">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Result of saving the file"/>
+        </command>
+        
+        <!-- State Commands -->
+        <command name="get application state" code="PlueGASt" description="Get the current application state">
+            <cocoa class="PlueScriptCommand"/>
+            <parameter name="command" type="text" optional="yes" hidden="yes">
+                <cocoa key="command"/>
+            </parameter>
+            <result type="text" description="Current application state"/>
+        </command>
+        
+    </suite>
+    
+</dictionary>
