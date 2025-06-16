@@ -213,6 +213,67 @@ void pty_terminal_resize(unsigned short cols, unsigned short rows);
  */
 void pty_terminal_deinit(void);
 
+// ============================================================================
+// Simple Terminal - Better PTY implementation with proper openpty support
+// ============================================================================
+
+/**
+ * Initialize the simple terminal.
+ * 
+ * @return 0 on success, -1 on failure
+ */
+int simple_terminal_init(void);
+
+/**
+ * Start the simple terminal with a shell.
+ * 
+ * @return 0 on success, -1 on failure
+ */
+int simple_terminal_start(void);
+
+/**
+ * Stop the simple terminal process.
+ */
+void simple_terminal_stop(void);
+
+/**
+ * Write text to the terminal.
+ * 
+ * @param text Null-terminated text string to write
+ * @return 0 on success, -1 on error
+ */
+int simple_terminal_write(const char* text);
+
+/**
+ * Process terminal output (read and buffer).
+ * 
+ * @return 0 on success, -1 on error
+ */
+int simple_terminal_process(void);
+
+/**
+ * Get buffered terminal output.
+ * 
+ * @param buffer Buffer to copy output into
+ * @param size Maximum bytes to copy
+ * @return Number of bytes copied
+ */
+size_t simple_terminal_get_output(unsigned char* buffer, size_t size);
+
+/**
+ * Clear the output buffer.
+ */
+void simple_terminal_clear(void);
+
+/**
+ * Resize the terminal.
+ * 
+ * @param cols Number of columns
+ * @param rows Number of rows
+ * @return 0 on success, -1 on error
+ */
+int simple_terminal_resize(unsigned short cols, unsigned short rows);
+
 #ifdef __cplusplus
 }
 #endif

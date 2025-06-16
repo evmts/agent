@@ -14,8 +14,8 @@ pub const Config = struct {
 // Terminal state
 pub const Terminal = struct {
     // Core state
-    master_fd: ?std.os.fd_t = null,
-    child_pid: ?std.os.pid_t = null,
+    master_fd: ?std.posix.fd_t = null,
+    child_pid: ?std.posix.pid_t = null,
     config: Config,
     
     // Output buffer for display
@@ -28,7 +28,7 @@ pub const Terminal = struct {
     
     /// Create a new terminal instance
     pub fn init(allocator: std.mem.Allocator, config: Config) !*Self {
-        var terminal = try allocator.create(Self);
+        const terminal = try allocator.create(Self);
         terminal.* = .{
             .config = config,
             .output_buffer = std.ArrayList(u8).init(allocator),
@@ -51,7 +51,7 @@ pub const Terminal = struct {
         self.master_fd = pty_result.master;
         
         // Fork process
-        const pid = try std.os.fork();
+        const pid = try std.posix.fork();
         
         if (pid == 0) {
             // Child process - set up shell
@@ -59,12 +59,14 @@ pub const Terminal = struct {
         } else {
             // Parent process
             self.child_pid = pid;
-            std.os.close(pty_result.slave);
+            std.posix.close(pty_result.slave);
             
             // Set non-blocking mode on master
             if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
                 const flags = try std.os.fcntl(self.master_fd.?, std.os.F.GETFL, 0);
-                _ = try std.os.fcntl(self.master_fd.?, std.os.F.SETFL, flags | std.os.O.NONBLOCK);
+                // O_NONBLOCK = 0x0004 on macOS
+                const nonblock_flag: c_int = if (builtin.os.tag == .macos) 0x0004 else std.os.O.NONBLOCK;
+                _ = try std.os.fcntl(self.master_fd.?, std.os.F.SETFL, flags | nonblock_flag);
             }
         }
     }
@@ -73,14 +75,14 @@ pub const Terminal = struct {
     pub fn stop(self: *Self) void {
         // Kill child process
         if (self.child_pid) |pid| {
-            _ = std.os.kill(pid, std.os.SIG.TERM) catch {};
-            _ = std.os.waitpid(pid, 0);
+            _ = std.posix.kill(pid, std.posix.SIG.TERM) catch {};
+            _ = std.posix.waitpid(pid, 0);
             self.child_pid = null;
         }
         
         // Close master FD
         if (self.master_fd) |fd| {
-            std.os.close(fd);
+            std.posix.close(fd);
             self.master_fd = null;
         }
     }
@@ -88,7 +90,7 @@ pub const Terminal = struct {
     /// Write data to the terminal
     pub fn write(self: *Self, data: []const u8) !usize {
         if (self.master_fd) |fd| {
-            return try std.os.write(fd, data);
+            return try std.posix.write(fd, data);
         }
         return 0;
     }
@@ -96,7 +98,7 @@ pub const Terminal = struct {
     /// Read available data from terminal
     pub fn read(self: *Self, buffer: []u8) !usize {
         if (self.master_fd) |fd| {
-            return std.os.read(fd, buffer) catch |err| switch (err) {
+            return std.posix.read(fd, buffer) catch |err| switch (err) {
                 error.WouldBlock => return 0,
                 else => return err,
             };
@@ -133,13 +135,18 @@ pub const Terminal = struct {
         
         if (self.master_fd) |fd| {
             if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
-                var ws = std.os.system.winsize{
-                    .ws_row = rows,
-                    .ws_col = cols,
-                    .ws_xpixel = 0,
-                    .ws_ypixel = 0,
+                var ws = std.posix.winsize{
+                    .rows = rows,
+                    .cols = cols,
+                    .xpixel = 0,
+                    .ypixel = 0,
                 };
-                _ = std.os.system.ioctl(fd, std.os.system.T.IOCSWINSZ, @intFromPtr(&ws));
+                if (builtin.os.tag == .macos) {
+                    // TIOCSWINSZ = 0x80087467 on macOS
+                    _ = std.os.system.ioctl(fd, 0x80087467, @intFromPtr(&ws));
+                } else {
+                    _ = std.os.system.ioctl(fd, std.os.system.T.IOCSWINSZ, @intFromPtr(&ws));
+                }
             }
         }
     }
@@ -147,8 +154,8 @@ pub const Terminal = struct {
     // Private helper methods
     
     const PtyResult = struct {
-        master: std.os.fd_t,
-        slave: std.os.fd_t,
+        master: std.posix.fd_t,
+        slave: std.posix.fd_t,
     };
     
     fn createPty(self: *Self) !PtyResult {
@@ -156,45 +163,60 @@ pub const Terminal = struct {
         
         if (builtin.os.tag == .macos) {
             // macOS: Use openpty
-            var master: std.os.fd_t = undefined;
-            var slave: std.os.fd_t = undefined;
+            var master: std.posix.fd_t = undefined;
+            var slave: std.posix.fd_t = undefined;
             
-            const c = @cImport({
-                @cInclude("util.h");
-            });
-            
-            if (c.openpty(&master, &slave, null, null, null) != 0) {
-                return error.PtyCreationFailed;
-            }
-            
-            return PtyResult{ .master = master, .slave = slave };
-        } else {
-            // Linux: Use /dev/ptmx
-            const master = try std.os.open("/dev/ptmx", .{ .ACCMODE = .RDWR }, 0);
+            // On macOS, use open to create PTY
+            master = std.posix.open("/dev/ptmx", .{ .ACCMODE = .RDWR }, 0) catch return error.PtyCreationFailed;
             
             // Unlock slave
             var unlock: c_int = 0;
-            _ = std.os.system.ioctl(master, std.os.system.T.IOCSPTLCK, @intFromPtr(&unlock));
+            // TIOCSPTLCK = 0x40045431
+            _ = std.c.ioctl(master, @as(c_uint, 0x40045431), @intFromPtr(&unlock));
             
             // Get slave number
             var pts_num: c_int = undefined;
-            _ = std.os.system.ioctl(master, std.os.system.T.IOCGPTN, @intFromPtr(&pts_num));
+            // TIOCGPTN = 0x80045430
+            _ = std.c.ioctl(master, @as(c_uint, 0x80045430), @intFromPtr(&pts_num));
             
             // Open slave
             var pts_name_buf: [32]u8 = undefined;
             const pts_name = try std.fmt.bufPrint(&pts_name_buf, "/dev/pts/{d}", .{pts_num});
-            const slave = try std.os.open(pts_name, .{ .ACCMODE = .RDWR }, 0);
+            slave = try std.posix.open(pts_name, .{ .ACCMODE = .RDWR }, 0);
+            
+            return PtyResult{ .master = master, .slave = slave };
+        } else {
+            // Linux: Use /dev/ptmx
+            const master = try std.posix.open("/dev/ptmx", .{ .ACCMODE = .RDWR }, 0);
+            
+            // Unlock slave
+            var unlock: c_int = 0;
+            // TIOCSPTLCK = 0x40045431
+            _ = std.c.ioctl(master, @as(c_uint, 0x40045431), @intFromPtr(&unlock));
+            
+            // Get slave number
+            var pts_num: c_int = undefined;
+            // TIOCGPTN = 0x80045430
+            _ = std.c.ioctl(master, @as(c_uint, 0x80045430), @intFromPtr(&pts_num));
+            
+            // Open slave
+            var pts_name_buf: [32]u8 = undefined;
+            const pts_name = try std.fmt.bufPrint(&pts_name_buf, "/dev/pts/{d}", .{pts_num});
+            const slave = try std.posix.open(pts_name, .{ .ACCMODE = .RDWR }, 0);
             
             return PtyResult{ .master = master, .slave = slave };
         }
     }
     
-    fn setupChild(self: *Self, slave_fd: std.os.fd_t) !void {
+    fn setupChild(self: *Self, slave_fd: std.posix.fd_t) !void {
         // Create new session
         _ = std.os.system.setsid();
         
         // Set slave as controlling terminal
-        if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
+        if (builtin.os.tag == .macos) {
+            // TIOCSCTTY = 0x20007461 on macOS
+            _ = std.os.system.ioctl(slave_fd, 0x20007461, 0);
+        } else if (builtin.os.tag == .linux) {
             _ = std.os.system.ioctl(slave_fd, std.os.system.T.IOCSCTTY, 0);
         }
         
@@ -209,13 +231,19 @@ pub const Terminal = struct {
         }
         
         // Set terminal size
-        var ws = std.os.system.winsize{
-            .ws_row = self.config.rows,
-            .ws_col = self.config.cols,
-            .ws_xpixel = 0,
-            .ws_ypixel = 0,
+        var ws = std.posix.winsize{
+            .rows = self.config.rows,
+            .cols = self.config.cols,
+            .xpixel = 0,
+            .ypixel = 0,
         };
-        _ = std.os.system.ioctl(std.os.STDIN_FILENO, std.os.system.T.IOCSWINSZ, @intFromPtr(&ws));
+        if (builtin.os.tag == .macos) {
+            // TIOCSWINSZ = 0x80087467 on macOS
+            _ = std.c.ioctl(std.posix.STDIN_FILENO, @as(c_uint, 0x80087467), @intFromPtr(&ws));
+        } else {
+            // Linux TIOCSWINSZ
+            _ = std.c.ioctl(std.posix.STDIN_FILENO, @as(c_uint, 0x5414), @intFromPtr(&ws));
+        }
         
         // Execute shell
         const argv = [_:null]?[*:0]const u8{
