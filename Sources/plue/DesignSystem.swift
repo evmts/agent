@@ -26,64 +26,64 @@ struct DesignSystem {
     /// Primary color palette with semantic naming
     struct Colors {
         
-        // MARK: - Brand Colors (Refined, softer palette)
-        static let primary = Color(red: 0.2, green: 0.6, blue: 1.0)        // Softer blue
+        // MARK: - Brand Colors (Native macOS-inspired palette)
+        static let primary = Color(red: 0.0, green: 0.478, blue: 1.0)      // macOS blue
         static let accent = Color(red: 0.345, green: 0.337, blue: 0.839)   // #5856D6 - Indigo
-        static let success = Color(red: 0.3, green: 0.8, blue: 0.4)        // Softer green
-        static let warning = Color(red: 1.0, green: 0.7, blue: 0.2)        // Softer orange
-        static let error = Color(red: 1.0, green: 0.3, blue: 0.3)          // Softer red
+        static let success = Color(red: 0.204, green: 0.780, blue: 0.349)  // macOS green
+        static let warning = Color(red: 1.0, green: 0.800, blue: 0.0)      // macOS yellow
+        static let error = Color(red: 1.0, green: 0.231, blue: 0.188)      // macOS red
         
-        // MARK: - Theme-Aware Semantic Colors (Softer, more refined)
+        // MARK: - Theme-Aware Semantic Colors (Native macOS palette)
         static func background(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.04) : Color(white: 0.98) // #0A0A0A instead of pure black
+            theme == .dark ? Color(NSColor.windowBackgroundColor) : Color(NSColor.windowBackgroundColor)
         }
         
         static func backgroundSecondary(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.06) : Color.white // #0F0F0F
+            theme == .dark ? Color(NSColor.controlBackgroundColor) : Color(NSColor.controlBackgroundColor)
         }
 
         static func surface(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.08) : Color(white: 0.94) // #141414
+            theme == .dark ? Color(NSColor.underPageBackgroundColor) : Color(NSColor.underPageBackgroundColor)
         }
         
         static func surfaceSecondary(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.06) : Color(white: 0.92) // #0F0F0F
+            theme == .dark ? Color(NSColor.unemphasizedSelectedContentBackgroundColor) : Color(NSColor.unemphasizedSelectedContentBackgroundColor)
         }
         
         static func border(for theme: Theme) -> Color {
-            theme == .dark ? Color.white.opacity(0.1) : Color(white: 0.85) // Much reduced opacity
+            Color(NSColor.separatorColor)
         }
         
         static func borderSecondary(for theme: Theme) -> Color {
-            theme == .dark ? Color.white.opacity(0.05) : Color(white: 0.9) // Very subtle
+            Color(NSColor.separatorColor).opacity(0.5)
         }
         
         static func textPrimary(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.9) : Color(white: 0.1)
+            Color(NSColor.labelColor)
         }
         
         static func textSecondary(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.6) : Color(white: 0.4)
+            Color(NSColor.secondaryLabelColor)
         }
         
         static func textTertiary(for theme: Theme) -> Color {
-            theme == .dark ? Color(white: 0.4) : Color(white: 0.6)
+            Color(NSColor.tertiaryLabelColor)
         }
         
-        // MARK: - Legacy compatibility (updated with new values for backward compatibility)
-        static let background = Color(white: 0.04)          // Updated to softer black
-        static let backgroundSecondary = Color(white: 0.06) // Updated 
-        static let backgroundTertiary = Color(white: 0.04)  // Updated
-        static let surface = Color(white: 0.08)             // Updated
-        static let surfaceSecondary = Color(white: 0.06)    // Updated
-        static let surfaceTertiary = Color(white: 0.08)     // Updated
-        static let border = Color.white.opacity(0.1)        // Updated to reduced opacity
-        static let borderSecondary = Color.white.opacity(0.05) // Updated
-        static let borderFocus = Color(red: 0.2, green: 0.6, blue: 1.0) // Updated to softer blue
-        static let textPrimary = Color(white: 0.9)
-        static let textSecondary = Color(white: 0.6)
-        static let textTertiary = Color(white: 0.4)
-        static let textInverse = Color.black
+        // MARK: - Legacy compatibility (using native macOS colors)
+        static let background = Color(NSColor.windowBackgroundColor)
+        static let backgroundSecondary = Color(NSColor.controlBackgroundColor)
+        static let backgroundTertiary = Color(NSColor.underPageBackgroundColor)
+        static let surface = Color(NSColor.controlBackgroundColor)
+        static let surfaceSecondary = Color(NSColor.unemphasizedSelectedContentBackgroundColor)
+        static let surfaceTertiary = Color(NSColor.controlBackgroundColor)
+        static let border = Color(NSColor.separatorColor)
+        static let borderSecondary = Color(NSColor.separatorColor).opacity(0.5)
+        static let borderFocus = Color(red: 0.0, green: 0.478, blue: 1.0) // macOS blue
+        static let textPrimary = Color(NSColor.labelColor)
+        static let textSecondary = Color(NSColor.secondaryLabelColor)
+        static let textTertiary = Color(NSColor.tertiaryLabelColor)
+        static let textInverse = Color(NSColor.selectedTextBackgroundColor)
         
         // MARK: - Interactive States
         static let interactive = textPrimary
@@ -93,16 +93,28 @@ struct DesignSystem {
         
         // MARK: - Gradients
         static let primaryGradient = LinearGradient(
-            colors: [primary, accent],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            colors: [primary, primary.opacity(0.8)],
+            startPoint: .top,
+            endPoint: .bottom
         )
         
         static let accentGradient = LinearGradient(
-            colors: [accent, Color(red: 0.5, green: 0.5, blue: 1.0)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            colors: [accent, accent.opacity(0.8)],
+            startPoint: .top,
+            endPoint: .bottom
         )
+        
+        // Native macOS-style subtle gradient for surfaces
+        static func surfaceGradient(for theme: Theme) -> LinearGradient {
+            LinearGradient(
+                colors: [
+                    surface(for: theme),
+                    surface(for: theme).opacity(0.95)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
     }
     
     // MARK: - Typography System
@@ -111,34 +123,39 @@ struct DesignSystem {
     struct Typography {
         
         // MARK: - Display Fonts (Large Headers)
-        static let displayLarge = Font.system(size: 57, weight: .bold, design: .default)
-        static let displayMedium = Font.system(size: 45, weight: .bold, design: .default)
-        static let displaySmall = Font.system(size: 36, weight: .bold, design: .default)
+        static let displayLarge = Font.system(size: 57, weight: .bold, design: .rounded)
+        static let displayMedium = Font.system(size: 45, weight: .bold, design: .rounded)
+        static let displaySmall = Font.system(size: 36, weight: .bold, design: .rounded)
         
         // MARK: - Headline Fonts
-        static let headlineLarge = Font.system(size: 32, weight: .semibold, design: .default)
-        static let headlineMedium = Font.system(size: 28, weight: .semibold, design: .default)
-        static let headlineSmall = Font.system(size: 24, weight: .semibold, design: .default)
+        static let headlineLarge = Font.system(size: 28, weight: .semibold, design: .default)
+        static let headlineMedium = Font.system(size: 22, weight: .semibold, design: .default)
+        static let headlineSmall = Font.system(size: 18, weight: .semibold, design: .default)
         
         // MARK: - Title Fonts
-        static let titleLarge = Font.system(size: 22, weight: .medium, design: .default)
-        static let titleMedium = Font.system(size: 18, weight: .medium, design: .default)
-        static let titleSmall = Font.system(size: 16, weight: .medium, design: .default)
+        static let titleLarge = Font.system(size: 17, weight: .medium, design: .default)
+        static let titleMedium = Font.system(size: 15, weight: .medium, design: .default)
+        static let titleSmall = Font.system(size: 13, weight: .medium, design: .default)
         
         // MARK: - Body Fonts
-        static let bodyLarge = Font.system(size: 16, weight: .regular, design: .default)
-        static let bodyMedium = Font.system(size: 14, weight: .regular, design: .default)
-        static let bodySmall = Font.system(size: 12, weight: .regular, design: .default)
+        static let bodyLarge = Font.system(size: 15, weight: .regular, design: .default)
+        static let bodyMedium = Font.system(size: 13, weight: .regular, design: .default)
+        static let bodySmall = Font.system(size: 11, weight: .regular, design: .default)
         
         // MARK: - Label Fonts
-        static let labelLarge = Font.system(size: 14, weight: .medium, design: .default)
-        static let labelMedium = Font.system(size: 12, weight: .medium, design: .default)
-        static let labelSmall = Font.system(size: 11, weight: .medium, design: .default)
+        static let labelLarge = Font.system(size: 13, weight: .medium, design: .default)
+        static let labelMedium = Font.system(size: 11, weight: .medium, design: .default)
+        static let labelSmall = Font.system(size: 10, weight: .medium, design: .default)
         
-        // MARK: - Monospace Fonts (Code/Terminal) - Ghostty-inspired terminal fonts
-        static let monoLarge = Font.system(size: 15, weight: .regular, design: .monospaced)
-        static let monoMedium = Font.system(size: 13, weight: .regular, design: .monospaced)
-        static let monoSmall = Font.system(size: 11, weight: .regular, design: .monospaced)
+        // MARK: - Monospace Fonts (Code/Terminal)
+        static let monoLarge = Font.custom("SF Mono", size: 14).weight(.regular)
+        static let monoMedium = Font.custom("SF Mono", size: 12).weight(.regular)
+        static let monoSmall = Font.custom("SF Mono", size: 10).weight(.regular)
+        
+        // Fallback to system monospace if SF Mono not available
+        static let monoLargeFallback = Font.system(size: 14, weight: .regular, design: .monospaced)
+        static let monoMediumFallback = Font.system(size: 12, weight: .regular, design: .monospaced)
+        static let monoSmallFallback = Font.system(size: 10, weight: .regular, design: .monospaced)
         
         // MARK: - Caption Fonts
         static let caption = Font.system(size: 10, weight: .regular, design: .default)
@@ -176,10 +193,13 @@ struct DesignSystem {
     // MARK: - Shadows
     
     struct Shadow {
-        static let subtle = (color: Color.black.opacity(0.1), radius: 2.0, x: 0.0, y: 1.0)
-        static let medium = (color: Color.black.opacity(0.15), radius: 8.0, x: 0.0, y: 4.0)
-        static let large = (color: Color.black.opacity(0.2), radius: 16.0, x: 0.0, y: 8.0)
-        static let focus = (color: Colors.primary.opacity(0.3), radius: 4.0, x: 0.0, y: 0.0)
+        static let subtle = (color: Color(NSColor.shadowColor).opacity(0.15), radius: 2.0, x: 0.0, y: 1.0)
+        static let medium = (color: Color(NSColor.shadowColor).opacity(0.2), radius: 5.0, x: 0.0, y: 2.0)
+        static let large = (color: Color(NSColor.shadowColor).opacity(0.25), radius: 10.0, x: 0.0, y: 5.0)
+        static let focus = (color: Colors.primary.opacity(0.4), radius: 3.0, x: 0.0, y: 0.0)
+        
+        // Native macOS window shadow
+        static let window = (color: Color.black.opacity(0.3), radius: 20.0, x: 0.0, y: 10.0)
     }
     
     // MARK: - Animation Curves
@@ -218,6 +238,35 @@ struct DesignSystem {
         static let xl: CGFloat = 24
         static let xxl: CGFloat = 32
     }
+    
+    // MARK: - Visual Effects
+    
+    struct Materials {
+        static let thin = Material.thin
+        static let regular = Material.regular
+        static let thick = Material.thick
+        static let chrome = Material.ultraThin
+        // Use regular material for these macOS-specific materials
+        static let sidebar = Material.regular
+        static let titleBar = Material.ultraThin
+        static let hudWindow = Material.ultraThick
+        static let popover = Material.regular
+        static let menu = Material.thin
+        static let sheet = Material.thick
+        
+        static func adaptive(for theme: Theme) -> Material {
+            theme == .dark ? .ultraThick : .regular
+        }
+    }
+    
+    // MARK: - macOS Native Effects
+    
+    struct Effects {
+        static let vibrancy = NSVisualEffectView.Material.sidebar
+        static let hudVibrancy = NSVisualEffectView.Material.hudWindow
+        static let contentBackground = NSVisualEffectView.Material.contentBackground
+        static let behindWindow = NSVisualEffectView.Material.sidebar // behindWindow is not available
+    }
 }
 
 // MARK: - Component Extensions
@@ -228,7 +277,8 @@ extension View {
     
     func primarySurface() -> some View {
         self
-            .background(DesignSystem.Colors.surface)
+            .background(DesignSystem.Materials.regular)
+            .background(DesignSystem.Colors.surface.opacity(0.5))
             .cornerRadius(DesignSystem.CornerRadius.md)
             .shadow(
                 color: DesignSystem.Shadow.subtle.color,
@@ -240,19 +290,47 @@ extension View {
     
     func secondarySurface() -> some View {
         self
-            .background(DesignSystem.Colors.surfaceSecondary)
+            .background(DesignSystem.Materials.thin)
+            .background(DesignSystem.Colors.surfaceSecondary.opacity(0.3))
             .cornerRadius(DesignSystem.CornerRadius.sm)
     }
     
     func elevatedSurface() -> some View {
         self
-            .background(DesignSystem.Colors.surfaceTertiary)
+            .background(DesignSystem.Materials.thick)
+            .background(DesignSystem.Colors.surfaceTertiary.opacity(0.5))
             .cornerRadius(DesignSystem.CornerRadius.lg)
             .shadow(
                 color: DesignSystem.Shadow.medium.color,
                 radius: DesignSystem.Shadow.medium.radius,
                 x: DesignSystem.Shadow.medium.x,
                 y: DesignSystem.Shadow.medium.y
+            )
+    }
+    
+    // MARK: - Native macOS Effects
+    
+    func glassEffect() -> some View {
+        self
+            .background(DesignSystem.Materials.chrome)
+            .cornerRadius(DesignSystem.CornerRadius.md)
+    }
+    
+    func sidebarStyle() -> some View {
+        self
+            .background(DesignSystem.Materials.sidebar)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+    }
+    
+    func hudStyle() -> some View {
+        self
+            .background(DesignSystem.Materials.hudWindow)
+            .cornerRadius(DesignSystem.CornerRadius.lg)
+            .shadow(
+                color: DesignSystem.Shadow.large.color,
+                radius: DesignSystem.Shadow.large.radius,
+                x: DesignSystem.Shadow.large.x,
+                y: DesignSystem.Shadow.large.y
             )
     }
     
@@ -315,20 +393,33 @@ struct PrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 13, weight: .medium))
             .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(DesignSystem.Colors.primary)
-                    .opacity(configuration.isPressed ? 0.8 : 1.0)
-                    .shadow(
-                        color: DesignSystem.Colors.primary.opacity(configuration.isPressed ? 0.4 : 0.2),
-                        radius: configuration.isPressed ? 2 : 4,
-                        x: 0,
-                        y: configuration.isPressed ? 1 : 2
-                    )
+                ZStack {
+                    // Base layer
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(DesignSystem.Colors.primary)
+                    
+                    // Gradient overlay for depth
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(configuration.isPressed ? 0 : 0.1),
+                                    Color.black.opacity(configuration.isPressed ? 0.1 : 0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
             )
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.black.opacity(0.2), lineWidth: 0.5)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(DesignSystem.Animation.buttonPress, value: configuration.isPressed)
     }
 }
@@ -337,18 +428,18 @@ struct GhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.white.opacity(configuration.isPressed ? 0.9 : 0.7))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .foregroundColor(DesignSystem.Colors.textPrimary.opacity(configuration.isPressed ? 0.9 : 0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.white.opacity(configuration.isPressed ? 0.4 : 0.2), lineWidth: 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.white.opacity(configuration.isPressed ? 0.1 : 0))
-                    )
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(NSColor.controlBackgroundColor).opacity(configuration.isPressed ? 0.8 : 0.5))
             )
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(DesignSystem.Colors.border, lineWidth: 0.5)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(DesignSystem.Animation.buttonPress, value: configuration.isPressed)
     }
 }
@@ -356,17 +447,24 @@ struct GhostButtonStyle: ButtonStyle {
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 13, weight: .regular))
             .foregroundColor(DesignSystem.Colors.textPrimary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(DesignSystem.Colors.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(DesignSystem.Colors.border, lineWidth: 1)
-                    )
+                ZStack {
+                    // Material background
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(DesignSystem.Materials.regular)
+                    
+                    // Color overlay
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color(NSColor.controlBackgroundColor).opacity(0.3))
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(DesignSystem.Colors.border, lineWidth: 0.5)
             )
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(DesignSystem.Animation.plueStandard, value: configuration.isPressed)
@@ -382,14 +480,19 @@ struct IconButtonStyle: ButtonStyle {
     
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: size, weight: .medium))
+            .font(.system(size: size * 0.8, weight: .regular))
             .foregroundColor(DesignSystem.Colors.textSecondary)
-            .frame(width: size + DesignSystem.Spacing.md, height: size + DesignSystem.Spacing.md)
+            .frame(width: size + DesignSystem.Spacing.sm, height: size + DesignSystem.Spacing.sm)
             .background(
                 Circle()
-                    .fill(DesignSystem.Colors.surface.opacity(configuration.isPressed ? 0.8 : 0.6))
+                    .fill(Color(NSColor.controlBackgroundColor).opacity(configuration.isPressed ? 0.8 : 0.5))
             )
-            .interactiveScale(pressed: configuration.isPressed)
+            .overlay(
+                Circle()
+                    .strokeBorder(DesignSystem.Colors.border.opacity(0.3), lineWidth: 0.5)
+            )
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(DesignSystem.Animation.buttonPress, value: configuration.isPressed)
             .hoverEffect()
     }
 }
