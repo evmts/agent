@@ -10,127 +10,131 @@ struct FarcasterView: View {
     
     var body: some View {
         HSplitView {
-            // Clean sidebar with refined channels
+            // Native macOS sidebar
             refinedChannelSidebar
-                .frame(minWidth: 220, idealWidth: 250, maxWidth: 280)
+                .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
             
-            // Main content with cleaner feed
+            // Main content area
             VStack(spacing: 0) {
-                // Cleaner header without heavy chrome
+                // Native toolbar-style header
                 cleanFeedHeader
                 
-                // Refined posts feed with better spacing
+                // Content feed
                 cleanPostsFeed
             }
+            .background(
+                ZStack {
+                    DesignSystem.Colors.background(for: appState.currentTheme)
+                    Rectangle()
+                        .fill(.regularMaterial)
+                }
+            )
         }
         .background(DesignSystem.Colors.background(for: appState.currentTheme))
         .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
     }
     
-    // MARK: - Refined Channel Sidebar
+    // MARK: - Native macOS Sidebar
     private var refinedChannelSidebar: some View {
         VStack(spacing: 0) {
-            // Minimal sidebar header
+            // Native sidebar header
             HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Social")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
-                    
-                    Text("farcaster channels")
-                        .font(.system(size: 11))
-                        .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
-                }
+                Label("Channels", systemImage: "bubble.left.and.bubble.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
                 
                 Spacer()
                 
                 Button(action: { core.handleEvent(.farcasterRefreshFeed) }) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 11, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
                 .buttonStyle(PlainButtonStyle())
-                .help("Refresh feed")
+                .help("Refresh channels")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             
-            // Subtle separator
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.3))
+            Divider()
+                .background(DesignSystem.Colors.border(for: appState.currentTheme))
             
-            // Clean channels list
-            ScrollView {
-                LazyVStack(spacing: 1) {
-                    ForEach(appState.farcasterState.channels, id: \.id) { channel in
-                        refinedChannelRow(channel)
-                    }
+            // Native list style
+            List {
+                ForEach(appState.farcasterState.channels, id: \.id) { channel in
+                    refinedChannelRow(channel)
                 }
-                .padding(.vertical, 8)
             }
-            .background(DesignSystem.Colors.background(for: appState.currentTheme))
+            .listStyle(SidebarListStyle())
+            .scrollContentBackground(.hidden)
+            .background(Rectangle().fill(.ultraThinMaterial))
         }
+        .background(DesignSystem.Colors.background(for: appState.currentTheme).opacity(0.95))
     }
     
     private func refinedChannelRow(_ channel: FarcasterChannel) -> some View {
-        Button(action: {
-            core.handleEvent(.farcasterSelectChannel(channel.id))
-        }) {
-            HStack(spacing: 12) {
-                // Channel indicator
-                Circle()
-                    .fill(appState.farcasterState.selectedChannel == channel.id ? DesignSystem.Colors.primary : DesignSystem.Colors.textTertiary(for: appState.currentTheme).opacity(0.3))
-                    .frame(width: 6, height: 6)
+        HStack(spacing: 8) {
+            Image(systemName: "number")
+                .font(.system(size: 11, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundColor(appState.farcasterState.selectedChannel == channel.id ? 
+                    DesignSystem.Colors.primary : 
+                    DesignSystem.Colors.textSecondary(for: appState.currentTheme)
+                )
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(channel.name)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                    .lineLimit(1)
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(channel.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(
-                            appState.farcasterState.selectedChannel == channel.id 
-                                ? DesignSystem.Colors.textPrimary(for: appState.currentTheme)
-                                : DesignSystem.Colors.textSecondary(for: appState.currentTheme)
-                        )
-                        .lineLimit(1)
-                    
-                    Text("\(channel.memberCount)")
-                        .font(.system(size: 10))
-                        .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
-                }
-                
-                Spacer(minLength: 0)
+                Text("\(channel.memberCount) members")
+                    .font(.system(size: 10))
+                    .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(appState.farcasterState.selectedChannel == channel.id ? DesignSystem.Colors.primary.opacity(0.1) : Color.clear)
-            )
-            .animation(DesignSystem.Animation.plueStandard, value: appState.farcasterState.selectedChannel == channel.id)
+            
+            Spacer()
+            
+            if appState.farcasterState.selectedChannel == channel.id {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.primary)
+            }
         }
-        .buttonStyle(PlainButtonStyle())
+        .padding(.vertical, 4)
         .padding(.horizontal, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            core.handleEvent(.farcasterSelectChannel(channel.id))
+        }
     }
     
-    // MARK: - Clean Feed Header
+    // MARK: - Native macOS Toolbar Header
     private var cleanFeedHeader: some View {
         HStack(spacing: 16) {
             if let selectedChannel = appState.farcasterState.channels.first(where: { $0.id == appState.farcasterState.selectedChannel }) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(selectedChannel.name)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                HStack(spacing: 8) {
+                    Image(systemName: "number.circle")
+                        .font(.system(size: 16, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundColor(DesignSystem.Colors.primary)
                     
-                    Text("\(selectedChannel.memberCount) members")
-                        .font(.system(size: 12))
-                        .foregroundColor(DesignSystem.Colors.textTertiary(for: appState.currentTheme))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedChannel.name)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                        
+                        Text("\(selectedChannel.memberCount) members · \(filteredPosts.count) casts")
+                            .font(.system(size: 11))
+                            .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                    }
                 }
             }
             
             Spacer()
             
-            // Compact new cast button
+            // Native macOS-style compose button
             Button(action: {
                 showingNewPost.toggle()
                 if showingNewPost {
@@ -139,35 +143,32 @@ struct FarcasterView: View {
                     }
                 }
             }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Cast")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(DesignSystem.Colors.primary)
+                Label("New Cast", systemImage: "square.and.pencil")
+                    .font(.system(size: 12, weight: .regular))
+            }
+            .buttonStyle(PrimaryButtonStyle())
                 .foregroundColor(.white)
                 .cornerRadius(16)
-            }
-            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(DesignSystem.Colors.surface(for: appState.currentTheme))
     }
     
-    // MARK: - Clean Posts Feed
+    // MARK: - Native macOS Posts Feed
     private var cleanPostsFeed: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Compact new post composer
+                // Animated composer
                 if showingNewPost {
                     compactNewPostComposer
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .move(edge: .top).combined(with: .opacity)
+                        ))
                 }
                 
-                // Clean posts list with better spacing
+                // Posts with native dividers
                 ForEach(filteredPosts) { post in
                     CompactPostView(
                         post: post,
@@ -178,14 +179,21 @@ struct FarcasterView: View {
                             core.handleEvent(.farcasterReplyToPost(post.id, replyText))
                         }
                     )
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                     
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.2))
+                    if post.id != filteredPosts.last?.id {
+                        Divider()
+                            .background(DesignSystem.Colors.border(for: appState.currentTheme))
+                            .padding(.horizontal, 20)
+                    }
                 }
             }
+            .padding(.vertical, 8)
         }
-        .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .animation(.easeInOut(duration: 0.2), value: showingNewPost)
     }
     
     private var filteredPosts: [FarcasterPost] {
@@ -194,55 +202,66 @@ struct FarcasterView: View {
         }.sorted { $0.timestamp > $1.timestamp }
     }
     
-    // MARK: - Compact New Post Composer
+    // MARK: - Native macOS Post Composer
     private var compactNewPostComposer: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
+            // Text editor area
+            TextEditor(text: $newPostText)
+                .focused($isNewPostFocused)
+                .frame(minHeight: 80, maxHeight: 200)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .padding(16)
+                .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+            
+            Divider()
+                .background(DesignSystem.Colors.border(for: appState.currentTheme))
+            
+            // Bottom toolbar
             HStack {
-                Text("New Cast")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                // Character count
+                Text("\(newPostText.count)/320")
+                    .font(.system(size: 11))
+                    .foregroundColor(newPostText.count > 320 ? DesignSystem.Colors.error : DesignSystem.Colors.textTertiary(for: appState.currentTheme))
                 
                 Spacer()
                 
-                Button("Cancel") {
-                    showingNewPost = false
-                    newPostText = ""
-                }
-                .font(.system(size: 12))
-                .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
-                .buttonStyle(PlainButtonStyle())
-                
-                Button("Cast") {
-                    if !newPostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        core.handleEvent(.farcasterCreatePost(newPostText))
-                        newPostText = ""
-                        showingNewPost = false
+                HStack(spacing: 8) {
+                    Button("Cancel") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingNewPost = false
+                            newPostText = ""
+                        }
                     }
+                    .buttonStyle(GhostButtonStyle())
+                    
+                    Button("Cast") {
+                        if !newPostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            core.handleEvent(.farcasterCreatePost(newPostText))
+                            newPostText = ""
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingNewPost = false
+                            }
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(newPostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newPostText.count > 320)
                 }
-                .disabled(newPostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(newPostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? DesignSystem.Colors.textTertiary(for: appState.currentTheme).opacity(0.2) : DesignSystem.Colors.primary)
-                .foregroundColor(.white)
-                .cornerRadius(12)
-                .buttonStyle(PlainButtonStyle())
             }
-            
-            TextEditor(text: $newPostText)
-                .focused($isNewPostFocused)
-                .frame(minHeight: 60)
-                .font(.system(size: 13))
-                .padding(10)
-                .background(DesignSystem.Colors.surface(for: appState.currentTheme))
-                .cornerRadius(8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(DesignSystem.Materials.titleBar)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesignSystem.Colors.surface(for: appState.currentTheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(DesignSystem.Colors.border(for: appState.currentTheme).opacity(0.3), lineWidth: 1)
+                        .strokeBorder(DesignSystem.Colors.primary.opacity(0.3), lineWidth: 1)
                 )
-        }
-        .padding(16)
-        .background(DesignSystem.Colors.surface(for: appState.currentTheme))
+        )
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
     }
 }
 
@@ -260,39 +279,58 @@ struct CompactPostView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Compact post header
+            // Native macOS post header
             HStack(spacing: 10) {
-                // Smaller, cleaner avatar
-                Circle()
-                    .fill(DesignSystem.Colors.primary.opacity(0.1))
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Text(String(post.author.displayName.prefix(1)))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(DesignSystem.Colors.primary)
-                    )
+                // User avatar with gradient
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(hue: Double(post.author.username.hashValue % 360) / 360.0, saturation: 0.5, brightness: 0.8),
+                                    Color(hue: Double(post.author.username.hashValue % 360) / 360.0, saturation: 0.7, brightness: 0.6)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 36, height: 36)
+                    
+                    Text(String(post.author.displayName.prefix(1)).uppercased())
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(.white)
+                }
                 
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(post.author.displayName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
-                        
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(post.author.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textPrimary(for: theme))
+                    
+                    HStack(spacing: 4) {
                         Text("@\(post.author.username)")
-                            .font(.system(size: 12))
-                            .foregroundColor(DesignSystem.Colors.textTertiary(for: theme))
-                        
                         Text("•")
-                            .font(.system(size: 12))
-                            .foregroundColor(DesignSystem.Colors.textTertiary(for: theme))
-                        
                         Text(timeAgoString(from: post.timestamp))
-                            .font(.system(size: 12))
-                            .foregroundColor(DesignSystem.Colors.textTertiary(for: theme))
                     }
+                    .font(.system(size: 11))
+                    .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
                 }
                 
                 Spacer()
+                
+                // More menu
+                Menu {
+                    Button("Copy Link", action: {})
+                    Button("Share...", action: {})
+                    Divider()
+                    Button("Mute User", action: {})
+                    Button("Report", role: .destructive, action: {})
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DesignSystem.Colors.textTertiary(for: theme))
+                        .frame(width: 24, height: 24)
+                }
+                .menuStyle(BorderlessButtonMenuStyle())
             }
             
             // Post content with better typography
@@ -302,121 +340,131 @@ struct CompactPostView: View {
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
             
-            // Compact interaction buttons
-            HStack(spacing: 24) {
+            // Native macOS interaction buttons
+            HStack(spacing: 20) {
                 // Reply
                 Button(action: {
-                    showingReply.toggle()
-                    if showingReply {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            isReplyFocused = true
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingReply.toggle()
+                        if showingReply {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                isReplyFocused = true
+                            }
                         }
                     }
                 }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "bubble.left")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("\(post.replies)")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
+                    Label(post.replies > 0 ? "\(post.replies)" : "Reply", systemImage: "bubble.left")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(showingReply ? DesignSystem.Colors.primary : DesignSystem.Colors.textSecondary(for: theme))
                 }
                 .buttonStyle(PlainButtonStyle())
+                .help("Reply to cast")
                 
-                // Recast with bounce animation
+                // Recast
                 Button(action: {
                     withAnimation(DesignSystem.Animation.socialInteraction) {
                         onRecast()
                     }
                 }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.2.squarepath")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(post.isRecast ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary(for: theme))
-                            .rotationEffect(.degrees(post.isRecast ? 360 : 0))
-                            .animation(DesignSystem.Animation.socialInteraction, value: post.isRecast)
-                        Text("\(post.recasts)")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(post.isRecast ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary(for: theme))
-                    }
+                    Label(post.recasts > 0 ? "\(post.recasts)" : "Recast", systemImage: "arrow.2.squarepath")
+                        .font(.system(size: 12, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundColor(post.isRecast ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary(for: theme))
                 }
                 .buttonStyle(PlainButtonStyle())
-                .scaleEffect(post.isRecast ? 1.1 : 1.0)
+                .help("Recast")
+                .scaleEffect(post.isRecast ? 1.05 : 1.0)
                 .animation(DesignSystem.Animation.socialInteraction, value: post.isRecast)
                 
-                // Like with heart animation
+                // Like
                 Button(action: {
                     withAnimation(DesignSystem.Animation.heartBeat) {
                         onLike()
                     }
                 }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: post.isLiked ? "heart.fill" : "heart")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(post.isLiked ? DesignSystem.Colors.error : DesignSystem.Colors.textSecondary(for: theme))
-                            .scaleEffect(post.isLiked ? 1.2 : 1.0)
-                            .animation(DesignSystem.Animation.heartBeat, value: post.isLiked)
-                        Text("\(post.likes)")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(post.isLiked ? DesignSystem.Colors.error : DesignSystem.Colors.textSecondary(for: theme))
-                    }
+                    Label(post.likes > 0 ? "\(post.likes)" : "Like", systemImage: post.isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 12, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundColor(post.isLiked ? DesignSystem.Colors.error : DesignSystem.Colors.textSecondary(for: theme))
                 }
                 .buttonStyle(PlainButtonStyle())
+                .help("Like")
                 .scaleEffect(post.isLiked ? 1.05 : 1.0)
-                .animation(DesignSystem.Animation.socialInteraction, value: post.isLiked)
+                .animation(DesignSystem.Animation.heartBeat, value: post.isLiked)
                 
                 Spacer()
+                
+                // Share
+                Menu {
+                    Button("Copy Link", action: {})
+                    Button("Share to Twitter", action: {})
+                    Button("Share to Mastodon", action: {})
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: theme))
+                }
+                .menuStyle(BorderlessButtonMenuStyle())
+                .help("Share")
             }
             
-            // Compact reply composer with slide animation
+            // Native macOS reply composer
             if showingReply {
-                VStack(spacing: 8) {
-                    HStack {
-                        TextEditor(text: $replyText)
-                            .focused($isReplyFocused)
-                            .frame(minHeight: 50)
-                            .font(.system(size: 13))
-                            .padding(8)
-                            .background(DesignSystem.Colors.surface(for: theme))
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(DesignSystem.Colors.border(for: theme).opacity(0.3), lineWidth: 1)
-                            )
+                HStack(alignment: .bottom, spacing: 8) {
+                    HStack(alignment: .center, spacing: 8) {
+                        // Reply indicator
+                        Image(systemName: "arrowshape.turn.up.left.fill")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(DesignSystem.Colors.primary)
+                            .padding(.leading, 4)
                         
-                        VStack(spacing: 6) {
-                            Button("Reply") {
-                                if !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    withAnimation(DesignSystem.Animation.socialInteraction) {
-                                        onReply(replyText)
-                                        replyText = ""
-                                        showingReply = false
-                                    }
-                                }
-                            }
-                            .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            .font(.system(size: 11, weight: .medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 
-                                      DesignSystem.Colors.textTertiary(for: theme).opacity(0.2) : DesignSystem.Colors.primary)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                            .buttonStyle(PlainButtonStyle())
-                            .scaleEffect(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.95 : 1.0)
-                            .animation(DesignSystem.Animation.buttonPress, value: replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            
-                            Button("Cancel") {
-                                withAnimation(DesignSystem.Animation.slideTransition) {
-                                    showingReply = false
+                        // Reply text field
+                        TextField("Write a reply...", text: $replyText, axis: .vertical)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 12))
+                            .lineLimit(1...4)
+                            .focused($isReplyFocused)
+                            .onSubmit {
+                                if !replyText.isEmpty {
+                                    onReply(replyText)
                                     replyText = ""
+                                    showingReply = false
                                 }
                             }
-                            .font(.system(size: 11))
-                            .foregroundColor(DesignSystem.Colors.textTertiary(for: theme))
-                            .buttonStyle(PlainButtonStyle())
-                        }
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(DesignSystem.Colors.surface(for: theme))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(
+                                        isReplyFocused ? DesignSystem.Colors.primary : DesignSystem.Colors.border(for: theme),
+                                        lineWidth: isReplyFocused ? 1 : 0.5
+                                    )
+                            )
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isReplyFocused)
+                    
+                    // Send button
+                    Button(action: {
+                        if !replyText.isEmpty {
+                            onReply(replyText)
+                            replyText = ""
+                            showingReply = false
+                        }
+                    }) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(replyText.isEmpty ? 
+                                DesignSystem.Colors.textTertiary(for: theme) : 
+                                DesignSystem.Colors.primary
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(replyText.isEmpty)
+                    .help("Send reply")
                 }
                 .transition(.asymmetric(
                     insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.95)),
