@@ -4,7 +4,6 @@ struct TerminalView: View {
     let appState: AppState
     let core: PlueCoreInterface
     
-    @StateObject private var terminal = Terminal.shared
     @State private var inputText = ""
     @State private var terminalError: Error?
     @State private var terminalOutput = ""
@@ -67,16 +66,19 @@ struct TerminalView: View {
                 // Status Indicator
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(terminal.isRunning ? DesignSystem.Colors.success : DesignSystem.Colors.error)
+                        .fill(appState.terminalIsRunning ? DesignSystem.Colors.success : DesignSystem.Colors.error)
                         .frame(width: 8, height: 8)
                     
-                    Text(terminal.isRunning ? "Connected" : "Disconnected")
+                    Text(appState.terminalIsRunning ? "Connected" : "Disconnected")
                         .font(.system(size: 12))
                         .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
                 
                 // Clear Button
-                Button(action: { terminal.clearOutput() }) {
+                Button(action: { 
+                    terminalOutput = ""
+                    // Send clear event to Zig if needed
+                }) {
                     Image(systemName: "trash")
                         .font(.system(size: 12))
                         .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
