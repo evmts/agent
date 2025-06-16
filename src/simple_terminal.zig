@@ -136,16 +136,16 @@ pub const Terminal = struct {
         if (self.master_fd) |fd| {
             if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
                 var ws = std.posix.winsize{
-                    .rows = rows,
-                    .cols = cols,
+                    .row = rows,
+                    .col = cols,
                     .xpixel = 0,
                     .ypixel = 0,
                 };
                 if (builtin.os.tag == .macos) {
                     // TIOCSWINSZ = 0x80087467 on macOS
-                    _ = std.os.system.ioctl(fd, 0x80087467, @intFromPtr(&ws));
+                    _ = std.c.ioctl(fd, @bitCast(@as(c_int, -2147199097)), @intFromPtr(&ws));
                 } else {
-                    _ = std.os.system.ioctl(fd, std.os.system.T.IOCSWINSZ, @intFromPtr(&ws));
+                    _ = std.c.ioctl(fd, @as(c_uint, 0x5414), @intFromPtr(&ws));
                 }
             }
         }
@@ -177,7 +177,7 @@ pub const Terminal = struct {
             // Get slave number
             var pts_num: c_int = undefined;
             // TIOCGPTN = 0x80045430
-            _ = std.c.ioctl(master, @as(c_uint, 0x80045430), @intFromPtr(&pts_num));
+            _ = std.c.ioctl(master, @bitCast(@as(c_int, -2147216336)), @intFromPtr(&pts_num));
             
             // Open slave
             var pts_name_buf: [32]u8 = undefined;
@@ -197,7 +197,7 @@ pub const Terminal = struct {
             // Get slave number
             var pts_num: c_int = undefined;
             // TIOCGPTN = 0x80045430
-            _ = std.c.ioctl(master, @as(c_uint, 0x80045430), @intFromPtr(&pts_num));
+            _ = std.c.ioctl(master, @bitCast(@as(c_int, -2147216336)), @intFromPtr(&pts_num));
             
             // Open slave
             var pts_name_buf: [32]u8 = undefined;
@@ -232,14 +232,14 @@ pub const Terminal = struct {
         
         // Set terminal size
         var ws = std.posix.winsize{
-            .rows = self.config.rows,
-            .cols = self.config.cols,
+            .row = self.config.rows,
+            .col = self.config.cols,
             .xpixel = 0,
             .ypixel = 0,
         };
         if (builtin.os.tag == .macos) {
             // TIOCSWINSZ = 0x80087467 on macOS
-            _ = std.c.ioctl(std.posix.STDIN_FILENO, @as(c_uint, 0x80087467), @intFromPtr(&ws));
+            _ = std.c.ioctl(std.posix.STDIN_FILENO, @bitCast(@as(c_int, -2147199097)), @intFromPtr(&ws));
         } else {
             // Linux TIOCSWINSZ
             _ = std.c.ioctl(std.posix.STDIN_FILENO, @as(c_uint, 0x5414), @intFromPtr(&ws));

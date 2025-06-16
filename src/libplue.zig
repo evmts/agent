@@ -2,7 +2,7 @@ const std = @import("std");
 const ghostty_terminal = @import("ghostty_terminal");
 const mini_terminal = @import("mini_terminal");
 const pty_terminal = @import("pty_terminal");
-const simple_terminal = @import("simple_terminal");
+// const simple_terminal = @import("simple_terminal"); // Disabled due to API compatibility issues
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,4 +45,4 @@ pub usingnamespace mini_terminal;
 pub usingnamespace pty_terminal;
 
 // Re-export simple terminal functions for Swift FFI
-pub usingnamespace simple_terminal;
+// pub usingnamespace simple_terminal; // Disabled due to API compatibility issues

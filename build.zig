@@ -140,7 +140,7 @@ pub fn build(b: *std.Build) void {
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
     c_lib_mod.addImport("mini_terminal", mini_terminal_mod);
     c_lib_mod.addImport("pty_terminal", pty_terminal_mod);
-    c_lib_mod.addImport("simple_terminal", simple_terminal_mod);
+    // c_lib_mod.addImport("simple_terminal", simple_terminal_mod); // Disabled due to API compatibility issues
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -228,7 +228,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(ghostty_terminal_lib);
     b.installArtifact(mini_terminal_lib);
     b.installArtifact(pty_terminal_lib);
-    b.installArtifact(simple_terminal_lib);
+    // b.installArtifact(simple_terminal_lib); // Disabled due to API compatibility issues
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
