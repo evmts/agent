@@ -58,22 +58,49 @@ struct CustomWindowButton: View {
     let action: WindowAction
     let color: Color
     @State private var isHovered = false
+    @State private var isPressed = false
     
     var body: some View {
         Button(action: performAction) {
-            Circle()
-                .fill(isHovered ? color : color.opacity(0.6))
-                .frame(width: 12, height: 12)
-                .overlay(
+            ZStack {
+                // Base circle
+                Circle()
+                    .fill(color)
+                    .frame(width: 12, height: 12)
+                
+                // Gradient overlay for depth
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(isPressed ? 0 : 0.3),
+                                Color.clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 0,
+                            endRadius: 8
+                        )
+                    )
+                    .frame(width: 12, height: 12)
+                
+                // Icon overlay
+                if isHovered {
                     iconForAction
-                        .font(.system(size: 6, weight: .bold))
-                        .foregroundColor(.black.opacity(isHovered ? 0.8 : 0.4))
-                )
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.black.opacity(0.6))
+                }
+            }
         }
         .buttonStyle(PlainButtonStyle())
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(.easeInOut(duration: 0.1)) {
                 isHovered = hovering
+            }
+        }
+        .scaleEffect(isPressed ? 0.9 : 1.0)
+        .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity) { } onPressingChanged: { pressing in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isPressed = pressing
             }
         }
     }
@@ -83,10 +110,12 @@ struct CustomWindowButton: View {
         switch action {
         case .close:
             Image(systemName: "xmark")
+                .scaleEffect(0.8)
         case .minimize:
             Image(systemName: "minus")
         case .maximize:
             Image(systemName: "plus")
+                .scaleEffect(0.9)
         }
     }
     
