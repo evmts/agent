@@ -115,40 +115,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     
-    // Create mini terminal module - our minimal terminal implementation
-    const mini_terminal_mod = b.createModule(.{
-        .root_source_file = b.path("src/mini_terminal.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    
-    // Create PTY terminal module - proper pseudo-terminal implementation
-    const pty_terminal_mod = b.createModule(.{
-        .root_source_file = b.path("src/pty_terminal.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    
-    // Create macOS PTY module - minimal working PTY for macOS
-    const macos_pty_mod = b.createModule(.{
-        .root_source_file = b.path("src/macos_pty.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    
-    // Create simple terminal module - better PTY implementation
-    const simple_terminal_mod = b.createModule(.{
-        .root_source_file = b.path("src/simple_terminal.zig"),
+    // Create unified terminal module - our production terminal implementation
+    const terminal_mod = b.createModule(.{
+        .root_source_file = b.path("src/terminal.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Add ghostty terminal module to c_lib_mod so libplue can use it
+    // Add terminal modules to c_lib_mod so libplue can use them
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
-    c_lib_mod.addImport("mini_terminal", mini_terminal_mod);
-    c_lib_mod.addImport("pty_terminal", pty_terminal_mod);
-    c_lib_mod.addImport("macos_pty", macos_pty_mod);
-    // c_lib_mod.addImport("simple_terminal", simple_terminal_mod); // Disabled due to API compatibility issues
+    c_lib_mod.addImport("terminal", terminal_mod);
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -180,41 +156,17 @@ pub fn build(b: *std.Build) void {
         .root_module = ghostty_terminal_mod,
     });
     
-    // Create mini terminal static library for Swift interop
-    const mini_terminal_lib = b.addLibrary(.{
+    // Create unified terminal static library for Swift interop
+    const terminal_lib = b.addLibrary(.{
         .linkage = .static,
-        .name = "mini_terminal",
-        .root_module = mini_terminal_mod,
+        .name = "terminal",
+        .root_module = terminal_mod,
     });
     
-    // Create PTY terminal static library for Swift interop
-    const pty_terminal_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "pty_terminal",
-        .root_module = pty_terminal_mod,
-    });
-    
-    // Create macOS PTY static library for Swift interop
-    const macos_pty_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "macos_pty",
-        .root_module = macos_pty_mod,
-    });
-    
-    // Create simple terminal static library for Swift interop
-    const simple_terminal_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "simple_terminal",
-        .root_module = simple_terminal_mod,
-    });
-
     // Link required libraries
     farcaster_lib.linkLibC();
     ghostty_terminal_lib.linkLibC();
-    mini_terminal_lib.linkLibC();
-    pty_terminal_lib.linkLibC();
-    macos_pty_lib.linkLibC();
-    simple_terminal_lib.linkLibC();
+    terminal_lib.linkLibC();
     
     // Link with Ghostty library if available from Nix
     if (b.option([]const u8, "ghostty-lib-path", "Path to Ghostty library directory")) |lib_path| {
@@ -242,10 +194,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(c_lib);
     b.installArtifact(farcaster_lib);
     b.installArtifact(ghostty_terminal_lib);
-    b.installArtifact(mini_terminal_lib);
-    b.installArtifact(pty_terminal_lib);
-    b.installArtifact(macos_pty_lib);
-    // b.installArtifact(simple_terminal_lib); // Disabled due to API compatibility issues
+    b.installArtifact(terminal_lib);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -285,11 +234,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    macos_pty_test.linkLibrary(macos_pty_lib);
+    macos_pty_test.linkLibrary(terminal_lib);
     macos_pty_test.linkLibC();
     
     const run_macos_pty_test = b.addRunArtifact(macos_pty_test);
-    const macos_pty_test_step = b.step("test-macos-pty", "Run macOS PTY test");
+    const macos_pty_test_step = b.step("test-terminal", "Run terminal test");
     macos_pty_test_step.dependOn(&run_macos_pty_test.step);
 
     const farcaster_test_mod = b.createModule(.{
@@ -336,7 +285,7 @@ pub fn build(b: *std.Build) void {
     swift_build_cmd.step.dependOn(&c_lib.step);
     swift_build_cmd.step.dependOn(&farcaster_lib.step);
     swift_build_cmd.step.dependOn(&ghostty_terminal_lib.step);
-    swift_build_cmd.step.dependOn(&mini_terminal_lib.step);
+    swift_build_cmd.step.dependOn(&terminal_lib.step);
 
     // Create a step for building the complete project (Zig + Swift)
     const build_all_step = b.step("swift", "Build complete project including Swift");
@@ -359,6 +308,21 @@ pub fn build(b: *std.Build) void {
     const run_swift_step = b.step("run-swift", "Run the Swift application");
     run_swift_step.dependOn(&swift_run_cmd.step);
 
+    // MCP AppleScript server executable
+    const mcp_applescript = b.addExecutable(.{
+        .name = "mcp-applescript",
+        .root_source_file = b.path("mcp/applescript.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mcp_applescript.linkLibC();
+    b.installArtifact(mcp_applescript);
+
+    // Add run step for MCP AppleScript server
+    const run_mcp_applescript = b.addRunArtifact(mcp_applescript);
+    const mcp_applescript_step = b.step("mcp-applescript", "Run the MCP AppleScript server");
+    mcp_applescript_step.dependOn(&run_mcp_applescript.step);
+
     // Development server with file watching
     const dev_step = b.step("dev", "Development server with file watching and smart rebuilds");
     const dev_cmd = b.addSystemCommand(&.{
@@ -371,6 +335,6 @@ pub fn build(b: *std.Build) void {
     dev_cmd.step.dependOn(&c_lib.step);
     dev_cmd.step.dependOn(&farcaster_lib.step);
     dev_cmd.step.dependOn(&ghostty_terminal_lib.step);
-    dev_cmd.step.dependOn(&mini_terminal_lib.step);
+    dev_cmd.step.dependOn(&terminal_lib.step);
     dev_step.dependOn(&dev_cmd.step);
 }

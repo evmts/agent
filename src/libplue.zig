@@ -1,9 +1,6 @@
 const std = @import("std");
 const ghostty_terminal = @import("ghostty_terminal");
-const mini_terminal = @import("mini_terminal");
-const pty_terminal = @import("pty_terminal");
-const macos_pty = @import("macos_pty");
-// const simple_terminal = @import("simple_terminal"); // Disabled due to API compatibility issues
+const terminal = @import("terminal");
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -27,7 +24,7 @@ export fn plue_process_message(message: ?[*:0]const u8) ?[*:0]const u8 {
         return null;
     }
     const allocator = gpa.allocator();
-    const response = std.fmt.allocPrintZ(allocator, "Echo: {s}", .{msg}) catch @panic("Unable to allocate memory");
+    const response = std.fmt.allocPrintZ(allocator, "Echo: {s}", .{msg}) catch return null;
     return response.ptr;
 }
 
@@ -39,14 +36,5 @@ export fn plue_free_string(str: [*:0]const u8) void {
 // Re-export Ghostty terminal functions for Swift FFI
 pub usingnamespace ghostty_terminal;
 
-// Re-export mini terminal functions for Swift FFI
-pub usingnamespace mini_terminal;
-
-// Re-export PTY terminal functions for Swift FFI
-pub usingnamespace pty_terminal;
-
-// Re-export macOS PTY functions for Swift FFI
-pub usingnamespace macos_pty;
-
-// Re-export simple terminal functions for Swift FFI
-// pub usingnamespace simple_terminal; // Disabled due to API compatibility issues
+// Re-export unified terminal functions for Swift FFI
+pub usingnamespace terminal;
