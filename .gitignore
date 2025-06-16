@@ -35,3 +35,9 @@ test_integration
 # Nix
 result
 result-*
+# MCP build artifacts
+mcp/test_complete.txt
+mcp/plue_mcp_fixed.zig
+plue-mcp-test
+plue-mcp-test.o
+plue_mcp_fixed
