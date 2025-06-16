@@ -2035,7 +2035,7 @@ class MockPlueCore: PlueCoreInterface {
 // MARK: - Singleton Instance
 
 public class PlueCore {
-    static let shared: PlueCoreInterface = MockPlueCore()
+    static let shared: PlueCoreInterface = LivePlueCore()
     
     private init() {}
 }
