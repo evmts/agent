@@ -33,6 +33,22 @@ const char* plue_process_message(const char* message);
  */
 void plue_free_string(const char* str);
 
+/**
+ * Get current application state as JSON.
+ * 
+ * @return Null-terminated JSON string (must be freed with plue_free_string)
+ */
+const char* plue_get_state(void);
+
+/**
+ * Process an event with optional JSON data.
+ * 
+ * @param event_type The event type enum value
+ * @param json_data Optional JSON data for the event (can be NULL)
+ * @return 0 on success, -1 on failure
+ */
+int plue_process_event(int event_type, const char* json_data);
+
 // Ghostty Terminal Functions
 
 /**

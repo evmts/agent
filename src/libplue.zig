@@ -1,21 +1,66 @@
 const std = @import("std");
 const ghostty_terminal = @import("ghostty_terminal");
 const terminal = @import("terminal");
+const app = @import("app.zig");
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var app_state: ?*app.AppState = null;
 
 /// Initialize the global state
 export fn plue_init() c_int {
+    const allocator = gpa.allocator();
+    app_state = app.AppState.init(allocator) catch return -1;
     return 0;
 }
 
 /// Cleanup all resources
 export fn plue_deinit() void {
+    if (app_state) |state| {
+        state.deinit();
+        app_state = null;
+    }
     _ = gpa.deinit();
 }
 
-/// Process message and return response
+/// Get current state as JSON
+/// Returns: owned null-terminated string - caller MUST call plue_free_string()
+export fn plue_get_state() ?[*:0]const u8 {
+    const state = app_state orelse return null;
+    const allocator = gpa.allocator();
+    
+    const json_str = state.toJson(allocator) catch return null;
+    defer allocator.free(json_str);
+    
+    const result = allocator.allocSentinel(u8, json_str.len, 0) catch return null;
+    @memcpy(result, json_str);
+    return result;
+}
+
+/// Process an event with JSON data
+/// Returns: 0 on success, -1 on error
+export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int {
+    const state = app_state orelse return -1;
+    const data_ptr = json_data orelse return -1;
+    const data = std.mem.span(data_ptr);
+    
+    // Create event data
+    var event = app.EventData{
+        .type = @enumFromInt(event_type),
+    };
+    
+    // Parse additional JSON data if provided
+    if (data.len > 0) {
+        // For simple string values, just use the data directly
+        // In a real implementation, we'd parse JSON properly
+        event.string_value = data;
+    }
+    
+    app.processEvent(state, event) catch return -1;
+    return 0;
+}
+
+/// Process message and return response (deprecated, use plue_process_event)
 /// Returns: owned null-terminated string - caller MUST call plue_free_string()
 export fn plue_process_message(message: ?[*:0]const u8) ?[*:0]const u8 {
     const msg_ptr = message orelse return null;
@@ -28,7 +73,7 @@ export fn plue_process_message(message: ?[*:0]const u8) ?[*:0]const u8 {
     return response.ptr;
 }
 
-/// Free string allocated by plue_process_message
+/// Free string allocated by plue functions
 export fn plue_free_string(str: [*:0]const u8) void {
     gpa.allocator().free(std.mem.span(str));
 }
