@@ -49,6 +49,8 @@ export fn pty_terminal_start() c_int {
     var env_map = std.process.getEnvMap(state.allocator) catch return -1;
     defer env_map.deinit();
     env_map.put("TERM", "xterm-256color") catch return -1;
+    // Force interactive mode
+    env_map.put("PS1", "$ ") catch return -1;
     process.env_map = &env_map;
     
     // Spawn the process
@@ -73,6 +75,10 @@ export fn pty_terminal_start() c_int {
     state.running = true;
     
     std.log.info("PTY terminal started with shell: {s}", .{shell});
+    
+    // Send an initial newline to trigger prompt
+    _ = pty_terminal_write("\n", 1);
+    
     return 0;
 }
 
@@ -120,6 +126,9 @@ export fn pty_terminal_read(buffer: [*]u8, buffer_len: usize) isize {
     if (!state.running or state.process == null) return -1;
     
     var total_read: usize = 0;
+    
+    // Debug: log read attempt
+    // std.log.debug("PTY read attempt, buffer_len={}", .{buffer_len});
     
     // Try to read from stdout first
     if (state.process.?.stdout) |stdout| {

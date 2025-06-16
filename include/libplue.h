@@ -214,6 +214,75 @@ void pty_terminal_resize(unsigned short cols, unsigned short rows);
 void pty_terminal_deinit(void);
 
 // ============================================================================
+// macOS PTY - Minimal working PTY for macOS
+// ============================================================================
+
+/**
+ * Initialize the macOS PTY.
+ * 
+ * @return 0 on success, -1 on failure
+ */
+int macos_pty_init(void);
+
+/**
+ * Start the macOS PTY with a shell.
+ * 
+ * @return 0 on success, -1 on failure
+ */
+int macos_pty_start(void);
+
+/**
+ * Stop the macOS PTY process.
+ */
+void macos_pty_stop(void);
+
+/**
+ * Write data to the macOS PTY.
+ * 
+ * @param data Data buffer to write
+ * @param len Length of data in bytes
+ * @return Number of bytes written, -1 on error
+ */
+ssize_t macos_pty_write(const unsigned char* data, size_t len);
+
+/**
+ * Read data from the macOS PTY.
+ * 
+ * @param buffer Buffer to read data into
+ * @param buffer_len Maximum bytes to read
+ * @return Number of bytes read, 0 if no data, -1 on error
+ */
+ssize_t macos_pty_read(unsigned char* buffer, size_t buffer_len);
+
+/**
+ * Send text to the macOS PTY.
+ * 
+ * @param text Null-terminated text string to send
+ */
+void macos_pty_send_text(const char* text);
+
+/**
+ * Get the master file descriptor.
+ * 
+ * @return File descriptor or -1 if not available
+ */
+int macos_pty_get_fd(void);
+
+/**
+ * Resize the macOS PTY.
+ * 
+ * @param cols Number of columns
+ * @param rows Number of rows
+ */
+void macos_pty_resize(unsigned short cols, unsigned short rows);
+
+/**
+ * Deinitialize the macOS PTY.
+ * Cleans up all resources.
+ */
+void macos_pty_deinit(void);
+
+// ============================================================================
 // Simple Terminal - Better PTY implementation with proper openpty support
 // ============================================================================
 

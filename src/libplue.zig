@@ -2,6 +2,7 @@ const std = @import("std");
 const ghostty_terminal = @import("ghostty_terminal");
 const mini_terminal = @import("mini_terminal");
 const pty_terminal = @import("pty_terminal");
+const macos_pty = @import("macos_pty");
 // const simple_terminal = @import("simple_terminal"); // Disabled due to API compatibility issues
 
 /// Simple global state - just use GPA directly
@@ -43,6 +44,9 @@ pub usingnamespace mini_terminal;
 
 // Re-export PTY terminal functions for Swift FFI
 pub usingnamespace pty_terminal;
+
+// Re-export macOS PTY functions for Swift FFI
+pub usingnamespace macos_pty;
 
 // Re-export simple terminal functions for Swift FFI
 // pub usingnamespace simple_terminal; // Disabled due to API compatibility issues
