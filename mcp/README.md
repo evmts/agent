@@ -1,5 +1,7 @@
 # Plue MCP Server
 
+WIP this currently doesn't even run
+
 The Plue MCP (Model Context Protocol) server allows AI assistants like Claude to directly control and interact with the Plue application through a standardized protocol.
 
 ## Features
@@ -7,34 +9,42 @@ The Plue MCP (Model Context Protocol) server allows AI assistants like Claude to
 The Plue MCP server provides the following tools:
 
 ### Application Control
+
 - **plue_launch** - Launch the Plue application
 - **plue_quit** - Quit the Plue application
 - **plue_get_state** - Get the current application state
 
 ### Terminal Operations
+
 - **plue_terminal_command** - Execute commands in Plue's terminal
 - **plue_terminal_output** - Get the current terminal output
 
 ### Chat/Agent Operations
+
 - **plue_send_message** - Send messages to the chat/agent interface
 - **plue_get_messages** - Retrieve conversation messages
 
 ### Navigation
+
 - **plue_switch_tab** - Switch between tabs (prompt, farcaster, agent, terminal, web, editor, diff, worktree)
 
 ### File Operations
+
 - **plue_open_file** - Open files in the editor
 - **plue_save_file** - Save the current file
 
 ### Prompt Engineering
+
 - **plue_set_prompt** - Set prompt content
 - **plue_get_prompt** - Get current prompt content
 
 ### Git Worktree Operations
+
 - **plue_list_worktrees** - List all git worktrees
 - **plue_create_worktree** - Create a new git worktree
 
 ### Farcaster Operations
+
 - **plue_farcaster_post** - Post to Farcaster
 
 ## Building
