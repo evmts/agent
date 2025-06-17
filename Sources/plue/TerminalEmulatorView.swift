@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Darwin
 
 // MARK: - NSView-based Terminal Emulator View
 class TerminalEmulatorNSView: NSView {
