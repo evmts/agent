@@ -33,10 +33,10 @@ pub fn build(b: *std.Build) void {
         const ghostty_step = buildGhostty(b, target, optimize);
         b.getInstallStep().dependOn(ghostty_step);
         
-        // Set paths to built ghostty
+        // UPDATE these paths to the new predictable location
         ghostty_paths = .{
-            .lib_path = b.getInstallPath(.lib, ""),
-            .include_path = b.getInstallPath(.header, ""),
+            .lib_path = b.pathJoin(&.{b.install_path, "ghostty-deps", "lib"}),
+            .include_path = b.pathJoin(&.{b.install_path, "ghostty-deps", "include"}),
         };
     } else {
         // Use provided paths or defaults
@@ -102,7 +102,6 @@ pub fn build(b: *std.Build) void {
         \\echo "🔍 Verifying build artifacts..." &&
         \\if [ -f zig-out/lib/libplue.a ]; then echo "✅ libplue.a"; else echo "❌ libplue.a missing"; exit 1; fi &&
         \\if [ -f zig-out/lib/liblibplue.a ]; then echo "✅ liblibplue.a"; else echo "❌ liblibplue.a missing"; exit 1; fi &&
-        \\if [ -f zig-out/lib/libfarcaster.a ]; then echo "✅ libfarcaster.a"; else echo "❌ libfarcaster.a missing"; exit 1; fi &&
         \\if [ -f zig-out/lib/libterminal.a ]; then echo "✅ libterminal.a"; else echo "❌ libterminal.a missing"; exit 1; fi &&
         \\if [ -f zig-out/lib/libghostty_terminal.a ]; then echo "✅ libghostty_terminal.a"; else echo "❌ libghostty_terminal.a missing"; exit 1; fi &&
         \\if [ -f .build/arm64-apple-macosx/debug/plue ] || [ -f .build/arm64-apple-macosx/release/plue ]; then echo "✅ Swift executable"; else echo "❌ Swift executable missing"; exit 1; fi &&
@@ -124,26 +123,30 @@ pub fn build(b: *std.Build) void {
     all_step.dependOn(&success_msg.step);
 }
 
-fn buildGhostty(b: *std.Build, _: std.Build.ResolvedTarget, _: std.builtin.OptimizeMode) *std.Build.Step {
+fn buildGhostty(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step {
+    _ = target; // Will be used when we add target specification
+    _ = optimize; // Already using ReleaseFast for now
     const ghostty_step = b.step("ghostty", "Build Ghostty library");
     
-    // First, let's find where libghostty.a actually ends up
-    const find_lib_cmd = b.addSystemCommand(&.{
-        "sh", "-c",
-        "cd lib/ghostty && zig build -Doptimize=ReleaseFast -Dapp-runtime=none -Demit-xcframework=false 2>&1 >/dev/null && find .zig-cache -name 'libghostty*.a' -type f | head -1 | xargs -I {} cp {} ../../zig-out/lib/libghostty.a && echo '✅ Built and copied libghostty.a'"
+    // Create a command to build Ghostty using its own build.zig
+    const ghostty_build_cmd = b.addSystemCommand(&.{
+        "zig",
+        "build",
+        "-Doptimize=ReleaseFast",
+        "-Dapp-runtime=none", 
+        "-Demit-xcframework=false",
+        "--prefix",
+        b.pathJoin(&.{b.install_path, "ghostty-deps"}),
     });
+    ghostty_build_cmd.setCwd(b.path("lib/ghostty"));
     
-    // Ensure output directory exists
-    const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", b.pathJoin(&.{b.install_path, "lib"}) });
-    find_lib_cmd.step.dependOn(&mkdir_cmd.step);
-    
-    // Install the header
+    // Install the header to our output directory
     const install_header = b.addInstallFile(
         b.path("lib/ghostty/include/ghostty.h"),
-        "ghostty.h"
+        "ghostty-deps/include/ghostty.h"
     );
     
-    ghostty_step.dependOn(&find_lib_cmd.step);
+    ghostty_step.dependOn(&ghostty_build_cmd.step);
     ghostty_step.dependOn(&install_header.step);
     
     return ghostty_step;
@@ -164,12 +167,6 @@ fn buildZigLibraries(
 
     const c_lib_mod = b.createModule(.{
         .root_source_file = b.path("src/libplue.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const farcaster_mod = b.createModule(.{
-        .root_source_file = b.path("src/farcaster/farcaster.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -199,12 +196,30 @@ fn buildZigLibraries(
         .target = target,
         .optimize = optimize,
     });
+    // Add nvim_client to state module
+    state_mod.addImport("nvim_client", b.createModule(.{
+        .root_source_file = b.path("src/nvim_client.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
 
     // Add imports
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
     c_lib_mod.addImport("terminal", terminal_mod);
     c_lib_mod.addImport("app", app_mod);
     c_lib_mod.addImport("state", state_mod);
+    // Add farcaster as a module import to libplue
+    c_lib_mod.addImport("farcaster", b.createModule(.{
+        .root_source_file = b.path("src/farcaster/farcaster.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    // Add nvim_client as a module import to libplue
+    c_lib_mod.addImport("nvim_client", b.createModule(.{
+        .root_source_file = b.path("src/nvim_client.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
 
     // Create libraries
     const lib = b.addLibrary(.{
@@ -219,15 +234,8 @@ fn buildZigLibraries(
         .name = "libplue",
         .root_module = c_lib_mod,
     });
+    c_lib.linkLibC(); // libplue needs linkLibC since it now includes farcaster
     b.installArtifact(c_lib);
-
-    const farcaster_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "farcaster",
-        .root_module = farcaster_mod,
-    });
-    farcaster_lib.linkLibC();
-    b.installArtifact(farcaster_lib);
 
     const ghostty_terminal_lib = b.addLibrary(.{
         .linkage = .static,
@@ -268,7 +276,6 @@ fn buildSwift(
         "-Xlinker", b.fmt("-L{s}", .{b.getInstallPath(.lib, "")}),
         "-Xlinker", "-lplue",
         "-Xlinker", "-llibplue",
-        "-Xlinker", "-lfarcaster",
         "-Xlinker", "-lterminal",
         "-Xlinker", "-lghostty_terminal",
     }) catch @panic("OOM");

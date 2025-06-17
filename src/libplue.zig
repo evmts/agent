@@ -9,9 +9,9 @@ const cstate = state_mod.cstate;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var app_state: ?*AppState = null;
 
-/// Callback function type for state updates
-pub const StateUpdateCallback = ?*const fn () callconv(.C) void;
-var state_update_callback: StateUpdateCallback = null;
+// Global variables to store the callback and its context
+var state_update_callback: ?*const fn(?*anyopaque) callconv(.C) void = null;
+var swift_callback_context: ?*anyopaque = null;
 
 /// Initialize the global state
 export fn plue_init() c_int {
@@ -65,7 +65,7 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
     state.process(&event) catch return -1;
     
     // Notify Swift of state change
-    notifyStateChange();
+    notify_swift_of_state_change();
     
     return 0;
 }
@@ -75,15 +75,18 @@ export fn plue_get_error() ?[*:0]const u8 {
     return null; // TODO: Implement error tracking
 }
 
-/// Register a callback for state updates
-export fn plue_register_state_callback(callback: StateUpdateCallback) void {
+export fn plue_register_state_callback(
+    callback: ?*const fn(?*anyopaque) callconv(.C) void, 
+    context: ?*anyopaque
+) void {
     state_update_callback = callback;
+    swift_callback_context = context;
 }
 
-/// Notify Swift of state changes
-pub fn notifyStateChange() void {
-    if (state_update_callback) |callback| {
-        callback();
+// In any function that mutates state and needs to notify Swift...
+fn notify_swift_of_state_change() void {
+    if (state_update_callback) |cb| {
+        cb(swift_callback_context);
     }
 }
 

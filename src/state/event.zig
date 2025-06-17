@@ -45,6 +45,7 @@ pub const EventType = enum(c_int) {
     chat_message_sent = 33,
     file_opened = 34,
     file_saved = 35,
+    vim_state_updated = 36, // New event for Neovim RPC updates
 };
 
 // Handle process events into state
@@ -107,64 +108,11 @@ pub fn process(event: *const Event, state: *AppState) !void {
             state.agent.dagger_connected = false;
         },
         .vim_keypress => {
-            if (event.string_value) |key| {
-                // Handle vim key events based on current mode
-                switch (state.vim.mode) {
-                    .insert => {
-                        // In insert mode, append to content
-                        const new_content = try std.fmt.allocPrint(state.allocator, "{s}{s}", .{ state.vim.content, key });
-                        state.allocator.free(state.vim.content);
-                        state.vim.content = new_content;
-                        state.vim.cursor_col += 1;
-                    },
-                    .normal => {
-                        // Handle normal mode commands
-                        if (std.mem.eql(u8, key, "i")) {
-                            state.vim.mode = .insert;
-                            try updateVimStatusLine(state, "-- INSERT --");
-                        } else if (std.mem.eql(u8, key, "v")) {
-                            state.vim.mode = .visual;
-                            try updateVimStatusLine(state, "-- VISUAL --");
-                        } else if (std.mem.eql(u8, key, ":")) {
-                            state.vim.mode = .command;
-                            try updateVimStatusLine(state, ":");
-                        }
-                        // Handle movement keys
-                        else if (std.mem.eql(u8, key, "h") and state.vim.cursor_col > 0) {
-                            state.vim.cursor_col -= 1;
-                        } else if (std.mem.eql(u8, key, "l")) {
-                            state.vim.cursor_col += 1;
-                        } else if (std.mem.eql(u8, key, "j") and state.vim.cursor_row < 50) {
-                            state.vim.cursor_row += 1;
-                        } else if (std.mem.eql(u8, key, "k") and state.vim.cursor_row > 0) {
-                            state.vim.cursor_row -= 1;
-                        }
-                    },
-                    .visual => {
-                        // Handle visual mode
-                        if (std.mem.eql(u8, key, "ESC")) {
-                            state.vim.mode = .normal;
-                            try updateVimStatusLine(state, "");
-                        }
-                    },
-                    .command => {
-                        // Handle command mode
-                        if (std.mem.eql(u8, key, "ESC")) {
-                            state.vim.mode = .normal;
-                            try updateVimStatusLine(state, "");
-                        } else if (std.mem.eql(u8, key, "ENTER")) {
-                            // Execute command
-                            state.vim.mode = .normal;
-                            try updateVimStatusLine(state, "");
-                        } else {
-                            // Append to command line
-                            const new_status = try std.fmt.allocPrint(state.allocator, "{s}{s}", .{ state.vim.status_line, key });
-                            state.allocator.free(state.vim.status_line);
-                            state.vim.status_line = new_status;
-                        }
-                    },
-                }
-            }
+            // This event now ONLY forwards the keypress.
+            // The actual forwarding happens in the Swift -> Zig -> PTY layer.
+            // This case might become a no-op if the PTY write happens before the event dispatch.
+            // For now, we can log it.
+            std.log.debug("Vim keypress event received: {s}", .{event.string_value orelse ""});
         },
         .vim_set_content => {
             if (event.string_value) |content| {
@@ -244,6 +192,34 @@ pub fn process(event: *const Event, state: *AppState) !void {
                 state.agent.current_conversation_index = @intCast(index);
             }
         },
+        .vim_state_updated => {
+            // This new event is triggered by the RPC client when it receives a notification from Neovim.
+            // It updates our AppState cache.
+            if (state.vim.nvim_client) |client| {
+                state.allocator.free(state.vim.content);
+                state.vim.content = try client.getContent();
+
+                const cursor = try client.getCursor();
+                state.vim.cursor_row = cursor.row;
+                state.vim.cursor_col = cursor.col;
+
+                const mode = try client.getMode();
+                state.allocator.free(state.vim.status_line);
+                if (std.mem.eql(u8, mode, "i")) {
+                    state.vim.mode = .insert;
+                    state.vim.status_line = try state.allocator.dupe(u8, "-- INSERT --");
+                } else if (std.mem.eql(u8, mode, "v")) {
+                    state.vim.mode = .visual;
+                    state.vim.status_line = try state.allocator.dupe(u8, "-- VISUAL --");
+                } else if (std.mem.eql(u8, mode, "c")) {
+                    state.vim.mode = .command;
+                    state.vim.status_line = try state.allocator.dupe(u8, ":");
+                } else {
+                    state.vim.mode = .normal;
+                    state.vim.status_line = try state.allocator.dupe(u8, "");
+                }
+            }
+        },
         else => {
             // Log unhandled events in debug mode
             std.log.debug("Unhandled event type: {}", .{event.type});
@@ -251,8 +227,3 @@ pub fn process(event: *const Event, state: *AppState) !void {
     }
 }
 
-fn updateVimStatusLine(state: *AppState, status: []const u8) !void {
-    const new_status = try state.allocator.dupe(u8, status);
-    state.allocator.free(state.vim.status_line);
-    state.vim.status_line = new_status;
-}

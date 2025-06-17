@@ -21,20 +21,17 @@ func plue_process_event(_ eventType: Int32, _ jsonData: UnsafePointer<CChar>?) -
 @_silgen_name("plue_free_string")
 func plue_free_string(_ str: UnsafePointer<CChar>)
 
+// Update C function import
 @_silgen_name("plue_register_state_callback")
-func plue_register_state_callback(_ callback: @convention(c) () -> Void)
+func plue_register_state_callback(_ callback: @convention(c) (UnsafeMutableRawPointer?) -> Void, _ context: UnsafeMutableRawPointer?)
 
 // MARK: - Live FFI Implementation
 
 class LivePlueCore: PlueCoreInterface {
     private var stateCallbacks: [(AppState) -> Void] = []
     private let queue = DispatchQueue(label: "plue.core.live", qos: .userInteractive)
-    private static var sharedInstance: LivePlueCore?
     
     init() {
-        // Store reference for callback
-        Self.sharedInstance = self
-        
         // Initialize the Zig core
         let result = plue_init()
         if result != 0 {
@@ -42,19 +39,27 @@ class LivePlueCore: PlueCoreInterface {
         } else {
             print("LivePlueCore: Successfully initialized with Zig FFI")
             
-            // Register state change callback
-            plue_register_state_callback(Self.stateUpdateCallback)
+            // Get an opaque pointer to this instance of the class
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            
+            // Register the callback, passing the context pointer
+            plue_register_state_callback(Self.stateUpdateCallback, context)
         }
     }
     
     deinit {
-        Self.sharedInstance = nil
         plue_deinit()
     }
     
-    // C callback function
-    private static let stateUpdateCallback: @convention(c) () -> Void = {
-        guard let instance = sharedInstance else { return }
+    // The C callback is now a static function that receives the context
+    private static let stateUpdateCallback: @convention(c) (UnsafeMutableRawPointer?) -> Void = { context in
+        // Ensure context is not nil
+        guard let context = context else { return }
+        
+        // Reconstitute the LivePlueCore instance from the opaque pointer
+        let instance = Unmanaged<LivePlueCore>.fromOpaque(context).takeUnretainedValue()
+        
+        // Call the instance method to notify subscribers
         instance.queue.async {
             instance.notifyStateChange()
         }
@@ -95,7 +100,6 @@ class LivePlueCore: PlueCoreInterface {
     }
     
     func shutdown() {
-        Self.sharedInstance = nil
         plue_deinit()
     }
     
