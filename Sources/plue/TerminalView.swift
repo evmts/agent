@@ -7,24 +7,39 @@ struct TerminalView: View {
     @State private var inputText = ""
     @State private var terminalError: Error?
     @State private var terminalOutput = ""
+    @State private var useMetalRenderer = false
     
     var body: some View {
         VStack(spacing: 0) {
             // Terminal Header
             terminalHeader
             
-            // Metal Terminal View (hardware-accelerated rendering)
-            MetalTerminalView(
-                inputText: $inputText,
-                onError: { error in
-                    terminalError = error
-                    print("Terminal error: \(error)")
-                },
-                onOutput: { output in
-                    // We could track output here if needed
-                    terminalOutput += output
+            // Terminal Emulator (switchable between NSView and Metal)
+            Group {
+                if useMetalRenderer {
+                    MetalTerminalView(
+                        inputText: $inputText,
+                        onError: { error in
+                            terminalError = error
+                            print("Terminal error: \(error)")
+                        },
+                        onOutput: { output in
+                            terminalOutput += output
+                        }
+                    )
+                } else {
+                    TerminalEmulator(
+                        inputText: $inputText,
+                        onError: { error in
+                            terminalError = error
+                            print("Terminal error: \(error)")
+                        },
+                        onOutput: { output in
+                            terminalOutput += output
+                        }
+                    )
                 }
-            )
+            }
             .background(Color.black)
             .cornerRadius(8)
             .overlay(
@@ -73,6 +88,15 @@ struct TerminalView: View {
                         .font(.system(size: 12))
                         .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
                 }
+                
+                // Renderer Toggle
+                Button(action: { useMetalRenderer.toggle() }) {
+                    Image(systemName: useMetalRenderer ? "gpu" : "cpu")
+                        .font(.system(size: 12))
+                        .foregroundColor(DesignSystem.Colors.textSecondary(for: appState.currentTheme))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .help(useMetalRenderer ? "Switch to NSView renderer" : "Switch to Metal renderer")
                 
                 // Clear Button
                 Button(action: { 

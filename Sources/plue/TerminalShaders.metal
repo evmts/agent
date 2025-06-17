@@ -15,14 +15,11 @@ struct VertexOut {
 
 // Vertex shader
 vertex VertexOut terminalVertexShader(Vertex in [[stage_in]],
-                                      constant float2 &viewportSize [[buffer(0)]]) {
+                                      constant float4x4 &transform [[buffer(1)]]) {
     VertexOut out;
     
-    // Convert to normalized device coordinates
-    float2 pixelSpacePosition = in.position.xy;
-    float2 viewportPosition = (pixelSpacePosition / (viewportSize / 2.0)) - 1.0;
-    
-    out.position = float4(viewportPosition.x, -viewportPosition.y, 0.0, 1.0);
+    // Apply transformation matrix
+    out.position = transform * float4(in.position, 0.0, 1.0);
     out.texCoord = in.texCoord;
     
     return out;

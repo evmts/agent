@@ -24,22 +24,24 @@ enum ANSIColor: Int {
     case brightWhite = 97
     
     func toNSColor() -> NSColor {
+        // Ghostty-inspired color palette
         switch self {
-        case .black, .brightBlack: return .black
-        case .red: return NSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
-        case .brightRed: return NSColor(red: 1, green: 0, blue: 0, alpha: 1)
-        case .green: return NSColor(red: 0, green: 0.8, blue: 0, alpha: 1)
-        case .brightGreen: return NSColor(red: 0, green: 1, blue: 0, alpha: 1)
-        case .yellow: return NSColor(red: 0.8, green: 0.8, blue: 0, alpha: 1)
-        case .brightYellow: return NSColor(red: 1, green: 1, blue: 0, alpha: 1)
-        case .blue: return NSColor(red: 0, green: 0, blue: 0.8, alpha: 1)
-        case .brightBlue: return NSColor(red: 0, green: 0, blue: 1, alpha: 1)
-        case .magenta: return NSColor(red: 0.8, green: 0, blue: 0.8, alpha: 1)
-        case .brightMagenta: return NSColor(red: 1, green: 0, blue: 1, alpha: 1)
-        case .cyan: return NSColor(red: 0, green: 0.8, blue: 0.8, alpha: 1)
-        case .brightCyan: return NSColor(red: 0, green: 1, blue: 1, alpha: 1)
-        case .white: return NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-        case .brightWhite, .defaultColor: return .white
+        case .black: return NSColor(red: 0.173, green: 0.173, blue: 0.216, alpha: 1)
+        case .brightBlack: return NSColor(red: 0.373, green: 0.373, blue: 0.416, alpha: 1)
+        case .red: return NSColor(red: 0.937, green: 0.325, blue: 0.314, alpha: 1)
+        case .brightRed: return NSColor(red: 0.992, green: 0.592, blue: 0.588, alpha: 1)
+        case .green: return NSColor(red: 0.584, green: 0.831, blue: 0.373, alpha: 1)
+        case .brightGreen: return NSColor(red: 0.702, green: 0.933, blue: 0.612, alpha: 1)
+        case .yellow: return NSColor(red: 0.988, green: 0.914, blue: 0.310, alpha: 1)
+        case .brightYellow: return NSColor(red: 0.988, green: 0.945, blue: 0.553, alpha: 1)
+        case .blue: return NSColor(red: 0.149, green: 0.545, blue: 0.824, alpha: 1)
+        case .brightBlue: return NSColor(red: 0.514, green: 0.753, blue: 0.988, alpha: 1)
+        case .magenta: return NSColor(red: 0.827, green: 0.529, blue: 0.937, alpha: 1)
+        case .brightMagenta: return NSColor(red: 0.933, green: 0.682, blue: 0.988, alpha: 1)
+        case .cyan: return NSColor(red: 0.329, green: 0.843, blue: 0.859, alpha: 1)
+        case .brightCyan: return NSColor(red: 0.596, green: 0.929, blue: 0.941, alpha: 1)
+        case .white: return NSColor(red: 0.925, green: 0.937, blue: 0.953, alpha: 1)
+        case .brightWhite, .defaultColor: return NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1)
         }
     }
 }

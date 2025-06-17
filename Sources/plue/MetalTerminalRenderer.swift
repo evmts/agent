@@ -1,5 +1,6 @@
 import MetalKit
 import CoreText
+import CoreGraphics
 
 // MARK: - Metal Terminal Renderer
 class MetalTerminalRenderer: NSObject {
@@ -194,9 +195,9 @@ class MetalTerminalRenderer: NSObject {
         
         viewportSize = SIMD2<Float>(Float(view.drawableSize.width), Float(view.drawableSize.height))
         
-        // Clear background
+        // Clear background with Ghostty-inspired color
         renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(
-            red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0
+            red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0
         )
         
         // Set viewport
@@ -229,14 +230,14 @@ class MetalTerminalRenderer: NSObject {
         // First pass: render background colors
         renderEncoder.setRenderPipelineState(backgroundPipelineState)
         renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        renderEncoder.setVertexBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
         
         for row in 0..<buffer.rows {
             for col in 0..<buffer.cols {
                 let cell = buffer.getCell(row: row, col: col)
                 
                 // Skip default background
-                if cell.backgroundColor == .black { continue }
+                let defaultBg = NSColor(red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0)
+                if cell.backgroundColor == defaultBg { continue }
                 
                 let rect = cellRect(row: row, col: col)
                 var transform = makeTransform(rect: rect)
@@ -262,12 +263,30 @@ class MetalTerminalRenderer: NSObject {
                 
                 guard let glyph = fontAtlas.glyph(for: cell.character) else { continue }
                 
+                // Create vertex buffer with proper texture coordinates for this glyph
+                let texRect = glyph.texCoords
+                let vertices: [Float] = [
+                    // Position (x, y), TexCoord (u, v)
+                    0, 0,  Float(texRect.minX), Float(texRect.minY),  // Top-left
+                    1, 0,  Float(texRect.maxX), Float(texRect.minY),  // Top-right
+                    0, 1,  Float(texRect.minX), Float(texRect.maxY),  // Bottom-left
+                    1, 1,  Float(texRect.maxX), Float(texRect.maxY),  // Bottom-right
+                ]
+                
+                // Create temporary buffer for this glyph
+                guard let glyphBuffer = device.makeBuffer(bytes: vertices,
+                                                         length: vertices.count * MemoryLayout<Float>.size,
+                                                         options: .storageModeShared) else {
+                    continue
+                }
+                
                 let rect = cellRect(row: row, col: col)
-                var transform = makeTransform(rect: rect, texCoords: glyph.texCoords)
+                var transform = makeTransform(rect: rect)
                 
                 var textColor = colorToFloat4(cell.foregroundColor)
                 var bgColor = colorToFloat4(cell.backgroundColor)
                 
+                renderEncoder.setVertexBuffer(glyphBuffer, offset: 0, index: 0)
                 renderEncoder.setVertexBytes(&transform, length: MemoryLayout<simd_float4x4>.size, index: 1)
                 renderEncoder.setFragmentBytes(&textColor, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
                 renderEncoder.setFragmentBytes(&bgColor, length: MemoryLayout<SIMD4<Float>>.size, index: 1)
@@ -279,13 +298,12 @@ class MetalTerminalRenderer: NSObject {
     private func renderCursor(buffer: TerminalBuffer, with renderEncoder: MTLRenderCommandEncoder) {
         renderEncoder.setRenderPipelineState(cursorPipelineState)
         renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        renderEncoder.setVertexBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
         
         let (row, col) = buffer.cursorPosition
         let rect = cellRect(row: row, col: col)
         var transform = makeTransform(rect: rect)
         
-        var cursorColor = SIMD4<Float>(1, 1, 1, 0.8)
+        var cursorColor = SIMD4<Float>(0.5, 0.8, 1.0, 0.8)  // Nice blue cursor
         var time = Float(CACurrentMediaTime())
         
         renderEncoder.setVertexBytes(&transform, length: MemoryLayout<simd_float4x4>.size, index: 1)
@@ -297,7 +315,6 @@ class MetalTerminalRenderer: NSObject {
     private func renderSelection(_ selection: TerminalSelection, buffer: TerminalBuffer, with renderEncoder: MTLRenderCommandEncoder) {
         renderEncoder.setRenderPipelineState(selectionPipelineState)
         renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        renderEncoder.setVertexBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.size, index: 0)
         
         var selectionColor = SIMD4<Float>(0.5, 0.5, 0.8, 0.3)
         
@@ -332,9 +349,31 @@ class MetalTerminalRenderer: NSObject {
     }
     
     private func makeTransform(rect: CGRect, texCoords: CGRect? = nil) -> simd_float4x4 {
-        // For now, just return identity - in real implementation this would
-        // transform the quad to the correct position
-        return simd_float4x4(1)
+        // Create an orthographic projection matrix for 2D rendering
+        let scaleX = 2.0 / Float(viewportSize.x)
+        let scaleY = -2.0 / Float(viewportSize.y) // Flip Y coordinate
+        
+        // Translate to normalized device coordinates
+        let translateX = -1.0 + Float(rect.origin.x) * scaleX
+        let translateY = 1.0 + Float(rect.origin.y) * scaleY
+        
+        // Scale to match the cell size
+        let sizeX = Float(rect.width) * scaleX
+        let sizeY = Float(rect.height) * scaleY
+        
+        // Build the transformation matrix
+        var transform = simd_float4x4(1) // Start with identity
+        
+        // Column 0: X scaling
+        transform.columns.0 = SIMD4<Float>(sizeX, 0, 0, 0)
+        // Column 1: Y scaling
+        transform.columns.1 = SIMD4<Float>(0, sizeY, 0, 0)
+        // Column 2: Z (unchanged)
+        transform.columns.2 = SIMD4<Float>(0, 0, 1, 0)
+        // Column 3: Translation
+        transform.columns.3 = SIMD4<Float>(translateX, translateY, 0, 1)
+        
+        return transform
     }
     
     private func colorToFloat4(_ color: NSColor) -> SIMD4<Float> {
@@ -354,6 +393,7 @@ class FontAtlas {
     private let device: MTLDevice
     private let atlasSize = 1024
     private var glyphs: [Character: GlyphInfo] = [:]
+    private var atlasData: UnsafeMutableRawPointer?
     
     struct GlyphInfo {
         let texCoords: CGRect
@@ -369,8 +409,88 @@ class FontAtlas {
     
     private func generateAtlas() {
         // Generate atlas for ASCII printable characters
-        // In a real implementation, this would create a texture atlas
-        // with all glyphs rendered using Core Text
+        let context = CGContext(
+            data: nil,
+            width: atlasSize,
+            height: atlasSize,
+            bitsPerComponent: 8,
+            bytesPerRow: atlasSize,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        )
+        
+        guard let ctx = context else { return }
+        
+        // Clear the context
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: atlasSize, height: atlasSize))
+        
+        // Set up text rendering
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.setFont(CGFont(font.fontName as CFString)!)
+        ctx.setFontSize(font.pointSize)
+        
+        // Render glyphs in a grid
+        let padding: CGFloat = 2
+        var x: CGFloat = padding
+        var y: CGFloat = padding
+        let lineHeight = font.capHeight + font.descender + font.leading + padding * 2
+        
+        // ASCII printable characters (32-126)
+        for asciiValue in 32...126 {
+            let char = Character(UnicodeScalar(asciiValue)!)
+            let str = String(char)
+            
+            // Measure the glyph
+            let attributes: [NSAttributedString.Key: Any] = [.font: font]
+            let size = NSAttributedString(string: str, attributes: attributes).size()
+            
+            // Check if we need to move to the next line
+            if x + size.width + padding > CGFloat(atlasSize) {
+                x = padding
+                y += lineHeight
+            }
+            
+            // Skip if we're out of space
+            if y + lineHeight > CGFloat(atlasSize) {
+                break
+            }
+            
+            // Draw the glyph
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: CGFloat(atlasSize))
+            ctx.scaleBy(x: 1, y: -1)
+            
+            let rect = CGRect(x: x, y: CGFloat(atlasSize) - y - lineHeight, width: size.width, height: lineHeight)
+            ctx.setTextDrawingMode(.fill)
+            
+            let attrString = NSAttributedString(string: str, attributes: attributes)
+            let line = CTLineCreateWithAttributedString(attrString)
+            ctx.textPosition = CGPoint(x: x, y: CGFloat(atlasSize) - y - font.descender)
+            CTLineDraw(line, ctx)
+            
+            ctx.restoreGState()
+            
+            // Store glyph info
+            let texCoords = CGRect(
+                x: x / CGFloat(atlasSize),
+                y: y / CGFloat(atlasSize),
+                width: size.width / CGFloat(atlasSize),
+                height: lineHeight / CGFloat(atlasSize)
+            )
+            
+            glyphs[char] = GlyphInfo(
+                texCoords: texCoords,
+                size: size,
+                offset: CGPoint(x: 0, y: 0)
+            )
+            
+            // Move to next position
+            x += size.width + padding
+        }
+        
+        // Store the bitmap data for texture creation
+        self.atlasData = context?.data
     }
     
     func createTexture() -> MTLTexture? {
@@ -381,7 +501,19 @@ class FontAtlas {
             mipmapped: false
         )
         
-        return device.makeTexture(descriptor: descriptor)
+        guard let texture = device.makeTexture(descriptor: descriptor),
+              let data = atlasData else {
+            return nil
+        }
+        
+        texture.replace(
+            region: MTLRegionMake2D(0, 0, atlasSize, atlasSize),
+            mipmapLevel: 0,
+            withBytes: data,
+            bytesPerRow: atlasSize
+        )
+        
+        return texture
     }
     
     func glyph(for character: Character) -> GlyphInfo? {
@@ -399,24 +531,25 @@ struct TerminalSelection {
 
 // MARK: - Terminal Color Palette
 struct TerminalColorPalette {
-    let black = NSColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
-    let red = NSColor(red: 0.8, green: 0.0, blue: 0.0, alpha: 1.0)
-    let green = NSColor(red: 0.0, green: 0.8, blue: 0.0, alpha: 1.0)
-    let yellow = NSColor(red: 0.8, green: 0.8, blue: 0.0, alpha: 1.0)
-    let blue = NSColor(red: 0.0, green: 0.0, blue: 0.8, alpha: 1.0)
-    let magenta = NSColor(red: 0.8, green: 0.0, blue: 0.8, alpha: 1.0)
-    let cyan = NSColor(red: 0.0, green: 0.8, blue: 0.8, alpha: 1.0)
-    let white = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+    // Ghostty-inspired colors
+    let black = NSColor(red: 0.173, green: 0.173, blue: 0.216, alpha: 1)
+    let red = NSColor(red: 0.937, green: 0.325, blue: 0.314, alpha: 1)
+    let green = NSColor(red: 0.584, green: 0.831, blue: 0.373, alpha: 1)
+    let yellow = NSColor(red: 0.988, green: 0.914, blue: 0.310, alpha: 1)
+    let blue = NSColor(red: 0.149, green: 0.545, blue: 0.824, alpha: 1)
+    let magenta = NSColor(red: 0.827, green: 0.529, blue: 0.937, alpha: 1)
+    let cyan = NSColor(red: 0.329, green: 0.843, blue: 0.859, alpha: 1)
+    let white = NSColor(red: 0.925, green: 0.937, blue: 0.953, alpha: 1)
     
-    let brightBlack = NSColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
-    let brightRed = NSColor(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0)
-    let brightGreen = NSColor(red: 0.0, green: 1.0, blue: 0.0, alpha: 1.0)
-    let brightYellow = NSColor(red: 1.0, green: 1.0, blue: 0.0, alpha: 1.0)
-    let brightBlue = NSColor(red: 0.0, green: 0.0, blue: 1.0, alpha: 1.0)
-    let brightMagenta = NSColor(red: 1.0, green: 0.0, blue: 1.0, alpha: 1.0)
-    let brightCyan = NSColor(red: 0.0, green: 1.0, blue: 1.0, alpha: 1.0)
-    let brightWhite = NSColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+    let brightBlack = NSColor(red: 0.373, green: 0.373, blue: 0.416, alpha: 1)
+    let brightRed = NSColor(red: 0.992, green: 0.592, blue: 0.588, alpha: 1)
+    let brightGreen = NSColor(red: 0.702, green: 0.933, blue: 0.612, alpha: 1)
+    let brightYellow = NSColor(red: 0.988, green: 0.945, blue: 0.553, alpha: 1)
+    let brightBlue = NSColor(red: 0.514, green: 0.753, blue: 0.988, alpha: 1)
+    let brightMagenta = NSColor(red: 0.933, green: 0.682, blue: 0.988, alpha: 1)
+    let brightCyan = NSColor(red: 0.596, green: 0.929, blue: 0.941, alpha: 1)
+    let brightWhite = NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1)
     
-    let background = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)
-    let foreground = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+    let background = NSColor(red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0)
+    let foreground = NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1.0)
 }

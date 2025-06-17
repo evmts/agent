@@ -4,8 +4,8 @@ import AppKit
 // MARK: - Terminal Cell
 struct TerminalEmulatorCell {
     var character: Character = " "
-    var foregroundColor: NSColor = .white
-    var backgroundColor: NSColor = .black
+    var foregroundColor: NSColor = NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1.0)
+    var backgroundColor: NSColor = NSColor(red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0)
     var isBold: Bool = false
     var isUnderlined: Bool = false
 }
@@ -23,8 +23,8 @@ class TerminalBuffer {
     private var scrollBottom: Int
     
     // Current attributes
-    private var currentForeground: NSColor = .white
-    private var currentBackground: NSColor = .black
+    private var currentForeground: NSColor = NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1.0)
+    private var currentBackground: NSColor = NSColor(red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0)
     private var currentBold: Bool = false
     private var currentUnderline: Bool = false
     
@@ -162,8 +162,8 @@ class TerminalBuffer {
     }
     
     func resetAttributes() {
-        currentForeground = .white
-        currentBackground = .black
+        currentForeground = NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1.0)
+        currentBackground = NSColor(red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0)
         currentBold = false
         currentUnderline = false
     }

@@ -11,9 +11,11 @@ class TerminalEmulatorNSView: NSView {
     private var readSource: DispatchSourceRead?
     
     // Display properties
-    private let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    private let font = NSFont(name: "SF Mono", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     private var charWidth: CGFloat = 0
     private var lineHeight: CGFloat = 0
+    private let backgroundColor = NSColor(red: 0.086, green: 0.086, blue: 0.11, alpha: 1.0) // Ghostty-like background
+    private let textColor = NSColor(red: 0.976, green: 0.976, blue: 0.976, alpha: 1.0) // Slightly off-white
     
     // Terminal dimensions
     private var cols: Int = 80
@@ -45,13 +47,19 @@ class TerminalEmulatorNSView: NSView {
     
     private func setupView() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = backgroundColor.cgColor
+        
+        // Add subtle shadow for depth
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.3
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.shadowRadius = 4
         
         // Calculate font metrics
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let sampleSize = NSAttributedString(string: "M", attributes: attributes).size()
         charWidth = sampleSize.width
-        lineHeight = sampleSize.height
+        lineHeight = font.capHeight + font.descender + font.leading + 4 // Add some padding
         
         // Setup cursor blinking
         cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -155,8 +163,8 @@ class TerminalEmulatorNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         
-        // Clear background
-        NSColor.black.setFill()
+        // Clear background with our custom color
+        backgroundColor.setFill()
         dirtyRect.fill()
         
         // Draw each cell
@@ -166,14 +174,14 @@ class TerminalEmulatorNSView: NSView {
             }
         }
         
-        // Draw cursor
-        if showCursor {
-            drawCursor()
-        }
-        
-        // Draw selection
+        // Draw selection first (behind text)
         if selectionStart != nil && selectionEnd != nil {
             drawSelection()
+        }
+        
+        // Draw cursor last (on top)
+        if showCursor {
+            drawCursor()
         }
     }
     
@@ -182,8 +190,8 @@ class TerminalEmulatorNSView: NSView {
         let x = CGFloat(col) * charWidth
         let y = bounds.height - CGFloat(row + 1) * lineHeight // Flip Y coordinate
         
-        // Draw background if not black
-        if cell.backgroundColor != NSColor.black {
+        // Draw background if not default
+        if cell.backgroundColor != backgroundColor {
             cell.backgroundColor.setFill()
             NSRect(x: x, y: y, width: charWidth, height: lineHeight).fill()
         }
@@ -207,8 +215,25 @@ class TerminalEmulatorNSView: NSView {
         let x = CGFloat(col) * charWidth
         let y = bounds.height - CGFloat(row + 1) * lineHeight
         
-        NSColor.white.setFill()
-        NSRect(x: x, y: y, width: charWidth, height: lineHeight).fill(using: .sourceAtop)
+        // Use a vibrant cursor color
+        NSColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 0.8).setFill()
+        
+        // Draw a block cursor
+        let cursorRect = NSRect(x: x, y: y, width: charWidth, height: lineHeight)
+        cursorRect.fill()
+        
+        // Draw the character in inverted color if there is one
+        let cell = buffer.getCell(row: row, col: col)
+        if cell.character != " " {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: backgroundColor
+            ]
+            
+            let str = String(cell.character)
+            let attributedString = NSAttributedString(string: str, attributes: attributes)
+            attributedString.draw(at: NSPoint(x: x, y: y))
+        }
     }
     
     private func drawSelection() {
