@@ -4,6 +4,8 @@ const TerminalState = @import("terminal_state.zig");
 const WebState = @import("web_state.zig");
 const VimState = @import("vim_state.zig");
 const AgentState = @import("agent_state.zig");
+const FarcasterState = @import("farcaster_state.zig");
+const EditorState = @import("editor_state.zig");
 
 // Core application state
 pub const AppState = @This();
@@ -32,6 +34,8 @@ terminal: TerminalState,
 web: WebState,
 vim: VimState,
 agent: AgentState,
+farcaster: FarcasterState,
+editor: EditorState,
 
 allocator: std.mem.Allocator,
 
@@ -61,6 +65,9 @@ pub fn init(allocator: std.mem.Allocator) !*AppState {
         .prompt = .{
             .processing = false,
             .current_content = try allocator.dupe(u8, "# Your Prompt\n\nStart typing your prompt here."),
+            .last_message = try allocator.dupe(u8, ""),
+            .conversation_count = 1,
+            .current_conversation_index = 0,
         },
         .terminal = .{
             .rows = 24,
@@ -85,6 +92,19 @@ pub fn init(allocator: std.mem.Allocator) !*AppState {
         .agent = .{
             .processing = false,
             .dagger_connected = false,
+            .last_message = try allocator.dupe(u8, ""),
+            .conversation_count = 1,
+            .current_conversation_index = 0,
+        },
+        .farcaster = .{
+            .selected_channel = try allocator.dupe(u8, "home"),
+            .is_loading = false,
+            .is_posting = false,
+        },
+        .editor = .{
+            .file_path = try allocator.dupe(u8, ""),
+            .content = try allocator.dupe(u8, ""),
+            .is_modified = false,
         },
         .allocator = allocator,
     };
@@ -96,10 +116,15 @@ pub fn deinit(self: *AppState) void {
         self.allocator.free(msg);
     }
     self.allocator.free(self.prompt.current_content);
+    self.allocator.free(self.prompt.last_message);
     self.allocator.free(self.terminal.content);
     self.allocator.free(self.web.current_url);
     self.allocator.free(self.web.page_title);
     self.allocator.free(self.vim.content);
     self.allocator.free(self.vim.status_line);
+    self.allocator.free(self.agent.last_message);
+    self.allocator.free(self.farcaster.selected_channel);
+    self.allocator.free(self.editor.file_path);
+    self.allocator.free(self.editor.content);
     self.allocator.destroy(self);
 }
