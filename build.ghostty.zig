@@ -26,16 +26,33 @@ pub fn build(b: *std.Build) !void {
         } else {
             // Otherwise build static library
             const libghostty = try buildpkg.GhosttyLib.initStatic(b, &deps);
-            libghostty.installHeader();
-            libghostty.install("libghostty.a");
+            
+            // Install the library and header
+            const install_lib = b.addInstallFile(libghostty.output, "libghostty.a");
+            install_lib.step.dependOn(libghostty.step);
+            b.getInstallStep().dependOn(&install_lib.step);
+            
+            const install_header = b.addInstallHeaderFile(b.path("lib/ghostty/include/ghostty.h"), "ghostty.h");
+            b.getInstallStep().dependOn(&install_header.step);
         }
     } else {
         // On other platforms, build both static and shared libraries
         const libghostty_shared = try buildpkg.GhosttyLib.initShared(b, &deps);
         const libghostty_static = try buildpkg.GhosttyLib.initStatic(b, &deps);
-        libghostty_shared.installHeader(); // Only need one header
-        libghostty_shared.install("libghostty.so");
-        libghostty_static.install("libghostty.a");
+        
+        // Install shared library
+        const install_shared = b.addInstallFile(libghostty_shared.output, "libghostty.so");
+        install_shared.step.dependOn(libghostty_shared.step);
+        b.getInstallStep().dependOn(&install_shared.step);
+        
+        // Install static library
+        const install_static = b.addInstallFile(libghostty_static.output, "libghostty.a");
+        install_static.step.dependOn(libghostty_static.step);
+        b.getInstallStep().dependOn(&install_static.step);
+        
+        // Install header
+        const install_header = b.addInstallHeaderFile(b.path("lib/ghostty/include/ghostty.h"), "ghostty.h");
+        b.getInstallStep().dependOn(&install_header.step);
     }
     
     // Add a custom step to build just libghostty

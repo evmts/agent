@@ -1,58 +1,15 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+const GhosttyPaths = struct {
+    lib_path: []const u8,
+    include_path: []const u8,
+};
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
-    // Check if we're building within Nix environment
-    const in_nix = std.process.getEnvVarOwned(b.allocator, "IN_NIX_SHELL") catch null;
-    const nix_check_override = b.option(bool, "skip-nix-check", "Skip the Nix environment check") orelse false;
-
-    if (in_nix == null and !nix_check_override) {
-        std.log.warn("\n" ++
-            "╔════════════════════════════════════════════════════════════════════╗\n" ++
-            "║                    Nix Environment Required                        ║\n" ++
-            "╠════════════════════════════════════════════════════════════════════╣\n" ++
-            "║ This project requires Nix to manage dependencies (e.g., Ghostty).  ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ To install Nix:                                                    ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ macOS/Linux:                                                       ║\n" ++
-            "║   $ sh <(curl -L https://nixos.org/nix/install) --daemon          ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ After installation:                                                ║\n" ++
-            "║   1. Restart your terminal                                         ║\n" ++
-            "║   2. Enable flakes by adding to ~/.config/nix/nix.conf:           ║\n" ++
-            "║      experimental-features = nix-command flakes                    ║\n" ++
-            "║   3. Run: nix develop                                              ║\n" ++
-            "║   4. Then: zig build                                               ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ Platform-specific notes:                                           ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ macOS:                                                             ║\n" ++
-            "║   - You may need to create /nix directory first:                  ║\n" ++
-            "║     $ sudo mkdir /nix && sudo chown $USER /nix                    ║\n" ++
-            "║   - On Apple Silicon, Rosetta 2 may be needed:                    ║\n" ++
-            "║     $ softwareupdate --install-rosetta                             ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ Linux:                                                             ║\n" ++
-            "║   - SELinux users may need additional configuration               ║\n" ++
-            "║   - Ubuntu/Debian users should use the --daemon flag              ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ To bypass this check (not recommended):                            ║\n" ++
-            "║   $ zig build -Dskip-nix-check=true                                ║\n" ++
-            "║                                                                    ║\n" ++
-            "║ Learn more:                                                        ║\n" ++
-            "║   - https://nixos.org/download.html                               ║\n" ++
-            "║   - https://nixos.wiki/wiki/Flakes                                ║\n" ++
-            "╚════════════════════════════════════════════════════════════════════╝\n", .{});
-    }
-
-    if (in_nix) |_| {
-        b.allocator.free(in_nix.?);
-        std.log.info("✓ Building within Nix environment", .{});
-    }
-
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -64,331 +21,289 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    // This creates a "module", which represents a collection of source files alongside
-    // some compilation options, such as optimization mode and linked system libraries.
-    // Every executable or library we compile will be based on one or more modules.
+    // Build options
+    const skip_ghostty = b.option(bool, "skip-ghostty", "Skip building Ghostty (use pre-built)") orelse false;
+    const ghostty_lib_path = b.option([]const u8, "ghostty-lib-path", "Path to pre-built libghostty");
+    const ghostty_include_path = b.option([]const u8, "ghostty-include-path", "Path to ghostty headers");
+
+    // Step 1: Build libghostty if not skipped
+    var ghostty_paths: GhosttyPaths = undefined;
+
+    if (!skip_ghostty) {
+        const ghostty_step = buildGhostty(b, target, optimize);
+        b.getInstallStep().dependOn(ghostty_step);
+        
+        // Set paths to built ghostty
+        ghostty_paths = .{
+            .lib_path = b.getInstallPath(.lib, ""),
+            .include_path = b.getInstallPath(.header, ""),
+        };
+    } else {
+        // Use provided paths or defaults
+        ghostty_paths = .{
+            .lib_path = ghostty_lib_path orelse b.pathFromRoot("lib/ghostty/.zig-cache/o/b11a20ce4aa45da884bb124cfc1c77eb"),
+            .include_path = ghostty_include_path orelse b.pathFromRoot("lib/ghostty/include"),
+        };
+    }
+
+    // Step 2: Build all Zig modules and libraries
+    buildZigLibraries(b, target, optimize, ghostty_paths);
+
+    // Step 3: Create Swift build step
+    const swift_step = buildSwift(b, target, optimize, ghostty_paths);
+    
+    // Main build step
+    const build_step = b.step("build", "Build the complete application");
+    build_step.dependOn(&swift_step.step);
+
+    // Run step
+    const run_step = b.step("run", "Build and run the application");
+    const run_cmd = b.addSystemCommand(&.{
+        ".build/arm64-apple-macosx/debug/plue",
+    });
+    run_cmd.step.dependOn(&swift_step.step);
+    run_step.dependOn(&run_cmd.step);
+
+    // Dev step with file watching
+    const dev_step = b.step("dev", "Run in development mode with hot reload");
+    const dev_server = b.addExecutable(.{
+        .name = "dev_server",
+        .root_source_file = b.path("dev_server.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    const run_dev_server = b.addRunArtifact(dev_server);
+    run_dev_server.addArg(b.build_root.path orelse ".");
+    dev_step.dependOn(&run_dev_server.step);
+
+    // Swift-only step
+    const swift_only_step = b.step("swift", "Build only the Swift application");
+    swift_only_step.dependOn(&swift_step.step);
+
+    // Tests
+    buildTests(b, target, optimize);
+
+    // MCP servers - disabled for now due to JSON API incompatibility
+    // buildMCPServers(b, target, optimize);
+}
+
+fn buildGhostty(b: *std.Build, _: std.Build.ResolvedTarget, _: std.builtin.OptimizeMode) *std.Build.Step {
+    const ghostty_step = b.step("ghostty", "Build Ghostty library");
+    
+    // First, let's find where libghostty.a actually ends up
+    const find_lib_cmd = b.addSystemCommand(&.{
+        "sh", "-c",
+        "cd lib/ghostty && zig build -Doptimize=ReleaseFast -Dapp-runtime=none -Demit-xcframework=false 2>&1 >/dev/null && find .zig-cache -name 'libghostty*.a' -type f | head -1 | xargs -I {} cp {} ../../zig-out/lib/libghostty.a && echo '✅ Built and copied libghostty.a'"
+    });
+    
+    // Ensure output directory exists
+    const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", b.pathJoin(&.{b.install_path, "lib"}) });
+    find_lib_cmd.step.dependOn(&mkdir_cmd.step);
+    
+    // Install the header
+    const install_header = b.addInstallFile(
+        b.path("lib/ghostty/include/ghostty.h"),
+        "ghostty.h"
+    );
+    
+    ghostty_step.dependOn(&find_lib_cmd.step);
+    ghostty_step.dependOn(&install_header.step);
+    
+    return ghostty_step;
+}
+
+fn buildZigLibraries(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    ghostty_paths: GhosttyPaths,
+) void {
+    // Create modules
     const lib_mod = b.createModule(.{
-        // `root_source_file` is the Zig "entry point" of the module. If a module
-        // only contains e.g. external object files, you can make this `null`.
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Create C-compatible library module
     const c_lib_mod = b.createModule(.{
         .root_source_file = b.path("src/libplue.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Create Farcaster library module with dependencies
     const farcaster_mod = b.createModule(.{
         .root_source_file = b.path("src/farcaster/farcaster.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Get Ghostty dependency (for future integration)
-    // TODO: Use this once we resolve Ghostty's build dependencies
-    // NOTE: Commented out for now as Ghostty's build requires Metal shaders
-    // and other resources that aren't available in our context
-    // _ = b.dependency("ghostty", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-
-    // Create Ghostty terminal module that wraps Ghostty's embedded API
     const ghostty_terminal_mod = b.createModule(.{
         .root_source_file = b.path("src/ghostty_terminal.zig"),
         .target = target,
         .optimize = optimize,
     });
+    ghostty_terminal_mod.addIncludePath(.{ .cwd_relative = ghostty_paths.include_path });
 
-    // Create unified terminal module - our production terminal implementation
-    const terminal_mod = b.createModule(.{
-        .root_source_file = b.path("src/terminal.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
 
-    // Create app module for state management - compatibility wrapper
     const app_mod = b.createModule(.{
         .root_source_file = b.path("src/app.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Create state modules needed by libplue
-    const state_core_mod = b.createModule(.{
-        .root_source_file = b.path("src/state/state.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const cstate_mod = b.createModule(.{
-        .root_source_file = b.path("src/state/cstate.zig"),
+    const terminal_mod = b.createModule(.{
+        .root_source_file = b.path("src/terminal.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Don't add individual state modules - they're imported transitively
-    // This avoids module conflicts
+    const state_mod = b.createModule(.{
+        .root_source_file = b.path("src/state/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
-    // Add terminal modules to c_lib_mod so libplue can use them
+    // Add imports
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
     c_lib_mod.addImport("terminal", terminal_mod);
     c_lib_mod.addImport("app", app_mod);
-    c_lib_mod.addImport("state/state.zig", state_core_mod);
-    c_lib_mod.addImport("state/cstate.zig", cstate_mod);
+    c_lib_mod.addImport("state", state_mod);
 
-    // Now, we will create a static library based on the module we created above.
-    // This creates a `std.Build.Step.Compile`, which is the build step responsible
-    // for actually invoking the compiler.
+    // Create libraries
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "plue",
         .root_module = lib_mod,
     });
+    b.installArtifact(lib);
 
-    // Create C-compatible static library for Swift interop
     const c_lib = b.addLibrary(.{
         .linkage = .static,
         .name = "libplue",
         .root_module = c_lib_mod,
     });
+    b.installArtifact(c_lib);
 
-    // Create Farcaster static library for Swift interop
     const farcaster_lib = b.addLibrary(.{
         .linkage = .static,
         .name = "farcaster",
         .root_module = farcaster_mod,
     });
+    farcaster_lib.linkLibC();
+    b.installArtifact(farcaster_lib);
 
-    // Create Ghostty terminal static library for Swift interop
     const ghostty_terminal_lib = b.addLibrary(.{
         .linkage = .static,
         .name = "ghostty_terminal",
         .root_module = ghostty_terminal_mod,
     });
+    ghostty_terminal_lib.linkLibC();
+    ghostty_terminal_lib.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ ghostty_paths.lib_path, "libghostty.a" }) });
+    b.installArtifact(ghostty_terminal_lib);
 
-    // Create unified terminal static library for Swift interop
     const terminal_lib = b.addLibrary(.{
         .linkage = .static,
         .name = "terminal",
         .root_module = terminal_mod,
     });
-
-    // Link required libraries
-    farcaster_lib.linkLibC();
-    ghostty_terminal_lib.linkLibC();
     terminal_lib.linkLibC();
-
-    // Link with Ghostty library if available from Nix
-    if (b.option([]const u8, "ghostty-lib-path", "Path to Ghostty library directory")) |lib_path| {
-        ghostty_terminal_lib.addLibraryPath(.{ .cwd_relative = lib_path });
-        ghostty_terminal_lib.linkSystemLibrary2("ghostty", .{ .needed = true });
-
-        if (b.option([]const u8, "ghostty-include-path", "Path to Ghostty include directory")) |inc_path| {
-            ghostty_terminal_lib.addIncludePath(.{ .cwd_relative = inc_path });
-            // Also add include path to the module for @cImport
-            ghostty_terminal_mod.addIncludePath(.{ .cwd_relative = inc_path });
-        }
-    } else {
-        std.log.warn("Ghostty lib is not available. Some functionality may not work", .{});
-    }
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(lib);
-    b.installArtifact(c_lib);
-    b.installArtifact(farcaster_lib);
-    b.installArtifact(ghostty_terminal_lib);
     b.installArtifact(terminal_lib);
 
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const lib_unit_tests = b.addTest(.{
-        .root_module = lib_mod,
-    });
+}
 
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+fn buildSwift(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    ghostty_paths: GhosttyPaths,
+) *std.Build.Step.Run {
+    var swift_args = std.ArrayList([]const u8).init(b.allocator);
+    
+    // Base swift build command
+    swift_args.appendSlice(&.{
+        "swift", "build",
+        "-c", if (optimize == .Debug) "debug" else "release",
+        "--product", "plue",
+    }) catch @panic("OOM");
+    
+    // Add linker flags for our Zig libraries
+    swift_args.appendSlice(&.{
+        "-Xlinker", b.fmt("-L{s}", .{b.getInstallPath(.lib, "")}),
+        "-Xlinker", "-lplue",
+        "-Xlinker", "-llibplue",
+        "-Xlinker", "-lfarcaster",
+        "-Xlinker", "-lterminal",
+        "-Xlinker", "-lghostty_terminal",
+    }) catch @panic("OOM");
+    
+    // Add ghostty include path
+    swift_args.appendSlice(&.{
+        "-Xcc", b.fmt("-I{s}", .{ghostty_paths.include_path}),
+    }) catch @panic("OOM");
+    
+    // Add framework flags for macOS
+    if (target.result.os.tag == .macos) {
+        swift_args.appendSlice(&.{
+            "-Xlinker", "-framework", "-Xlinker", "CoreFoundation",
+            "-Xlinker", "-framework", "-Xlinker", "CoreGraphics",
+            "-Xlinker", "-framework", "-Xlinker", "CoreText",
+            "-Xlinker", "-framework", "-Xlinker", "CoreVideo",
+            "-Xlinker", "-framework", "-Xlinker", "Metal",
+            "-Xlinker", "-framework", "-Xlinker", "MetalKit",
+            "-Xlinker", "-framework", "-Xlinker", "QuartzCore",
+            "-Xlinker", "-framework", "-Xlinker", "IOKit",
+            "-Xlinker", "-framework", "-Xlinker", "Carbon",
+            "-Xlinker", "-framework", "-Xlinker", "Cocoa",
+            "-Xlinker", "-framework", "-Xlinker", "Security",
+        }) catch @panic("OOM");
+    }
+    
+    const swift_cmd = b.addSystemCommand(swift_args.items);
+    
+    // Swift build depends on all Zig libraries
+    swift_cmd.step.dependOn(b.getInstallStep());
+    
+    return swift_cmd;
+}
 
-    // Integration tests for our Zig modules
-    const integration_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("test/integration_tests.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-
-    const run_integration_tests = b.addRunArtifact(integration_tests);
-
-    // Individual test modules with proper module imports
-    const libplue_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/test_libplue.zig"),
+fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+    // Create test modules and add tests
+    const test_step = b.step("test", "Run all tests");
+    
+    // Library tests
+    const lib_tests = b.addTest(.{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    libplue_test_mod.addImport("libplue", c_lib_mod);
-
-    const libplue_tests = b.addTest(.{
-        .root_module = libplue_test_mod,
+    const run_lib_tests = b.addRunArtifact(lib_tests);
+    test_step.dependOn(&run_lib_tests.step);
+    
+    // Integration tests
+    const integration_tests = b.addTest(.{
+        .root_source_file = b.path("test/integration_tests.zig"),
+        .target = target,
+        .optimize = optimize,
     });
-
-    // macOS PTY test executable
-    const macos_pty_test = b.addExecutable(.{
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+    test_step.dependOn(&run_integration_tests.step);
+    
+    // Terminal test executable
+    const terminal_test = b.addExecutable(.{
         .name = "test_macos_pty",
         .root_source_file = b.path("test_macos_pty.zig"),
         .target = target,
         .optimize = optimize,
     });
-    macos_pty_test.linkLibrary(terminal_lib);
-    macos_pty_test.linkLibC();
+    terminal_test.linkLibC();
+    
+    const run_terminal_test = b.addRunArtifact(terminal_test);
+    const terminal_test_step = b.step("test-terminal", "Run terminal test");
+    terminal_test_step.dependOn(&run_terminal_test.step);
+}
 
-    const run_macos_pty_test = b.addRunArtifact(macos_pty_test);
-    const macos_pty_test_step = b.step("test-terminal", "Run terminal test");
-    macos_pty_test_step.dependOn(&run_macos_pty_test.step);
-
-    const farcaster_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/test_farcaster.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    farcaster_test_mod.addImport("farcaster", farcaster_mod);
-
-    const farcaster_tests = b.addTest(.{
-        .root_module = farcaster_test_mod,
-    });
-
-    const run_libplue_tests = b.addRunArtifact(libplue_tests);
-    const run_farcaster_tests = b.addRunArtifact(farcaster_tests);
-
-    // Add app tests
-    const app_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/test_app.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    app_test_mod.addImport("app", app_mod);
-
-    const app_tests = b.addTest(.{
-        .root_module = app_test_mod,
-    });
-
-    const run_app_tests = b.addRunArtifact(app_tests);
-
-    // Add state tests
-    const state_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/test_state.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    // Create state module for tests
-    const state_mod = b.createModule(.{
-        .root_source_file = b.path("src/state/state.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    state_test_mod.addImport("state/state.zig", state_mod);
-    state_test_mod.addImport("state/event.zig", b.createModule(.{
-        .root_source_file = b.path("src/state/event.zig"),
-        .target = target,
-        .optimize = optimize,
-    }));
-    state_test_mod.addImport("state/cstate.zig", b.createModule(.{
-        .root_source_file = b.path("src/state/cstate.zig"),
-        .target = target,
-        .optimize = optimize,
-    }));
-
-    const state_tests = b.addTest(.{
-        .root_module = state_test_mod,
-    });
-    const run_state_tests = b.addRunArtifact(state_tests);
-
-    // Add terminal tests
-    const terminal_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/test_terminal.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    terminal_test_mod.addImport("terminal", terminal_mod);
-
-    const terminal_tests = b.addTest(.{
-        .root_module = terminal_test_mod,
-    });
-    const run_terminal_tests = b.addRunArtifact(terminal_tests);
-
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
-    const test_step = b.step("test", "Run all tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_integration_tests.step);
-    test_step.dependOn(&run_libplue_tests.step);
-    test_step.dependOn(&run_farcaster_tests.step);
-    test_step.dependOn(&run_app_tests.step);
-    test_step.dependOn(&run_state_tests.step);
-    test_step.dependOn(&run_terminal_tests.step);
-
-    // Individual test steps for granular testing
-    const test_integration_step = b.step("test-integration", "Run integration tests");
-    test_integration_step.dependOn(&run_integration_tests.step);
-
-    const test_libplue_step = b.step("test-libplue", "Run libplue tests");
-    test_libplue_step.dependOn(&run_libplue_tests.step);
-
-    const test_farcaster_step = b.step("test-farcaster", "Run farcaster tests");
-    test_farcaster_step.dependOn(&run_farcaster_tests.step);
-
-    const test_app_step = b.step("test-app", "Run app tests");
-    test_app_step.dependOn(&run_app_tests.step);
-
-    const test_state_step = b.step("test-state", "Run state tests");
-    test_state_step.dependOn(&run_state_tests.step);
-
-    const test_terminal_unit_step = b.step("test-terminal-unit", "Run terminal unit tests");
-    test_terminal_unit_step.dependOn(&run_terminal_tests.step);
-
-    // Add Swift build step that depends on Zig libraries
-    const swift_build_cmd = b.addSystemCommand(&.{
-        "swift",    "build",                                       "--configuration", "release",
-        "-Xlinker", b.fmt("-L{s}", .{b.getInstallPath(.lib, "")}),
-    });
-
-    // Swift build depends on all Zig libraries being built and installed
-    swift_build_cmd.step.dependOn(&lib.step);
-    swift_build_cmd.step.dependOn(&c_lib.step);
-    swift_build_cmd.step.dependOn(&farcaster_lib.step);
-    swift_build_cmd.step.dependOn(&ghostty_terminal_lib.step);
-    swift_build_cmd.step.dependOn(&terminal_lib.step);
-
-    // Create a step for building the complete project (Zig + Swift)
-    const build_all_step = b.step("swift", "Build complete project including Swift");
-    build_all_step.dependOn(&swift_build_cmd.step);
-
-    // Make the default install step also build Swift
-    // NOTE: Commented out to allow building Zig libraries independently in Nix
-    // b.getInstallStep().dependOn(&swift_build_cmd.step);
-
-    // Add step to run the Swift executable
-    const swift_run_cmd = b.addSystemCommand(&.{".build/release/plue"});
-    swift_run_cmd.step.dependOn(&swift_build_cmd.step);
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_step = b.step("run", "Run the Swift app");
-    run_step.dependOn(&swift_run_cmd.step);
-
-    const run_swift_step = b.step("run-swift", "Run the Swift application");
-    run_swift_step.dependOn(&swift_run_cmd.step);
-
-    // MCP AppleScript server executable
+fn buildMCPServers(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+    // MCP AppleScript server
     const mcp_applescript = b.addExecutable(.{
         .name = "mcp-applescript",
         .root_source_file = b.path("mcp/applescript.zig"),
@@ -398,12 +313,11 @@ pub fn build(b: *std.Build) void {
     mcp_applescript.linkLibC();
     b.installArtifact(mcp_applescript);
 
-    // Add run step for MCP AppleScript server
     const run_mcp_applescript = b.addRunArtifact(mcp_applescript);
     const mcp_applescript_step = b.step("mcp-applescript", "Run the MCP AppleScript server");
     mcp_applescript_step.dependOn(&run_mcp_applescript.step);
 
-    // Plue MCP server executable
+    // Plue MCP server
     const plue_mcp = b.addExecutable(.{
         .name = "plue-mcp",
         .root_source_file = b.path("mcp/plue_mcp_fixed.zig"),
@@ -413,22 +327,7 @@ pub fn build(b: *std.Build) void {
     plue_mcp.linkLibC();
     b.installArtifact(plue_mcp);
 
-    // Add run step for Plue MCP server
     const run_plue_mcp = b.addRunArtifact(plue_mcp);
     const plue_mcp_step = b.step("plue-mcp", "Run the Plue MCP server");
     plue_mcp_step.dependOn(&run_plue_mcp.step);
-
-    // Development server with file watching
-    const dev_step = b.step("dev", "Development server with file watching and smart rebuilds");
-    const dev_cmd = b.addSystemCommand(&.{
-        "zig",                            "run",
-        b.pathFromRoot("dev_server.zig"), "--",
-        b.build_root.path orelse ".",
-    });
-    dev_cmd.step.dependOn(&lib.step);
-    dev_cmd.step.dependOn(&c_lib.step);
-    dev_cmd.step.dependOn(&farcaster_lib.step);
-    dev_cmd.step.dependOn(&ghostty_terminal_lib.step);
-    dev_cmd.step.dependOn(&terminal_lib.step);
-    dev_step.dependOn(&dev_cmd.step);
 }
