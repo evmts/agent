@@ -13,8 +13,8 @@ struct TerminalView: View {
             // Terminal Header
             terminalHeader
             
-            // Terminal Surface (NSView-based)
-            TerminalSurface(
+            // Terminal Emulator (proper grid-based terminal)
+            TerminalEmulator(
                 inputText: $inputText,
                 onError: { error in
                     terminalError = error
