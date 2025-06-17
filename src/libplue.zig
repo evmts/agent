@@ -8,6 +8,7 @@ const cstate = state_mod.cstate;
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var app_state: ?*AppState = null;
+var is_initialized = false;
 
 // Global variables to store the callback and its context
 var state_update_callback: ?*const fn(?*anyopaque) callconv(.C) void = null;
@@ -15,18 +16,29 @@ var swift_callback_context: ?*anyopaque = null;
 
 /// Initialize the global state
 export fn plue_init() c_int {
+    // Prevent multiple initialization
+    if (is_initialized) {
+        return 0;
+    }
+    
     const allocator = gpa.allocator();
     app_state = AppState.init(allocator) catch return -1;
+    is_initialized = true;
     return 0;
 }
 
 /// Cleanup all resources
 export fn plue_deinit() void {
+    if (!is_initialized) {
+        return;
+    }
+    
     if (app_state) |state| {
         state.deinit();
         app_state = null;
     }
     _ = gpa.deinit();
+    is_initialized = false;
 }
 
 /// Get current state as C struct
@@ -38,6 +50,9 @@ export fn plue_get_state() AppState.CAppState {
 
 /// Free resources allocated in CAppState
 export fn plue_free_state(c_state: AppState.CAppState) void {
+    if (!is_initialized) {
+        return;
+    }
     var mutable_state = c_state;
     cstate.deinit(&mutable_state, gpa.allocator());
 }

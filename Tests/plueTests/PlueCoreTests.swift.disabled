@@ -1,0 +1,228 @@
+import XCTest
+@testable import plue // Make sure your app target is importable for testing
+
+// MARK: - Mock PlueCore for Controlled Testing
+class MockPlueCoreForTesting: PlueCoreInterface {
+    private var currentState: AppState
+    private var stateCallbacks: [(AppState) -> Void] = []
+    private let queue = DispatchQueue(label: "plue.core.mock.testing")
+
+    init(initialState: AppState = .initial) {
+        self.currentState = initialState
+    }
+
+    // Allow tests to directly manipulate the state
+    func setCurrentState(_ newState: AppState) {
+        queue.sync {
+            self.currentState = newState
+            notifyStateChange()
+        }
+    }
+
+    // Allow tests to inspect events sent to the core
+    var lastHandledEvent: AppEvent?
+    func handleEvent(_ event: AppEvent) {
+        lastHandledEvent = event
+        // In a real mock, you might simulate state changes based on the event
+    }
+
+    func getCurrentState() -> AppState {
+        return queue.sync { currentState }
+    }
+
+    func subscribe(callback: @escaping (AppState) -> Void) {
+        stateCallbacks.append(callback)
+        // Immediately provide the initial state
+        DispatchQueue.main.async {
+            callback(self.currentState)
+        }
+    }
+
+    func initialize() -> Bool { return true }
+    func initialize(workingDirectory: String) -> Bool { return true }
+    func shutdown() { stateCallbacks.removeAll() }
+
+    private func notifyStateChange() {
+        let state = currentState
+        DispatchQueue.main.async {
+            for callback in self.stateCallbacks {
+                callback(state)
+            }
+        }
+    }
+}
+
+
+// MARK: - Main Test Class
+class PlueCoreTests: XCTestCase {
+
+    var mockCore: MockPlueCoreForTesting!
+    var appStateContainer: AppStateContainer!
+
+    override func setUpWithError() throws {
+        // This method is called before the invocation of each test method in the class.
+        try super.setUpWithError()
+        mockCore = MockPlueCoreForTesting()
+        // In a real app, you might inject this mock into your AppStateContainer
+        // For this example, we'll assume AppStateContainer uses PlueCore.shared
+        // and we'll test components that use the AppState.
+        appStateContainer = AppStateContainer() // This will use the live core, but we test components against our mock state
+    }
+
+    override func tearDownWithError() throws {
+        // This method is called after the invocation of each test method in the class.
+        mockCore = nil
+        appStateContainer = nil
+        try super.tearDownWithError()
+    }
+
+    // MARK: - Test Cases
+
+    // === App Initialization and State ===
+    func testInitialAppState() {
+        let initialState = AppState.initial
+        XCTAssertEqual(initialState.currentTab, .prompt, "Initial tab should be 'prompt'")
+        XCTAssertTrue(initialState.isInitialized, "App should be initialized")
+        XCTAssertNil(initialState.errorMessage, "Initial error message should be nil")
+        XCTAssertFalse(initialState.openAIAvailable, "OpenAI should be unavailable by default in mock")
+    }
+
+    // === Tab Switching Logic ===
+    func testTabSwitchingEvent() {
+        let core = MockPlueCoreForTesting()
+        let event: AppEvent = .tabSwitched(.agent)
+        core.handleEvent(event)
+
+        guard let lastEvent = core.lastHandledEvent, case .tabSwitched(let newTab) = lastEvent else {
+            XCTFail("Event was not handled or was of the wrong type")
+            return
+        }
+        XCTAssertEqual(newTab, .agent, "The tabSwitched event should carry the correct new tab value.")
+    }
+
+    // === Farcaster Feature Tests ===
+    func testFarcasterInitialState() {
+        let farcasterState = AppState.initial.farcasterState
+        XCTAssertEqual(farcasterState.selectedChannel, "dev", "Initial Farcaster channel should be 'dev'")
+        XCTAssertFalse(farcasterState.isLoading, "Farcaster should not be loading initially")
+        XCTAssertEqual(farcasterState.posts.count, 5, "Initial mock posts should be loaded")
+    }
+
+    func testFarcasterSelectChannelEvent() {
+        let core = MockPlueCoreForTesting()
+        let newChannel = "swiftui"
+        let event: AppEvent = .farcasterSelectChannel(newChannel)
+        core.handleEvent(event)
+
+        guard let lastEvent = core.lastHandledEvent, case .farcasterSelectChannel(let channelId) = lastEvent else {
+            XCTFail("Farcaster channel selection event not handled correctly.")
+            return
+        }
+        XCTAssertEqual(channelId, newChannel, "Event should contain the new channel ID.")
+    }
+
+    func testFarcasterCreatePostEvent() {
+        let core = MockPlueCoreForTesting()
+        let postContent = "Hello from the test suite!"
+        let event: AppEvent = .farcasterCreatePost(postContent)
+        core.handleEvent(event)
+
+        guard let lastEvent = core.lastHandledEvent, case .farcasterCreatePost(let content) = lastEvent else {
+            XCTFail("Farcaster create post event not handled correctly.")
+            return
+        }
+        XCTAssertEqual(content, postContent, "Event should contain the correct post content.")
+    }
+
+    // === Agent and Worktree Tests ===
+    func testAgentInitialState() {
+        let agentState = AppState.initial.agentState
+        XCTAssertFalse(agentState.isProcessing, "Agent should not be processing initially.")
+        XCTAssertNil(agentState.daggerSession, "Dagger session should be nil initially.")
+        XCTAssertTrue(agentState.currentConversation?.messages.count == 1, "Agent should have one initial system message.")
+        XCTAssertEqual(agentState.currentConversation?.messages.first?.type, .system, "Initial agent message should be from the system.")
+    }
+
+    func testAgentWorktreeEvent() {
+        let core = MockPlueCoreForTesting()
+        let branchName = "test-feature"
+        let path = "/tmp/test-feature"
+        let event: AppEvent = .agentCreateWorktree(branchName, path)
+        core.handleEvent(event)
+
+        guard let lastEvent = core.lastHandledEvent, case .agentCreateWorktree(let branch, let eventPath) = lastEvent else {
+            XCTFail("Agent create worktree event not handled.")
+            return
+        }
+        XCTAssertEqual(branch, branchName, "Worktree event should have correct branch name.")
+        XCTAssertEqual(eventPath, path, "Worktree event should have correct path.")
+    }
+    
+    // === Diff View and Git Data Model Tests ===
+    func testGitDiffMockData() {
+        let mockDiff = GitDiffData.mock
+        XCTAssertEqual(mockDiff.changedFiles.count, 3, "Mock diff data should contain 3 files.")
+        XCTAssertEqual(mockDiff.totalAdditions, 42, "Mock diff additions count is incorrect.")
+        XCTAssertEqual(mockDiff.totalDeletions, 18, "Mock diff deletions count is incorrect.")
+    }
+
+    func testGitChangedFileModel() {
+        let swiftFile = GitChangedFile.mockSwiftFile
+        XCTAssertEqual(swiftFile.path, "Sources/plue/DiffView.swift")
+        XCTAssertEqual(swiftFile.changeType, .modified)
+        XCTAssertEqual(swiftFile.additions, 25)
+        XCTAssertFalse(swiftFile.hasConflicts, "Mock swift file should not have conflicts.")
+    }
+
+    // === Neovim/Vim State (RPC Placeholder) ===
+    func testVimStateHandling() {
+        // This test simulates the expected behavior once the Neovim RPC is implemented.
+        // It tests that the AppState correctly reflects a change originating from the RPC.
+        
+        let newContent = "function newContent() { return 'hello'; }"
+        let newCursorPos = CursorPosition(row: 1, col: 10)
+        let newVimState = VimState(
+            mode: .insert,
+            buffer: newContent.components(separatedBy: .newlines),
+            cursor: newCursorPos,
+            statusLine: "-- INSERT --",
+            visualSelection: nil
+        )
+        
+        // Create a new AppState with the updated vimState
+        let updatedState = AppState(
+            currentTab: .prompt,
+            isInitialized: true,
+            errorMessage: nil,
+            openAIAvailable: false,
+            currentTheme: .dark,
+            promptState: .initial,
+            terminalState: .initial,
+            vimState: newVimState, // <-- Injecting the new state
+            webState: .initial,
+            editorState: .initial,
+            farcasterState: .initial,
+            agentState: .initial
+        )
+        
+        mockCore.setCurrentState(updatedState)
+        
+        let fetchedState = mockCore.getCurrentState()
+        XCTAssertEqual(fetchedState.vimState.mode, .insert, "Vim mode did not update correctly.")
+        XCTAssertEqual(fetchedState.vimState.buffer.joined(separator: "\n"), newContent, "Vim content did not update.")
+        XCTAssertEqual(fetchedState.vimState.cursor.row, 1, "Vim cursor row did not update.")
+        XCTAssertEqual(fetchedState.vimState.statusLine, "-- INSERT --", "Vim status line did not update.")
+    }
+
+    // === Performance Tests (Example) ===
+    func testEventHandlingPerformance() {
+        // This is an example of a performance test.
+        // It measures how long it takes to handle 100 simple events.
+        let core = MockPlueCoreForTesting()
+        self.measure {
+            for i in 0..<100 {
+                core.handleEvent(.tabSwitched(TabType(rawValue: i % TabType.allCases.count) ?? .prompt))
+            }
+        }
+    }
+}

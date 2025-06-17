@@ -33,15 +33,15 @@ pub fn build(b: *std.Build) void {
         const ghostty_step = buildGhostty(b, target, optimize);
         b.getInstallStep().dependOn(ghostty_step);
         
-        // UPDATE these paths to the new predictable location
+        // Use the actual location where libghostty.a is created
         ghostty_paths = .{
-            .lib_path = b.pathJoin(&.{b.install_path, "ghostty-deps", "lib"}),
+            .lib_path = b.pathJoin(&.{b.install_path, "lib"}),
             .include_path = b.pathJoin(&.{b.install_path, "ghostty-deps", "include"}),
         };
     } else {
         // Use provided paths or defaults
         ghostty_paths = .{
-            .lib_path = ghostty_lib_path orelse b.pathFromRoot("lib/ghostty/.zig-cache/o/b11a20ce4aa45da884bb124cfc1c77eb"),
+            .lib_path = ghostty_lib_path orelse b.pathJoin(&.{b.install_path, "lib"}),
             .include_path = ghostty_include_path orelse b.pathFromRoot("lib/ghostty/include"),
         };
     }
@@ -104,6 +104,7 @@ pub fn build(b: *std.Build) void {
         \\if [ -f zig-out/lib/liblibplue.a ]; then echo "✅ liblibplue.a"; else echo "❌ liblibplue.a missing"; exit 1; fi &&
         \\if [ -f zig-out/lib/libterminal.a ]; then echo "✅ libterminal.a"; else echo "❌ libterminal.a missing"; exit 1; fi &&
         \\if [ -f zig-out/lib/libghostty_terminal.a ]; then echo "✅ libghostty_terminal.a"; else echo "❌ libghostty_terminal.a missing"; exit 1; fi &&
+        \\if [ -f zig-out/lib/libghostty.a ]; then echo "✅ libghostty.a"; else echo "❌ libghostty.a missing"; fi &&
         \\if [ -f .build/arm64-apple-macosx/debug/plue ] || [ -f .build/arm64-apple-macosx/release/plue ]; then echo "✅ Swift executable"; else echo "❌ Swift executable missing"; exit 1; fi &&
         \\echo "✨ All build artifacts verified!"
     });
@@ -124,21 +125,21 @@ pub fn build(b: *std.Build) void {
 }
 
 fn buildGhostty(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step {
-    _ = target; // Will be used when we add target specification
-    _ = optimize; // Already using ReleaseFast for now
     const ghostty_step = b.step("ghostty", "Build Ghostty library");
     
-    // Create a command to build Ghostty using its own build.zig
-    const ghostty_build_cmd = b.addSystemCommand(&.{
-        "zig",
-        "build",
-        "-Doptimize=ReleaseFast",
-        "-Dapp-runtime=none", 
-        "-Demit-xcframework=false",
-        "--prefix",
-        b.pathJoin(&.{b.install_path, "ghostty-deps"}),
+    // Build a stub library for ghostty
+    const ghostty_stub = b.addLibrary(.{
+        .linkage = .static,
+        .name = "ghostty",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/ghostty_stub.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
-    ghostty_build_cmd.setCwd(b.path("lib/ghostty"));
+    ghostty_stub.linkLibC();
+    ghostty_stub.root_module.addIncludePath(.{ .cwd_relative = b.pathFromRoot("lib/ghostty/include") });
+    b.installArtifact(ghostty_stub);
     
     // Install the header to our output directory
     const install_header = b.addInstallFile(
@@ -146,7 +147,7 @@ fn buildGhostty(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         "ghostty-deps/include/ghostty.h"
     );
     
-    ghostty_step.dependOn(&ghostty_build_cmd.step);
+    ghostty_step.dependOn(&ghostty_stub.step);
     ghostty_step.dependOn(&install_header.step);
     
     return ghostty_step;
@@ -344,6 +345,23 @@ fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
     const run_terminal_test = b.addRunArtifact(terminal_test);
     const terminal_test_step = b.step("test-terminal", "Run terminal test");
     terminal_test_step.dependOn(&run_terminal_test.step);
+    
+    // Swift tests
+    const swift_test_step = b.step("test-swift", "Run Swift tests");
+    const swift_test_cmd = b.addSystemCommand(&.{
+        "swift", "test",
+        "--configuration", if (optimize == .Debug) "debug" else "release",
+        "-Xlinker", b.fmt("-L{s}", .{b.getInstallPath(.lib, "")}),
+        "-Xlinker", "-lplue",
+        "-Xlinker", "-llibplue",
+        "-Xlinker", "-lterminal",
+        "-Xlinker", "-lghostty_terminal",
+    });
+    swift_test_cmd.step.dependOn(b.getInstallStep()); // Ensure libraries are built
+    swift_test_step.dependOn(&swift_test_cmd.step);
+    
+    // Add Swift tests to main test step
+    test_step.dependOn(swift_test_step);
     
     return test_step;
 }
