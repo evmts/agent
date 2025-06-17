@@ -11,10 +11,16 @@ import Foundation
     // MARK: - Terminal Control
     
     @objc func runTerminalCommand(_ command: String) -> String {
+        // Validate and sanitize the command
+        let sanitizedCommand = sanitizeCommand(command)
+        guard !sanitizedCommand.isEmpty else {
+            return "Invalid command: empty or contains only whitespace"
+        }
+        
         let script = """
         tell application "Terminal"
             activate
-            do script "\(command.replacingOccurrences(of: "\"", with: "\\\""))"
+            do script "\(sanitizedCommand)"
             return "Command sent to Terminal"
         end tell
         """
@@ -23,12 +29,18 @@ import Foundation
     }
     
     @objc func runTerminalCommandInNewTab(_ command: String) -> String {
+        // Validate and sanitize the command
+        let sanitizedCommand = sanitizeCommand(command)
+        guard !sanitizedCommand.isEmpty else {
+            return "Invalid command: empty or contains only whitespace"
+        }
+        
         let script = """
         tell application "Terminal"
             activate
             tell application "System Events" to keystroke "t" using command down
             delay 0.5
-            do script "\(command.replacingOccurrences(of: "\"", with: "\\\""))" in front window
+            do script "\(sanitizedCommand)" in front window
             return "Command sent to new Terminal tab"
         end tell
         """
@@ -107,9 +119,25 @@ import Foundation
     // MARK: - File Operations
     
     @objc func openFile(_ path: String) -> String {
+        // Validate file path
+        let sanitizedPath = sanitizePath(path)
+        guard !sanitizedPath.isEmpty else {
+            return "Invalid file path"
+        }
+        
+        // Check if file exists and is readable
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sanitizedPath) else {
+            return "File does not exist: \(sanitizedPath)"
+        }
+        
+        guard fileManager.isReadableFile(atPath: sanitizedPath) else {
+            return "File is not readable: \(sanitizedPath)"
+        }
+        
         let core = PlueCore.shared
-        core.handleEvent(.fileOpened(path))
-        return "Opened file: \(path)"
+        core.handleEvent(.fileOpened(sanitizedPath))
+        return "Opened file: \(sanitizedPath)"
     }
     
     @objc func saveCurrentFile() -> String {
@@ -149,6 +177,45 @@ import Foundation
         }
         
         return nil
+    }
+    
+    // MARK: - Security and Sanitization
+    
+    private func sanitizeCommand(_ command: String) -> String {
+        // Remove leading/trailing whitespace
+        var sanitized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Escape special characters for AppleScript
+        // First escape backslashes, then quotes
+        sanitized = sanitized.replacingOccurrences(of: "\\", with: "\\\\")
+        sanitized = sanitized.replacingOccurrences(of: "\"", with: "\\\"")
+        
+        // Escape other potentially dangerous characters
+        sanitized = sanitized.replacingOccurrences(of: "`", with: "\\`")
+        sanitized = sanitized.replacingOccurrences(of: "$", with: "\\$")
+        sanitized = sanitized.replacingOccurrences(of: "!", with: "\\!")
+        
+        // Limit command length to prevent buffer overflow attacks
+        let maxLength = 1000
+        if sanitized.count > maxLength {
+            sanitized = String(sanitized.prefix(maxLength))
+        }
+        
+        return sanitized
+    }
+    
+    private func sanitizePath(_ path: String) -> String {
+        // Remove leading/trailing whitespace
+        var sanitized = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Resolve path to absolute path and remove any path traversal attempts
+        if !sanitized.isEmpty {
+            let expandedPath = NSString(string: sanitized).expandingTildeInPath
+            let url = URL(fileURLWithPath: expandedPath)
+            sanitized = url.standardized.path
+        }
+        
+        return sanitized
     }
 }
 
