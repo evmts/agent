@@ -38,7 +38,8 @@ let package = Package(
             exclude: ["Info.plist", "UnifiedMessageBubbleDocumentation.md"],
             resources: [
                 .process("Plue.sdef"),
-                .copy("../../Resources/Plue.icns")
+                .copy("../../Resources/Plue.icns"),
+                .process("TerminalShaders.metal")
             ],
             linkerSettings: [
                 .unsafeFlags(["-Lzig-out/lib", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lterminal"])

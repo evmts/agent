@@ -13,8 +13,8 @@ struct TerminalView: View {
             // Terminal Header
             terminalHeader
             
-            // Terminal Emulator (proper grid-based terminal)
-            TerminalEmulator(
+            // Metal Terminal View (hardware-accelerated rendering)
+            MetalTerminalView(
                 inputText: $inputText,
                 onError: { error in
                     terminalError = error
