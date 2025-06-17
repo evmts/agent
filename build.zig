@@ -107,13 +107,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Create Ghostty stubs module for fallback when not using Nix
-    const ghostty_stubs_mod = b.createModule(.{
-        .root_source_file = b.path("src/ghostty_stubs.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     // Create unified terminal module - our production terminal implementation
     const terminal_mod = b.createModule(.{
         .root_source_file = b.path("src/terminal.zig"),
@@ -184,14 +177,7 @@ pub fn build(b: *std.Build) void {
             ghostty_terminal_lib.addIncludePath(.{ .cwd_relative = inc_path });
         }
     } else {
-        // No Ghostty library available, compile and link stubs
-        const ghostty_stubs_lib = b.addStaticLibrary(.{
-            .name = "ghostty_stubs",
-            .root_module = ghostty_stubs_mod,
-        });
-        ghostty_terminal_lib.linkLibrary(ghostty_stubs_lib);
-        // Also install the stubs library so it can be linked
-        b.installArtifact(ghostty_stubs_lib);
+        std.log.warn("Ghostty lib is not available. Some functionality may not work");
     }
 
     // This declares intent for the library to be installed into the standard
