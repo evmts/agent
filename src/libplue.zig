@@ -1,8 +1,9 @@
 const std = @import("std");
 const ghostty_terminal = @import("ghostty_terminal");
 const terminal = @import("terminal");
-const AppState = @import("state/state.zig");
-const cstate = @import("state/cstate.zig");
+const state_mod = @import("state");
+const AppState = state_mod.AppState;
+const cstate = state_mod.cstate;
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -28,7 +29,6 @@ export fn plue_deinit() void {
 /// Returns: CAppState struct - caller MUST call plue_free_state() when done
 export fn plue_get_state() AppState.CAppState {
     const state = app_state orelse return std.mem.zeroes(AppState.CAppState);
-
     return state.toCAppState() catch return std.mem.zeroes(AppState.CAppState);
 }
 
@@ -46,7 +46,7 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
     const data = std.mem.span(data_ptr);
 
     // Create event data
-    var event = AppState.Event{
+    var event = state_mod.Event{
         .type = @enumFromInt(event_type),
     };
 
@@ -57,30 +57,45 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
         event.string_value = data;
     }
 
+    // Process the event
     state.process(&event) catch return -1;
     return 0;
 }
 
-/// Process message and return response (deprecated, use plue_process_event)
-/// Returns: owned null-terminated string - caller MUST call plue_free_string()
-export fn plue_process_message(message: ?[*:0]const u8) ?[*:0]const u8 {
-    const msg_ptr = message orelse return null;
-    const msg = std.mem.span(msg_ptr);
-    if (msg.len == 0 or msg.len > 10 * 1024) {
-        return null;
-    }
-    const allocator = gpa.allocator();
-    const response = std.fmt.allocPrintZ(allocator, "Echo: {s}", .{msg}) catch return null;
-    return response.ptr;
+/// Get error message from last operation
+export fn plue_get_error() ?[*:0]const u8 {
+    return null; // TODO: Implement error tracking
 }
 
-/// Free string allocated by plue functions
-export fn plue_free_string(str: [*:0]const u8) void {
-    gpa.allocator().free(std.mem.span(str));
+// Terminal functions
+export fn terminal_init() c_int {
+    return terminal.terminal_init();
 }
 
-// Re-export Ghostty terminal functions for Swift FFI
-pub usingnamespace ghostty_terminal;
+export fn terminal_start() c_int {
+    return terminal.terminal_start();
+}
 
-// Re-export unified terminal functions for Swift FFI
-pub usingnamespace terminal;
+export fn terminal_stop() void {
+    terminal.terminal_stop();
+}
+
+export fn terminal_deinit() void {
+    terminal.terminal_deinit();
+}
+
+export fn terminal_send_text(text: [*:0]const u8) void {
+    terminal.terminal_send_text(text);
+}
+
+export fn terminal_resize(cols: c_ushort, rows: c_ushort) void {
+    terminal.terminal_resize(cols, rows);
+}
+
+export fn terminal_get_fd() c_int {
+    return terminal.terminal_get_fd();
+}
+
+export fn terminal_read(buffer: [*]u8, size: usize) isize {
+    return terminal.terminal_read(buffer, size);
+}

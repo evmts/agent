@@ -6,7 +6,7 @@ const VimState = @import("vim_state.zig");
 const AgentState = @import("agent_state.zig");
 
 // Core application state
-const AppState = @This();
+pub const AppState = @This();
 
 // A C compatible version of AppState
 const cstate = @import("cstate.zig");
