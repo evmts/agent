@@ -330,6 +330,7 @@ struct ModernChatView: View {
                 Text("Welcome to Plue")
                     .font(.system(size: 22, weight: .medium, design: .rounded))
                     .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
+                    .accessibilityIdentifier(AccessibilityIdentifiers.chatWelcomeTitle)
                 
                 Text("Start a conversation to begin")
                     .font(.system(size: 13, weight: .regular))
@@ -413,6 +414,7 @@ struct ModernChatView: View {
                         .font(.system(size: 13))
                         .lineLimit(1...5)
                         .focused($isInputFocused)
+                        .accessibilityIdentifier(AccessibilityIdentifiers.chatInputField)
                         .onSubmit {
                             if !inputText.isEmpty {
                                 sendMessage()
@@ -458,6 +460,7 @@ struct ModernChatView: View {
                 }
                 .disabled(inputText.isEmpty)
                 .buttonStyle(PlainButtonStyle())
+                .accessibilityIdentifier(AccessibilityIdentifiers.chatSendButton)
                 .help("Send message (⏎)")
                 .opacity(inputText.isEmpty ? 0.6 : 1.0)
                 .animation(.easeInOut(duration: 0.15), value: inputText.isEmpty)

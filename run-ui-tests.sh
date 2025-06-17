@@ -1,0 +1,36 @@
+#!/bin/bash
+
+echo "🧪 Plue UI Tests Setup Instructions"
+echo "==================================="
+echo ""
+echo "UI tests for Plue need to be run through Xcode due to the hybrid Zig/Swift build system."
+echo ""
+echo "To run the UI tests:"
+echo ""
+echo "1. First, build the Zig libraries:"
+echo "   $ zig build"
+echo ""
+echo "2. Open the project in Xcode:"
+echo "   $ open Package.swift"
+echo ""
+echo "3. In Xcode:"
+echo "   - Wait for package resolution to complete"
+echo "   - Select the 'plue' scheme"
+echo "   - Choose Product > Test (⌘U)"
+echo "   - Or run specific UI tests from the Test Navigator (⌘6)"
+echo ""
+echo "The UI tests are located in Tests/PlueUITests/ and include:"
+echo "- PlueUITests.swift - Basic app launch, navigation, and chat tests"
+echo "- PlueUITestsExtended.swift - Comprehensive test coverage"
+echo "- PlueUITestsLaunchTests.swift - Launch performance tests"
+echo ""
+echo "All UI elements have been instrumented with accessibility identifiers"
+echo "for stable and maintainable tests."
+echo ""
+
+# Still build the Zig libraries as a convenience
+echo "🔨 Building Zig libraries..."
+zig build
+
+echo ""
+echo "✅ Zig libraries built. You can now open Package.swift in Xcode to run UI tests."

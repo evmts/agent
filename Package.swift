@@ -48,5 +48,10 @@ let package = Package(
             dependencies: ["plue"],
             path: "Tests/plueTests"
         ),
+        .testTarget(
+            name: "PlueUITests",
+            dependencies: [],
+            path: "Tests/PlueUITests"
+        ),
     ]
 )

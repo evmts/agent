@@ -240,6 +240,7 @@ struct AgentView: View {
                 Text("agent ready")
                     .font(DesignSystem.Typography.titleMedium)
                     .foregroundColor(DesignSystem.Colors.textPrimary)
+                    .accessibilityIdentifier(AccessibilityIdentifiers.agentWelcomeTitle)
                 
                 Text("git worktrees • dagger workflows • automation")
                     .font(DesignSystem.Typography.bodyMedium)

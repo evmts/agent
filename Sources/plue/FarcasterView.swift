@@ -105,6 +105,7 @@ struct FarcasterView: View {
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("\(AccessibilityIdentifiers.farcasterChannelPrefix)\(channel.id)")
         .onTapGesture {
             core.handleEvent(.farcasterSelectChannel(channel.id))
         }

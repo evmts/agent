@@ -220,6 +220,19 @@ struct TabButton: View {
         case .worktree: return "folder.badge.gearshape"
         }
     }
+    
+    private var accessibilityID: String {
+        switch tab {
+        case .prompt: return AccessibilityIdentifiers.tabButtonPrompt
+        case .farcaster: return AccessibilityIdentifiers.tabButtonFarcaster
+        case .agent: return AccessibilityIdentifiers.tabButtonAgent
+        case .terminal: return AccessibilityIdentifiers.tabButtonTerminal
+        case .web: return AccessibilityIdentifiers.tabButtonWeb
+        case .editor: return AccessibilityIdentifiers.tabButtonEditor
+        case .diff: return AccessibilityIdentifiers.tabButtonDiff
+        case .worktree: return AccessibilityIdentifiers.tabButtonWorktree
+        }
+    }
 
     var body: some View {
         Button(action: { 
@@ -255,6 +268,7 @@ struct TabButton: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+        .accessibilityIdentifier(accessibilityID)
         .onHover { hover in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hover

@@ -1,0 +1,48 @@
+{
+  "configurations" : [
+    {
+      "id" : "DEFAULT",
+      "name" : "Default",
+      "options" : {
+        "targetForVariableExpansion" : {
+          "containerPath" : "container:plue",
+          "identifier" : "plue",
+          "name" : "plue"
+        }
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:plue",
+          "identifier" : "plue",
+          "name" : "plue"
+        }
+      ]
+    },
+    "testExecutionOrdering" : "random",
+    "testRepetitionMode" : "none"
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:Tests/PlueUITests",
+        "identifier" : "PlueUITests",
+        "name" : "PlueUITests"
+      },
+      "testGroups" : [
+        {
+          "name" : "All UI Tests",
+          "tests" : [
+            "PlueUITests",
+            "PlueUITestsExtended",
+            "PlueUITestsLaunchTests"
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : 1
+}
