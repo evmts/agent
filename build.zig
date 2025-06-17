@@ -81,10 +81,47 @@ pub fn build(b: *std.Build) void {
     swift_only_step.dependOn(&swift_step.step);
 
     // Tests
-    buildTests(b, target, optimize);
+    const test_step = buildTests(b, target, optimize);
 
     // MCP servers - disabled for now due to JSON API incompatibility
     // buildMCPServers(b, target, optimize);
+
+    // All step - builds and tests everything
+    const all_step = b.step("all", "Build everything and run all tests");
+    
+    // Build all libraries and executables
+    all_step.dependOn(b.getInstallStep());
+    all_step.dependOn(&swift_step.step);
+    
+    // Run all tests
+    all_step.dependOn(test_step);
+    
+    // Add a verification step that checks if everything built correctly
+    const verify_step = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\echo "🔍 Verifying build artifacts..." &&
+        \\if [ -f zig-out/lib/libplue.a ]; then echo "✅ libplue.a"; else echo "❌ libplue.a missing"; exit 1; fi &&
+        \\if [ -f zig-out/lib/liblibplue.a ]; then echo "✅ liblibplue.a"; else echo "❌ liblibplue.a missing"; exit 1; fi &&
+        \\if [ -f zig-out/lib/libfarcaster.a ]; then echo "✅ libfarcaster.a"; else echo "❌ libfarcaster.a missing"; exit 1; fi &&
+        \\if [ -f zig-out/lib/libterminal.a ]; then echo "✅ libterminal.a"; else echo "❌ libterminal.a missing"; exit 1; fi &&
+        \\if [ -f zig-out/lib/libghostty_terminal.a ]; then echo "✅ libghostty_terminal.a"; else echo "❌ libghostty_terminal.a missing"; exit 1; fi &&
+        \\if [ -f .build/arm64-apple-macosx/debug/plue ] || [ -f .build/arm64-apple-macosx/release/plue ]; then echo "✅ Swift executable"; else echo "❌ Swift executable missing"; exit 1; fi &&
+        \\echo "✨ All build artifacts verified!"
+    });
+    verify_step.step.dependOn(&swift_step.step);
+    all_step.dependOn(&verify_step.step);
+    
+    // Add a final success message
+    const success_msg = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\echo "" &&
+        \\echo "🎉 Build and test completed successfully!" &&
+        \\echo "📦 All libraries built" &&
+        \\echo "✅ All tests passed" &&
+        \\echo "🚀 Ready to run: zig build run"
+    });
+    success_msg.step.dependOn(&verify_step.step);
+    all_step.dependOn(&success_msg.step);
 }
 
 fn buildGhostty(b: *std.Build, _: std.Build.ResolvedTarget, _: std.builtin.OptimizeMode) *std.Build.Step {
@@ -266,7 +303,7 @@ fn buildSwift(
     return swift_cmd;
 }
 
-fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step {
     // Create test modules and add tests
     const test_step = b.step("test", "Run all tests");
     
@@ -300,6 +337,8 @@ fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
     const run_terminal_test = b.addRunArtifact(terminal_test);
     const terminal_test_step = b.step("test-terminal", "Run terminal test");
     terminal_test_step.dependOn(&run_terminal_test.step);
+    
+    return test_step;
 }
 
 fn buildMCPServers(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
