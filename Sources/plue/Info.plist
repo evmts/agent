@@ -10,6 +10,10 @@
     <string>Plue</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
+    <key>CFBundleIconFile</key>
+    <string>Plue</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.5</string>
     <key>LSUIElement</key>
     <false/>
     <key>NSHighResolutionCapable</key>

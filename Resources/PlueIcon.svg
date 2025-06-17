@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+  
+  <!-- Background square with rounded corners -->
+  <rect x="64" y="64" width="896" height="896" rx="128" ry="128" fill="url(#bgGradient)" filter="url(#shadow)"/>
+  
+  <!-- Letter P -->
+  <path d="M 256 320 L 256 704 L 336 704 L 336 544 L 456 544 C 536 544 576 504 576 424 L 576 420 C 576 340 536 300 456 300 L 256 300 Z M 336 380 L 456 380 C 476 380 496 400 496 420 L 496 424 C 496 444 476 464 456 464 L 336 464 Z" fill="white" opacity="0.95"/>
+  
+  <!-- Plus symbol (stylized as part of "Plue") -->
+  <path d="M 640 400 L 640 480 L 560 480 L 560 544 L 640 544 L 640 624 L 704 624 L 704 544 L 784 544 L 784 480 L 704 480 L 704 400 L 640 400 Z" fill="white" opacity="0.95"/>
+  
+  <!-- Small decorative element -->
+  <circle cx="512" cy="768" r="32" fill="white" opacity="0.6"/>
+</svg>

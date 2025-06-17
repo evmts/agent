@@ -5,6 +5,10 @@ import PackageDescription
 
 let package = Package(
     name: "plue",
+    defaultLocalization: "en",
+    products: [
+        .executable(name: "plue", targets: ["plue"]),
+    ],
     platforms: [
         .macOS(.v14)
     ],
@@ -33,10 +37,15 @@ let package = Package(
             ],
             exclude: ["Info.plist", "UnifiedMessageBubbleDocumentation.md"],
             resources: [
-                .process("Plue.sdef")
+                .process("Plue.sdef"),
+                .copy("../../Resources/Plue.icns")
             ],
             linkerSettings: [
                 .unsafeFlags(["-Lzig-out/lib", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lterminal"])
             ]),
+        .testTarget(
+            name: "plueTests",
+            dependencies: ["plue"]
+        ),
     ]
 )
