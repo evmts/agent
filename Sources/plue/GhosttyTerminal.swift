@@ -1,34 +1,7 @@
 import Foundation
 
 // MARK: - Ghostty Terminal C Function Imports
-// These functions are provided by the Zig ghostty_terminal module
-
-@_silgen_name("ghostty_terminal_init") 
-func ghostty_terminal_init() -> Int32
-
-@_silgen_name("ghostty_terminal_deinit") 
-func ghostty_terminal_deinit()
-
-@_silgen_name("ghostty_terminal_create_surface") 
-func ghostty_terminal_create_surface() -> Int32
-
-@_silgen_name("ghostty_terminal_set_size") 
-func ghostty_terminal_set_size(_ width: UInt32, _ height: UInt32, _ scale: Double)
-
-@_silgen_name("ghostty_terminal_send_key") 
-func ghostty_terminal_send_key(_ key: UnsafePointer<CChar>, _ modifiers: UInt32, _ action: Int32)
-
-@_silgen_name("ghostty_terminal_write") 
-func ghostty_terminal_write(_ data: UnsafePointer<UInt8>, _ len: Int) -> Int
-
-@_silgen_name("ghostty_terminal_read") 
-func ghostty_terminal_read(_ buffer: UnsafeMutablePointer<UInt8>, _ bufferLen: Int) -> Int
-
-@_silgen_name("ghostty_terminal_draw") 
-func ghostty_terminal_draw()
-
-@_silgen_name("ghostty_terminal_send_text") 
-func ghostty_terminal_send_text(_ text: UnsafePointer<CChar>)
+// These functions are defined in GhosttyTerminalSurfaceView.swift to avoid duplicate symbols
 
 // MARK: - Swift-friendly wrapper class
 
