@@ -42,7 +42,7 @@ let package = Package(
                 .process("TerminalShaders.metal")
             ],
             linkerSettings: [
-                .unsafeFlags(["-Lzig-out/lib", "-llibplue", "-lfarcaster", "-lghostty_terminal", "-lterminal"])
+                .unsafeFlags(["-Lzig-out/lib", "-llibplue", "-lfarcaster", "-lghostty", "-lghostty_terminal", "-lterminal"])
             ]),
         .testTarget(
             name: "plueTests",

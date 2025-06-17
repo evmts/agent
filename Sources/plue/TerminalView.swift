@@ -21,7 +21,7 @@ struct TerminalView: View {
                     terminalOutput += output
                 }
             )
-            .background(PlueTerminalColors.defaultBackground)
+            .background(Color(red: 40.0/255.0, green: 44.0/255.0, blue: 52.0/255.0))
             .cornerRadius(8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
@@ -37,7 +37,7 @@ struct TerminalView: View {
                     .padding(.horizontal)
             }
         }
-        .background(PlueTerminalColors.defaultBackground)
+        .background(Color(red: 40.0/255.0, green: 44.0/255.0, blue: 52.0/255.0))
         .alert("Terminal Error", isPresented: .constant(terminalError != nil)) {
             Button("OK") { terminalError = nil }
         } message: {
