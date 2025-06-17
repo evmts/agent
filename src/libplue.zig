@@ -9,6 +9,10 @@ const cstate = state_mod.cstate;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var app_state: ?*AppState = null;
 
+/// Callback function type for state updates
+pub const StateUpdateCallback = ?*const fn () callconv(.C) void;
+var state_update_callback: StateUpdateCallback = null;
+
 /// Initialize the global state
 export fn plue_init() c_int {
     const allocator = gpa.allocator();
@@ -59,12 +63,28 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
 
     // Process the event
     state.process(&event) catch return -1;
+    
+    // Notify Swift of state change
+    notifyStateChange();
+    
     return 0;
 }
 
 /// Get error message from last operation
 export fn plue_get_error() ?[*:0]const u8 {
     return null; // TODO: Implement error tracking
+}
+
+/// Register a callback for state updates
+export fn plue_register_state_callback(callback: StateUpdateCallback) void {
+    state_update_callback = callback;
+}
+
+/// Notify Swift of state changes
+pub fn notifyStateChange() void {
+    if (state_update_callback) |callback| {
+        callback();
+    }
 }
 
 // Terminal functions
