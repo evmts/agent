@@ -10,10 +10,10 @@ func plue_init() -> Int32
 func plue_deinit()
 
 @_silgen_name("plue_get_state")
-func plue_get_state() -> CAppState
+func plue_get_state() -> UnsafeMutablePointer<CAppState>?
 
 @_silgen_name("plue_free_state")
-func plue_free_state(_ state: CAppState)
+func plue_free_state(_ state: UnsafeMutablePointer<CAppState>?)
 
 @_silgen_name("plue_process_event")
 func plue_process_event(_ eventType: Int32, _ jsonData: UnsafePointer<CChar>?) -> Int32
@@ -106,8 +106,10 @@ class LivePlueCore: PlueCoreInterface {
     // MARK: - Private Methods
     
     private func fetchStateFromZig() -> AppState? {
-        let cState = plue_get_state()
-        defer { plue_free_state(cState) }
+        guard let cStatePtr = plue_get_state() else { return nil }
+        defer { plue_free_state(cStatePtr) }
+        
+        let cState = cStatePtr.pointee
         
         // Convert C strings to Swift strings safely
         let errorMessage = cState.error_message != nil && String(cString: cState.error_message).isEmpty == false 

@@ -9,6 +9,7 @@ const cstate = state_mod.cstate;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var app_state: ?*AppState = null;
 var is_initialized = false;
+var state_mutex = std.Thread.Mutex{};
 
 // Global variables to store the callback and its context
 var state_update_callback: ?*const fn(?*anyopaque) callconv(.C) void = null;
@@ -42,24 +43,48 @@ export fn plue_deinit() void {
 }
 
 /// Get current state as C struct
-/// Returns: CAppState struct - caller MUST call plue_free_state() when done
-export fn plue_get_state() AppState.CAppState {
-    const state = app_state orelse return std.mem.zeroes(AppState.CAppState);
-    return state.toCAppState() catch return std.mem.zeroes(AppState.CAppState);
+/// Returns: Pointer to CAppState - caller MUST call plue_free_state() when done
+export fn plue_get_state() ?*AppState.CAppState {
+    state_mutex.lock();
+    defer state_mutex.unlock();
+    
+    const state = app_state orelse return null;
+    
+    // Allocate CAppState on heap
+    const c_state = gpa.allocator().create(AppState.CAppState) catch return null;
+    c_state.* = state.toCAppState() catch {
+        gpa.allocator().destroy(c_state);
+        return null;
+    };
+    
+    return c_state;
 }
 
 /// Free resources allocated in CAppState
-export fn plue_free_state(c_state: AppState.CAppState) void {
+export fn plue_free_state(c_state: ?*AppState.CAppState) void {
+    state_mutex.lock();
+    defer state_mutex.unlock();
+    
+    const state_ptr = c_state orelse return;
+    
     if (!is_initialized) {
         return;
     }
-    var mutable_state = c_state;
+    
+    // Free the contents
+    var mutable_state = state_ptr.*;
     cstate.deinit(&mutable_state, gpa.allocator());
+    
+    // Free the struct itself
+    gpa.allocator().destroy(state_ptr);
 }
 
 /// Process an event with JSON data
 /// Returns: 0 on success, -1 on error
 export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int {
+    state_mutex.lock();
+    defer state_mutex.unlock();
+    
     const state = app_state orelse return -1;
     const data_ptr = json_data orelse return -1;
     const data = std.mem.span(data_ptr);

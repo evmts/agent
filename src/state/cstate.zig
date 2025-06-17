@@ -95,4 +95,7 @@ pub fn deinit(self: *CAppState, allocator: std.mem.Allocator) void {
     allocator.free(std.mem.span(self.farcaster.selected_channel));
     allocator.free(std.mem.span(self.editor.file_path));
     allocator.free(std.mem.span(self.editor.content));
+    
+    // Clear pointers to prevent double-free
+    self.* = std.mem.zeroes(CAppState);
 }
