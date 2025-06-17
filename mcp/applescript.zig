@@ -151,15 +151,14 @@ pub const AppleScriptMcpServer = struct {
             },
         };
 
-        var response_json = try json.valueFromType(self.allocator, InitializeResult, result);
-        defer response_json.deinit(self.allocator);
+        const response_json = try json.Value.fromStruct(result, self.allocator);
 
         const response = JsonRpcResponse{
-            .result = response_json.value,
+            .result = response_json,
             .id = request.id,
         };
 
-        return json.parseFromValue(JsonRpcResponse, self.allocator, try json.valueFromType(self.allocator, JsonRpcResponse, response).value, .{});
+        return response;
     }
 
     fn handleListTools(self: *AppleScriptMcpServer, request: JsonRpcRequest) !json.Parsed(JsonRpcResponse) {
@@ -223,7 +222,7 @@ pub const AppleScriptMcpServer = struct {
             .id = request.id,
         };
 
-        return json.parseFromValue(JsonRpcResponse, self.allocator, try json.valueFromType(self.allocator, JsonRpcResponse, response).value, .{});
+        return response;
     }
 
     fn handleCallTool(self: *AppleScriptMcpServer, request: JsonRpcRequest) !json.Parsed(JsonRpcResponse) {
@@ -264,14 +263,14 @@ pub const AppleScriptMcpServer = struct {
             .id = request.id,
         };
 
-        return json.parseFromValue(JsonRpcResponse, self.allocator, try json.valueFromType(self.allocator, JsonRpcResponse, response).value, .{});
+        return response;
     }
 
     fn executeAppleScript(self: *AppleScriptMcpServer, code: []const u8, timeout: u64) ![]u8 {
         _ = timeout; // TODO: Implement timeout
         
         // Create a temporary file for the AppleScript
-        const tmp_dir = std.fs.tmpDir(.{});
+        const tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch return error.TmpDirAccessFailed;
         const tmp_name = try std.fmt.allocPrint(self.allocator, "applescript_{d}.scpt", .{std.time.milliTimestamp()});
         defer self.allocator.free(tmp_name);
 
@@ -308,7 +307,7 @@ pub const AppleScriptMcpServer = struct {
             .id = id,
         };
 
-        return json.parseFromValue(JsonRpcResponse, self.allocator, try json.valueFromType(self.allocator, JsonRpcResponse, response).value, .{});
+        return response;
     }
 
     fn log(self: *AppleScriptMcpServer, comptime format: []const u8, args: anytype) void {
