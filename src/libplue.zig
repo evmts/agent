@@ -1,16 +1,17 @@
 const std = @import("std");
 const ghostty_terminal = @import("ghostty_terminal");
 const terminal = @import("terminal");
-const app = @import("app.zig");
+const AppState = @import("state/state.zig");
+const cstate = @import("state/cstate.zig");
 
 /// Simple global state - just use GPA directly
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var app_state: ?*app = null;
+var app_state: ?*AppState = null;
 
 /// Initialize the global state
 export fn plue_init() c_int {
     const allocator = gpa.allocator();
-    app_state = app.init(allocator) catch return -1;
+    app_state = AppState.init(allocator) catch return -1;
     return 0;
 }
 
@@ -25,16 +26,16 @@ export fn plue_deinit() void {
 
 /// Get current state as C struct
 /// Returns: CAppState struct - caller MUST call plue_free_state() when done
-export fn plue_get_state() app.CAppState {
-    const state = app_state orelse return std.mem.zeroes(app.CAppState);
-    const allocator = gpa.allocator();
+export fn plue_get_state() AppState.CAppState {
+    const state = app_state orelse return std.mem.zeroes(AppState.CAppState);
 
-    return state.toCApp(allocator) catch return std.mem.zeroes(app.CAppState);
+    return state.toCAppState() catch return std.mem.zeroes(AppState.CAppState);
 }
 
 /// Free resources allocated in CAppState
-export fn plue_free_state(c_state: app.CAppState) void {
-    app.freeCApp(c_state, gpa.allocator());
+export fn plue_free_state(c_state: AppState.CAppState) void {
+    var mutable_state = c_state;
+    cstate.deinit(&mutable_state, gpa.allocator());
 }
 
 /// Process an event with JSON data
@@ -45,7 +46,7 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
     const data = std.mem.span(data_ptr);
 
     // Create event data
-    var event = app.EventData{
+    var event = AppState.Event{
         .type = @enumFromInt(event_type),
     };
 
@@ -56,7 +57,7 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
         event.string_value = data;
     }
 
-    app.processEvent(state, event) catch return -1;
+    state.process(&event) catch return -1;
     return 0;
 }
 
