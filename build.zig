@@ -64,8 +64,16 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(&swift_step.step);
     run_step.dependOn(&run_cmd.step);
 
-    // Dev step with file watching
-    const dev_step = b.step("dev", "Run in development mode with hot reload");
+    // Dev step - just run the app in debug mode
+    const dev_step = b.step("dev", "Build and run in development mode");
+    const dev_cmd = b.addSystemCommand(&.{
+        ".build/arm64-apple-macosx/debug/plue",
+    });
+    dev_cmd.step.dependOn(&swift_step.step);
+    dev_step.dependOn(&dev_cmd.step);
+    
+    // Watch step with file watching (renamed from dev)
+    const watch_step = b.step("watch", "Run development server with file watching");
     const dev_server = b.addExecutable(.{
         .name = "dev_server",
         .root_source_file = b.path("dev_server.zig"),
@@ -74,7 +82,7 @@ pub fn build(b: *std.Build) void {
     });
     const run_dev_server = b.addRunArtifact(dev_server);
     run_dev_server.addArg(b.build_root.path orelse ".");
-    dev_step.dependOn(&run_dev_server.step);
+    watch_step.dependOn(&run_dev_server.step);
 
     // Swift-only step
     const swift_only_step = b.step("swift", "Build only the Swift application");
