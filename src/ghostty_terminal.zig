@@ -25,8 +25,16 @@ export fn ghostty_terminal_init() c_int {
         return -1;
     }
     
+    // Create config
+    const config = c.ghostty_config_new();
+    if (config == null) {
+        std.log.err("Failed to create Ghostty config", .{});
+        return -1;
+    }
+    defer c.ghostty_config_free(config);
+    
     // Create the Ghostty app instance
-    terminal_state.app = c.ghostty_app_new(null);
+    terminal_state.app = c.ghostty_app_new(null, config);
     if (terminal_state.app == null) {
         std.log.err("Failed to create Ghostty app", .{});
         return -1;
@@ -72,31 +80,42 @@ export fn ghostty_terminal_create_surface() c_int {
 
 /// Set the terminal surface size
 export fn ghostty_terminal_set_size(width: c_uint, height: c_uint, scale: f64) void {
+    _ = scale; // Scale might be handled differently in ghostty
     if (terminal_state.surface) |surface| {
-        c.ghostty_surface_set_size(surface, width, height, scale);
+        c.ghostty_surface_set_size(surface, width, height);
     }
 }
 
 /// Send key input to the terminal
 export fn ghostty_terminal_send_key(key: [*:0]const u8, modifiers: c_uint, action: c_int) void {
-    if (terminal_state.surface) |surface| {
-        c.ghostty_surface_key(surface, key, modifiers, action, null);
-    }
+    _ = key;
+    _ = modifiers;
+    _ = action;
+    // TODO: Implement proper key input handling with ghostty_input_key_s struct
+    // For now, we'll use the text input method instead
 }
 
 /// Write data to the terminal PTY
 export fn ghostty_terminal_write(data: [*]const u8, len: usize) usize {
     if (terminal_state.surface) |surface| {
-        return c.ghostty_surface_write_to_pty(surface, data, len);
+        // Create a null-terminated string
+        var buf: [4096]u8 = undefined;
+        const copy_len = @min(len, buf.len - 1);
+        @memcpy(buf[0..copy_len], data[0..copy_len]);
+        buf[copy_len] = 0;
+        
+        c.ghostty_surface_text(surface, &buf, copy_len);
+        return copy_len;
     }
     return 0;
 }
 
 /// Read data from the terminal PTY
 export fn ghostty_terminal_read(buffer: [*]u8, buffer_len: usize) usize {
-    if (terminal_state.surface) |surface| {
-        return c.ghostty_surface_read_from_pty(surface, buffer, buffer_len);
-    }
+    _ = buffer;
+    _ = buffer_len;
+    // TODO: Implement reading from terminal
+    // The ghostty API might not expose direct PTY reading
     return 0;
 }
 
@@ -111,6 +130,6 @@ export fn ghostty_terminal_draw() void {
 export fn ghostty_terminal_send_text(text: [*:0]const u8) void {
     if (terminal_state.surface) |surface| {
         const len = std.mem.len(text);
-        _ = c.ghostty_surface_write_to_pty(surface, @ptrCast(text), len);
+        c.ghostty_surface_text(surface, text, len);
     }
 }
