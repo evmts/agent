@@ -53,7 +53,10 @@ pub fn process(event: *const Event, state: *AppState) !void {
     switch (event.type) {
         .tab_switched => {
             if (event.int_value) |tab_index| {
+                std.debug.print("Tab switch event received: {}\n", .{tab_index});
                 state.current_tab = @enumFromInt(tab_index);
+            } else {
+                std.log.warn("Tab switch event received without tab index", .{});
             }
         },
         .theme_toggled => {
@@ -89,7 +92,14 @@ pub fn process(event: *const Event, state: *AppState) !void {
                 const new_message = try state.allocator.dupe(u8, message);
                 state.allocator.free(state.prompt.last_message);
                 state.prompt.last_message = new_message;
-                // In production, this would trigger OpenAI API call
+                
+                // TODO: In production, this would trigger OpenAI API call
+                // For now, simulate a response after a short delay
+                // We'll need to add a timer system for this
+                
+                // Temporarily set processing to false after storing the message
+                // In a real implementation, this would be set to false after receiving AI response
+                state.prompt.processing = false;
             }
         },
         .agent_message_sent => {

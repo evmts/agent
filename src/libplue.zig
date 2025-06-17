@@ -82,6 +82,8 @@ export fn plue_free_state(c_state: ?*AppState.CAppState) void {
 /// Process an event with JSON data
 /// Returns: 0 on success, -1 on error
 export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int {
+    std.debug.print("plue_process_event called with type: {}, data: {s}\n", .{event_type, if (json_data) |d| std.mem.span(d) else "null"});
+    
     state_mutex.lock();
     defer state_mutex.unlock();
     
@@ -97,8 +99,14 @@ export fn plue_process_event(event_type: c_int, json_data: ?[*:0]const u8) c_int
     // Parse additional JSON data if provided
     if (data.len > 0) {
         // For simple string values, just use the data directly
-        // In a real implementation, we'd parse JSON properly
         event.string_value = data;
+        
+        // Try to parse as integer for tab switching and other int-based events
+        if (event.type == .tab_switched or 
+            event.type == .prompt_select_conversation or
+            event.type == .agent_select_conversation) {
+            event.int_value = std.fmt.parseInt(i32, data, 10) catch null;
+        }
     }
 
     // Process the event
@@ -126,7 +134,10 @@ export fn plue_register_state_callback(
 // In any function that mutates state and needs to notify Swift...
 fn notify_swift_of_state_change() void {
     if (state_update_callback) |cb| {
+        std.debug.print("Notifying Swift of state change\n", .{});
         cb(swift_callback_context);
+    } else {
+        std.log.warn("No Swift callback registered", .{});
     }
 }
 

@@ -64,6 +64,7 @@ typedef enum {
 typedef struct {
     _Bool processing;
     const char* current_content;
+    const char* last_message;
 } CPromptState;
 
 typedef struct {
@@ -94,6 +95,18 @@ typedef struct {
     _Bool dagger_connected;
 } CAgentState;
 
+typedef struct {
+    const char* selected_channel;
+    _Bool is_loading;
+    _Bool is_posting;
+} CFarcasterState;
+
+typedef struct {
+    const char* file_path;
+    const char* content;
+    _Bool is_modified;
+} CEditorState;
+
 // Main application state
 typedef struct {
     TabType current_tab;
@@ -107,21 +120,23 @@ typedef struct {
     CWebState web;
     CVimState vim;
     CAgentState agent;
+    CFarcasterState farcaster;
+    CEditorState editor;
 } CAppState;
 
 /**
  * Get current application state as C struct.
  * 
- * @return CAppState struct (must call plue_free_state when done)
+ * @return Pointer to CAppState (must call plue_free_state when done), or NULL on error
  */
-CAppState plue_get_state(void);
+CAppState* plue_get_state(void);
 
 /**
  * Free resources allocated in CAppState.
  * 
- * @param state The state struct to free
+ * @param state Pointer to the state struct to free
  */
-void plue_free_state(CAppState state);
+void plue_free_state(CAppState* state);
 
 /**
  * Process an event with optional JSON data.

@@ -44,6 +44,7 @@ pub fn fromApp(app: *const AppState) !CAppState {
         .prompt = .{
             .processing = app.prompt.processing,
             .current_content = try toNullTerminated(app.allocator, app.prompt.current_content),
+            .last_message = try toNullTerminated(app.allocator, app.prompt.last_message),
         },
         .terminal = .{
             .rows = app.terminal.rows,
@@ -87,6 +88,7 @@ pub fn deinit(self: *CAppState, allocator: std.mem.Allocator) void {
     // Always free error_message since we always allocate it now
     allocator.free(std.mem.span(self.error_message));
     allocator.free(std.mem.span(self.prompt.current_content));
+    allocator.free(std.mem.span(self.prompt.last_message));
     allocator.free(std.mem.span(self.terminal.content));
     allocator.free(std.mem.span(self.web.current_url));
     allocator.free(std.mem.span(self.web.page_title));

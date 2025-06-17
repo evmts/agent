@@ -117,9 +117,44 @@ class LivePlueCore: PlueCoreInterface {
             : nil
             
         // Create prompt state
+        // For now, create a simple conversation with the last message if any
+        var conversations = PromptState.initial.conversations
+        let lastMessage = String(cString: cState.prompt.last_message)
+        if !lastMessage.isEmpty {
+            var messages = conversations[0].messages
+            
+            // Add user message
+            messages.append(PromptMessage(
+                id: UUID().uuidString,
+                content: lastMessage,
+                type: .user,
+                timestamp: Date(),
+                promptSnapshot: nil
+            ))
+            
+            // Add mock assistant response if not processing
+            if !cState.prompt.processing {
+                messages.append(PromptMessage(
+                    id: UUID().uuidString,
+                    content: "I received your message: '\(lastMessage)'. This is a mock response - OpenAI integration coming soon!",
+                    type: .assistant,
+                    timestamp: Date(),
+                    promptSnapshot: nil
+                ))
+            }
+            
+            conversations[0] = PromptConversation(
+                id: conversations[0].id,
+                messages: messages,
+                createdAt: conversations[0].createdAt,
+                updatedAt: Date(),
+                associatedPromptContent: conversations[0].associatedPromptContent
+            )
+        }
+        
         let promptState = PromptState(
-            conversations: PromptState.initial.conversations,
-            currentConversationIndex: PromptState.initial.currentConversationIndex,
+            conversations: conversations,
+            currentConversationIndex: 0,
             currentPromptContent: String(cString: cState.prompt.current_content),
             isProcessing: cState.prompt.processing
         )
@@ -212,6 +247,8 @@ class LivePlueCore: PlueCoreInterface {
         let eventType = eventTypeFromAppEvent(event)
         let eventData = eventDataFromAppEvent(event)
         
+        print("LivePlueCore: Sending event \(event) with type \(eventType) and data: \(eventData ?? "nil")")
+        
         var result: Int32 = 0
         if let data = eventData {
             data.withCString { cString in
@@ -223,12 +260,19 @@ class LivePlueCore: PlueCoreInterface {
         
         if result != 0 {
             print("LivePlueCore: Failed to process event: \(event)")
+        } else {
+            print("LivePlueCore: Successfully processed event: \(event)")
         }
     }
     
     private func notifyStateChange() {
-        guard let state = fetchStateFromZig() else { return }
+        print("LivePlueCore: notifyStateChange called")
+        guard let state = fetchStateFromZig() else { 
+            print("LivePlueCore: Failed to fetch state from Zig")
+            return 
+        }
         
+        print("LivePlueCore: Notifying \(self.stateCallbacks.count) callbacks with tab: \(state.currentTab)")
         DispatchQueue.main.async {
             for callback in self.stateCallbacks {
                 callback(state)

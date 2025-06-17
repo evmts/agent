@@ -7,4 +7,5 @@ current_conversation_index: u32 = 0,
 pub const CPromptState = extern struct {
     processing: bool,
     current_content: [*:0]const u8,
+    last_message: [*:0]const u8,
 };
