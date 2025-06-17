@@ -4,6 +4,8 @@ const TerminalState = @import("terminal_state.zig");
 const WebState = @import("web_state.zig");
 const VimState = @import("vim_state.zig");
 const AgentState = @import("agent_state.zig");
+const FarcasterState = @import("farcaster_state.zig");
+const EditorState = @import("editor_state.zig");
 const AppState = @import("state.zig");
 
 pub const CAppState = extern struct {
@@ -18,6 +20,8 @@ pub const CAppState = extern struct {
     web: WebState.CWebState,
     vim: VimState.CVimState,
     agent: AgentState.CAgentState,
+    farcaster: FarcasterState.CFarcasterState,
+    editor: EditorState.CEditorState,
 };
 
 // C-compatible application state
@@ -34,7 +38,7 @@ pub fn fromApp(app: *const AppState) !CAppState {
     return CAppState{
         .current_tab = app.current_tab,
         .is_initialized = app.is_initialized,
-        .error_message = if (app.error_message) |msg| try toNullTerminated(app.allocator, msg) else @as([*:0]const u8, @ptrCast("")),
+        .error_message = if (app.error_message) |msg| try toNullTerminated(app.allocator, msg) else try toNullTerminated(app.allocator, ""),
         .openai_available = app.openai_available,
         .current_theme = app.current_theme,
         .prompt = .{
@@ -65,19 +69,30 @@ pub fn fromApp(app: *const AppState) !CAppState {
             .processing = app.agent.processing,
             .dagger_connected = app.agent.dagger_connected,
         },
+        .farcaster = .{
+            .selected_channel = try toNullTerminated(app.allocator, app.farcaster.selected_channel),
+            .is_loading = app.farcaster.is_loading,
+            .is_posting = app.farcaster.is_posting,
+        },
+        .editor = .{
+            .file_path = try toNullTerminated(app.allocator, app.editor.file_path),
+            .content = try toNullTerminated(app.allocator, app.editor.content),
+            .is_modified = app.editor.is_modified,
+        },
     };
 }
 
 pub fn deinit(self: *CAppState, allocator: std.mem.Allocator) void {
     // Free all allocated strings
-    // Check if error_message is not the empty string literal
-    if (std.mem.span(self.error_message).len > 0) {
-        allocator.free(std.mem.span(self.error_message));
-    }
+    // Always free error_message since we always allocate it now
+    allocator.free(std.mem.span(self.error_message));
     allocator.free(std.mem.span(self.prompt.current_content));
     allocator.free(std.mem.span(self.terminal.content));
     allocator.free(std.mem.span(self.web.current_url));
     allocator.free(std.mem.span(self.web.page_title));
     allocator.free(std.mem.span(self.vim.content));
     allocator.free(std.mem.span(self.vim.status_line));
+    allocator.free(std.mem.span(self.farcaster.selected_channel));
+    allocator.free(std.mem.span(self.editor.file_path));
+    allocator.free(std.mem.span(self.editor.content));
 }
