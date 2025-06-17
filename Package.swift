@@ -6,11 +6,11 @@ import PackageDescription
 let package = Package(
     name: "plue",
     defaultLocalization: "en",
-    products: [
-        .executable(name: "plue", targets: ["plue"]),
-    ],
     platforms: [
         .macOS(.v14)
+    ],
+    products: [
+        .executable(name: "plue", targets: ["plue"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
