@@ -21,29 +21,43 @@ func plue_process_event(_ eventType: Int32, _ jsonData: UnsafePointer<CChar>?) -
 @_silgen_name("plue_free_string")
 func plue_free_string(_ str: UnsafePointer<CChar>)
 
+@_silgen_name("plue_register_state_callback")
+func plue_register_state_callback(_ callback: @convention(c) () -> Void)
+
 // MARK: - Live FFI Implementation
 
 class LivePlueCore: PlueCoreInterface {
     private var stateCallbacks: [(AppState) -> Void] = []
     private let queue = DispatchQueue(label: "plue.core.live", qos: .userInteractive)
-    private var pollTimer: Timer?
+    private static var sharedInstance: LivePlueCore?
     
     init() {
+        // Store reference for callback
+        Self.sharedInstance = self
+        
         // Initialize the Zig core
         let result = plue_init()
         if result != 0 {
             print("LivePlueCore: Failed to initialize Zig core: \(result)")
         } else {
             print("LivePlueCore: Successfully initialized with Zig FFI")
+            
+            // Register state change callback
+            plue_register_state_callback(Self.stateUpdateCallback)
         }
-        
-        // Start polling for state changes
-        startStatePolling()
     }
     
     deinit {
-        stopStatePolling()
+        Self.sharedInstance = nil
         plue_deinit()
+    }
+    
+    // C callback function
+    private static let stateUpdateCallback: @convention(c) () -> Void = {
+        guard let instance = sharedInstance else { return }
+        instance.queue.async {
+            instance.notifyStateChange()
+        }
     }
     
     func getCurrentState() -> AppState {
@@ -55,7 +69,7 @@ class LivePlueCore: PlueCoreInterface {
     func handleEvent(_ event: AppEvent) {
         queue.async {
             self.sendEventToZig(event)
-            self.notifyStateChange()
+            // State change notification will be triggered by Zig via callback
         }
     }
     
@@ -81,26 +95,11 @@ class LivePlueCore: PlueCoreInterface {
     }
     
     func shutdown() {
-        stopStatePolling()
+        Self.sharedInstance = nil
         plue_deinit()
     }
     
     // MARK: - Private Methods
-    
-    private func startStatePolling() {
-        // Poll for state changes every 100ms
-        // In a real implementation, we'd use a more efficient notification system
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            self.queue.async {
-                self.notifyStateChange()
-            }
-        }
-    }
-    
-    private func stopStatePolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-    }
     
     private func fetchStateFromZig() -> AppState? {
         let cState = plue_get_state()
