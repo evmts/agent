@@ -240,3 +240,4 @@ export fn terminal_deinit() void {
     pty_state = PtyState{};
     _ = gpa.deinit();
 }
+

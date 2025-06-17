@@ -114,17 +114,34 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Create app module for state management
+    // Create app module for state management - compatibility wrapper
     const app_mod = b.createModule(.{
         .root_source_file = b.path("src/app.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    // Create state modules needed by libplue
+    const state_core_mod = b.createModule(.{
+        .root_source_file = b.path("src/state/state.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cstate_mod = b.createModule(.{
+        .root_source_file = b.path("src/state/cstate.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Don't add individual state modules - they're imported transitively
+    // This avoids module conflicts
+
     // Add terminal modules to c_lib_mod so libplue can use them
     c_lib_mod.addImport("ghostty_terminal", ghostty_terminal_mod);
     c_lib_mod.addImport("terminal", terminal_mod);
     c_lib_mod.addImport("app", app_mod);
+    c_lib_mod.addImport("state/state.zig", state_core_mod);
+    c_lib_mod.addImport("state/cstate.zig", cstate_mod);
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
@@ -175,9 +192,11 @@ pub fn build(b: *std.Build) void {
 
         if (b.option([]const u8, "ghostty-include-path", "Path to Ghostty include directory")) |inc_path| {
             ghostty_terminal_lib.addIncludePath(.{ .cwd_relative = inc_path });
+            // Also add include path to the module for @cImport
+            ghostty_terminal_mod.addIncludePath(.{ .cwd_relative = inc_path });
         }
     } else {
-        std.log.warn("Ghostty lib is not available. Some functionality may not work");
+        std.log.warn("Ghostty lib is not available. Some functionality may not work", .{});
     }
 
     // This declares intent for the library to be installed into the standard
@@ -262,6 +281,48 @@ pub fn build(b: *std.Build) void {
 
     const run_app_tests = b.addRunArtifact(app_tests);
 
+    // Add state tests
+    const state_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/test_state.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    // Create state module for tests
+    const state_mod = b.createModule(.{
+        .root_source_file = b.path("src/state/state.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    state_test_mod.addImport("state/state.zig", state_mod);
+    state_test_mod.addImport("state/event.zig", b.createModule(.{
+        .root_source_file = b.path("src/state/event.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    state_test_mod.addImport("state/cstate.zig", b.createModule(.{
+        .root_source_file = b.path("src/state/cstate.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+
+    const state_tests = b.addTest(.{
+        .root_module = state_test_mod,
+    });
+    const run_state_tests = b.addRunArtifact(state_tests);
+
+    // Add terminal tests
+    const terminal_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/test_terminal.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    terminal_test_mod.addImport("terminal", terminal_mod);
+
+    const terminal_tests = b.addTest(.{
+        .root_module = terminal_test_mod,
+    });
+    const run_terminal_tests = b.addRunArtifact(terminal_tests);
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
@@ -271,6 +332,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_libplue_tests.step);
     test_step.dependOn(&run_farcaster_tests.step);
     test_step.dependOn(&run_app_tests.step);
+    test_step.dependOn(&run_state_tests.step);
+    test_step.dependOn(&run_terminal_tests.step);
 
     // Individual test steps for granular testing
     const test_integration_step = b.step("test-integration", "Run integration tests");
@@ -284,6 +347,12 @@ pub fn build(b: *std.Build) void {
 
     const test_app_step = b.step("test-app", "Run app tests");
     test_app_step.dependOn(&run_app_tests.step);
+
+    const test_state_step = b.step("test-state", "Run state tests");
+    test_state_step.dependOn(&run_state_tests.step);
+
+    const test_terminal_unit_step = b.step("test-terminal-unit", "Run terminal unit tests");
+    test_terminal_unit_step.dependOn(&run_terminal_tests.step);
 
     // Add Swift build step that depends on Zig libraries
     const swift_build_cmd = b.addSystemCommand(&.{
