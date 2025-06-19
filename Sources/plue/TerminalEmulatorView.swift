@@ -60,7 +60,7 @@ class TerminalEmulatorNSView: NSView {
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let sampleSize = NSAttributedString(string: "M", attributes: attributes).size()
         charWidth = sampleSize.width
-        lineHeight = font.capHeight + font.descender + font.leading + 4 // Add some padding
+        lineHeight = font.capHeight + abs(font.descender) + font.leading + 6 // Proper line spacing
         
         // Setup cursor blinking
         cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -168,6 +168,11 @@ class TerminalEmulatorNSView: NSView {
         backgroundColor.setFill()
         dirtyRect.fill()
         
+        // Draw selection first (behind text)
+        if selectionStart != nil && selectionEnd != nil {
+            drawSelection()
+        }
+        
         // Draw each cell
         for row in 0..<rows {
             for col in 0..<cols {
@@ -175,13 +180,8 @@ class TerminalEmulatorNSView: NSView {
             }
         }
         
-        // Draw selection first (behind text)
-        if selectionStart != nil && selectionEnd != nil {
-            drawSelection()
-        }
-        
         // Draw cursor last (on top)
-        if showCursor {
+        if showCursor && buffer.isCursorVisible {
             drawCursor()
         }
     }
@@ -189,12 +189,12 @@ class TerminalEmulatorNSView: NSView {
     private func drawCell(row: Int, col: Int) {
         let cell = buffer.getCell(row: row, col: col)
         let x = CGFloat(col) * charWidth
-        let y = bounds.height - CGFloat(row + 1) * lineHeight // Flip Y coordinate
+        let cellY = CGFloat(row) * lineHeight
         
         // Draw background if not default
         if cell.backgroundColor != backgroundColor {
             cell.backgroundColor.setFill()
-            NSRect(x: x, y: y, width: charWidth, height: lineHeight).fill()
+            NSRect(x: x, y: cellY, width: charWidth, height: lineHeight).fill()
         }
         
         // Draw character
@@ -207,20 +207,22 @@ class TerminalEmulatorNSView: NSView {
             
             let str = String(cell.character)
             let attributedString = NSAttributedString(string: str, attributes: attributes)
-            attributedString.draw(at: NSPoint(x: x, y: y))
+            // Draw text at baseline position
+            let textY = cellY + abs(font.descender) + 3 // Proper baseline alignment
+            attributedString.draw(at: NSPoint(x: x, y: textY))
         }
     }
     
     private func drawCursor() {
         let (row, col) = buffer.cursorPosition
         let x = CGFloat(col) * charWidth
-        let y = bounds.height - CGFloat(row + 1) * lineHeight
+        let cellY = CGFloat(row) * lineHeight
         
         // Use a vibrant cursor color
         NSColor(red: 0.5, green: 0.8, blue: 1.0, alpha: 0.8).setFill()
         
         // Draw a block cursor
-        let cursorRect = NSRect(x: x, y: y, width: charWidth, height: lineHeight)
+        let cursorRect = NSRect(x: x, y: cellY, width: charWidth, height: lineHeight)
         cursorRect.fill()
         
         // Draw the character in inverted color if there is one
@@ -233,7 +235,8 @@ class TerminalEmulatorNSView: NSView {
             
             let str = String(cell.character)
             let attributedString = NSAttributedString(string: str, attributes: attributes)
-            attributedString.draw(at: NSPoint(x: x, y: y))
+            let textY = cellY + abs(font.descender) + 3
+            attributedString.draw(at: NSPoint(x: x, y: textY))
         }
     }
     
@@ -252,10 +255,10 @@ class TerminalEmulatorNSView: NSView {
             let colEnd = row == endRow ? endCol : cols - 1
             
             let x = CGFloat(colStart) * charWidth
-            let y = bounds.height - CGFloat(row + 1) * lineHeight
+            let cellY = CGFloat(row) * lineHeight
             let width = CGFloat(colEnd - colStart + 1) * charWidth
             
-            NSRect(x: x, y: y, width: width, height: lineHeight).fill(using: .sourceAtop)
+            NSRect(x: x, y: cellY, width: width, height: lineHeight).fill(using: .sourceAtop)
         }
     }
     
@@ -311,7 +314,7 @@ class TerminalEmulatorNSView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let col = Int(point.x / charWidth)
-        let row = rows - 1 - Int(point.y / lineHeight) // Flip Y coordinate
+        let row = Int(point.y / lineHeight)
         
         isSelecting = true
         selectionStart = (row: row, col: col)
@@ -324,7 +327,7 @@ class TerminalEmulatorNSView: NSView {
         
         let point = convert(event.locationInWindow, from: nil)
         let col = Int(point.x / charWidth)
-        let row = rows - 1 - Int(point.y / lineHeight)
+        let row = Int(point.y / lineHeight)
         
         selectionEnd = (row: row, col: col)
         needsDisplay = true
