@@ -10,8 +10,8 @@ struct TerminalView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Use the enhanced TerminalEmulator with Ghostty-inspired styling
-            TerminalEmulator(
+            // Use SwiftTerm-based terminal
+            SwiftTerminalView(
                 inputText: $inputText,
                 onError: { error in
                     terminalError = error
