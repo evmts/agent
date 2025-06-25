@@ -589,7 +589,7 @@ struct MiniButtonStyle: ButtonStyle {
     }
 }
 
-#Preview {
-    AgentView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 1200, height: 800)
-}
+// #Preview {
+//     AgentView(appState: AppState.initial, core: PlueCore.shared)
+//         .frame(width: 1200, height: 800)
+// }

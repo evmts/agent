@@ -261,97 +261,97 @@ extension MessageBubbleStyle {
 }
 
 // MARK: - Preview
-#Preview("Migration Examples") {
-    VStack(spacing: 40) {
-        // Professional style (chat view)
-        VStack(alignment: .leading) {
-            Text("Professional Style (Chat)")
-                .font(.headline)
-            
-            UnifiedMessageListView(
-                messages: [
-                    PromptMessage(
-                        id: "1",
-                        content: "Hello! How can I help you today?",
-                        type: .assistant,
-                        timestamp: Date(),
-                        promptSnapshot: nil
-                    ),
-                    PromptMessage(
-                        id: "2",
-                        content: "I need help creating a unified message bubble component",
-                        type: .user,
-                        timestamp: Date(),
-                        promptSnapshot: nil
-                    )
-                ],
-                style: .professional,
-                theme: .dark,
-                isProcessing: true
-            )
-            .frame(height: 200)
-        }
-        
-        // Compact style (agent view)
-        VStack(alignment: .leading) {
-            Text("Compact Style (Agent)")
-                .font(.headline)
-            
-            UnifiedMessageListView(
-                messages: [
-                    UnifiedAgentMessage(agentMessage: AgentMessage(
-                        id: "3",
-                        content: "Starting workflow execution...",
-                        type: .workflow,
-                        timestamp: Date(),
-                        metadata: AgentMessageMetadata(
-                            worktree: "feature-ui",
-                            workflow: "build-test",
-                            containerId: nil,
-                            exitCode: nil,
-                            duration: nil
-                        )
-                    )),
-                    UnifiedAgentMessage(agentMessage: AgentMessage(
-                        id: "4",
-                        content: "Build completed successfully",
-                        type: .system,
-                        timestamp: Date(),
-                        metadata: AgentMessageMetadata(
-                            worktree: "feature-ui",
-                            workflow: nil,
-                            containerId: "abc123",
-                            exitCode: 0,
-                            duration: 12.5
-                        )
-                    ))
-                ],
-                style: .compact,
-                theme: .dark,
-                isProcessing: false
-            )
-            .frame(height: 150)
-        }
-        
-        // Terminal style
-        VStack(alignment: .leading) {
-            Text("Terminal Style")
-                .font(.headline)
-            
-            UnifiedMessageBubbleView(
-                message: UnifiedAgentMessage(agentMessage: AgentMessage(
-                    id: "5",
-                    content: "$ zig build\n> Building project...\n> Success!",
-                    type: .system,
-                    timestamp: Date(),
-                    metadata: nil
-                )),
-                style: .terminal,
-                theme: .dark
-            )
-        }
-    }
-    .padding()
-    .background(DesignSystem.Colors.background)
-    .frame(width: 800, height: 600)
-}
+// #Preview("Migration Examples") {
+//     VStack(spacing: 40) {
+//         // Professional style (chat view)
+//         VStack(alignment: .leading) {
+//             Text("Professional Style (Chat)")
+//                 .font(.headline)
+//             
+//             UnifiedMessageListView(
+//                 messages: [
+//                     PromptMessage(
+//                         id: "1",
+//                         content: "Hello! How can I help you today?",
+//                         type: .assistant,
+//                         timestamp: Date(),
+//                         promptSnapshot: nil
+//                     ),
+//                     PromptMessage(
+//                         id: "2",
+//                         content: "I need help creating a unified message bubble component",
+//                         type: .user,
+//                         timestamp: Date(),
+//                         promptSnapshot: nil
+//                     )
+//                 ],
+//                 style: .professional,
+//                 theme: .dark,
+//                 isProcessing: true
+//             )
+//             .frame(height: 200)
+//         }
+//         
+//         // Compact style (agent view)
+//         VStack(alignment: .leading) {
+//             Text("Compact Style (Agent)")
+//                 .font(.headline)
+//             
+//             UnifiedMessageListView(
+//                 messages: [
+//                     UnifiedAgentMessage(agentMessage: AgentMessage(
+//                         id: "3",
+//                         content: "Starting workflow execution...",
+//                         type: .workflow,
+//                         timestamp: Date(),
+//                         metadata: AgentMessageMetadata(
+//                             worktree: "feature-ui",
+//                             workflow: "build-test",
+//                             containerId: nil,
+//                             exitCode: nil,
+//                             duration: nil
+//                         )
+//                     )),
+//                     UnifiedAgentMessage(agentMessage: AgentMessage(
+//                         id: "4",
+//                         content: "Build completed successfully",
+//                         type: .system,
+//                         timestamp: Date(),
+//                         metadata: AgentMessageMetadata(
+//                             worktree: "feature-ui",
+//                             workflow: nil,
+//                             containerId: "abc123",
+//                             exitCode: 0,
+//                             duration: 12.5
+//                         )
+//                     ))
+//                 ],
+//                 style: .compact,
+//                 theme: .dark,
+//                 isProcessing: false
+//             )
+//             .frame(height: 150)
+//         }
+//         
+//         // Terminal style
+//         VStack(alignment: .leading) {
+//             Text("Terminal Style")
+//                 .font(.headline)
+//             
+//             UnifiedMessageBubbleView(
+//                 message: UnifiedAgentMessage(agentMessage: AgentMessage(
+//                     id: "5",
+//                     content: "$ zig build\n> Building project...\n> Success!",
+//                     type: .system,
+//                     timestamp: Date(),
+//                     metadata: nil
+//                 )),
+//                 style: .terminal,
+//                 theme: .dark
+//             )
+//         }
+//     }
+//     .padding()
+//     .background(DesignSystem.Colors.background)
+//     .frame(width: 800, height: 600)
+// }

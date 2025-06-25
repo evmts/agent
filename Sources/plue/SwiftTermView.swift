@@ -55,7 +55,7 @@ struct SwiftTerminalView: NSViewRepresentable {
             self.onOutput = onOutput
         }
         
-        func processTerminated (source: TerminalView, exitCode: Int32?) {
+        func processTerminated (source: SwiftTerm.TerminalView, exitCode: Int32?) {
             if let exitCode = exitCode, exitCode != 0 {
                 onError(SwiftTermError.processExitedWithCode(Int(exitCode)))
             }
@@ -69,7 +69,7 @@ struct SwiftTerminalView: NSViewRepresentable {
             // Handle title changes if needed
         }
         
-        func hostCurrentDirectoryUpdate (source: TerminalView, directory: String?) {
+        func hostCurrentDirectoryUpdate (source: SwiftTerm.TerminalView, directory: String?) {
             // Handle directory changes if needed
         }
         

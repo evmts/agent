@@ -452,7 +452,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 }
 
-#Preview {
-    WebView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 1000, height: 700)
-}
+// #Preview {
+//     WebView(appState: AppState.initial, core: PlueCore.shared)
+//         .frame(width: 1000, height: 700)
+// }

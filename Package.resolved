@@ -1,15 +1,6 @@
 {
-  "originHash" : "7d3d2bef3e0c3eb7e992663c1ecd54106ea968b751097c457862575fece5ceb4",
+  "originHash" : "d153e67e3a19a8d82daf3c8aa5c300ae504e8d0042ae246fa3792878329fdb61",
   "pins" : [
-    {
-      "identity" : "codeedittextview",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/CodeEditApp/CodeEditTextView",
-      "state" : {
-        "revision" : "c045ffcf4d8b2904e7bd138cdeccda99cba3ab3c",
-        "version" : "0.11.2"
-      }
-    },
     {
       "identity" : "down",
       "kind" : "remoteSourceControl",
@@ -17,15 +8,6 @@
       "state" : {
         "revision" : "f34b166be1f1db4aa8f573067e901d72f2a6be57",
         "version" : "0.11.0"
-      }
-    },
-    {
-      "identity" : "rearrange",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ChimeHQ/Rearrange",
-      "state" : {
-        "revision" : "5ff7f3363f7a08f77e0d761e38e6add31c2136e1",
-        "version" : "1.8.1"
       }
     },
     {
@@ -56,30 +38,12 @@
       }
     },
     {
-      "identity" : "swiftlintplugin",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lukepistrol/SwiftLintPlugin",
-      "state" : {
-        "revision" : "3780efccceaa87f17ec39638a9d263d0e742b71c",
-        "version" : "0.59.1"
-      }
-    },
-    {
       "identity" : "swiftterm",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm",
       "state" : {
         "revision" : "e2b431dbf73f775fb4807a33e4572ffd3dc6933a",
         "version" : "1.2.5"
-      }
-    },
-    {
-      "identity" : "textstory",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ChimeHQ/TextStory",
-      "state" : {
-        "revision" : "8dc9148b46fcf93b08ea9d4ef9bdb5e4f700e008",
-        "version" : "0.9.0"
       }
     }
   ],

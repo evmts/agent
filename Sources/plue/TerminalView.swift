@@ -46,7 +46,7 @@ struct TerminalView: View {
     }
 }
 
-#Preview {
-    TerminalView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 800, height: 600)
-}
+// #Preview {
+//     TerminalView(appState: AppState.initial, core: PlueCore.shared)
+//         .frame(width: 800, height: 600)
+// }

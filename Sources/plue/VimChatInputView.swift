@@ -63,17 +63,17 @@ struct VimChatInputView: View {
     }
 }
 
-#Preview {
-    VimChatInputView(
-        appState: AppState.initial,
-        core: MockPlueCore(),
-        onMessageSent: { message in
-            print("Preview: Message sent: \(message)")
-        },
-        onMessageUpdated: { message in
-            print("Preview: Message updated: \(message)")
-        }
-    )
-    .frame(width: 600, height: 200)
-    .padding()
-}
+// #Preview {
+//     VimChatInputView(
+//         appState: AppState.initial,
+//         core: MockPlueCore(),
+//         onMessageSent: { message in
+//             print("Preview: Message sent: \(message)")
+//         },
+//         onMessageUpdated: { message in
+//             print("Preview: Message updated: \(message)")
+//         }
+//     )
+//     .frame(width: 600, height: 200)
+//     .padding()
+// }

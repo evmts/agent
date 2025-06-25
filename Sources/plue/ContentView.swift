@@ -277,7 +277,7 @@ struct TabButton: View {
     }
 }
 
-#Preview {
-    ContentView(appState: .constant(AppState.initial))
-        .frame(width: 1200, height: 800)
-}
+// #Preview {
+//     ContentView(appState: .constant(AppState.initial))
+//         .frame(width: 1200, height: 800)
+// }

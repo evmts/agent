@@ -515,83 +515,83 @@ struct UnifiedAgentMessage: UnifiedMessage {
 }
 
 // MARK: - Preview
-#Preview("Message Styles") {
-    VStack(spacing: 20) {
-        // Professional style
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Professional Style")
-                .font(.headline)
-            
-            UnifiedMessageBubbleView(
-                message: PromptMessage(
-                    id: "1",
-                    content: "Hello! How can I help you today?",
-                    type: .assistant,
-                    timestamp: Date(),
-                    promptSnapshot: nil
-                ),
-                style: .professional
-            )
-            
-            UnifiedMessageBubbleView(
-                message: PromptMessage(
-                    id: "2",
-                    content: "I need help with SwiftUI",
-                    type: .user,
-                    timestamp: Date(),
-                    promptSnapshot: nil
-                ),
-                style: .professional
-            )
-        }
-        
-        // Compact style
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Compact Style")
-                .font(.headline)
-            
-            UnifiedMessageBubbleView(
-                message: UnifiedAgentMessage(agentMessage: AgentMessage(
-                    id: "3",
-                    content: "Running workflow: Build & Test",
-                    type: .workflow,
-                    timestamp: Date(),
-                    metadata: AgentMessageMetadata(
-                        worktree: "feature-branch",
-                        workflow: "build-test",
-                        containerId: nil,
-                        exitCode: 0,
-                        duration: 3.5
-                    )
-                )),
-                style: .compact
-            )
-        }
-        
-        // Minimal style with error
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Minimal Style")
-                .font(.headline)
-            
-            UnifiedMessageBubbleView(
-                message: UnifiedAgentMessage(agentMessage: AgentMessage(
-                    id: "4",
-                    content: "Build failed: Missing dependency",
-                    type: .error,
-                    timestamp: Date(),
-                    metadata: AgentMessageMetadata(
-                        worktree: "main",
-                        workflow: nil,
-                        containerId: nil,
-                        exitCode: 1,
-                        duration: nil
-                    )
-                )),
-                style: .minimal
-            )
-        }
-    }
-    .padding()
-    .background(DesignSystem.Colors.background)
-    .frame(width: 600, height: 500)
-}
+// #Preview("Message Styles") {
+//     VStack(spacing: 20) {
+//         // Professional style
+//         VStack(alignment: .leading, spacing: 8) {
+//             Text("Professional Style")
+//                 .font(.headline)
+//             
+//             UnifiedMessageBubbleView(
+//                 message: PromptMessage(
+//                     id: "1",
+//                     content: "Hello! How can I help you today?",
+//                     type: .assistant,
+//                     timestamp: Date(),
+//                     promptSnapshot: nil
+//                 ),
+//                 style: .professional
+//             )
+//             
+//             UnifiedMessageBubbleView(
+//                 message: PromptMessage(
+//                     id: "2",
+//                     content: "I need help with SwiftUI",
+//                     type: .user,
+//                     timestamp: Date(),
+//                     promptSnapshot: nil
+//                 ),
+//                 style: .professional
+//             )
+//         }
+//         
+//         // Compact style
+//         VStack(alignment: .leading, spacing: 8) {
+//             Text("Compact Style")
+//                 .font(.headline)
+//             
+//             UnifiedMessageBubbleView(
+//                 message: UnifiedAgentMessage(agentMessage: AgentMessage(
+//                     id: "3",
+//                     content: "Running workflow: Build & Test",
+//                     type: .workflow,
+//                     timestamp: Date(),
+//                     metadata: AgentMessageMetadata(
+//                         worktree: "feature-branch",
+//                         workflow: "build-test",
+//                         containerId: nil,
+//                         exitCode: 0,
+//                         duration: 3.5
+//                     )
+//                 )),
+//                 style: .compact
+//             )
+//         }
+//         
+//         // Minimal style with error
+//         VStack(alignment: .leading, spacing: 8) {
+//             Text("Minimal Style")
+//                 .font(.headline)
+//             
+//             UnifiedMessageBubbleView(
+//                 message: UnifiedAgentMessage(agentMessage: AgentMessage(
+//                     id: "4",
+//                     content: "Build failed: Missing dependency",
+//                     type: .error,
+//                     timestamp: Date(),
+//                     metadata: AgentMessageMetadata(
+//                         worktree: "main",
+//                         workflow: nil,
+//                         containerId: nil,
+//                         exitCode: 1,
+//                         duration: nil
+//                     )
+//                 )),
+//                 style: .minimal
+//             )
+//         }
+//     }
+//     .padding()
+//     .background(DesignSystem.Colors.background)
+//     .frame(width: 600, height: 500)
+// }

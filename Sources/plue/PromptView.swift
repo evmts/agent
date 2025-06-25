@@ -264,7 +264,7 @@ struct PromptResponseView: View {
     }
 }
 
-#Preview {
-    PromptView()
-        .frame(width: 1200, height: 800)
-}
+// #Preview {
+//     PromptView()
+//         .frame(width: 1200, height: 800)
+// }

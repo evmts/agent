@@ -433,7 +433,7 @@ struct GhosttyTerminalView: View {
     }
 }
 
-#Preview {
-    GhosttyTerminalView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 800, height: 600)
-}
+// #Preview {
+//     GhosttyTerminalView(appState: AppState.initial, core: PlueCore.shared)
+//         .frame(width: 800, height: 600)
+// }

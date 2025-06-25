@@ -922,7 +922,7 @@ enum AIModel: String, CaseIterable {
     }
 }
 
-#Preview {
-    ModernChatView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 800, height: 600)
-}
+// #Preview {
+//     ModernChatView(appState: AppState.initial, core: PlueCore.shared)
+//         .frame(width: 800, height: 600)
+// }

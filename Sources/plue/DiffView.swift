@@ -1477,7 +1477,4 @@ enum GitDiffLineType {
     }
 }
 
-#Preview {
-    DiffView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 1200, height: 800)
-}
+// Preview removed to fix build error

@@ -246,7 +246,4 @@ struct EditorView: View {
     }
 }
 
-#Preview {
-    EditorView(appState: AppState.initial, core: PlueCore.shared)
-        .frame(width: 800, height: 600)
-}
+// Preview removed to fix build error
