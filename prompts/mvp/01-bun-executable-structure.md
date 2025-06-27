@@ -209,3 +209,325 @@ Make atomic commits with descriptive messages following conventional commits:
 </performance_requirements>
 
 Remember: The executables are intentionally stateless. They should not maintain any state between invocations. All state management happens in the Zig core.
+
+<example-code>
+This section provides a starting point for the code you need to write.
+
+### 1. Root Workspace Files
+
+**`executables/package.json`**
+```json
+{
+  "name": "plue-executables",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "plue-ai-provider",
+    "plue-lsp-client",
+    "plue-auth",
+    "plue-html-markdown",
+    "plue-diff"
+  ],
+  "scripts": {
+    "build": "bun run build.ts",
+    "typecheck": "bun workspaces run typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.4.5",
+    "zod": "^3.23.8"
+  }
+}
+```
+
+**`executables/tsconfig.base.json`**
+```json
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "composite": true,
+    "strict": true,
+    "downlevelIteration": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    "types": [
+      "bun-types"
+    ]
+  }
+}
+```
+
+**`executables/bunfig.toml`**
+```toml
+# Bun configuration file
+# For now, this can be empty. We can add optimizations later.
+# Example:
+# [build]
+# splitting = true
+# sourcemap = "external"
+```
+
+**`executables/build.ts`**
+```typescript
+import { readdir } from 'fs/promises';
+import { join } from 'path';
+
+const executablesDir = '.';
+const outputDir = join(executablesDir, '..', 'bin');
+
+async function buildExecutables() {
+  const entries = await readdir(executablesDir, { withFileTypes: true });
+  const executablePackages = entries
+    .filter(entry => entry.isDirectory() && entry.name.startsWith('plue-'))
+    .map(entry => entry.name);
+
+  console.log(`Found executables: ${executablePackages.join(', ')}`);
+
+  for (const pkg of executablePackages) {
+    console.log(`Building ${pkg}...`);
+    const result = await Bun.build({
+      entrypoints: [join(executablesDir, pkg, 'src', 'index.ts')],
+      outdir: outputDir,
+      target: 'bun',
+      naming: pkg,
+      compile: true,
+      minify: true,
+      sourcemap: 'none',
+    });
+
+    if (!result.success) {
+      console.error(`Build failed for ${pkg}:`);
+      console.error(result.logs.join('\n'));
+      process.exit(1);
+    }
+  }
+
+  console.log('All executables built successfully!');
+}
+
+buildExecutables();
+```
+
+### 2. Shared Utilities
+
+**`executables/shared/package.json`**
+```json
+{
+  "name": "@plue/shared",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}
+```
+
+**`executables/shared/tsconfig.json`**
+```json
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
+```
+
+**`executables/shared/src/protocol.ts`**
+```typescript
+import { z } from 'zod';
+
+export const RequestSchema = z.object({
+  action: z.string(),
+  params: z.record(z.unknown()),
+  timeout: z.number().int().positive().optional(),
+});
+
+export type Request = z.infer<typeof RequestSchema>;
+
+export const SuccessResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.record(z.unknown()),
+});
+
+export type SuccessResponse = z.infer<typeof SuccessResponseSchema>;
+
+export const ErrorResponseSchema = z.object({
+  success: z.literal(false),
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+  }),
+});
+
+export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
+
+export type Response = SuccessResponse | ErrorResponse;
+```
+
+**`executables/shared/src/logger.ts`**
+```typescript
+export class Logger {
+  static log(...args: unknown[]) {
+    console.error(`[LOG]`, ...args);
+  }
+
+  static error(...args: unknown[]) {
+    console.error(`[ERROR]`, ...args);
+  }
+}
+```
+
+**`executables/shared/src/error.ts`**
+```typescript
+import type { ErrorResponse } from './protocol';
+
+export class ExecutableError extends Error {
+  constructor(public code: string, message: string) {
+    super(message);
+    this.name = 'ExecutableError';
+  }
+
+  toResponse(): ErrorResponse {
+    return {
+      success: false,
+      error: {
+        code: this.code,
+        message: this.message,
+      },
+    };
+  }
+}
+
+export class InvalidRequestError extends ExecutableError {
+  constructor(message: string = 'Invalid request format') {
+    super('INVALID_REQUEST', message);
+  }
+}
+
+export class UnknownActionError extends ExecutableError {
+  constructor(action: string) {
+    super('UNKNOWN_ACTION', `Action '${action}' is not recognized.`);
+  }
+}
+```
+
+**`executables/shared/src/index.ts`**
+```typescript
+export * from './protocol';
+export * from './logger';
+export * from './error';
+```
+
+### 3. Example Executable: `plue-ai-provider`
+
+**`executables/plue-ai-provider/package.json`**
+```json
+{
+  "name": "plue-ai-provider",
+  "version": "0.0.1",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@plue/shared": "workspace:*"
+  }
+}
+```
+
+**`executables/plue-ai-provider/tsconfig.json`**
+```json
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@plue/shared": ["../shared/src"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "../shared" }]
+}
+```
+
+**`executables/plue-ai-provider/src/index.ts`**
+```typescript
+import {
+  RequestSchema,
+  Logger,
+  ExecutableError,
+  InvalidRequestError,
+  UnknownActionError,
+  type Response,
+} from '@plue/shared';
+
+async function handleRequest(request: unknown): Promise<Response> {
+  const validation = RequestSchema.safeParse(request);
+  if (!validation.success) {
+    throw new InvalidRequestError(validation.error.message);
+  }
+
+  const { action, params } = validation.data;
+  Logger.log(`Handling action: ${action}`);
+
+  switch (action) {
+    case 'hello':
+      return {
+        success: true,
+        data: {
+          message: `Hello, ${params.name || 'world'}!`,
+        },
+      };
+    // Add other action handlers here
+    default:
+      throw new UnknownActionError(action);
+  }
+}
+
+async function main() {
+  try {
+    const input = await Bun.stdin.text();
+    if (!input) {
+        throw new InvalidRequestError('No input received from stdin.');
+    }
+    const request = JSON.parse(input);
+    const response = await handleRequest(request);
+    process.stdout.write(JSON.stringify(response));
+  } catch (e) {
+    let error: ExecutableError;
+    if (e instanceof ExecutableError) {
+      error = e;
+    } else if (e instanceof Error) {
+      error = new ExecutableError('UNHANDLED_EXCEPTION', e.message);
+    } else {
+      error = new ExecutableError('UNKNOWN_ERROR', 'An unknown error occurred.');
+    }
+    Logger.error(error.message, error.stack);
+    process.stdout.write(JSON.stringify(error.toResponse()));
+    process.exit(1);
+  }
+}
+
+main();
+```
+</example-code>
+
+```
