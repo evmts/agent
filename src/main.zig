@@ -29,7 +29,7 @@ pub fn main() !void {
     defer server.deinit();
 
     // Handle Ctrl+C gracefully
-    try std.posix.sigaction(std.posix.SIG.INT, &std.posix.Sigaction{
+    std.posix.sigaction(std.posix.SIG.INT, &std.posix.Sigaction{
         .handler = .{ .handler = handleSignal },
         .mask = std.posix.empty_sigset,
         .flags = 0,

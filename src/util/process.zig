@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const ProcessOptions = struct {
     cwd: ?[]const u8 = null,
-    env: ?std.process.EnvMap = null,
+    env: ?*const std.process.EnvMap = null,
     stdout: enum { inherit, pipe, ignore } = .pipe,
     stderr: enum { inherit, pipe, ignore } = .pipe,
 };
@@ -22,35 +22,26 @@ pub const Process = struct {
 
         process.* = .{
             .allocator = allocator,
-            .child = std.process.Child{
-                .allocator = allocator,
-                .argv = argv,
-                .cwd = options.cwd,
-                .env_map = options.env,
-                .stdout_behavior = switch (options.stdout) {
-                    .inherit => .Inherit,
-                    .pipe => .Pipe,
-                    .ignore => .Ignore,
-                },
-                .stderr_behavior = switch (options.stderr) {
-                    .inherit => .Inherit,
-                    .pipe => .Pipe,
-                    .ignore => .Ignore,
-                },
-                .stdin_behavior = .Ignore,
-                .expand_arg0 = .no_expand,
-                .uid = null,
-                .gid = null,
-                .pgid = null,
-                .err_pipe = null,
-                .term = null,
-                .id = undefined,
-                .thread_handle = undefined,
-                .max_output_bytes = 50 * 1024 * 1024, // 50MB max
-            },
+            .child = std.process.Child.init(argv, allocator),
             .stdout_buffer = null,
             .stderr_buffer = null,
         };
+
+        // Set child options
+        process.child.cwd = options.cwd;
+        process.child.env_map = options.env;
+        process.child.stdout_behavior = switch (options.stdout) {
+            .inherit => .Inherit,
+            .pipe => .Pipe,
+            .ignore => .Ignore,
+        };
+        process.child.stderr_behavior = switch (options.stderr) {
+            .inherit => .Inherit,
+            .pipe => .Pipe,
+            .ignore => .Ignore,
+        };
+        process.child.stdin_behavior = .Ignore;
+        process.child.expand_arg0 = .no_expand;
 
         try process.child.spawn();
 
@@ -71,7 +62,7 @@ pub const Process = struct {
     }
 
     pub fn kill(self: *Self) !void {
-        return self.child.kill();
+        _ = try self.child.kill();
     }
 
     pub fn isAlive(self: *const Self) bool {

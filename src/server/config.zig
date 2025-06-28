@@ -52,7 +52,7 @@ pub const ServerConfig = struct {
 
     pub fn validate(self: *const Self) !void {
         // Check if OpenCode path exists
-        const opencode_dir = std.fs.openDirAbsolute(self.opencode_path, .{}) catch |err| {
+        var opencode_dir = std.fs.openDirAbsolute(self.opencode_path, .{}) catch |err| {
             std.log.err("OpenCode path does not exist or is not accessible: {s}", .{self.opencode_path});
             return err;
         };
@@ -81,7 +81,7 @@ pub const ServerConfig = struct {
         if (self.log_file_path) |log_path| {
             // Try to get parent directory
             const dir_path = std.fs.path.dirname(log_path) orelse ".";
-            const log_dir = std.fs.openDirAbsolute(dir_path, .{}) catch |err| {
+            var log_dir = std.fs.openDirAbsolute(dir_path, .{}) catch |err| {
                 std.log.err("Log file directory is not accessible: {s}", .{dir_path});
                 return err;
             };
@@ -102,9 +102,9 @@ pub const ServerConfig = struct {
         }
     }
 
-    /// Get environment variables as a slice for process spawning
-    pub fn getEnvMap(self: *const Self) ?*std.process.EnvMap {
-        return if (self.env) |*env| @constCast(env) else null;
+    /// Get environment variables as a pointer for process spawning
+    pub fn getEnvMapPtr(self: *Self) ?*std.process.EnvMap {
+        return if (self.env) |*env| env else null;
     }
 };
 

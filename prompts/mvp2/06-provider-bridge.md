@@ -22,8 +22,8 @@ export fn plue_provider_list() [*c]u8;
 // Configure a provider
 export fn plue_provider_configure(provider_id: [*:0]const u8, config_json: [*:0]const u8) c_int;
 
-// Enable or disable a provider
-export fn plue_provider_set_enabled(provider_id: [*:0]const u8, enabled: bool) c_int;
+// Get provider configuration
+export fn plue_provider_get_config(provider_id: [*:0]const u8) [*c]u8;
 
 // Test provider authentication
 export fn plue_provider_test_auth(provider_id: [*:0]const u8) c_int;
@@ -37,32 +37,50 @@ export fn plue_provider_get_models(provider_id: [*:0]const u8) [*c]u8;
 OpenCode supports multiple providers with different authentication methods:
 
 ```typescript
-// Provider types
-interface ProviderInfo {
+// Provider structure from ModelsDev
+interface Provider {
   id: string;              // e.g., "anthropic", "openai"
   name: string;            // Display name
-  enabled: boolean;
-  authenticated: boolean;
-  models: Model[];
-  config?: {
-    apiKey?: string;
-    baseUrl?: string;
-    orgId?: string;
-  };
+  api?: string;            // API endpoint override
+  env: string[];           // Environment variables for API keys
+  npm?: string;            // NPM package name
+  models: Record<string, Model>;
 }
 
-// Model information
+// Model structure from ModelsDev
 interface Model {
   id: string;              // e.g., "claude-3-opus-20240229"
   name: string;            // Display name
-  contextLength: number;
-  inputCost?: number;      // $ per 1M tokens
-  outputCost?: number;     // $ per 1M tokens
+  attachment: boolean;     // Supports file attachments
+  reasoning: boolean;      // Supports reasoning/thinking
+  temperature: boolean;    // Supports temperature control
+  tool_call: boolean;      // Supports function calling
+  cost: {
+    input: number;         // $ per 1M input tokens
+    output: number;        // $ per 1M output tokens
+    cache_read?: number;   // $ per 1M cached tokens (Anthropic)
+    cache_write?: number;  // $ per 1M tokens to cache
+  };
+  limit: {
+    context: number;       // Max context window
+    output: number;        // Max output tokens
+  };
+  options: Record<string, any>; // Provider-specific options
 }
 
-// Authentication types
-type AuthType = "api-key" | "oauth" | "browser";
+// Provider list response
+interface ProviderListResponse {
+  providers: Provider[];   // All available providers
+  default: Record<string, string>; // Default model per provider
+}
 ```
+
+**Important Details**:
+- Providers loaded from `models.json` via macro at build time
+- Authentication handled by custom loaders (anthropic, github-copilot)
+- Environment variables checked first, then config, then OAuth
+- Provider list includes pre-sorted models and defaults
+- No separate enable/disable endpoint - managed by config
 
 ## Requirements
 
@@ -216,38 +234,59 @@ pub const ProviderManager = struct {
         return manager;
     }
     
-    /// List all providers
-    pub fn listProviders(self: *ProviderManager) !std.json.Value {
+    /// List all providers via OpenCode API
+    pub fn listProviders(self: *ProviderManager) !ProviderListResult {
+        // Get provider list from OpenCode
+        const response = try self.api.provider.list();
+        
+        // Update our cache with authentication status
         self.mutex.lock();
         defer self.mutex.unlock();
         
-        var result = std.json.ObjectMap.init(self.allocator);
-        
-        var it = self.providers.iterator();
-        while (it.next()) |entry| {
-            const provider_id = entry.key;
-            const state = entry.value;
-            
-            // Convert to JSON format
-            var provider_obj = std.json.ObjectMap.init(self.allocator);
-            try provider_obj.put("id", .{ .string = provider_id.toString() });
-            try provider_obj.put("name", .{ .string = state.status.name });
-            try provider_obj.put("enabled", .{ .bool = state.status.enabled });
-            try provider_obj.put("authenticated", .{ .bool = state.status.authenticated });
-            try provider_obj.put("authType", .{ .string = @tagName(state.status.auth_type) });
-            
-            if (state.models) |models| {
-                var models_array = std.json.Array.init(self.allocator);
-                for (models) |model| {
-                    try models_array.append(try modelToJson(self.allocator, model));
+        // Check each provider's auth status
+        for (response.providers) |provider| {
+            const provider_id = try ProviderId.fromString(provider.id);
+            if (self.providers.getPtr(provider_id)) |state| {
+                // Check if we have credentials
+                state.status.authenticated = self.hasCredentials(provider_id);
+                state.status.enabled = state.status.authenticated;
+                
+                // Cache models
+                if (state.models) |old_models| {
+                    self.allocator.free(old_models);
                 }
-                try provider_obj.put("models", .{ .array = models_array });
+                state.models = try self.convertProviderModels(provider);
+                state.last_refresh = std.time.milliTimestamp();
             }
-            
-            try result.put(provider_id.toString(), .{ .object = provider_obj });
         }
         
-        return .{ .object = result };
+        return response;
+    }
+    
+    /// Check if provider has credentials
+    fn hasCredentials(self: *ProviderManager, provider_id: ProviderId) bool {
+        const state = self.providers.get(provider_id) orelse return false;
+        
+        // Check for API key
+        if (state.config.api_key) |key| {
+            return key.len > 0;
+        }
+        
+        // Check for OAuth
+        if (state.config.oauth) |oauth| {
+            return oauth.access_token.len > 0;
+        }
+        
+        // Check environment variables
+        const provider_info = getProviderInfo(provider_id);
+        for (provider_info.env_vars) |env_var| {
+            if (std.process.getEnvVarOwned(self.allocator, env_var)) |value| {
+                defer self.allocator.free(value);
+                return value.len > 0;
+            } else |_| {}
+        }
+        
+        return false;
     }
     
     /// Configure a provider
@@ -587,8 +626,8 @@ export fn plue_provider_configure(provider_id: [*:0]const u8, config_json: [*:0]
     return 0;
 }
 
-/// Enable or disable a provider
-export fn plue_provider_set_enabled(provider_id: [*:0]const u8, enabled: bool) c_int {
+/// Get provider configuration
+export fn plue_provider_get_config(provider_id: [*:0]const u8) [*c]u8 {
     if (provider_id == null) {
         error_handling.setLastError(error.InvalidParam, "Provider ID is null");
         return -1;
@@ -607,13 +646,34 @@ export fn plue_provider_set_enabled(provider_id: [*:0]const u8, enabled: bool) c
         return -1;
     };
     
-    // Set enabled state
-    manager.setEnabled(pid, enabled) catch |err| {
-        error_handling.setLastError(err, "Failed to set provider state");
-        return -1;
+    // Get config from manager
+    const config = manager.getConfig(pid) catch |err| {
+        error_handling.setLastError(err, "Failed to get provider config");
+        return null;
     };
     
-    return 0;
+    // Serialize config (excluding sensitive data)
+    var safe_config = std.json.ObjectMap.init(manager.allocator);
+    defer safe_config.deinit();
+    
+    try safe_config.put("provider_id", .{ .string = provider_id_slice });
+    try safe_config.put("authenticated", .{ .bool = config.authenticated });
+    try safe_config.put("has_api_key", .{ .bool = config.api_key != null });
+    
+    if (config.base_url) |url| {
+        try safe_config.put("base_url", .{ .string = url });
+    }
+    
+    const json_string = std.json.stringifyAlloc(
+        manager.allocator,
+        std.json.Value{ .object = safe_config },
+        .{},
+    ) catch |err| {
+        error_handling.setLastError(err, "Failed to serialize config");
+        return null;
+    };
+    
+    return json_string.ptr;
 }
 
 /// Test provider authentication
@@ -889,42 +949,126 @@ pub const CostCalculator = struct {
 ## Example Usage (from C)
 
 ```c
-// List providers
+// List providers - returns providers array and default models
 char* providers_json = plue_provider_list();
+// Response format:
+// {
+//   "providers": [{
+//     "id": "anthropic",
+//     "name": "Anthropic",
+//     "models": {...},
+//     "env": ["ANTHROPIC_API_KEY"],
+//     ...
+//   }],
+//   "default": {
+//     "anthropic": "claude-3-5-sonnet-20241022",
+//     "openai": "gpt-4o",
+//     ...
+//   }
+// }
 printf("Available providers: %s\n", providers_json);
 plue_free_json(providers_json);
 
-// Configure Anthropic
-const char* config = "{\"api_key\": \"sk-ant-...\"}";
+// Configure Anthropic with API key
+const char* config = "{\"api_key\": \"sk-ant-api03-...\"}";
 if (plue_provider_configure("anthropic", config) == 0) {
     printf("Anthropic configured successfully\n");
 }
 
-// Test authentication
+// Test authentication (tries to load models)
 if (plue_provider_test_auth("anthropic") == 0) {
     printf("Authentication successful\n");
 }
 
-// Enable provider
-plue_provider_set_enabled("anthropic", true);
+// Get provider config (safe view without secrets)
+char* config_json = plue_provider_get_config("anthropic");
+printf("Provider config: %s\n", config_json);
+plue_free_json(config_json);
 
-// Get models
+// Get models for a specific provider
 char* models_json = plue_provider_get_models("anthropic");
 printf("Available models: %s\n", models_json);
 plue_free_json(models_json);
 ```
 
+## Corner Cases and Implementation Details
+
+Based on OpenCode's implementation, handle these critical scenarios:
+
+### Provider System Architecture
+1. **Models.json Source**: Provider data loaded from models.json via build-time macro
+2. **No Direct Enable/Disable**: Providers are enabled by having valid credentials
+3. **Custom Loaders**: Special handling for anthropic and github-copilot OAuth
+4. **Environment First**: Check env vars before config file for API keys
+5. **Default Models**: Pre-calculated default model per provider in response
+
+### Authentication Patterns
+1. **Anthropic OAuth**: Uses "anthropic-beta: oauth-2025-04-20" header
+2. **GitHub Copilot**: Complex OAuth flow with refresh tokens
+3. **API Key Format**: Anthropic keys start with "sk-ant-", OpenAI with "sk-"
+4. **No API Key in Headers**: OAuth providers remove x-api-key header
+5. **Cost Override**: OAuth providers set costs to 0 (free for users)
+
+### Model Management Details
+1. **Model Features**: attachment, reasoning, temperature, tool_call flags
+2. **Cost Structure**: input/output per million, plus cache costs for Anthropic
+3. **Context Limits**: Both context window and max output limits
+4. **Provider Options**: Model-specific options in options field
+5. **Pre-Sorted Models**: Models returned in preference order by Provider.sort()
+
+### Configuration Edge Cases
+1. **Multiple Auth Sources**: env → config → OAuth precedence
+2. **API Endpoint Override**: Custom api field for enterprise/proxy setups
+3. **NPM Package**: Some providers require npm package installation
+4. **Environment Arrays**: Multiple env var names per provider (fallbacks)
+5. **No Persistence**: OpenCode doesn't persist provider config - client must
+
+### Error Handling Specifics
+1. **Silent Failures**: Missing credentials don't error - just not authenticated
+2. **Model Loading**: Models always returned even if not authenticated
+3. **OAuth Expiry**: Must handle token refresh for OAuth providers
+4. **Network Errors**: Distinguish auth failures from network issues
+5. **Partial Success**: Some providers may auth while others fail
+
+### Cost Calculation Nuances
+1. **Zero Cost OAuth**: Anthropic/Copilot OAuth users get free usage
+2. **Cache Costs**: Only Anthropic has cache read/write costs currently
+3. **Currency**: All costs in USD per million tokens
+4. **Decimal Precision**: Use appropriate precision for small costs
+5. **Cost Updates**: Costs may change - don't hardcode
+
+### UX Improvements
+1. **Credential Hints**: Show which env var or config field needed
+2. **Auth Status Icons**: Visual indicators for each provider's status
+3. **Model Search**: Filter/search across all provider models
+4. **Cost Comparison**: Show cost differences between similar models
+5. **Quick Actions**: One-click auth test and credential entry
+
+### Potential Bugs to Watch Out For
+1. **Race Conditions**: Multiple auth checks for same provider
+2. **Memory Leaks**: Model arrays not freed when updating cache
+3. **OAuth Token Expiry**: Tokens expire during long sessions
+4. **Environment Encoding**: Special characters in API keys
+5. **Case Sensitivity**: Provider IDs must match exactly
+6. **Circular Dependencies**: Provider loading during startup
+7. **Network Timeouts**: Slow provider endpoints blocking UI
+8. **Config Corruption**: Invalid JSON in saved config file
+9. **Model ID Changes**: Providers may rename model IDs
+10. **Thread Safety**: Concurrent access to provider state
+
 ## Success Criteria
 
 The implementation is complete when:
-- [ ] All providers can be configured
-- [ ] Authentication works for all auth types
-- [ ] Models are discovered and cached
-- [ ] Configuration persists across restarts
-- [ ] Events fire for all changes
-- [ ] Cost calculation is accurate
+- [ ] All providers can be configured via API key or OAuth
+- [ ] Authentication status correctly reflects credentials
+- [ ] Models are discovered with all metadata fields
+- [ ] Configuration persists across restarts  
+- [ ] Events fire for all auth state changes
+- [ ] Cost calculation handles all cost types including cache
+- [ ] OAuth token refresh works seamlessly
 - [ ] All tests pass with >95% coverage
-- [ ] Memory usage is stable
+- [ ] Memory usage is stable during model updates
+- [ ] Thread-safe access to provider state
 
 ## Git Workflow
 

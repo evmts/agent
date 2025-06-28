@@ -22,7 +22,7 @@ pub fn main() !void {
     const opencode_path = args[1];
 
     // Verify OpenCode path exists
-    const dir = std.fs.openDirAbsolute(opencode_path, .{}) catch |err| {
+    var dir = std.fs.openDirAbsolute(opencode_path, .{}) catch |err| {
         std.log.err("OpenCode path '{s}' does not exist or is not accessible: {}", .{ opencode_path, err });
         return err;
     };
@@ -41,7 +41,7 @@ pub fn main() !void {
     defer server.deinit();
 
     // Handle Ctrl+C gracefully
-    try std.posix.sigaction(std.posix.SIG.INT, &std.posix.Sigaction{
+    std.posix.sigaction(std.posix.SIG.INT, &std.posix.Sigaction{
         .handler = .{ .handler = handleSignal },
         .mask = std.posix.empty_sigset,
         .flags = 0,
