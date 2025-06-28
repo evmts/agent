@@ -33,37 +33,79 @@ export fn plue_config_get_schema() [*c]u8;
 
 Both Plue and OpenCode support multiple configuration sources:
 
-1. **Global Config**: `~/.config/plue/config.json` and `~/.config/opencode/config.json`
-2. **Project Config**: `.plue/config.json` and `.opencode/config.json` in git root
-3. **Environment Variables**: `PLUE_*` and `OPENCODE_*` prefixes
+1. **Global Config**: 
+   - Plue: `~/.config/plue/config.json`
+   - OpenCode: `~/.config/opencode/config.json`
+
+2. **Project Config**: 
+   - Plue: `.plue/config.json` in git root
+   - OpenCode: `opencode.json` or `opencode.jsonc` (searches upward)
+
+3. **Environment Variables**: 
+   - Plue: `PLUE_*` prefix
+   - OpenCode: Provider-specific env vars (e.g., `ANTHROPIC_API_KEY`)
+
 4. **Runtime Updates**: Programmatic configuration changes
+
+5. **OpenCode Specifics**:
+   - Searches upward for `opencode.json[c]` files
+   - Deep merges configs from root to current directory
+   - Auto-migrates legacy TOML configs to JSON
+   - Caches model data from https://models.dev/api.json
 
 ### OpenCode Configuration Structure
 
 ```typescript
-// OpenCode config schema
+// OpenCode config schema (actual from implementation)
 interface OpenCodeConfig {
-  theme?: "light" | "dark" | "system";
+  $schema?: string;        // JSON schema reference
+  theme?: string;          // Theme name (not limited to light/dark)
+  keybinds?: Record<string, string>; // ~25 configurable actions
+  autoshare?: boolean;     // Auto-share new sessions
+  autoupdate?: boolean;    // Auto-update OpenCode
+  disabled_providers?: string[]; // Providers to disable
+  model?: string;          // Format: "provider/model-id"
+  
+  // Provider configurations with model overrides
   provider?: {
     [providerId: string]: {
-      apiKey?: string;
-      baseUrl?: string;
-      // ... provider-specific settings
+      api?: string;        // API endpoint override
+      name?: string;       // Display name
+      env?: string[];      // Required env vars
+      models?: {           // Model overrides
+        [modelId: string]: {
+          name?: string;
+          attachment?: boolean;
+          reasoning?: boolean;
+          temperature?: boolean;
+          tool_call?: boolean;
+          cost?: {
+            input: number;
+            output: number;
+            cache_read?: number;
+            cache_write?: number;
+          };
+          limit?: {
+            context: number;
+            output: number;
+          };
+          options?: Record<string, any>;
+        };
+      };
+      options?: Record<string, any>; // Provider-specific options
     };
   };
-  tool?: {
-    bash?: { defaultTimeout?: number };
-    // ... tool-specific settings
-  };
-  keybindings?: Record<string, string>;
-  server?: {
-    port?: number;
-    host?: string;
-  };
-  experimental?: {
-    [feature: string]: boolean;
-  };
+  
+  // MCP (Model Context Protocol) servers
+  mcp?: Record<string, MCPServerConfig>;
 }
+
+// MCP server types
+type MCPServerConfig = 
+  | { type: "local"; command: string[]; environment?: Record<string, string> }
+  | { type: "remote"; url: string };
+
+// Important: No separate tool config - tools configured via providers
 ```
 
 ## Requirements
@@ -1081,17 +1123,100 @@ export PLUE_SERVER_OPENCODE_PORT=4000
 export PLUE_PROVIDERS_OPENAI_API_KEY=sk-...
 ```
 
+## Corner Cases and Implementation Details
+
+Based on OpenCode's implementation, handle these critical scenarios:
+
+### Configuration Loading Architecture
+1. **Hierarchical Search**: OpenCode searches upward for config files
+2. **Deep Merge**: Configs merge from root to current directory
+3. **JSONC Support**: OpenCode accepts JSON with comments
+4. **Legacy Migration**: Auto-converts TOML to JSON format
+5. **Validation**: Uses Zod with strict mode for type safety
+
+### Provider Configuration Specifics
+1. **Model Format**: Uses "provider/model-id" format everywhere
+2. **Auto-Enable**: Providers enable when env vars present
+3. **Disabled List**: `disabled_providers` overrides auto-detection
+4. **Cost Override**: User config overrides registry costs
+5. **Model Registry**: Fetches from models.dev, caches locally
+
+### Keybind System Details
+1. **25+ Actions**: Comprehensive keybind system
+2. **Leader Keys**: Support for multi-key combinations
+3. **Categories**: Navigation, session, editor, system actions
+4. **Defaults**: System provides sensible defaults
+5. **Override**: User config overrides all defaults
+
+### MCP Server Integration
+1. **Local Servers**: Spawn with command and environment
+2. **Remote Servers**: Connect via SSE to URL
+3. **Error Handling**: Graceful failure with error events
+4. **Tool Integration**: MCP tools appear in tool list
+5. **State Management**: Servers managed as app state
+
+### Environment Variable Handling
+1. **Provider Detection**: Each provider has specific env vars
+2. **No OPENCODE_ Prefix**: Direct env vars (e.g., ANTHROPIC_API_KEY)
+3. **Priority**: Env vars checked before config file
+4. **Plue Override**: PLUE_ vars should override provider defaults
+5. **Validation**: Validate API key formats
+
+### Schema and Validation
+1. **Zod Schemas**: All configs validated with Zod
+2. **OpenAPI Generation**: Schema exportable as OpenAPI
+3. **Strict Mode**: Unknown fields cause validation errors
+4. **Default Values**: Sensible defaults for all fields
+5. **Type Safety**: Full TypeScript type generation
+
+### State Management Patterns
+1. **App State**: Config loaded as cached app state
+2. **Lazy Loading**: Config loaded on first access
+3. **No Hot Reload**: Changes require restart
+4. **Memory Cache**: Parsed config kept in memory
+5. **Thread Safety**: Consider concurrent access
+
+### File Format Edge Cases
+1. **JSON Comments**: Must strip comments before parsing
+2. **Unicode**: Handle UTF-8 properly in all configs
+3. **Large Files**: Set reasonable size limits
+4. **Syntax Errors**: Provide helpful error messages
+5. **Missing Files**: Return empty config, not error
+
+### UX Improvements
+1. **Config Wizard**: Guide users through initial setup
+2. **Validation Messages**: Clear errors with fix suggestions
+3. **Auto-Complete**: Provide schema for IDE support
+4. **Migration Tool**: Help users upgrade configs
+5. **Diff View**: Show what changed after updates
+
+### Potential Bugs to Watch Out For
+1. **Circular Imports**: Config loading config manager
+2. **Race Conditions**: Multiple config updates
+3. **Memory Leaks**: Large config objects not freed
+4. **Path Resolution**: Relative vs absolute paths
+5. **Permission Errors**: Config files not readable
+6. **Merge Conflicts**: Deep merge creating invalid state
+7. **Type Coercion**: String env vars to typed values
+8. **Provider Loops**: Provider config loading providers
+9. **Cache Invalidation**: Stale model registry data
+10. **Schema Drift**: Config schema version mismatches
+
 ## Success Criteria
 
 The implementation is complete when:
-- [ ] Configuration loads from all sources
-- [ ] Priority system works correctly
-- [ ] Plue config overrides OpenCode
-- [ ] Environment variables work
-- [ ] Configuration persists correctly
-- [ ] Schema validation catches errors
-- [ ] OpenCode sync works bidirectionally
+- [ ] Configuration loads from all sources with proper priority
+- [ ] Hierarchical file search works like OpenCode
+- [ ] Deep merge produces valid configurations
+- [ ] JSONC files parse correctly with comments
+- [ ] Legacy TOML configs auto-migrate
+- [ ] Provider auto-detection via env vars works
+- [ ] Plue config properly overrides OpenCode settings
+- [ ] Schema validation provides helpful errors
+- [ ] MCP server configs integrate properly
 - [ ] All tests pass with >95% coverage
+- [ ] Memory usage is stable with large configs
+- [ ] Thread-safe access to configuration
 
 ## Git Workflow
 

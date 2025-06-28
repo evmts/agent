@@ -651,3 +651,37 @@ Commit with conventional commits:
 - `perf: optimize connection reuse`
 
 The branch remains: `feat_add_opencode_server_management`
+
+## Integration with Server Manager
+
+**IMPORTANT**: This task includes completing the health monitoring left unfinished from Task 01:
+
+1. **Update EventStreamConnection** in `src/server/manager.zig`:
+   - Replace the stub implementation with actual HTTP/SSE client
+   - Connect to `/event` endpoint for health monitoring
+   - Parse initial empty message `data: {}` as connection confirmation
+   - Implement reconnection logic with exponential backoff
+   - Track consecutive failures for server restart decisions
+
+2. **Health Monitoring Pattern**:
+   ```zig
+   // In ServerManager, update the stub EventStreamConnection
+   pub fn connectEventStream(self: *ServerManager) !void {
+       const event_url = try std.fmt.allocPrint(self.allocator, "{s}/event", .{self.server_url});
+       defer self.allocator.free(event_url);
+       
+       // Use the HTTP client from this task
+       var client = try HttpClient.init(self.allocator);
+       self.event_stream = try client.streamSse(event_url, .{
+           .on_event = handleHealthEvent,
+           .on_disconnect = handleDisconnection,
+           .reconnect_delay_ms = self.config.event_stream_reconnect_ms,
+       });
+   }
+   ```
+
+3. **Testing Requirements**:
+   - Verify `/event` connection establishes within 5 seconds of server start
+   - Test automatic reconnection after network interruption
+   - Confirm server restart triggers after max_connection_failures
+   - Validate memory cleanup on shutdown

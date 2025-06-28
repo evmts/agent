@@ -39,48 +39,105 @@ export fn plue_tool_execute(
 
 ### OpenCode Tool System
 
-OpenCode provides a rich set of tools:
+OpenCode provides a rich set of tools with standardized patterns:
 
 ```typescript
-// Core tools
+// Tool definition pattern from OpenCode
+interface ToolDefinition {
+  id: string;              // e.g., "bash", "read", "edit"
+  description: string;     // Loaded from .txt files
+  parameters: z.ZodObject; // Zod schema for validation
+  execute: (params: any, ctx: Context) => Promise<ToolResult>;
+}
+
+// Tool execution context
+interface Context {
+  sessionID: string;
+  messageID: string;
+  abort: AbortSignal;     // For cancellation
+  metadata: (meta: Metadata) => void; // Progress updates
+}
+
+// Tool result format (actual from OpenCode)
+interface ToolResult {
+  metadata: {
+    title: string;        // Required display title
+    duration?: number;    // Execution time in ms
+    exitCode?: number;    // For bash tool
+    diagnostics?: any[];  // For edit tool
+    diff?: string;        // For edit tool
+    [key: string]: any;   // Tool-specific metadata
+  };
+  output: string;         // Text output shown to user
+}
+
+// Available tools with their constraints
 const TOOLS = {
   // Shell execution
-  "bash": { timeout: 120000, streaming: true },
+  "bash": {
+    timeout: { default: 60000, max: 600000 }, // 1-10 minutes
+    banned: ["curl", "wget", "nc", "netcat"], // Security
+    outputLimit: 30000, // Characters before truncation
+  },
   
   // File operations
-  "read": { maxLines: 2000 },
-  "write": { atomic: true },
-  "edit": { validation: true },
-  "multi_edit": { transactional: true },
+  "read": {
+    maxSize: 250 * 1024,    // 250KB file size limit
+    maxLines: 2000,         // Default line limit
+    lineMaxLength: 2000,    // Characters per line
+    rejectsImages: true,    // No binary files
+  },
+  "write": {
+    permissions: true,      // Requires user approval
+  },
+  "edit": {
+    strategies: 9,          // Multiple replacement algorithms
+    permissions: true,      // Requires user approval
+    lsp: true,             // Integrates with LSP diagnostics
+  },
+  "multi_edit": {
+    disabled: true,        // Currently commented out
+  },
   
-  // Search tools
-  "glob": { pattern: "**/*.ts" },
-  "grep": { regex: true, ripgrep: true },
-  "list": { recursive: false },
+  // Search tools  
+  "glob": {
+    caseSensitive: false,  // Default insensitive
+  },
+  "grep": {
+    ripgrep: true,         // Uses ripgrep backend
+  },
+  "list": {
+    showHidden: false,     // Default excludes dotfiles
+  },
   
   // Advanced tools
-  "patch": { unified: true },
-  "web_fetch": { timeout: 30000 },
+  "patch": {
+    unified: true,         // Unified diff format
+  },
+  "web_fetch": {
+    timeout: 30000,        // 30 second timeout
+  },
   "todo_read": {},
   "todo_write": {},
-  "task": { subtools: true },
+  "task": {
+    nested: true,          // Spawns sub-agent
+  },
   
   // LSP tools (when available)
   "lsp_hover": {},
   "lsp_diagnostics": {},
 };
 
-// Tool result format
-interface ToolResult {
-  success: boolean;
-  output?: string;
-  error?: string;
-  metadata?: {
-    duration?: number;
-    bytesRead?: number;
-    filesChanged?: string[];
-  };
-}
+/**
+ * Important Implementation Details:
+ * - Tools defined using Tool.define() static method with Zod schemas
+ * - Tool descriptions loaded from separate .txt files
+ * - All tools return {metadata: {title, ...}, output} format
+ * - Provider-specific tool mappings (Anthropic excludes patch)
+ * - Permission system asks user before file modifications
+ * - FileTimes tracking prevents concurrent file modifications
+ * - No streaming tools - all return complete results
+ */
 ```
 
 ## Requirements
@@ -910,21 +967,22 @@ pub const ToolPermissions = struct {
 
 1. **Unit Tests** (>95% coverage):
    - Tool execution
-   - Parameter validation
-   - Result formatting
-   - Permission checks
+   - Parameter validation with Zod schemas
+   - Result formatting with required metadata.title
+   - Permission checks and approval flow
 
 2. **Integration Tests**:
-   - All tool types
-   - Streaming tools
-   - Abort handling
-   - Error scenarios
+   - All tool types including banned command detection
+   - Metadata callbacks during execution
+   - Abort signal handling
+   - Error scenarios with proper output format
 
 3. **Safety Tests**:
    - Path traversal prevention
-   - Command injection prevention
-   - Resource limits
-   - Permission enforcement
+   - Command injection prevention (bash banned commands)
+   - Resource limits (file size, output truncation)
+   - Permission enforcement before file modifications
+   - Concurrent edit protection via FileTimes
 
 ## Example Usage (from C)
 
@@ -965,17 +1023,98 @@ void on_metadata(const char* metadata_json, void* user_data) {
 }
 ```
 
+## Corner Cases and Implementation Details
+
+Based on OpenCode's implementation, handle these critical scenarios:
+
+### Tool Definition Architecture
+1. **Zod Schema Validation**: All parameters validated with Zod before execution
+2. **Description Files**: Tool descriptions in separate .txt files, not inline
+3. **Metadata Title Required**: Every tool must return metadata.title for display
+4. **Context Propagation**: sessionID and messageID passed to every tool
+5. **Abort Signal**: Standard AbortSignal for cancellation support
+
+### Bash Tool Specifics
+1. **Banned Commands**: curl, wget, nc, netcat, and others blocked for security
+2. **Output Truncation**: Truncates at 30,000 characters with notice
+3. **Timeout Handling**: Default 1 minute, max 10 minutes, configurable
+4. **Exit Code Tracking**: Non-zero exit codes included in metadata
+5. **Combined Output**: stdout and stderr combined in output
+
+### File Operation Details
+1. **Read Size Limit**: 250KB max file size, rejects larger files
+2. **Line Numbering**: 5-digit zero-padded line numbers (e.g., 00001)
+3. **Line Truncation**: Lines over 2000 chars truncated with ellipsis
+4. **Image Detection**: Rejects image files based on extension
+5. **Permission System**: User approval required before writes/edits
+
+### Edit Tool Complexity
+1. **Multiple Strategies**: 9 different replacement algorithms tried
+2. **LSP Integration**: Returns diagnostics in metadata after edit
+3. **Diff Generation**: Shows diff in metadata for review
+4. **FileTimes Protection**: Prevents concurrent edits to same file
+5. **Multi-Edit Disabled**: Currently commented out in provider registry
+
+### Search Tool Patterns
+1. **Case Sensitivity**: Glob is case-insensitive by default
+2. **Ripgrep Backend**: Grep uses ripgrep for performance
+3. **Hidden Files**: List excludes dotfiles by default
+4. **Pattern Validation**: Invalid patterns return empty results
+5. **Path Resolution**: All paths resolved relative to session root
+
+### Advanced Tool Features
+1. **Web Fetch Timeout**: 30 second hard timeout for web requests
+2. **Task Tool Nesting**: Spawns sub-agent with message event subscription
+3. **Todo Persistence**: Todo lists persist across tool invocations
+4. **Patch Format**: Uses unified diff format for patch tool
+5. **LSP Availability**: LSP tools only available when language server active
+
+### Permission System Gotchas
+1. **Auto-Approval Bug**: Currently auto-approves after 1 second
+2. **Session Scoped**: Permissions tracked per session
+3. **No Persistence**: Permissions reset on session restart
+4. **UI Integration**: Should show permission dialog in real implementation
+5. **Batch Operations**: Each file operation needs separate approval
+
+### Error Handling Patterns
+1. **Structured Errors**: Errors returned as output string, not thrown
+2. **Metadata Preserved**: Error metadata includes timing and context
+3. **Partial Success**: Some tools continue after errors (e.g., multi-edit)
+4. **Validation First**: Parameter validation before any execution
+5. **Resource Cleanup**: Ensures cleanup even on errors
+
+### UX Improvements
+1. **Progress Updates**: Use ctx.metadata() for real-time progress
+2. **Title Formatting**: Clear, actionable titles in metadata
+3. **Output Structure**: Consistent formatting across tools
+4. **Error Context**: Include helpful context in error messages
+5. **Cancellation**: Respect abort signals promptly
+
+### Potential Bugs to Watch Out For
+1. **Memory Leaks**: Large file operations not properly cleaned up
+2. **Zombie Processes**: Bash commands not killed on abort
+3. **Race Conditions**: Concurrent edits to same file
+4. **Path Escaping**: Special characters in file paths
+5. **Timeout Edge Cases**: Tools hanging past timeout
+6. **Permission Bypass**: Auto-approval defeating security
+7. **Output Buffer Overflow**: Very large outputs crashing
+8. **Circular Dependencies**: Task tool calling itself
+9. **LSP State**: Stale LSP data after file changes
+10. **Unicode Handling**: Multi-byte characters in file operations
+
 ## Success Criteria
 
 The implementation is complete when:
-- [ ] All OpenCode tools are accessible
-- [ ] Tool execution works reliably
-- [ ] Streaming tools provide real-time output
-- [ ] Abort signals interrupt execution
-- [ ] Permissions are enforced correctly
-- [ ] Validation prevents dangerous operations
+- [ ] All OpenCode tools are accessible via FFI with proper schemas
+- [ ] Tool execution follows OpenCode's metadata/output format
+- [ ] Permission system properly integrated (not auto-approving)
+- [ ] Abort signals interrupt execution promptly
+- [ ] Banned commands are blocked in bash tool
+- [ ] File size and output limits are enforced
+- [ ] LSP integration provides diagnostics for edit operations
+- [ ] FileTimes prevents concurrent file modifications
 - [ ] All tests pass with >95% coverage
-- [ ] Memory usage is stable
+- [ ] Memory usage is stable during heavy tool usage
 
 ## Git Workflow
 
