@@ -1245,17 +1245,113 @@ pub fn build(b: *std.Build) void {
    - Rapid init/shutdown
    - Error recovery
 
+## Corner Cases and Implementation Details
+
+Based on OpenCode's architecture, handle these critical scenarios:
+
+### Library Initialization Patterns
+1. **OpenCode Server Spawn**: Must handle port 0 allocation properly
+2. **Event Stream Connection**: Wait for initial {} event before ready
+3. **Working Directory**: OpenCode uses project-specific state directories
+4. **Git Detection**: Use same logic as OpenCode for project identification
+5. **Concurrent Init**: Prevent multiple initialization attempts
+
+### Memory Management Architecture
+1. **Thread-Local Errors**: Each thread has its own error state
+2. **JSON Lifetime**: JSON strings must outlive function returns
+3. **Reference Counting**: State snapshots use atomic ref counts
+4. **Arena Allocators**: Consider for request-scoped allocations
+5. **Leak Detection**: Track all allocations in debug builds
+
+### Event System Integration
+1. **OpenCode Events**: Bridge OpenCode's SSE events to FFI callbacks
+2. **Event Coalescing**: Batch rapid events to prevent overflow
+3. **Type Mapping**: Map OpenCode event types to FFI enum values
+4. **Reconnection**: Handle SSE disconnects gracefully
+5. **Event Ordering**: Preserve event sequence numbers
+
+### Error Handling Edge Cases
+1. **Stack Traces**: Only available in debug builds
+2. **Error Chains**: Preserve original error context
+3. **Thread Safety**: Error state is thread-local
+4. **JSON Errors**: Always return valid JSON even on error
+5. **Cleanup Order**: Free errors before library shutdown
+
+### FFI Boundary Considerations
+1. **String Encoding**: All strings must be UTF-8
+2. **Null Termination**: C strings require null terminators
+3. **Pointer Alignment**: Respect platform alignment requirements
+4. **Calling Conventions**: Use C ABI for all exports
+5. **Symbol Visibility**: Export only public API symbols
+
+### State Management Gotchas
+1. **Initialization Order**: Server must be ready before API client
+2. **Shutdown Sequence**: Stop subsystems in reverse order
+3. **Resource Cleanup**: Ensure all resources freed on error
+4. **Global State**: Minimize mutable global state
+5. **Thread Pools**: Consider thread pool for background tasks
+
+### Platform-Specific Issues
+1. **macOS Specifics**: Handle macOS security restrictions
+2. **Path Separators**: Use std.fs.path for cross-platform paths
+3. **Signal Handling**: Integrate with platform signal handlers
+4. **Dynamic Loading**: Support both static and dynamic linking
+5. **Debug Symbols**: Include debug info in debug builds
+
+### Performance Optimizations
+1. **Lazy Loading**: Initialize subsystems on first use
+2. **Connection Pooling**: Reuse HTTP connections
+3. **Event Batching**: Batch multiple events per callback
+4. **Memory Pools**: Use pools for frequent allocations
+5. **Lock-Free Queues**: Consider for event queue
+
+### Testing Challenges
+1. **Mock Server**: Need mock OpenCode for unit tests
+2. **Race Conditions**: Test concurrent operations
+3. **Memory Pressure**: Test under low memory conditions
+4. **Error Injection**: Simulate various failure modes
+5. **Performance Regression**: Track performance metrics
+
+### Documentation Requirements
+1. **API Documentation**: Generate from Zig doc comments
+2. **Usage Examples**: Provide C and Swift examples
+3. **Migration Guide**: Help users migrate from MVP1
+4. **Troubleshooting**: Common issues and solutions
+5. **Architecture Guide**: Explain design decisions
+
+### UX Improvements
+1. **Progress Callbacks**: Report initialization progress
+2. **Diagnostic Info**: Detailed info for debugging
+3. **Version Checking**: Warn on version mismatches
+4. **Auto-Recovery**: Attempt recovery from errors
+5. **Graceful Degradation**: Partial functionality on errors
+
+### Potential Bugs to Watch Out For
+1. **Double Free**: Reference counting errors
+2. **Use After Free**: Dangling pointers in callbacks
+3. **Stack Overflow**: Deep recursion in event handling
+4. **Deadlocks**: Complex locking scenarios
+5. **Memory Corruption**: Buffer overflows in string handling
+6. **Init Race**: Multiple threads calling init
+7. **Shutdown Hang**: Waiting for threads that won't exit
+8. **Event Loss**: Events dropped during high load
+9. **Version Skew**: FFI/OpenCode version mismatch
+10. **Resource Exhaustion**: File descriptor/handle leaks
+
 ## Success Criteria
 
 The implementation is complete when:
 - [ ] All PLUE_CORE_API.md functions are implemented
-- [ ] Memory management is leak-free
-- [ ] Error handling is comprehensive
-- [ ] Event system works reliably
-- [ ] Integration tests pass
-- [ ] Documentation is complete
-- [ ] Library can be used from C/Swift
-- [ ] Performance meets requirements
+- [ ] Memory tracking catches all leaks in tests
+- [ ] Thread-local error handling works correctly
+- [ ] Event system bridges OpenCode SSE properly
+- [ ] Integration tests cover all workflows
+- [ ] Documentation generates from source
+- [ ] Library works from both C and Swift
+- [ ] Performance: <100ms init, <1ms API calls
+- [ ] Zero memory leaks under valgrind/ASAN
+- [ ] Graceful handling of all error scenarios
+- [ ] Cross-platform compatibility verified
 
 ## Git Workflow
 
