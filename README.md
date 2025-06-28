@@ -4,6 +4,8 @@
 
 Plue is a native macOS application that provides an intelligent coding assistant interface with multiple interaction modes. It combines a modern Swift UI with high-performance Zig backend libraries to deliver a responsive and powerful development tool.
 
+**Note:** This project currently only builds on macOS due to its native macOS UI components and frameworks.
+
 ## Features
 
 - **🎯 Vim-style Prompt Interface** - Efficient text input with vim keybindings
@@ -28,82 +30,50 @@ Plue uses a hybrid architecture:
 
 - **Swift Frontend** - Native macOS UI using SwiftUI, providing smooth user experience
 - **Zig Backend** - High-performance core libraries written in Zig for:
-  - Terminal emulation and vim functionality
+  - Business logic and state management
   - Farcaster protocol implementation
   - Core processing logic
-- **Unified Build System** - Integrated build process using Zig as the orchestrator
+- **Unified Build System** - Zig build system orchestrates both Zig and Swift compilation
 
-### Build System Decision
+### Build System
 
-Currently, Plue uses **Swift Package Manager (SPM)** rather than an Xcode project. This decision was made to:
-- Simplify the initial development process
-- Maintain a clean, code-based project structure
-- Allow easier contributions without requiring Xcode
+Plue uses the **Zig build system** as the primary build orchestrator, which wraps and manages both:
+- Zig library compilation
+- Swift Package Manager (SPM) for the Swift application
 
-We follow a two-stage build process similar to Ghostty:
-1. **Stage 1**: Build Zig libraries in Nix environment for reproducibility
-2. **Stage 2**: Build Swift executable outside Nix (due to SPM not being available in Nix)
-
-**Future Migration**: We may migrate to a full Xcode project (`.xcodeproj`) in the future for:
-- Better macOS app integration and entitlements
-- Native code signing workflow
-- Asset catalogs and resource management
-- iOS/iPadOS support
-
-This migration would follow Ghostty's approach of maintaining a dedicated Xcode project for the macOS app while keeping Zig components separate.
+The build process:
+1. **Stage 1**: Build Zig libraries
+2. **Stage 2**: Build Swift application using SPM, linking against Zig libraries
 
 ## Requirements
 
 - **macOS 13.0+** (Ventura or later)
-- **Nix** - Required for dependency management (enforced at build time)
+- **Zig 0.14.1** (or later)
+- **Swift 5.8+** (included with Xcode)
 
 ## Quick Start
 
-### 1. Install Nix
+### 1. Install Zig
 
-The project requires Nix for managing dependencies like Ghostty terminal emulator.
+Download and install Zig from [https://ziglang.org/download/](https://ziglang.org/download/)
 
-**macOS/Linux:**
+**macOS (using Homebrew):**
 ```bash
-sh <(curl -L https://nixos.org/nix/install) --daemon
+brew install zig
 ```
 
-**Platform-specific notes:**
-
-**macOS:**
-- You may need to create the /nix directory first:
-  ```bash
-  sudo mkdir /nix && sudo chown $USER /nix
-  ```
-- On Apple Silicon, Rosetta 2 may be needed:
-  ```bash
-  softwareupdate --install-rosetta
-  ```
-
-**Linux:**
-- SELinux users may need additional configuration
-- Ubuntu/Debian users should use the --daemon flag
-
-### 2. Enable Flakes
-
-After installation, enable flakes by adding to `~/.config/nix/nix.conf`:
-```
-experimental-features = nix-command flakes
-```
-
-### 3. Clone and Enter Development Environment
+### 2. Clone the Repository
 
 ```bash
 git clone <repository-url>
 cd plue
-nix develop
 ```
 
 ### 3. Build and Run
 
 ```bash
-# Build the project
-zig build swift
+# Build the complete project
+zig build
 
 # Run the app
 zig build run
@@ -137,7 +107,7 @@ plue ~/code/another-project
 
 ## Development
 
-The build system enforces Nix usage to ensure all dependencies are available:
+### Build Commands
 
 ```bash
 # Build the complete project (Zig libraries + Swift application)
@@ -145,42 +115,18 @@ zig build
 
 # Build and run the application
 zig build run
-```
 
-**Note:** If you try to build outside of Nix, you'll see an error with installation instructions.
-
-To bypass the Nix check (not recommended - some features won't work):
-```bash
-zig build -Dskip-nix-check=true
-```
-
-## Development Workflow
-
-### Using Nix + Zig (Recommended)
-
-```bash
-# Enter the development environment
-nix develop
-
-# Available commands inside the environment:
-zig build        # Build complete project (Zig + Swift)
-zig build run    # Build and run Swift application  
-zig build swift  # Build complete project (explicit)
-zig build test   # Run unit tests
-
-# For production builds
-nix build        # Build with Nix for deployment
+# Run tests
+zig build test
 ```
 
 ### Build Commands
 
 | Command | Description |
 |---------|-------------|
-| `zig build` | Build complete project (default) |
-| `zig build run` | Build and run the Swift application |
-| `zig build swift` | Build complete project (explicit) |
+| `zig build` | Build complete project (Zig + Swift) |
+| `zig build run` | Build and run the application |
 | `zig build test` | Run unit tests |
-| `zig build run-swift` | Build and run Swift app (explicit) |
 
 ## Project Structure
 
@@ -199,61 +145,47 @@ plue/
 │   └── ...
 ├── build.zig             # Zig build configuration
 ├── Package.swift         # Swift package configuration
-├── flake.nix             # Nix development environment
 └── .github/workflows/    # CI/CD configuration
 ```
 
 ## Development Environment
 
-The Nix development environment provides:
+Required tools:
 
-- **Swift** - Latest Swift toolchain
-- **Zig** - Zig compiler and build system
-- **macOS Frameworks** - Foundation, AppKit, WebKit, Security
-- **Development Tools** - Git, curl, jq, pkg-config
-
-All dependencies are automatically managed and pinned for reproducible builds.
+- **Xcode** - For Swift compiler and macOS SDKs
+- **Zig** - Zig compiler and build system (0.14.1 or later)
+- **macOS Frameworks** - Foundation, AppKit, WebKit, Security (included with Xcode)
 
 ## Building
 
 ### Local Development
 
 ```bash
-# Enter Nix development environment
-nix develop
-
-# Build only Zig libraries
+# Build complete project
 zig build
-
-# Build complete project (Zig + Swift)
-zig build swift
 
 # Run the application
 zig build run
+
+# Run tests
+zig build test
 ```
 
-**Note**: The Nix environment provides Zig 0.14.1 and Swift 5.8. Swift Package Manager is not currently available in the Nix Swift package, so `zig build swift` uses the system Swift as a workaround.
+### Manual Build Steps (if needed)
 
-### Production/CI
-
-```bash
-nix build      # Reproducible production build (currently builds Zig libraries only)
-nix run        # Run the built application
-```
-
-### Manual Swift Build (if needed)
+If you need to build components separately:
 
 ```bash
-# Build Zig libraries first
-zig build
+# Build Zig libraries only
+zig build-lib -dynamic -OReleaseFast src/libplue.zig -femit-bin=zig-out/lib/libplue.dylib
 
-# Then build Swift with system Swift
+# Build Swift application
 swift build --configuration release -Xlinker -Lzig-out/lib
 ```
 
 ## Contributing
 
-1. **Enter the development environment**: `nix develop`
+1. **Clone the repository** and ensure you have Zig and Xcode installed
 2. **Make your changes** to Swift or Zig code
 3. **Test your changes**: `zig build test`
 4. **Build and verify**: `zig build run`
@@ -261,12 +193,11 @@ swift build --configuration release -Xlinker -Lzig-out/lib
 
 ## CI/CD
 
-The project uses GitHub Actions with Nix for:
+The project uses GitHub Actions for:
 
 - **Automated builds** on every push and PR
-- **Reproducible environments** across all build machines  
+- **Test execution** to ensure code quality
 - **Dependency updates** via Dependabot
-- **Cross-platform compatibility** testing
 
 ## License
 
