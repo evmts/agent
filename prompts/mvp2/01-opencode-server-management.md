@@ -17,16 +17,19 @@ Your task is to create the server management infrastructure that spawns, monitor
 
 OpenCode runs as an HTTP server using the following command:
 ```bash
-cd /path/to/opencode && bun run packages/opencode/src/server/server.ts
+cd /path/to/opencode && bun run packages/opencode/src/index.ts serve --port 0
+# OR if you have the CLI built:
+opencode serve --port 0 --hostname 127.0.0.1
 ```
 
 The server:
-- Listens on a configurable port (default: 3000, but use port 0 for automatic assignment)
+- Listens on a configurable port (default: 4096, use --port flag for custom port)
 - Provides a REST API for all operations
 - Provides an event stream at `GET /event` for real-time updates (SSE)
 - No explicit health check endpoint (use the event stream connection as health indicator)
-- Can be configured via environment variables
-- Server URL is passed to child processes via `OPENCODE_SERVER` environment variable
+- Port is specified via --port flag, not environment variable
+- Server announces its URL on stdout: "opencode server listening on http://hostname:port"
+- Uses Bun.serve() internally which returns server object with .port and .hostname properties
 
 ### Directory Structure
 
@@ -62,26 +65,27 @@ Based on OpenCode's implementation, pay attention to these critical details:
 
 ### Reference Implementation
 
-Study how OpenCode spawns processes:
+Study how OpenCode starts its server:
 ```typescript
-// From packages/opencode/src/util/process.ts
-export async function exec(command: string, options?: { cwd?: string }) {
-  const proc = Bun.spawn(command.split(" "), {
-    cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
+// From packages/opencode/src/cli/cmd/serve.ts
+const server = Server.listen({
+  port: args.port,      // from --port flag
+  hostname: args.hostname,  // from --hostname flag
+});
+
+console.log(
+  `opencode server listening on http://${server.hostname}:${server.port}`,
+);
+
+// From packages/opencode/src/server/server.ts
+export function listen(opts: { port: number; hostname: string }) {
+  const server = Bun.serve({
+    port: opts.port,
+    hostname: opts.hostname,
+    idleTimeout: 0,
+    fetch: app().fetch,
   });
-  
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-  
-  if (proc.exitCode !== 0) {
-    throw new Error(`Command failed: ${stderr}`);
-  }
-  
-  return stdout;
+  return server;  // Bun server object has .port and .hostname
 }
 ```
 
@@ -239,10 +243,10 @@ pub const EventStreamConnection = struct {
 1. Validate configuration
 2. Create log file if configured
 3. Set up environment variables (merge with existing)
-4. Spawn OpenCode process with port 0
-5. Parse actual port from stdout/stderr
-6. Build server URL with actual port
-7. Set OPENCODE_SERVER environment variable
+4. Spawn OpenCode process with command: `bun run index.ts serve --port 0`
+5. Parse server URL from stdout (format: "opencode server listening on http://hostname:port")
+6. Extract port from the announced URL
+7. Store server URL for API client usage
 8. Wait for event stream connection (with timeout)
 9. Handle startup failures with clear error messages
 10. Log startup time and port assignment
