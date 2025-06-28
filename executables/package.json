@@ -1,0 +1,22 @@
+{
+  "name": "plue-executables",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "plue-ai-provider",
+    "plue-lsp-client",
+    "plue-auth",
+    "plue-html-markdown",
+    "plue-diff"
+  ],
+  "scripts": {
+    "build": "bun run build.ts",
+    "test": "bun test",
+    "typecheck": "bun workspaces run typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.3",
+    "zod": "^3.23.8"
+  }
+}

@@ -1,0 +1,10 @@
+# Bun configuration file
+# Build optimizations will be added as needed
+
+[install]
+# Prefer offline installs to speed up builds
+prefer-offline = true
+
+[install.lockfile]
+# Don't save exact versions to reduce lockfile churn
+save = false

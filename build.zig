@@ -49,8 +49,12 @@ pub fn build(b: *std.Build) void {
     // Step 2: Build all Zig modules and libraries
     buildZigLibraries(b, target, optimize, ghostty_paths);
 
+    // Step 2.5: Build TypeScript executables
+    const ts_step = buildTypeScriptExecutables(b);
+
     // Step 3: Create Swift build step
     const swift_step = buildSwift(b, target, optimize, ghostty_paths);
+    swift_step.step.dependOn(ts_step);
     
     // Main build step
     const build_step = b.step("build", "Build the complete application");
@@ -87,6 +91,10 @@ pub fn build(b: *std.Build) void {
     // Swift-only step
     const swift_only_step = b.step("swift", "Build only the Swift application");
     swift_only_step.dependOn(&swift_step.step);
+
+    // TypeScript-only step
+    const ts_only_step = b.step("ts", "Build only the TypeScript executables");
+    ts_only_step.dependOn(ts_step);
 
     // Tests
     const test_step = buildTests(b, target, optimize);
@@ -319,6 +327,42 @@ fn buildSwift(
     return swift_cmd;
 }
 
+fn buildTypeScriptExecutables(b: *std.Build) *std.Build.Step {
+    const ts_step = b.step("ts-executables", "Build TypeScript executables");
+    
+    // First, check if bun is available
+    const check_bun = b.addSystemCommand(&.{ "which", "bun" });
+    check_bun.expectExitCode(0);
+    
+    // Install dependencies
+    const bun_install = b.addSystemCommand(&.{ 
+        "sh", "-c", 
+        "cd executables && bun install" 
+    });
+    bun_install.step.dependOn(&check_bun.step);
+    
+    // Build TypeScript executables
+    const bun_build = b.addSystemCommand(&.{ 
+        "sh", "-c", 
+        "cd executables && bun run build" 
+    });
+    bun_build.step.dependOn(&bun_install.step);
+    
+    ts_step.dependOn(&bun_build.step);
+    
+    // Add a verification step
+    const verify_ts = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\echo "🔍 Verifying TypeScript executables..." &&
+        \\if [ -f bin/plue-ai-provider ]; then echo "✅ plue-ai-provider"; else echo "⚠️  plue-ai-provider not built yet"; fi &&
+        \\echo "✨ TypeScript build completed!"
+    });
+    verify_ts.step.dependOn(&bun_build.step);
+    ts_step.dependOn(&verify_ts.step);
+    
+    return ts_step;
+}
+
 fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step {
     // Create test modules and add tests
     const test_step = b.step("test", "Run all tests");
@@ -353,6 +397,20 @@ fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
     const run_terminal_test = b.addRunArtifact(terminal_test);
     const terminal_test_step = b.step("test-terminal", "Run terminal test");
     terminal_test_step.dependOn(&run_terminal_test.step);
+
+    // OpenCode server test executable
+    const opencode_test = b.addExecutable(.{
+        .name = "opencode-server-test",
+        .root_source_file = b.path("src/opencode_server_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    opencode_test.linkLibC();
+    b.installArtifact(opencode_test);
+    
+    const run_opencode_test = b.addRunArtifact(opencode_test);
+    const opencode_test_step = b.step("test-opencode", "Test OpenCode server management");
+    opencode_test_step.dependOn(&run_opencode_test.step);
     
     // Swift tests
     const swift_test_step = b.step("test-swift", "Run Swift tests");
