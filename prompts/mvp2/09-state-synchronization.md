@@ -43,10 +43,19 @@ export fn plue_state_clear_callback() void;
 
 The state system needs to:
 1. Cache OpenCode state locally for performance
-2. Poll OpenCode for updates periodically
-3. Detect changes and generate diffs
-4. Notify Swift UI of state changes
-5. Provide immutable snapshots for thread safety
+2. Monitor OpenCode's event bus for real-time updates
+3. Poll periodically as fallback for missed events
+4. Detect changes and generate diffs efficiently
+5. Notify Swift UI of state changes via callbacks
+6. Provide immutable snapshots for thread safety
+7. Handle OpenCode's App.state() pattern for service state
+
+**OpenCode State Management**:
+- Uses `App.state()` for service-level state management
+- State stored per-project in `~/.local/share/opencode/project/{git-hash}/`
+- No built-in state synchronization - each service manages its own state
+- Event bus provides real-time updates for sessions/messages/etc
+- State persistence handled by individual services
 
 ## Requirements
 
@@ -1141,17 +1150,114 @@ plue_state_free_snapshot(snapshot);
 7. Swift UI Updates
 ```
 
+## Corner Cases and Implementation Details
+
+Based on OpenCode's implementation, handle these critical scenarios:
+
+### State Management Architecture
+1. **App.state() Pattern**: Services register state with init and shutdown functions
+2. **Per-Project State**: State stored in project-specific directories
+3. **No Global State**: Each service manages its own state independently
+4. **Event Bus Updates**: Real-time updates via SSE event stream
+5. **Lazy Initialization**: Services initialized on first access
+
+### Event Bus Integration
+1. **Event Types**: session.*, message.*, provider.*, tool.*, etc.
+2. **Event Format**: JSON objects with type and data fields
+3. **Connection Management**: Auto-reconnect on SSE disconnect
+4. **Event Ordering**: Events may arrive out of order
+5. **Missed Events**: Must poll to catch up after reconnection
+
+### Session State Specifics
+1. **Session List**: Available via `/session` endpoint
+2. **Message Count**: Must query `/session/{id}/messages` separately
+3. **Active Session**: Not tracked by OpenCode - client responsibility
+4. **Share State**: Sessions have optional share URLs
+5. **Parent Sessions**: Hierarchical session structure supported
+
+### Provider State Details
+1. **Dynamic Loading**: Providers loaded based on env vars
+2. **Model Count**: Must parse provider.models object
+3. **Authentication**: Check via attempting model list
+4. **Selected Model**: Track per-session, not globally
+5. **Cost Updates**: OAuth providers set costs to 0
+
+### Tool State Tracking
+1. **Tool List**: Available via provider.tools() mapping
+2. **Execution State**: Not tracked by OpenCode
+3. **Permission State**: Tracked per-session by Permission service
+4. **Tool Results**: Available in message parts
+5. **Abort Handling**: Must track abort signals locally
+
+### Memory Management Patterns
+1. **Reference Counting**: Snapshots use atomic ref counts
+2. **Lazy JSON**: Generate JSON representation on demand
+3. **Deep Copy**: State snapshots must deep copy all data
+4. **Cleanup Order**: Free nested allocations first
+5. **Arena Allocators**: Consider for temporary state ops
+
+### Diff Calculation Optimizations
+1. **Hash Comparison**: Quick equality check via hashes
+2. **Sequence Numbers**: Track order of state changes
+3. **Partial Diffs**: Only include changed fields
+4. **Batch Changes**: Group related changes together
+5. **Change Coalescing**: Merge rapid successive changes
+
+### Thread Safety Considerations
+1. **Immutable Snapshots**: Never modify existing snapshots
+2. **Mutex Protection**: Guard all shared state access
+3. **Atomic Operations**: Use atomics for counters/flags
+4. **Copy-on-Write**: Consider for large state objects
+5. **Lock Ordering**: Prevent deadlocks with consistent order
+
+### Performance Edge Cases
+1. **Large Sessions**: 1000+ messages in a session
+2. **Many Providers**: 10+ providers with many models
+3. **Rapid Updates**: Multiple messages per second
+4. **Memory Pressure**: State cache eviction needed
+5. **Startup Time**: Initial state fetch can be slow
+
+### Error Recovery Patterns
+1. **Partial Failures**: Some endpoints may fail
+2. **Stale Data**: Cached data may be outdated
+3. **Network Issues**: Handle intermittent connectivity
+4. **Invalid State**: Corrupted state files on disk
+5. **Version Mismatch**: State schema changes
+
+### UX Improvements
+1. **Progressive Loading**: Show partial state quickly
+2. **Optimistic Updates**: Update UI before confirmation
+3. **Change Indicators**: Show what's updating
+4. **Sync Status**: Display connection health
+5. **Error Recovery**: Graceful degradation
+
+### Potential Bugs to Watch Out For
+1. **Memory Leaks**: Snapshots not released properly
+2. **Infinite Loops**: Sync triggering more syncs
+3. **Race Conditions**: Multiple sync threads
+4. **Event Storms**: Too many events overwhelming UI
+5. **Stale Callbacks**: Callbacks referencing freed memory
+6. **Hash Collisions**: Different states same hash
+7. **Time Skew**: Server/client time differences
+8. **Zombie Threads**: Sync thread not stopping
+9. **Cache Corruption**: Invalid data in cache
+10. **Deadlocks**: Complex lock interactions
+
 ## Success Criteria
 
 The implementation is complete when:
-- [ ] State syncs within 1 second of changes
-- [ ] Diffs are calculated efficiently
-- [ ] Snapshots are immutable and thread-safe
-- [ ] Callbacks fire reliably
-- [ ] Memory usage is bounded
-- [ ] State persists across restarts
+- [ ] State syncs via event bus with <100ms latency
+- [ ] Polling fallback catches missed events
+- [ ] Diffs only include actual changes
+- [ ] Snapshots are truly immutable and thread-safe
+- [ ] Reference counting prevents memory leaks
+- [ ] Callbacks fire exactly once per change
+- [ ] Memory usage scales with active data only
+- [ ] State persists correctly per-project
 - [ ] All tests pass with >95% coverage
-- [ ] UI updates are smooth
+- [ ] UI updates feel instant (<16ms)
+- [ ] Handles 1000+ sessions gracefully
+- [ ] Recovers from all error scenarios
 
 ## Git Workflow
 
