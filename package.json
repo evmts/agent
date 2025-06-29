@@ -1,11 +1,23 @@
 {
   "name": "plue",
+  "version": "0.0.0",
   "module": "index.ts",
   "type": "module",
+  "description": "An agentic IDE",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "<PLACEHOLDER>"
+  },
   "scripts": {},
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@effect/cli": "latest",
+    "@effect/language-service": "^0.1.0",
+    "@effect/platform": "latest",
+    "@effect/platform-node": "latest",
+    "@effect/vitest": "latest",
+    "@types/node": "^22.5.2"
   },
   "peerDependencies": {
     "typescript": "^5"

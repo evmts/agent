@@ -1,11 +1,11 @@
-import Effect from "effect/Effect";
+#!/usr/bin/env node
 
-const ac = new AbortController();
+import * as NodeContext from "@effect/platform-node/NodeContext"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as Effect from "effect/Effect"
+import { run } from "./Cli.js"
 
-process.on("unhandledRejection", (e) => {
-  Effect.logError("unhandledRejection", e instanceof Error ? e.message : e);
-});
-
-process.on("uncaughtException", (e) => {
-  Effect.logError("uncaughtException", e instanceof Error ? e.message : e);
-});
+run(process.argv).pipe(
+  Effect.provide(NodeContext.layer),
+  NodeRuntime.runMain({ disableErrorReporting: true })
+)
