@@ -73,6 +73,10 @@
         //    // actually used.
         //    .lazy = false,
         //},
+        .clap = .{
+            .url = "https://github.com/Hejsil/zig-clap/archive/refs/heads/master.tar.gz",
+            .hash = "clap-0.10.0-oBajB7jkAQAZ4cKLlzkeV9mDu2yGZvtN2QuOyfAfjBij",
+        },
     },
 
     // Specifies the set of files and directories that are included in this package.

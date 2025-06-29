@@ -96,6 +96,9 @@ pub fn build(b: *std.Build) void {
     const ts_only_step = b.step("ts", "Build only the TypeScript executables");
     ts_only_step.dependOn(ts_step);
 
+    // CLI step
+    _ = buildCLI(b, target, optimize);
+
     // Tests
     const test_step = buildTests(b, target, optimize);
 
@@ -431,6 +434,46 @@ fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
     test_step.dependOn(swift_test_step);
     
     return test_step;
+}
+
+fn buildCLI(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step {
+    const cli_step = b.step("cli", "Build the Plue CLI");
+    
+    // Import clap dependency
+    const clap = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    // Build CLI executable
+    const cli_exe = b.addExecutable(.{
+        .name = "plue-cli",
+        .root_source_file = b.path("src/cli/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    // Add clap module
+    cli_exe.root_module.addImport("clap", clap.module("clap"));
+    
+    // Link libc for system calls
+    cli_exe.linkLibC();
+    
+    // Install the CLI executable
+    b.installArtifact(cli_exe);
+    
+    // Run CLI step
+    const run_cli = b.addRunArtifact(cli_exe);
+    if (b.args) |args| {
+        run_cli.addArgs(args);
+    }
+    
+    const run_cli_step = b.step("run-cli", "Run the Plue CLI");
+    run_cli_step.dependOn(&run_cli.step);
+    
+    cli_step.dependOn(&cli_exe.step);
+    
+    return cli_step;
 }
 
 fn buildMCPServers(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
