@@ -7,3 +7,6 @@ pub const auth = @import("commands/auth.zig");
 pub const upgrade = @import("commands/upgrade.zig");
 pub const serve = @import("commands/serve.zig");
 pub const models = @import("commands/models.zig");
+
+// Common command utilities
+pub const command = @import("command.zig");

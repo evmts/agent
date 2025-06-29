@@ -10,7 +10,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Define parameters for the main command
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
         \\-v, --version              Display version information.
@@ -53,7 +52,7 @@ pub fn main() !void {
     const command = args[0];
 
     // Store global options
-    const global_options = .{
+    const global_options = commands.command.CommandOptions{
         .print_logs = res.args.@"print-logs" != 0,
     };
 
