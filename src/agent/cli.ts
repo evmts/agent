@@ -1,19 +1,47 @@
-import { runSync, logError } from "effect/Effect";
+import * as Effect from "effect/Effect";
 import * as Command from "@effect/cli/Command";
+import * as Console from "effect/Console";
+import * as Option from "effect/Option";
+import { printLogs } from "./options";
+import {
+  tuiCommand,
+  runCommand,
+  generateCommand,
+  scrapCommand,
+  authCommand,
+  upgradeCommand,
+  serveCommand,
+  modelsCommand,
+} from "./commands";
 
-const ac = new AbortController();
+const mainCommand = Command.make("plue", { printLogs }, ({ printLogs }) =>
+  Effect.gen(function*() {
+    yield* printLogs.pipe(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: () => Console.log("Logging enabled"),
+      }),
+    );
+    yield* Console.log("Plue CLI - Multi-Agent Coding Assistant");
+    yield* Console.log("Use 'plue --help' for available commands");
+  }),
+).pipe(
+  Command.withDescription("Plue multi-agent coding assistant CLI"),
+  Command.withSubcommands([
+    tuiCommand,
+    runCommand,
+    generateCommand,
+    scrapCommand,
+    authCommand,
+    upgradeCommand,
+    serveCommand,
+    modelsCommand,
+  ]),
+);
 
-process.on("unhandledRejection", (e) => {
-  runSync(logError("unhandledRejection", e instanceof Error ? e.message : e));
+const cli = Command.run(mainCommand, {
+  name: "Plue CLI",
+  version: "0.1.0",
 });
 
-process.on("uncaughtException", (e) => {
-  runSync(logError("uncaughtException", e instanceof Error ? e.message : e));
-});
-
-const command = Command.make("hello");
-
-export const run = Command.run(command, {
-  name: "Hello World",
-  version: "0.0.0",
-});
+export default cli;
