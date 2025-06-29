@@ -409,6 +409,7 @@ fn buildTests(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
     b.installArtifact(opencode_test);
     
     const run_opencode_test = b.addRunArtifact(opencode_test);
+    run_opencode_test.addArg("./opencode"); // Default OpenCode path
     const opencode_test_step = b.step("test-opencode", "Test OpenCode server management");
     opencode_test_step.dependOn(&run_opencode_test.step);
     
