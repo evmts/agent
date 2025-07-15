@@ -35,7 +35,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Check Zig formatting
       run: |
@@ -90,7 +90,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Run Zig tests (${{ matrix.test-suite }})
       run: |
@@ -138,7 +138,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Build Zig dependencies
       run: |
@@ -192,7 +192,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Build with Nix
       run: |
@@ -257,7 +257,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Set up test environment
       run: |
@@ -311,7 +311,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Run performance benchmarks
       run: |
@@ -357,7 +357,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Prepare release assets
       run: |

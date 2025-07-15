@@ -78,7 +78,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Build release binary (${{ matrix.target }})
       run: |

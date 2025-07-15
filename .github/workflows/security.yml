@@ -25,7 +25,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Audit Swift dependencies
       run: |
@@ -125,7 +125,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Build for CodeQL analysis
       run: |
@@ -155,7 +155,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Check Swift dependency updates
       run: |
@@ -234,7 +234,7 @@ jobs:
       uses: DeterminateSystems/nix-installer-action@v17
       
     - name: Setup Nix Cache
-      uses: DeterminateSystems/magic-nix-cache-action@v10
+      uses: DeterminateSystems/magic-nix-cache-action@v13
 
     - name: Build release binary
       run: |
