@@ -193,6 +193,12 @@ pub fn build(b: *std.Build) void {
     
     const clap = b.dependency("clap", .{});
     exe_mod.addImport("clap", clap.module("clap"));
+    
+    const httpz = b.dependency("httpz", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_mod.addImport("httpz", httpz.module("httpz"));
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible

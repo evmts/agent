@@ -8,14 +8,18 @@ RUN apk update && \
         curl \
         xz \
         git \
-        libc-dev
+        libc-dev \
+        nodejs \
+        npm
 
 # Install Zig
 RUN mkdir -p /deps
 WORKDIR /deps
-RUN curl -L https://ziglang.org/download/$ZIGVER/zig-linux-x86_64-$ZIGVER.tar.xz -O && \
-    tar xf zig-linux-x86_64-$ZIGVER.tar.xz && \
-    mv zig-linux-x86_64-$ZIGVER/ /usr/local/zig/
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then ZIG_ARCH="aarch64"; else ZIG_ARCH="x86_64"; fi && \
+    curl -L https://ziglang.org/download/$ZIGVER/zig-linux-$ZIG_ARCH-$ZIGVER.tar.xz -O && \
+    tar xf zig-linux-$ZIG_ARCH-$ZIGVER.tar.xz && \
+    mv zig-linux-$ZIG_ARCH-$ZIGVER/ /usr/local/zig/
 
 ENV PATH="/usr/local/zig:${PATH}"
 
@@ -47,7 +51,7 @@ EXPOSE 80
 # CLI stage 
 FROM alpine:3.19 as cli
 
-RUN apk add --no-cache libc-dev
+RUN apk add --no-cache libc-dev wget
 
 COPY --from=zig-builder /app/zig-out/bin/plue /usr/local/bin/plue
 

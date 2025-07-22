@@ -44,6 +44,10 @@
             .url = "https://github.com/webui-dev/webui/archive/699119f42fc64ae42c9121bc4749b740f71949af.tar.gz",
             .hash = "webui-2.5.0-beta.4-pxqD5esSNwCHzwq6ndnW-ShzC_nPNAzGu13l4Unk0rFl",
         },
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig?ref=master#2924ead41db9e1986db3b4909a82185c576f6361",
+            .hash = "httpz-0.0.0-PNVzrC7CBgDSMZNP7chgAczR3FyAz5Eum6Kb1_K9kmYR",
+        },
     },
     .paths = .{
         "build.zig",
