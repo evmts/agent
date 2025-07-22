@@ -1,6 +1,6 @@
 # AI Assistant Context
 
-This file serves as the comprehensive configuration and behavioral protocol for AI agents working on this git based AI assistant project. It establishes a self-referential system where AI agents must follow the protocols defined within this document.
+This file serves as the comprehensive configuration and behavioral protocol for AI agents working on the Plue project - a git wrapper application with web interface, REST API, and PostgreSQL database. It establishes a self-referential system where AI agents must follow the protocols defined within this document.
 
 **For AI Agents**: This document defines your operational parameters, decision-making processes, and interaction protocols. You MUST adhere to all specifications herein.
 
@@ -211,6 +211,26 @@ Speculating about bugs without evidence demonstrates unprofessional debugging pr
 4. **Don't assume** - Ask for clarification rather than guessing the next step
 
 This ensures we stay aligned with the project's intentions and don't create unintended complexity.
+
+## Project-Specific Standards
+
+### HTTP Server Development
+- Use httpz request arena allocator for all request-scoped allocations
+- Always set `Content-Type` header for JSON responses
+- Handle JSON parsing errors gracefully with appropriate HTTP status codes
+- Use simple JSON parsing for small payloads to avoid dependencies
+
+### Database Patterns
+- Database connections are managed by the pool - never manually close connections
+- Use `defer` for query result cleanup
+- Always duplicate strings from database results if they need to outlive the query
+- Skip database tests gracefully when PostgreSQL is unavailable
+
+### Docker Development
+- Services must bind to `0.0.0.0` not `localhost` for Docker networking
+- Use `127.0.0.1` in healthchecks to avoid IPv6 issues
+- Always wait for dependent services using health checks
+- Keep containers minimal - use Alpine Linux base images
 
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.
