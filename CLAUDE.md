@@ -63,6 +63,22 @@ When working with Zig code, **ALWAYS** be conscious of memory allocations:
    - Use `defer` if deallocating in same scope
    - Use `errdefer` if passing ownership to caller on success
 
+### Allocator Usage in Constructors
+
+- **DON'T pass allocator into constructors/init methods**
+- **DO pass allocator into individual methods that need allocation**
+- This makes memory usage explicit at call sites
+- Helps prevent hidden allocations and ownership confusion
+
+```zig
+// Bad: Hidden allocator usage
+const dao = try DataAccessObject.init(allocator, connection_url);
+
+// Good: Explicit allocator usage
+const dao = try DataAccessObject.init(connection_url);
+const users = try dao.getAllUsers(allocator);
+```
+
 ## Testing Philosophy
 
 ### No Abstractions in Tests
