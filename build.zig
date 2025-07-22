@@ -43,6 +43,9 @@ pub fn build(b: *std.Build) void {
     // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a
     // file path. In this case, we set up `exe_mod` to import `lib_mod`.
     exe_mod.addImport("plue_lib", lib_mod);
+    
+    const clap = b.dependency("clap", .{});
+    exe_mod.addImport("clap", clap.module("clap"));
 
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible

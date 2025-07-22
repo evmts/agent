@@ -195,3 +195,13 @@ Speculating about bugs without evidence demonstrates unprofessional debugging pr
 4. **Don't assume** - Ask for clarification rather than guessing the next step
 
 This ensures we stay aligned with the project's intentions and don't create unintended complexity.
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
+## Project Resources
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, resources, and coding standards.
