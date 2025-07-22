@@ -22,10 +22,10 @@ pub fn main() !void {
 
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
-    
+
     var iter = std.process.ArgIterator.init();
     _ = iter.next();
-    
+
     if (iter.next()) |first_arg| {
         if (std.mem.eql(u8, first_arg, "start")) {
             try StartCommand.run(allocator, &iter);
@@ -39,7 +39,7 @@ pub fn main() !void {
         try printHelp();
         return;
     }
-    
+
     std.log.info("Hello, world!", .{});
 }
 
