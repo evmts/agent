@@ -12,7 +12,7 @@ const User = struct {
 
 pub fn init(connection_url: []const u8) !DataAccessObject {
     const uri = try std.Uri.parse(connection_url);
-    const pool = try pg.Pool.initUri(std.heap.page_allocator, uri, 5, 10_000);
+    const pool = try pg.Pool.initUri(std.heap.page_allocator, uri, .{ .size = 5 });
     
     return DataAccessObject{
         .pool = pool,
@@ -29,22 +29,24 @@ pub fn createUser(self: *DataAccessObject, allocator: std.mem.Allocator, name: [
 }
 
 pub fn getUserByName(self: *DataAccessObject, allocator: std.mem.Allocator, name: []const u8) !?User {
-    const row = self.pool.row("SELECT id, name FROM users WHERE name = $1", .{name}) catch |err| switch (err) {
-        error.NoRows => return null,
-        else => return err,
-    };
-    defer row.deinit();
+    var maybe_row = try self.pool.row("SELECT id, name FROM users WHERE name = $1", .{name});
     
-    const id = row.get(i32, 0);
-    const username = row.get([]const u8, 1);
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const id = row.get(i32, 0);
+        const username = row.get([]const u8, 1);
+        
+        // Allocate memory for the name since row data is temporary
+        const owned_name = try allocator.dupe(u8, username);
+        
+        return User{
+            .id = id,
+            .name = owned_name,
+        };
+    }
     
-    // Allocate memory for the name since row data is temporary
-    const owned_name = try allocator.dupe(u8, username);
-    
-    return User{
-        .id = id,
-        .name = owned_name,
-    };
+    return null; // No user found
 }
 
 pub fn updateUserName(self: *DataAccessObject, allocator: std.mem.Allocator, old_name: []const u8, new_name: []const u8) !void {
@@ -62,7 +64,12 @@ pub fn listUsers(self: *DataAccessObject, allocator: std.mem.Allocator) ![]User 
     defer result.deinit();
     
     var users = std.ArrayList(User).init(allocator);
-    defer users.deinit();
+    errdefer {
+        for (users.items) |user| {
+            allocator.free(user.name);
+        }
+        users.deinit();
+    }
     
     while (try result.next()) |row| {
         const id = row.get(i32, 0);
@@ -130,8 +137,8 @@ test "database CRUD operations" {
     
     const users = try dao.listUsers(allocator);
     defer {
-        for (users) |user| {
-            allocator.free(user.name);
+        for (users) |list_user| {
+            allocator.free(list_user.name);
         }
         allocator.free(users);
     }

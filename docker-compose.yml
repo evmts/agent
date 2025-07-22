@@ -19,11 +19,16 @@ services:
     build:
       context: .
       target: cli
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: "postgresql://plue:plue_password@postgres:5432/plue"
     command: ["server"]
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -35,7 +40,7 @@ services:
     ports:
       - "3000:80"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
       timeout: 5s
       retries: 3
