@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: plue
+      POSTGRES_USER: plue
+      POSTGRES_PASSWORD: plue_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plue -d plue"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api-server:
+    image: python:3.12-alpine
+    command: ["python", "-c", "import http.server; import socketserver; handler = http.server.SimpleHTTPRequestHandler; httpd = socketserver.TCPServer(('', 8000), handler); print('API Server at port 8000'); httpd.serve_forever()"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  healthcheck:
+    build:
+      context: .
+      dockerfile: Dockerfile.healthcheck
+    depends_on:
+      web:
+        condition: service_healthy
+      api-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: ["python", "/app/scripts/healthcheck.py"]
+    volumes:
+      - ./scripts:/app/scripts
+
+volumes:
+  postgres_data:
