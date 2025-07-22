@@ -1,46 +1,64 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
+const std = @import("std");
+const clap = @import("clap");
+const StartCommand = @import("commands/start.zig");
+const ServerCommand = @import("commands/server.zig");
+
+const Subcommands = enum {
+    start,
+    server,
+};
+
+const main_parsers = .{
+    .command = clap.parsers.enumeration(Subcommands),
+};
+
+const main_params = clap.parseParamsComptime(
+    \\-h, --help Display this help and exit.
+    \\<command>
+);
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    var iter = std.process.ArgIterator.init();
+    _ = iter.next();
 
-    try bw.flush(); // Don't forget to flush!
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
+    if (iter.next()) |first_arg| {
+        if (std.mem.eql(u8, first_arg, "start")) {
+            try StartCommand.run(allocator, &iter);
+            return;
         }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
+        if (std.mem.eql(u8, first_arg, "server")) {
+            try ServerCommand.run(allocator, &iter);
+            return;
+        }
+        if (std.mem.eql(u8, first_arg, "-h") or std.mem.eql(u8, first_arg, "--help")) {
+            try printHelp();
+            return;
+        }
+        std.log.err("Unknown command: {s}", .{first_arg});
+        try printHelp();
+        return;
+    }
+
+    std.log.info("Hello, world!", .{});
 }
 
-const std = @import("std");
+fn printHelp() !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.writeAll("plue - A git wrapper application\n\n");
+    try stdout.writeAll("Usage: plue [command]\n\n");
+    try stdout.writeAll("Commands:\n");
+    try stdout.writeAll("  start    Start the web GUI application\n");
+    try stdout.writeAll("  server   Start the HTTP API server\n");
+    try stdout.writeAll("  -h, --help Show this help\n");
+}
 
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("plue_lib");
+test "main command works" {
+    try std.testing.expect(true);
+}

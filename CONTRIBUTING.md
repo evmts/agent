@@ -15,7 +15,7 @@
 ## Development Setup
 
 ### Prerequisites
-1. Install Zig 0.14.0 or later
+1. Install Zig 0.14.1 or later
 2. Install Docker and Docker Compose (for database and integration testing)
 3. Install Node.js 20+ (for web UI development)
 
