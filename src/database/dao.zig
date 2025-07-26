@@ -275,6 +275,11 @@ pub fn getUserPublicKeys(self: *DataAccessObject, allocator: std.mem.Allocator, 
     return keys.toOwnedSlice();
 }
 
+pub fn deletePublicKey(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM public_key WHERE id = $1", .{id});
+}
+
 // Auth Token methods
 pub fn createAuthToken(self: *DataAccessObject, allocator: std.mem.Allocator, user_id: i64) !AuthToken {
     var token_bytes: [32]u8 = undefined;

@@ -26,6 +26,9 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     router.get("/", indexHandler, .{});
     router.get("/health", healthHandler, .{});
     router.get("/user", getCurrentUserHandler, .{}); // Authenticated user endpoint
+    router.post("/user/keys", createSSHKeyHandler, .{}); // Create SSH key
+    router.get("/user/keys", listSSHKeysHandler, .{}); // List SSH keys
+    router.delete("/user/keys/:id", deleteSSHKeyHandler, .{}); // Delete SSH key
     router.get("/users", getUsersHandler, .{});
     router.post("/users", createUserHandler, .{});
     router.get("/users/:name", getUserHandler, .{});
@@ -309,6 +312,162 @@ fn deleteUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     
     res.status = 200;
     res.body = "User deleted";
+}
+
+// SSH Key handlers
+fn createSSHKeyHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Missing request body");
+        return;
+    };
+    
+    // Parse JSON
+    var json_data = std.json.parseFromSlice(struct {
+        name: []const u8,
+        key: []const u8,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    const key_data = json_data.value;
+    
+    // Validate SSH key format
+    if (!std.mem.startsWith(u8, key_data.key, "ssh-")) {
+        try writeError(res, allocator, 400, "Invalid SSH key format");
+        return;
+    }
+    
+    // Generate fingerprint (simplified - in production use proper SSH fingerprint)
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(key_data.key);
+    var fingerprint_bytes: [32]u8 = undefined;
+    hasher.final(&fingerprint_bytes);
+    
+    var fingerprint: [64]u8 = undefined;
+    for (fingerprint_bytes, 0..) |b, i| {
+        _ = std.fmt.bufPrint(fingerprint[i * 2 ..][0..2], "{x:0>2}", .{b}) catch unreachable;
+    }
+    
+    const public_key = DataAccessObject.PublicKey{
+        .id = 0,
+        .owner_id = user_id,
+        .name = key_data.name,
+        .content = key_data.key,
+        .fingerprint = &fingerprint,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    ctx.dao.addPublicKey(allocator, public_key) catch |err| {
+        std.log.err("Failed to add SSH key: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{ .message = "SSH key added successfully" });
+}
+
+fn listSSHKeysHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const keys = ctx.dao.getUserPublicKeys(allocator, user_id) catch |err| {
+        std.log.err("Failed to list SSH keys: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer {
+        for (keys) |key| {
+            allocator.free(key.name);
+            allocator.free(key.content);
+            allocator.free(key.fingerprint);
+        }
+        allocator.free(keys);
+    }
+    
+    // Build response array
+    var response_keys = try allocator.alloc(struct {
+        id: i64,
+        name: []const u8,
+        fingerprint: []const u8,
+        created_unix: i64,
+    }, keys.len);
+    
+    for (keys, 0..) |key, i| {
+        response_keys[i] = .{
+            .id = key.id,
+            .name = key.name,
+            .fingerprint = key.fingerprint,
+            .created_unix = key.created_unix,
+        };
+    }
+    
+    res.status = 200;
+    try writeJson(res, allocator, response_keys);
+}
+
+fn deleteSSHKeyHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const id_str = req.param("id") orelse {
+        try writeError(res, allocator, 400, "Missing key ID");
+        return;
+    };
+    
+    const key_id = std.fmt.parseInt(i64, id_str, 10) catch {
+        try writeError(res, allocator, 400, "Invalid key ID");
+        return;
+    };
+    
+    // Verify the key belongs to the user
+    const keys = ctx.dao.getUserPublicKeys(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user keys: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer {
+        for (keys) |key| {
+            allocator.free(key.name);
+            allocator.free(key.content);
+            allocator.free(key.fingerprint);
+        }
+        allocator.free(keys);
+    }
+    
+    var found = false;
+    for (keys) |key| {
+        if (key.id == key_id) {
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        try writeError(res, allocator, 404, "SSH key not found");
+        return;
+    }
+    
+    ctx.dao.deletePublicKey(allocator, key_id) catch |err| {
+        std.log.err("Failed to delete SSH key: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "SSH key deleted successfully" });
 }
 
 fn createRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
