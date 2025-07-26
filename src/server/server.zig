@@ -25,6 +25,10 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     router.get("/users/:name", getUserHandler, .{});
     router.put("/users/:name", updateUserHandler, .{});
     router.delete("/users/:name", deleteUserHandler, .{});
+    router.post("/repos", createRepoHandler, .{});
+    router.get("/repos/:owner/:name", getRepoHandler, .{});
+    router.post("/repos/:owner/:name/issues", createIssueHandler, .{});
+    router.get("/repos/:owner/:name/issues/:index", getIssueHandler, .{});
     
     return Server{
         .server = server,
@@ -126,7 +130,19 @@ fn createUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     
     const name = body[name_value_start..name_end];
     
-    ctx.dao.createUser(allocator, name) catch |err| {
+    const new_user = DataAccessObject.User{
+        .id = 0,
+        .name = name,
+        .email = null,
+        .passwd = null,
+        .type = .individual,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    ctx.dao.createUser(allocator, new_user) catch |err| {
         res.status = 500;
         res.body = "Database error";
         std.log.err("Failed to create user: {}", .{err});
@@ -244,6 +260,388 @@ fn deleteUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     
     res.status = 200;
     res.body = "User deleted";
+}
+
+fn createRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    const body = req.body() orelse {
+        res.status = 400;
+        res.body = "Missing request body";
+        return;
+    };
+    
+    // Parse JSON - expecting {"owner": "username", "name": "repo-name", "description": "...", "is_private": false}
+    var json_data = std.json.parseFromSlice(struct {
+        owner: []const u8,
+        name: []const u8,
+        description: ?[]const u8 = null,
+        is_private: bool = false,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        res.body = "Invalid JSON";
+        return;
+    };
+    defer json_data.deinit();
+    
+    const repo_data = json_data.value;
+    
+    // Get owner user
+    const owner = ctx.dao.getUserByName(allocator, repo_data.owner) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get user: {}", .{err});
+        return;
+    };
+    defer if (owner) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (owner == null) {
+        res.status = 404;
+        res.body = "Owner not found";
+        return;
+    }
+    
+    const lower_name = try std.ascii.allocLowerString(allocator, repo_data.name);
+    defer allocator.free(lower_name);
+    
+    const repo = DataAccessObject.Repository{
+        .id = 0,
+        .owner_id = owner.?.id,
+        .lower_name = lower_name,
+        .name = repo_data.name,
+        .description = repo_data.description,
+        .default_branch = "main",
+        .is_private = repo_data.is_private,
+        .is_fork = false,
+        .fork_id = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    const repo_id = ctx.dao.createRepository(allocator, repo) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to create repository: {}", .{err});
+        return;
+    };
+    
+    res.content_type = .JSON;
+    res.status = 201;
+    res.body = try std.fmt.allocPrint(allocator, "{{\"id\":{}}}", .{repo_id});
+}
+
+fn getRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    const owner_name = req.param("owner") orelse {
+        res.status = 400;
+        res.body = "Missing owner parameter";
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        res.status = 400;
+        res.body = "Missing name parameter";
+        return;
+    };
+    
+    // Get owner user
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get user: {}", .{err});
+        return;
+    };
+    defer if (owner) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (owner == null) {
+        res.status = 404;
+        res.body = "Owner not found";
+        return;
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.?.id, repo_name) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get repository: {}", .{err});
+        return;
+    };
+    defer if (repo) |r| {
+        allocator.free(r.lower_name);
+        allocator.free(r.name);
+        if (r.description) |d| allocator.free(d);
+        allocator.free(r.default_branch);
+    };
+    
+    if (repo == null) {
+        res.status = 404;
+        res.body = "Repository not found";
+        return;
+    }
+    
+    var json_builder = std.ArrayList(u8).init(allocator);
+    const writer = json_builder.writer();
+    try writer.print("{{\"id\":{},\"owner_id\":{},\"name\":\"{s}\",\"description\":", .{
+        repo.?.id,
+        repo.?.owner_id,
+        repo.?.name,
+    });
+    if (repo.?.description) |desc| {
+        try writer.print("\"{s}\"", .{desc});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(",\"default_branch\":\"{s}\",\"is_private\":{},\"is_fork\":{}}}", .{
+        repo.?.default_branch,
+        repo.?.is_private,
+        repo.?.is_fork,
+    });
+    
+    res.content_type = .JSON;
+    res.status = 200;
+    res.body = try allocator.dupe(u8, json_builder.items);
+    json_builder.deinit();
+}
+
+fn createIssueHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    const owner_name = req.param("owner") orelse {
+        res.status = 400;
+        res.body = "Missing owner parameter";
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        res.status = 400;
+        res.body = "Missing name parameter";
+        return;
+    };
+    
+    const body = req.body() orelse {
+        res.status = 400;
+        res.body = "Missing request body";
+        return;
+    };
+    
+    // Parse JSON
+    var json_data = std.json.parseFromSlice(struct {
+        title: []const u8,
+        content: ?[]const u8 = null,
+        assignee: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        res.body = "Invalid JSON";
+        return;
+    };
+    defer json_data.deinit();
+    
+    const issue_data = json_data.value;
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get owner: {}", .{err});
+        return;
+    };
+    defer if (owner) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (owner == null) {
+        res.status = 404;
+        res.body = "Owner not found";
+        return;
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.?.id, repo_name) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get repository: {}", .{err});
+        return;
+    };
+    defer if (repo) |r| {
+        allocator.free(r.lower_name);
+        allocator.free(r.name);
+        if (r.description) |d| allocator.free(d);
+        allocator.free(r.default_branch);
+    };
+    
+    if (repo == null) {
+        res.status = 404;
+        res.body = "Repository not found";
+        return;
+    }
+    
+    // Get poster from auth (for now use owner)
+    const poster_id = owner.?.id;
+    
+    // Get assignee if provided
+    var assignee_id: ?i64 = null;
+    if (issue_data.assignee) |assignee_name| {
+        const assignee = ctx.dao.getUserByName(allocator, assignee_name) catch |err| {
+            res.status = 500;
+            res.body = "Database error";
+            std.log.err("Failed to get assignee: {}", .{err});
+            return;
+        };
+        defer if (assignee) |u| {
+            allocator.free(u.name);
+            if (u.email) |e| allocator.free(e);
+            if (u.passwd) |p| allocator.free(p);
+            if (u.avatar) |a| allocator.free(a);
+        };
+        
+        if (assignee) |a| {
+            assignee_id = a.id;
+        }
+    }
+    
+    const issue = DataAccessObject.Issue{
+        .id = 0,
+        .repo_id = repo.?.id,
+        .index = 0,
+        .poster_id = poster_id,
+        .title = issue_data.title,
+        .content = issue_data.content,
+        .is_closed = false,
+        .is_pull = false,
+        .assignee_id = assignee_id,
+        .created_unix = 0,
+    };
+    
+    const issue_id = ctx.dao.createIssue(allocator, issue) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to create issue: {}", .{err});
+        return;
+    };
+    
+    res.content_type = .JSON;
+    res.status = 201;
+    res.body = try std.fmt.allocPrint(allocator, "{{\"id\":{}}}", .{issue_id});
+}
+
+fn getIssueHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    const owner_name = req.param("owner") orelse {
+        res.status = 400;
+        res.body = "Missing owner parameter";
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        res.status = 400;
+        res.body = "Missing name parameter";
+        return;
+    };
+    const index_str = req.param("index") orelse {
+        res.status = 400;
+        res.body = "Missing index parameter";
+        return;
+    };
+    
+    const index = std.fmt.parseInt(i64, index_str, 10) catch {
+        res.status = 400;
+        res.body = "Invalid index";
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get owner: {}", .{err});
+        return;
+    };
+    defer if (owner) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (owner == null) {
+        res.status = 404;
+        res.body = "Owner not found";
+        return;
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.?.id, repo_name) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get repository: {}", .{err});
+        return;
+    };
+    defer if (repo) |r| {
+        allocator.free(r.lower_name);
+        allocator.free(r.name);
+        if (r.description) |d| allocator.free(d);
+        allocator.free(r.default_branch);
+    };
+    
+    if (repo == null) {
+        res.status = 404;
+        res.body = "Repository not found";
+        return;
+    }
+    
+    // Get issue
+    const issue = ctx.dao.getIssue(allocator, repo.?.id, index) catch |err| {
+        res.status = 500;
+        res.body = "Database error";
+        std.log.err("Failed to get issue: {}", .{err});
+        return;
+    };
+    defer if (issue) |i| {
+        allocator.free(i.title);
+        if (i.content) |c| allocator.free(c);
+    };
+    
+    if (issue == null) {
+        res.status = 404;
+        res.body = "Issue not found";
+        return;
+    }
+    
+    var json_builder = std.ArrayList(u8).init(allocator);
+    const writer = json_builder.writer();
+    try writer.print("{{\"id\":{},\"index\":{},\"title\":\"{s}\",\"content\":", .{
+        issue.?.id,
+        issue.?.index,
+        issue.?.title,
+    });
+    if (issue.?.content) |content| {
+        try writer.print("\"{s}\"", .{content});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(",\"is_closed\":{},\"is_pull\":{},\"assignee_id\":", .{
+        issue.?.is_closed,
+        issue.?.is_pull,
+    });
+    if (issue.?.assignee_id) |aid| {
+        try writer.print("{}", .{aid});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll("}");
+    
+    res.content_type = .JSON;
+    res.status = 200;
+    res.body = try allocator.dupe(u8, json_builder.items);
+    json_builder.deinit();
 }
 
 test "server initializes correctly" {
