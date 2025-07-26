@@ -70,7 +70,7 @@ services:
         condition: service_completed_successfully
     environment:
       TEST_DATABASE_URL: "postgresql://plue:plue_password@postgres:5432/plue"
-    command: ["sh", "-c", "plue --help && echo 'Database tests would run here when implemented'"]
+    entrypoint: ["sh", "-c", "cd /app && zig build test"]
 
   healthcheck:
     build:
