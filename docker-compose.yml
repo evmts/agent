@@ -19,11 +19,16 @@ services:
     build:
       context: .
       target: cli
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: "postgresql://plue:plue_password@postgres:5432/plue"
     command: ["server"]
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -35,10 +40,37 @@ services:
     ports:
       - "3000:80"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+  db-migrate:
+    image: python:3.12-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: plue
+      POSTGRES_PASSWORD: plue_password
+      POSTGRES_DB: plue
+    volumes:
+      - ./scripts:/app/scripts
+    working_dir: /app
+    command: ["sh", "-c", "pip install psycopg2-binary && python scripts/migrate.py up"]
+
+  api-test:
+    build:
+      context: .
+      target: cli
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    environment:
+      TEST_DATABASE_URL: "postgresql://plue:plue_password@postgres:5432/plue"
+    entrypoint: ["sh", "-c", "cd /app && zig build test"]
 
   healthcheck:
     build:
@@ -51,6 +83,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     command: ["python", "/app/scripts/healthcheck.py"]
     volumes:
       - ./scripts:/app/scripts

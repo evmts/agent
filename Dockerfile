@@ -54,5 +54,8 @@ FROM alpine:3.19 as cli
 RUN apk add --no-cache libc-dev wget
 
 COPY --from=zig-builder /app/zig-out/bin/plue /usr/local/bin/plue
+COPY --from=zig-builder /app /app
+COPY --from=zig-builder /usr/local/zig /usr/local/zig
+ENV PATH="/usr/local/zig:${PATH}"
 
 ENTRYPOINT ["plue"]

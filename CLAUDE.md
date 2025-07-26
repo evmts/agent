@@ -63,6 +63,22 @@ When working with Zig code, **ALWAYS** be conscious of memory allocations:
    - Use `defer` if deallocating in same scope
    - Use `errdefer` if passing ownership to caller on success
 
+### Allocator Usage in Constructors
+
+- **DON'T pass allocator into constructors/init methods**
+- **DO pass allocator into individual methods that need allocation**
+- This makes memory usage explicit at call sites
+- Helps prevent hidden allocations and ownership confusion
+
+```zig
+// Bad: Hidden allocator usage
+const dao = try DataAccessObject.init(allocator, connection_url);
+
+// Good: Explicit allocator usage
+const dao = try DataAccessObject.init(connection_url);
+const users = try dao.getAllUsers(allocator);
+```
+
 ## Testing Philosophy
 
 ### No Abstractions in Tests
@@ -72,6 +88,17 @@ All tests in this codebase should be written with **zero abstractions or indirec
 1. **No test helper functions** - Copy and paste setup code directly in each test
 2. **No shared test utilities** - Each test should be completely self-contained
 3. **Explicit is better than DRY** - Readability and clarity over code reuse in tests
+
+### No Database Mocking
+
+**CRITICAL**: We NEVER mock the database in tests. All tests must:
+
+1. **Use a real PostgreSQL database** - Either local or in Docker
+2. **Connect to actual database instances** - No in-memory substitutes
+3. **Skip gracefully if database unavailable** - Return early with a warning
+4. **Clean up test data** - Explicitly delete any created test records
+
+This ensures our tests catch real database issues and SQL compatibility problems.
 
 ### CRITICAL: Test Failures Are Always Regressions You Caused
 

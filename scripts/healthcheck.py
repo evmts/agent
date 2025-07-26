@@ -46,14 +46,98 @@ def check_web_service():
         return False
 
 def check_api_service():
-    """Check if the API service is responding"""
+    """Check if the API service is responding and database operations work"""
     try:
-        response = requests.get('http://api-server:8000', timeout=10)
+        # Test basic API health
+        response = requests.get('http://api-server:8000/health', timeout=10)
         if response.status_code != 200:
-            print(f"❌ API service failed: {response.status_code}")
+            print(f"❌ API health check failed: {response.status_code}")
+            return False
+        
+        if response.text.strip() != 'healthy':
+            print(f"❌ API health check returned unexpected response: {response.text}")
+            return False
+        
+        print("✅ API /health endpoint is working")
+        
+        # Test root endpoint
+        root_response = requests.get('http://api-server:8000/', timeout=10)
+        if root_response.status_code != 200:
+            print(f"❌ API root endpoint failed: {root_response.status_code}")
+            return False
+        
+        print("✅ API root endpoint is working")
+        
+        # Test database operations through API
+        test_user_name = "healthcheck_test_user"
+        
+        # Clean up any existing test user
+        requests.delete(f'http://api-server:8000/users/{test_user_name}', timeout=10)
+        
+        # Test CREATE user
+        create_response = requests.post(
+            'http://api-server:8000/users',
+            json={"name": test_user_name},
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        if create_response.status_code != 201:
+            print(f"❌ API create user failed: {create_response.status_code}")
+            return False
+        
+        # Test GET user
+        get_response = requests.get(f'http://api-server:8000/users/{test_user_name}', timeout=10)
+        if get_response.status_code != 200:
+            print(f"❌ API get user failed: {get_response.status_code}")
+            return False
+        
+        user_data = get_response.json()
+        if user_data.get('name') != test_user_name:
+            print(f"❌ API returned wrong user data: {user_data}")
+            return False
+        
+        # Test UPDATE user
+        updated_name = f"{test_user_name}_updated"
+        update_response = requests.put(
+            f'http://api-server:8000/users/{test_user_name}',
+            json={"name": updated_name},
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        if update_response.status_code != 200:
+            print(f"❌ API update user failed: {update_response.status_code}")
+            return False
+        
+        # Verify update worked
+        get_updated_response = requests.get(f'http://api-server:8000/users/{updated_name}', timeout=10)
+        if get_updated_response.status_code != 200:
+            print(f"❌ API get updated user failed: {get_updated_response.status_code}")
+            return False
+        
+        # Test LIST users
+        list_response = requests.get('http://api-server:8000/users', timeout=10)
+        if list_response.status_code != 200:
+            print(f"❌ API list users failed: {list_response.status_code}")
+            return False
+        
+        users = list_response.json()
+        if not isinstance(users, list):
+            print(f"❌ API returned invalid user list: {users}")
+            return False
+        
+        # Test DELETE user
+        delete_response = requests.delete(f'http://api-server:8000/users/{updated_name}', timeout=10)
+        if delete_response.status_code != 200:
+            print(f"❌ API delete user failed: {delete_response.status_code}")
+            return False
+        
+        # Verify deletion worked
+        get_deleted_response = requests.get(f'http://api-server:8000/users/{updated_name}', timeout=10)
+        if get_deleted_response.status_code != 404:
+            print(f"❌ API user not properly deleted: {get_deleted_response.status_code}")
             return False
             
-        print("✅ API service is working correctly")
+        print("✅ API service and database operations working correctly")
         return True
         
     except requests.exceptions.RequestException as e:
