@@ -34,6 +34,13 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     router.get("/users/:name", getUserHandler, .{});
     router.put("/users/:name", updateUserHandler, .{});
     router.delete("/users/:name", deleteUserHandler, .{});
+    router.post("/orgs", createOrgHandler, .{}); // Create organization
+    router.get("/orgs/:org", getOrgHandler, .{}); // Get organization
+    router.patch("/orgs/:org", updateOrgHandler, .{}); // Update organization
+    router.delete("/orgs/:org", deleteOrgHandler, .{}); // Delete organization
+    router.get("/orgs/:org/members", listOrgMembersHandler, .{}); // List org members
+    router.delete("/orgs/:org/members/:username", removeOrgMemberHandler, .{}); // Remove member
+    router.get("/user/orgs", listUserOrgsHandler, .{}); // List user's organizations
     router.post("/repos", createRepoHandler, .{});
     router.get("/repos/:owner/:name", getRepoHandler, .{});
     router.post("/repos/:owner/:name/issues", createIssueHandler, .{});
@@ -468,6 +475,456 @@ fn deleteSSHKeyHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     
     res.status = 200;
     try writeJson(res, allocator, .{ .message = "SSH key deleted successfully" });
+}
+
+// Organization handlers
+fn createOrgHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Missing request body");
+        return;
+    };
+    
+    // Parse JSON
+    var json_data = std.json.parseFromSlice(struct {
+        name: []const u8,
+        description: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    const org_data = json_data.value;
+    
+    // Create organization as a user with type=organization
+    const org = DataAccessObject.User{
+        .id = 0,
+        .name = org_data.name,
+        .email = null,
+        .passwd = null,
+        .type = .organization,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    ctx.dao.createUser(allocator, org) catch |err| {
+        std.log.err("Failed to create organization: {}", .{err});
+        // Check if it's a duplicate name error
+        if (err == error.DatabaseError) {
+            try writeError(res, allocator, 409, "Organization name already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    // Get the created org to get its ID
+    const created_org = ctx.dao.getUserByName(allocator, org_data.name) catch |err| {
+        std.log.err("Failed to get created org: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 500, "Failed to retrieve created organization");
+        return;
+    };
+    defer {
+        allocator.free(created_org.name);
+        if (created_org.email) |e| allocator.free(e);
+        if (created_org.passwd) |p| allocator.free(p);
+        if (created_org.avatar) |a| allocator.free(a);
+    }
+    
+    // Add the creator as owner
+    ctx.dao.addUserToOrg(allocator, user_id, created_org.id, true) catch |err| {
+        std.log.err("Failed to add user as org owner: {}", .{err});
+        // Try to clean up the org
+        ctx.dao.deleteUser(allocator, org_data.name) catch {};
+        try writeError(res, allocator, 500, "Failed to set organization owner");
+        return;
+    };
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{
+        .id = created_org.id,
+        .name = created_org.name,
+        .type = "organization",
+    });
+}
+
+fn getOrgHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    const org_name = req.param("org") orelse {
+        try writeError(res, allocator, 400, "Missing organization name");
+        return;
+    };
+    
+    const org = ctx.dao.getUserByName(allocator, org_name) catch |err| {
+        std.log.err("Failed to get organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    if (org) |o| {
+        defer {
+            allocator.free(o.name);
+            if (o.email) |e| allocator.free(e);
+            if (o.passwd) |p| allocator.free(p);
+            if (o.avatar) |a| allocator.free(a);
+        }
+        
+        if (o.type != .organization) {
+            try writeError(res, allocator, 404, "Organization not found");
+            return;
+        }
+        
+        res.status = 200;
+        try writeJson(res, allocator, .{
+            .id = o.id,
+            .name = o.name,
+            .avatar = o.avatar,
+            .created_unix = o.created_unix,
+        });
+    } else {
+        try writeError(res, allocator, 404, "Organization not found");
+    }
+}
+
+fn updateOrgHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const org_name = req.param("org") orelse {
+        try writeError(res, allocator, 400, "Missing organization name");
+        return;
+    };
+    
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Missing request body");
+        return;
+    };
+    
+    // Get the organization
+    const org = ctx.dao.getUserByName(allocator, org_name) catch |err| {
+        std.log.err("Failed to get organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    };
+    defer {
+        allocator.free(org.name);
+        if (org.email) |e| allocator.free(e);
+        if (org.passwd) |p| allocator.free(p);
+        if (org.avatar) |a| allocator.free(a);
+    }
+    
+    if (org.type != .organization) {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    }
+    
+    // Check if user is owner
+    const members = ctx.dao.getOrgUsers(allocator, org.id) catch |err| {
+        std.log.err("Failed to get org members: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer allocator.free(members);
+    
+    var is_owner = false;
+    for (members) |member| {
+        if (member.uid == user_id and member.is_owner) {
+            is_owner = true;
+            break;
+        }
+    }
+    
+    if (!is_owner) {
+        try writeError(res, allocator, 403, "Only organization owners can update settings");
+        return;
+    }
+    
+    // Parse update data
+    var json_data = std.json.parseFromSlice(struct {
+        description: ?[]const u8 = null,
+        avatar: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    // For now we only support updating avatar
+    if (json_data.value.avatar) |avatar| {
+        ctx.dao.updateUserAvatar(allocator, org.id, avatar) catch |err| {
+            std.log.err("Failed to update org avatar: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+    }
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "Organization updated successfully" });
+}
+
+fn deleteOrgHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const org_name = req.param("org") orelse {
+        try writeError(res, allocator, 400, "Missing organization name");
+        return;
+    };
+    
+    // Get the organization
+    const org = ctx.dao.getUserByName(allocator, org_name) catch |err| {
+        std.log.err("Failed to get organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    };
+    defer {
+        allocator.free(org.name);
+        if (org.email) |e| allocator.free(e);
+        if (org.passwd) |p| allocator.free(p);
+        if (org.avatar) |a| allocator.free(a);
+    }
+    
+    if (org.type != .organization) {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    }
+    
+    // Check if user is owner
+    const members = ctx.dao.getOrgUsers(allocator, org.id) catch |err| {
+        std.log.err("Failed to get org members: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer allocator.free(members);
+    
+    var is_owner = false;
+    for (members) |member| {
+        if (member.uid == user_id and member.is_owner) {
+            is_owner = true;
+            break;
+        }
+    }
+    
+    if (!is_owner) {
+        try writeError(res, allocator, 403, "Only organization owners can delete the organization");
+        return;
+    }
+    
+    ctx.dao.deleteUser(allocator, org_name) catch |err| {
+        std.log.err("Failed to delete organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "Organization deleted successfully" });
+}
+
+fn listOrgMembersHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    const org_name = req.param("org") orelse {
+        try writeError(res, allocator, 400, "Missing organization name");
+        return;
+    };
+    
+    // Get the organization
+    const org = ctx.dao.getUserByName(allocator, org_name) catch |err| {
+        std.log.err("Failed to get organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    };
+    defer {
+        allocator.free(org.name);
+        if (org.email) |e| allocator.free(e);
+        if (org.passwd) |p| allocator.free(p);
+        if (org.avatar) |a| allocator.free(a);
+    }
+    
+    if (org.type != .organization) {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    }
+    
+    const members = ctx.dao.getOrgUsers(allocator, org.id) catch |err| {
+        std.log.err("Failed to get org members: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer allocator.free(members);
+    
+    // Get user details for each member
+    var member_details = try allocator.alloc(struct {
+        id: i64,
+        name: []const u8,
+        is_owner: bool,
+    }, members.len);
+    
+    for (members, 0..) |member, i| {
+        const user = ctx.dao.getUserById(allocator, member.uid) catch |err| {
+            std.log.err("Failed to get member details: {}", .{err});
+            continue;
+        } orelse continue;
+        
+        member_details[i] = .{
+            .id = user.id,
+            .name = user.name,
+            .is_owner = member.is_owner,
+        };
+    }
+    
+    res.status = 200;
+    try writeJson(res, allocator, member_details);
+}
+
+fn removeOrgMemberHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const org_name = req.param("org") orelse {
+        try writeError(res, allocator, 400, "Missing organization name");
+        return;
+    };
+    
+    const username = req.param("username") orelse {
+        try writeError(res, allocator, 400, "Missing username");
+        return;
+    };
+    
+    // Get the organization
+    const org = ctx.dao.getUserByName(allocator, org_name) catch |err| {
+        std.log.err("Failed to get organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    };
+    defer {
+        allocator.free(org.name);
+        if (org.email) |e| allocator.free(e);
+        if (org.passwd) |p| allocator.free(p);
+        if (org.avatar) |a| allocator.free(a);
+    }
+    
+    if (org.type != .organization) {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    }
+    
+    // Check if user is owner
+    const members = ctx.dao.getOrgUsers(allocator, org.id) catch |err| {
+        std.log.err("Failed to get org members: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer allocator.free(members);
+    
+    var is_owner = false;
+    for (members) |member| {
+        if (member.uid == user_id and member.is_owner) {
+            is_owner = true;
+            break;
+        }
+    }
+    
+    if (!is_owner) {
+        try writeError(res, allocator, 403, "Only organization owners can remove members");
+        return;
+    }
+    
+    // Get the user to remove
+    const user_to_remove = ctx.dao.getUserByName(allocator, username) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "User not found");
+        return;
+    };
+    defer {
+        allocator.free(user_to_remove.name);
+        if (user_to_remove.email) |e| allocator.free(e);
+        if (user_to_remove.passwd) |p| allocator.free(p);
+        if (user_to_remove.avatar) |a| allocator.free(a);
+    }
+    
+    ctx.dao.removeUserFromOrg(allocator, user_to_remove.id, org.id) catch |err| {
+        std.log.err("Failed to remove member: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "Member removed successfully" });
+}
+
+fn listUserOrgsHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const user_orgs = ctx.dao.getUserOrganizations(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user organizations: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer {
+        for (user_orgs) |org| {
+            allocator.free(org.org.name);
+            if (org.org.email) |e| allocator.free(e);
+            if (org.org.passwd) |p| allocator.free(p);
+            if (org.org.avatar) |a| allocator.free(a);
+        }
+        allocator.free(user_orgs);
+    }
+    
+    // Build response
+    var response_orgs = try allocator.alloc(struct {
+        id: i64,
+        name: []const u8,
+        avatar: ?[]const u8,
+        is_owner: bool,
+    }, user_orgs.len);
+    
+    for (user_orgs, 0..) |org, i| {
+        response_orgs[i] = .{
+            .id = org.org.id,
+            .name = org.org.name,
+            .avatar = org.org.avatar,
+            .is_owner = org.is_owner,
+        };
+    }
+    
+    res.status = 200;
+    try writeJson(res, allocator, response_orgs);
 }
 
 fn createRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {

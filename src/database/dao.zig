@@ -148,6 +148,12 @@ pub fn deleteUser(self: *DataAccessObject, allocator: std.mem.Allocator, name: [
     _ = try self.pool.exec("DELETE FROM users WHERE name = $1", .{name});
 }
 
+pub fn updateUserAvatar(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64, avatar: []const u8) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec("UPDATE users SET avatar = $1, updated_unix = $2 WHERE id = $3", .{ avatar, unix_time, id });
+}
+
 pub fn listUsers(self: *DataAccessObject, allocator: std.mem.Allocator) ![]User {
     var result = try self.pool.query(
         \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
@@ -227,6 +233,62 @@ pub fn getOrgUsers(self: *DataAccessObject, allocator: std.mem.Allocator, org_id
     }
     
     return org_users.toOwnedSlice();
+}
+
+pub fn removeUserFromOrg(self: *DataAccessObject, allocator: std.mem.Allocator, uid: i64, org_id: i64) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM org_user WHERE uid = $1 AND org_id = $2", .{ uid, org_id });
+}
+
+pub const UserOrganization = struct {
+    org: User,
+    is_owner: bool,
+};
+
+pub fn getUserOrganizations(self: *DataAccessObject, allocator: std.mem.Allocator, uid: i64) ![]UserOrganization {
+    var result = try self.pool.query(
+        \\SELECT u.id, u.name, u.email, u.passwd, u.type, u.is_admin, u.avatar, u.created_unix, u.updated_unix, ou.is_owner
+        \\FROM org_user ou
+        \\JOIN users u ON u.id = ou.org_id
+        \\WHERE ou.uid = $1 AND u.type = 1
+        \\ORDER BY u.name
+    , .{uid});
+    defer result.deinit();
+    
+    var orgs = std.ArrayList(UserOrganization).init(allocator);
+    errdefer {
+        for (orgs.items) |org| {
+            allocator.free(org.org.name);
+            if (org.org.email) |e| allocator.free(e);
+            if (org.org.passwd) |p| allocator.free(p);
+            if (org.org.avatar) |a| allocator.free(a);
+        }
+        orgs.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 1);
+        const email = row.get(?[]const u8, 2);
+        const passwd = row.get(?[]const u8, 3);
+        const avatar = row.get(?[]const u8, 6);
+        
+        try orgs.append(UserOrganization{
+            .org = User{
+                .id = row.get(i64, 0),
+                .name = try allocator.dupe(u8, name),
+                .email = if (email) |e| try allocator.dupe(u8, e) else null,
+                .passwd = if (passwd) |p| try allocator.dupe(u8, p) else null,
+                .type = @enumFromInt(row.get(i16, 4)),
+                .is_admin = row.get(bool, 5),
+                .avatar = if (avatar) |a| try allocator.dupe(u8, a) else null,
+                .created_unix = row.get(i64, 7),
+                .updated_unix = row.get(i64, 8),
+            },
+            .is_owner = row.get(bool, 9),
+        });
+    }
+    
+    return orgs.toOwnedSlice();
 }
 
 // SSH Key methods
