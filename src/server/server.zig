@@ -8,6 +8,11 @@ const Context = struct {
     dao: *DataAccessObject,
 };
 
+const AuthRequest = struct {
+    req: *httpz.Request,
+    user_id: i64,
+};
+
 server: httpz.Server(*Context),
 context: *Context,
 
@@ -20,6 +25,7 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     var router = try server.router(.{});
     router.get("/", indexHandler, .{});
     router.get("/health", healthHandler, .{});
+    router.get("/user", getCurrentUserHandler, .{}); // Authenticated user endpoint
     router.get("/users", getUsersHandler, .{});
     router.post("/users", createUserHandler, .{});
     router.get("/users/:name", getUserHandler, .{});
@@ -53,6 +59,43 @@ fn indexHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
 fn healthHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     res.status = 200;
     res.body = "healthy";
+}
+
+fn getCurrentUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    // Get user by ID
+    const user = ctx.dao.getUserById(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user by ID: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "User not found");
+        return;
+    };
+    defer {
+        allocator.free(user.name);
+        if (user.email) |e| allocator.free(e);
+        if (user.avatar) |a| allocator.free(a);
+    }
+    
+    // Build response
+    const response = .{
+        .id = user.id,
+        .name = user.name,
+        .email = user.email,
+        .type = @tagName(user.type),
+        .is_admin = user.is_admin,
+        .avatar = user.avatar,
+        .created_unix = user.created_unix,
+        .updated_unix = user.updated_unix,
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, response);
 }
 
 fn getUsersHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
@@ -156,32 +199,38 @@ fn createUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
 fn getUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const allocator = req.arena;
     const name = req.param("name") orelse {
-        res.status = 400;
-        res.body = "Missing name parameter";
+        try writeError(res, allocator, 400, "Missing name parameter");
         return;
     };
     
     const user = ctx.dao.getUserByName(allocator, name) catch |err| {
-        res.status = 500;
-        res.body = "Database error";
         std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
         return;
     };
     
     if (user) |u| {
-        defer allocator.free(u.name);
+        defer {
+            allocator.free(u.name);
+            if (u.email) |e| allocator.free(e);
+            if (u.passwd) |p| allocator.free(p);
+            if (u.avatar) |a| allocator.free(a);
+        }
         
-        var json_builder = std.ArrayList(u8).init(allocator);
+        // Public profile response - no password
+        const response = .{
+            .id = u.id,
+            .name = u.name,
+            .email = u.email,
+            .type = @tagName(u.type),
+            .avatar = u.avatar,
+            .created_unix = u.created_unix,
+        };
         
-        try json_builder.writer().print("{{\"id\":{},\"name\":\"{s}\"}}", .{ u.id, u.name });
-        
-        res.content_type = .JSON;
         res.status = 200;
-        res.body = try allocator.dupe(u8, json_builder.items);
-        json_builder.deinit();
+        try writeJson(res, allocator, response);
     } else {
-        res.status = 404;
-        res.body = "User not found";
+        try writeError(res, allocator, 404, "User not found");
     }
 }
 
@@ -642,6 +691,42 @@ fn getIssueHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     res.status = 200;
     res.body = try allocator.dupe(u8, json_builder.items);
     json_builder.deinit();
+}
+
+// Helper functions
+fn writeJson(res: *httpz.Response, allocator: std.mem.Allocator, value: anytype) !void {
+    var json_builder = std.ArrayList(u8).init(allocator);
+    try std.json.stringify(value, .{}, json_builder.writer());
+    res.content_type = .JSON;
+    res.body = try allocator.dupe(u8, json_builder.items);
+    json_builder.deinit();
+}
+
+fn writeError(res: *httpz.Response, allocator: std.mem.Allocator, status: u16, message: []const u8) !void {
+    res.status = status;
+    try writeJson(res, allocator, .{ .@"error" = message });
+}
+
+// Middleware for authentication
+fn authMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !?i64 {
+    const auth_header = req.header("authorization") orelse {
+        try writeError(res, req.arena, 401, "Missing authorization header");
+        return null;
+    };
+    
+    if (!std.mem.startsWith(u8, auth_header, "token ")) {
+        try writeError(res, req.arena, 401, "Invalid authorization format");
+        return null;
+    }
+    
+    const token = auth_header[6..];
+    const auth_token = try ctx.dao.getAuthToken(req.arena, token) orelse {
+        try writeError(res, req.arena, 401, "Invalid token");
+        return null;
+    };
+    defer req.arena.free(auth_token.token);
+    
+    return auth_token.user_id;
 }
 
 test "server initializes correctly" {

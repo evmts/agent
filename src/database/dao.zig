@@ -57,6 +57,46 @@ pub fn createUser(self: *DataAccessObject, allocator: std.mem.Allocator, user: U
     });
 }
 
+pub fn getUserById(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64) !?User {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
+        \\FROM users WHERE id = $1
+    , .{id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const username = row.get([]const u8, 1);
+        const email = row.get(?[]const u8, 2);
+        const passwd = row.get(?[]const u8, 3);
+        const user_type = row.get(i16, 4);
+        const is_admin = row.get(bool, 5);
+        const avatar = row.get(?[]const u8, 6);
+        const created_unix = row.get(i64, 7);
+        const updated_unix = row.get(i64, 8);
+        
+        // Allocate memory for strings since row data is temporary
+        const owned_name = try allocator.dupe(u8, username);
+        const owned_email = if (email) |e| try allocator.dupe(u8, e) else null;
+        const owned_passwd = if (passwd) |p| try allocator.dupe(u8, p) else null;
+        const owned_avatar = if (avatar) |a| try allocator.dupe(u8, a) else null;
+        
+        return User{
+            .id = id,
+            .name = owned_name,
+            .email = owned_email,
+            .passwd = owned_passwd,
+            .type = @enumFromInt(user_type),
+            .is_admin = is_admin,
+            .avatar = owned_avatar,
+            .created_unix = created_unix,
+            .updated_unix = updated_unix,
+        };
+    }
+    
+    return null;
+}
+
 pub fn getUserByName(self: *DataAccessObject, allocator: std.mem.Allocator, name: []const u8) !?User {
     var maybe_row = try self.pool.row(
         \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
