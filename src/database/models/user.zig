@@ -34,6 +34,14 @@ pub const PublicKey = struct {
     updated_unix: i64,
 };
 
+pub const AuthToken = struct {
+    id: i64,
+    user_id: i64,
+    token: []const u8,
+    created_unix: i64,
+    expires_unix: i64,
+};
+
 test "User model" {
     const user = User{
         .id = 1,

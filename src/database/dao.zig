@@ -13,6 +13,7 @@ pub const User = user_models.User;
 pub const UserType = user_models.UserType;
 pub const OrgUser = user_models.OrgUser;
 pub const PublicKey = user_models.PublicKey;
+pub const AuthToken = user_models.AuthToken;
 pub const Repository = repo_models.Repository;
 pub const Branch = repo_models.Branch;
 pub const LFSMetaObject = repo_models.LFSMetaObject;
@@ -232,6 +233,76 @@ pub fn getUserPublicKeys(self: *DataAccessObject, allocator: std.mem.Allocator, 
     }
     
     return keys.toOwnedSlice();
+}
+
+// Auth Token methods
+pub fn createAuthToken(self: *DataAccessObject, allocator: std.mem.Allocator, user_id: i64) !AuthToken {
+    var token_bytes: [32]u8 = undefined;
+    std.crypto.random.bytes(&token_bytes);
+    
+    // Convert to hex string
+    var token_hex: [64]u8 = undefined;
+    for (token_bytes, 0..) |b, i| {
+        _ = std.fmt.bufPrint(token_hex[i * 2 ..][0..2], "{x:0>2}", .{b}) catch unreachable;
+    }
+    const token = try allocator.dupe(u8, &token_hex);
+    defer allocator.free(token);
+    
+    const unix_time = std.time.timestamp();
+    const expires_unix = unix_time + (30 * 24 * 60 * 60); // 30 days
+    
+    var row = try self.pool.row(
+        \\INSERT INTO auth_token (user_id, token, created_unix, expires_unix)
+        \\VALUES ($1, $2, $3, $4)
+        \\RETURNING id
+    , .{ user_id, token, unix_time, expires_unix }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    const id = row.get(i64, 0);
+    
+    return AuthToken{
+        .id = id,
+        .user_id = user_id,
+        .token = try allocator.dupe(u8, token),
+        .created_unix = unix_time,
+        .expires_unix = expires_unix,
+    };
+}
+
+pub fn getAuthToken(self: *DataAccessObject, allocator: std.mem.Allocator, token: []const u8) !?AuthToken {
+    const unix_time = std.time.timestamp();
+    
+    var maybe_row = try self.pool.row(
+        \\SELECT id, user_id, token, created_unix, expires_unix
+        \\FROM auth_token WHERE token = $1 AND expires_unix > $2
+    , .{ token, unix_time });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const token_str = row.get([]const u8, 2);
+        
+        return AuthToken{
+            .id = row.get(i64, 0),
+            .user_id = row.get(i64, 1),
+            .token = try allocator.dupe(u8, token_str),
+            .created_unix = row.get(i64, 3),
+            .expires_unix = row.get(i64, 4),
+        };
+    }
+    
+    return null;
+}
+
+pub fn deleteAuthToken(self: *DataAccessObject, allocator: std.mem.Allocator, token: []const u8) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM auth_token WHERE token = $1", .{token});
+}
+
+pub fn deleteExpiredTokens(self: *DataAccessObject, allocator: std.mem.Allocator) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec("DELETE FROM auth_token WHERE expires_unix < $1", .{unix_time});
 }
 
 // Repository methods

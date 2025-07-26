@@ -316,6 +316,19 @@ def migrate_up():
                 CREATE INDEX idx_action_secret_owner ON action_secret(owner_id) WHERE owner_id > 0;
                 CREATE INDEX idx_action_secret_repo ON action_secret(repo_id) WHERE repo_id > 0;
             """),
+            (11, "Create authentication token table", """
+                CREATE TABLE auth_token (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token VARCHAR(255) NOT NULL UNIQUE,
+                    created_unix BIGINT NOT NULL,
+                    expires_unix BIGINT NOT NULL
+                );
+                
+                CREATE INDEX idx_auth_token_user ON auth_token(user_id);
+                CREATE INDEX idx_auth_token_token ON auth_token(token);
+                CREATE INDEX idx_auth_token_expires ON auth_token(expires_unix);
+            """),
             # Add more migrations here as needed
         ]
         
@@ -366,6 +379,7 @@ def migrate_down(target_version):
         # Drop tables if rolling back to version 0
         if target_version == 0:
             # Drop in reverse dependency order
+            cursor.execute("DROP TABLE IF EXISTS auth_token CASCADE")
             cursor.execute("DROP TABLE IF EXISTS action_secret CASCADE")
             cursor.execute("DROP TABLE IF EXISTS action_artifact CASCADE")
             cursor.execute("DROP TABLE IF EXISTS action_runner_token CASCADE")
