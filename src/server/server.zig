@@ -1376,3 +1376,298 @@ test "server routes are configured" {
     
     try std.testing.expect(true);
 }
+
+test "user API endpoints" {
+    const allocator = std.testing.allocator;
+    
+    // Initialize test database
+    const test_db_url = std.posix.getenv("TEST_DATABASE_URL") orelse "postgresql://plue:plue_password@localhost:5432/plue";
+    var dao = DataAccessObject.init(test_db_url) catch |err| switch (err) {
+        error.ConnectionRefused => {
+            std.log.warn("Database not available for testing, skipping", .{});
+            return;
+        },
+        else => return err,
+    };
+    defer dao.deinit();
+    
+    // Clean up test data
+    dao.deleteUser(allocator, "test_api_user") catch {};
+    dao.deleteAuthToken(allocator, "test_token_123") catch {};
+    
+    // Create test user
+    const test_user = DataAccessObject.User{
+        .id = 0,
+        .name = "test_api_user",
+        .email = "api@test.com",
+        .passwd = "hashed_password",
+        .type = .individual,
+        .is_admin = false,
+        .avatar = "https://example.com/avatar.png",
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.createUser(allocator, test_user);
+    
+    // Get created user
+    const created_user = try dao.getUserByName(allocator, "test_api_user") orelse unreachable;
+    defer {
+        allocator.free(created_user.name);
+        if (created_user.email) |e| allocator.free(e);
+        if (created_user.passwd) |p| allocator.free(p);
+        if (created_user.avatar) |a| allocator.free(a);
+    }
+    
+    // Create auth token
+    const auth_token = try dao.createAuthToken(allocator, created_user.id);
+    defer allocator.free(auth_token.token);
+    
+    // Test GET /user endpoint - should get authenticated user
+    {
+        const user = try dao.getUserById(allocator, created_user.id);
+        try std.testing.expect(user != null);
+        if (user) |u| {
+            try std.testing.expectEqualStrings("test_api_user", u.name);
+            try std.testing.expectEqualStrings("api@test.com", u.email.?);
+            allocator.free(u.name);
+            if (u.email) |e| allocator.free(e);
+            if (u.passwd) |p| allocator.free(p);
+            if (u.avatar) |a| allocator.free(a);
+        }
+    }
+    
+    // Test public profile endpoint
+    {
+        const user = try dao.getUserByName(allocator, "test_api_user");
+        try std.testing.expect(user != null);
+        if (user) |u| {
+            try std.testing.expectEqualStrings("test_api_user", u.name);
+            // Public profile should still have email
+            try std.testing.expect(u.email != null);
+            allocator.free(u.name);
+            if (u.email) |e| allocator.free(e);
+            if (u.passwd) |p| allocator.free(p);
+            if (u.avatar) |a| allocator.free(a);
+        }
+    }
+    
+    // Clean up
+    dao.deleteAuthToken(allocator, auth_token.token) catch {};
+    dao.deleteUser(allocator, "test_api_user") catch {};
+}
+
+test "SSH key API endpoints" {
+    const allocator = std.testing.allocator;
+    
+    const test_db_url = std.posix.getenv("TEST_DATABASE_URL") orelse "postgresql://plue:plue_password@localhost:5432/plue";
+    var dao = DataAccessObject.init(test_db_url) catch |err| switch (err) {
+        error.ConnectionRefused => {
+            std.log.warn("Database not available for testing, skipping", .{});
+            return;
+        },
+        else => return err,
+    };
+    defer dao.deinit();
+    
+    // Clean up test data
+    dao.deleteUser(allocator, "test_ssh_user") catch {};
+    
+    // Create test user
+    const test_user = DataAccessObject.User{
+        .id = 0,
+        .name = "test_ssh_user",
+        .email = "ssh@test.com",
+        .passwd = null,
+        .type = .individual,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.createUser(allocator, test_user);
+    
+    const user = try dao.getUserByName(allocator, "test_ssh_user") orelse unreachable;
+    defer {
+        allocator.free(user.name);
+        if (user.email) |e| allocator.free(e);
+        if (user.passwd) |p| allocator.free(p);
+        if (user.avatar) |a| allocator.free(a);
+    }
+    
+    // Test adding SSH key
+    const test_key = DataAccessObject.PublicKey{
+        .id = 0,
+        .owner_id = user.id,
+        .name = "Test Key",
+        .content = "ssh-rsa AAAAB3NzaC1yc2EA... test@example.com",
+        .fingerprint = "SHA256:test_fingerprint_12345",
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.addPublicKey(allocator, test_key);
+    
+    // Test listing SSH keys
+    const keys = try dao.getUserPublicKeys(allocator, user.id);
+    defer {
+        for (keys) |key| {
+            allocator.free(key.name);
+            allocator.free(key.content);
+            allocator.free(key.fingerprint);
+        }
+        allocator.free(keys);
+    }
+    
+    try std.testing.expectEqual(@as(usize, 1), keys.len);
+    try std.testing.expectEqualStrings("Test Key", keys[0].name);
+    
+    // Test deleting SSH key
+    try dao.deletePublicKey(allocator, keys[0].id);
+    
+    const keys_after_delete = try dao.getUserPublicKeys(allocator, user.id);
+    defer allocator.free(keys_after_delete);
+    try std.testing.expectEqual(@as(usize, 0), keys_after_delete.len);
+    
+    // Clean up
+    dao.deleteUser(allocator, "test_ssh_user") catch {};
+}
+
+test "organization API endpoints" {
+    const allocator = std.testing.allocator;
+    
+    const test_db_url = std.posix.getenv("TEST_DATABASE_URL") orelse "postgresql://plue:plue_password@localhost:5432/plue";
+    var dao = DataAccessObject.init(test_db_url) catch |err| switch (err) {
+        error.ConnectionRefused => {
+            std.log.warn("Database not available for testing, skipping", .{});
+            return;
+        },
+        else => return err,
+    };
+    defer dao.deinit();
+    
+    // Clean up test data
+    dao.deleteUser(allocator, "test_org_owner") catch {};
+    dao.deleteUser(allocator, "test_org_member") catch {};
+    dao.deleteUser(allocator, "test_organization") catch {};
+    
+    // Create owner user
+    const owner = DataAccessObject.User{
+        .id = 0,
+        .name = "test_org_owner",
+        .email = "owner@test.com",
+        .passwd = null,
+        .type = .individual,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.createUser(allocator, owner);
+    
+    const owner_user = try dao.getUserByName(allocator, "test_org_owner") orelse unreachable;
+    defer {
+        allocator.free(owner_user.name);
+        if (owner_user.email) |e| allocator.free(e);
+        if (owner_user.passwd) |p| allocator.free(p);
+        if (owner_user.avatar) |a| allocator.free(a);
+    }
+    
+    // Test creating organization
+    const org = DataAccessObject.User{
+        .id = 0,
+        .name = "test_organization",
+        .email = null,
+        .passwd = null,
+        .type = .organization,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.createUser(allocator, org);
+    
+    const created_org = try dao.getUserByName(allocator, "test_organization") orelse unreachable;
+    defer {
+        allocator.free(created_org.name);
+        if (created_org.email) |e| allocator.free(e);
+        if (created_org.passwd) |p| allocator.free(p);
+        if (created_org.avatar) |a| allocator.free(a);
+    }
+    
+    try std.testing.expectEqual(DataAccessObject.UserType.organization, created_org.type);
+    
+    // Add owner to organization
+    try dao.addUserToOrg(allocator, owner_user.id, created_org.id, true);
+    
+    // Create member user
+    const member = DataAccessObject.User{
+        .id = 0,
+        .name = "test_org_member",
+        .email = "member@test.com",
+        .passwd = null,
+        .type = .individual,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.createUser(allocator, member);
+    
+    const member_user = try dao.getUserByName(allocator, "test_org_member") orelse unreachable;
+    defer {
+        allocator.free(member_user.name);
+        if (member_user.email) |e| allocator.free(e);
+        if (member_user.passwd) |p| allocator.free(p);
+        if (member_user.avatar) |a| allocator.free(a);
+    }
+    
+    // Add member to organization
+    try dao.addUserToOrg(allocator, member_user.id, created_org.id, false);
+    
+    // Test listing organization members
+    const members = try dao.getOrgUsers(allocator, created_org.id);
+    defer allocator.free(members);
+    
+    try std.testing.expectEqual(@as(usize, 2), members.len);
+    
+    // Test user organizations
+    const owner_orgs = try dao.getUserOrganizations(allocator, owner_user.id);
+    defer {
+        for (owner_orgs) |user_org| {
+            allocator.free(user_org.org.name);
+            if (user_org.org.email) |e| allocator.free(e);
+            if (user_org.org.passwd) |p| allocator.free(p);
+            if (user_org.org.avatar) |a| allocator.free(a);
+        }
+        allocator.free(owner_orgs);
+    }
+    
+    try std.testing.expectEqual(@as(usize, 1), owner_orgs.len);
+    try std.testing.expectEqualStrings("test_organization", owner_orgs[0].org.name);
+    try std.testing.expectEqual(true, owner_orgs[0].is_owner);
+    
+    // Test removing member
+    try dao.removeUserFromOrg(allocator, member_user.id, created_org.id);
+    
+    const members_after = try dao.getOrgUsers(allocator, created_org.id);
+    defer allocator.free(members_after);
+    try std.testing.expectEqual(@as(usize, 1), members_after.len);
+    
+    // Test updating organization avatar
+    try dao.updateUserAvatar(allocator, created_org.id, "https://example.com/org-avatar.png");
+    
+    const updated_org = try dao.getUserById(allocator, created_org.id) orelse unreachable;
+    defer {
+        allocator.free(updated_org.name);
+        if (updated_org.email) |e| allocator.free(e);
+        if (updated_org.passwd) |p| allocator.free(p);
+        if (updated_org.avatar) |a| allocator.free(a);
+    }
+    
+    try std.testing.expect(updated_org.avatar != null);
+    try std.testing.expectEqualStrings("https://example.com/org-avatar.png", updated_org.avatar.?);
+    
+    // Clean up
+    dao.deleteUser(allocator, "test_org_owner") catch {};
+    dao.deleteUser(allocator, "test_org_member") catch {};
+    dao.deleteUser(allocator, "test_organization") catch {};
+}
