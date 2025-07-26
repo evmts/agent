@@ -665,6 +665,323 @@ pub fn getIssue(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: 
     return null;
 }
 
+pub const IssueFilters = struct {
+    is_closed: ?bool = null,
+    is_pull: ?bool = null,
+    assignee_id: ?i64 = null,
+};
+
+pub fn listIssues(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, filters: IssueFilters) ![]Issue {
+    var query = std.ArrayList(u8).init(allocator);
+    defer query.deinit();
+    
+    try query.appendSlice(
+        \\SELECT id, repo_id, index, poster_id, title, content,
+        \\  is_closed, is_pull, assignee_id, created_unix
+        \\FROM issue WHERE repo_id = $1
+    );
+    
+    if (filters.is_closed) |closed| {
+        try query.writer().print(" AND is_closed = {}", .{closed});
+    }
+    if (filters.is_pull) |pull| {
+        try query.writer().print(" AND is_pull = {}", .{pull});
+    }
+    if (filters.assignee_id) |assignee| {
+        try query.writer().print(" AND assignee_id = {}", .{assignee});
+    }
+    
+    try query.appendSlice(" ORDER BY index DESC");
+    
+    var result = try self.pool.query(query.items, .{repo_id});
+    defer result.deinit();
+    
+    var issues = std.ArrayList(Issue).init(allocator);
+    errdefer {
+        for (issues.items) |issue| {
+            allocator.free(issue.title);
+            if (issue.content) |c| allocator.free(c);
+        }
+        issues.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const title = row.get([]const u8, 4);
+        const content = row.get(?[]const u8, 5);
+        
+        try issues.append(Issue{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .index = row.get(i64, 2),
+            .poster_id = row.get(i64, 3),
+            .title = try allocator.dupe(u8, title),
+            .content = if (content) |c| try allocator.dupe(u8, c) else null,
+            .is_closed = row.get(bool, 6),
+            .is_pull = row.get(bool, 7),
+            .assignee_id = row.get(?i64, 8),
+            .created_unix = row.get(i64, 9),
+        });
+    }
+    
+    return issues.toOwnedSlice();
+}
+
+pub const IssueUpdate = struct {
+    title: ?[]const u8 = null,
+    content: ?[]const u8 = null,
+    is_closed: ?bool = null,
+    assignee_id: ?i64 = null,
+};
+
+pub fn updateIssue(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64, updates: IssueUpdate) !void {
+    _ = allocator;
+    
+    // Similar pattern to updateRepository
+    if (updates.title != null and updates.content != null and updates.is_closed != null and updates.assignee_id != null) {
+        _ = try self.pool.exec(
+            \\UPDATE issue SET title = $1, content = $2, is_closed = $3, assignee_id = $4 WHERE id = $5
+        , .{ updates.title, updates.content, updates.is_closed.?, updates.assignee_id, issue_id });
+    } else if (updates.title != null) {
+        _ = try self.pool.exec("UPDATE issue SET title = $1 WHERE id = $2", .{ updates.title, issue_id });
+    } else if (updates.content != null) {
+        _ = try self.pool.exec("UPDATE issue SET content = $1 WHERE id = $2", .{ updates.content, issue_id });
+    } else if (updates.is_closed != null) {
+        _ = try self.pool.exec("UPDATE issue SET is_closed = $1 WHERE id = $2", .{ updates.is_closed.?, issue_id });
+    } else if (updates.assignee_id != null) {
+        _ = try self.pool.exec("UPDATE issue SET assignee_id = $1 WHERE id = $2", .{ updates.assignee_id, issue_id });
+    }
+}
+
+// Comment methods
+pub fn createComment(self: *DataAccessObject, allocator: std.mem.Allocator, comment: Comment) !i64 {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    
+    var row = try self.pool.row(
+        \\INSERT INTO comment (poster_id, issue_id, review_id, content, commit_id, line, created_unix)
+        \\VALUES ($1, $2, $3, $4, $5, $6, $7)
+        \\RETURNING id
+    , .{
+        comment.poster_id, comment.issue_id, comment.review_id,
+        comment.content, comment.commit_id, comment.line, unix_time,
+    }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return row.get(i64, 0);
+}
+
+pub fn getComments(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64) ![]Comment {
+    var result = try self.pool.query(
+        \\SELECT id, poster_id, issue_id, review_id, content, commit_id, line, created_unix
+        \\FROM comment WHERE issue_id = $1 ORDER BY id
+    , .{issue_id});
+    defer result.deinit();
+    
+    var comments = std.ArrayList(Comment).init(allocator);
+    errdefer {
+        for (comments.items) |comment| {
+            allocator.free(comment.content);
+            if (comment.commit_id) |c| allocator.free(c);
+        }
+        comments.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const content = row.get([]const u8, 4);
+        const commit_id = row.get(?[]const u8, 5);
+        
+        try comments.append(Comment{
+            .id = row.get(i64, 0),
+            .poster_id = row.get(i64, 1),
+            .issue_id = row.get(i64, 2),
+            .review_id = row.get(?i64, 3),
+            .content = try allocator.dupe(u8, content),
+            .commit_id = if (commit_id) |c| try allocator.dupe(u8, c) else null,
+            .line = row.get(?i32, 6),
+            .created_unix = row.get(i64, 7),
+        });
+    }
+    
+    return comments.toOwnedSlice();
+}
+
+// Label methods
+pub fn createLabel(self: *DataAccessObject, allocator: std.mem.Allocator, label: Label) !i64 {
+    _ = allocator;
+    
+    var row = try self.pool.row(
+        \\INSERT INTO label (repo_id, name, color)
+        \\VALUES ($1, $2, $3)
+        \\RETURNING id
+    , .{ label.repo_id, label.name, label.color }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return row.get(i64, 0);
+}
+
+pub fn getLabels(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64) ![]Label {
+    var result = try self.pool.query(
+        \\SELECT id, repo_id, name, color
+        \\FROM label WHERE repo_id = $1 ORDER BY name
+    , .{repo_id});
+    defer result.deinit();
+    
+    var labels = std.ArrayList(Label).init(allocator);
+    errdefer {
+        for (labels.items) |label| {
+            allocator.free(label.name);
+            allocator.free(label.color);
+        }
+        labels.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const color = row.get([]const u8, 3);
+        
+        try labels.append(Label{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .color = try allocator.dupe(u8, color),
+        });
+    }
+    
+    return labels.toOwnedSlice();
+}
+
+pub fn getLabelById(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64) !?Label {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, repo_id, name, color
+        \\FROM label WHERE id = $1
+    , .{id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const name = row.get([]const u8, 2);
+        const color = row.get([]const u8, 3);
+        
+        return Label{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .color = try allocator.dupe(u8, color),
+        };
+    }
+    
+    return null;
+}
+
+pub fn updateLabel(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64, name: ?[]const u8, color: ?[]const u8) !void {
+    _ = allocator;
+    
+    if (name != null and color != null) {
+        _ = try self.pool.exec("UPDATE label SET name = $1, color = $2 WHERE id = $3", .{ name, color, id });
+    } else if (name != null) {
+        _ = try self.pool.exec("UPDATE label SET name = $1 WHERE id = $2", .{ name, id });
+    } else if (color != null) {
+        _ = try self.pool.exec("UPDATE label SET color = $1 WHERE id = $2", .{ color, id });
+    }
+}
+
+pub fn deleteLabel(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM label WHERE id = $1", .{id});
+}
+
+pub fn addLabelToIssue(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64, label_id: i64) !void {
+    _ = allocator;
+    _ = try self.pool.exec(
+        \\INSERT INTO issue_label (issue_id, label_id)
+        \\VALUES ($1, $2)
+        \\ON CONFLICT (issue_id, label_id) DO NOTHING
+    , .{ issue_id, label_id });
+}
+
+pub fn removeLabelFromIssue(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64, label_id: i64) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM issue_label WHERE issue_id = $1 AND label_id = $2", .{ issue_id, label_id });
+}
+
+pub fn getIssueLabels(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64) ![]Label {
+    var result = try self.pool.query(
+        \\SELECT l.id, l.repo_id, l.name, l.color
+        \\FROM label l
+        \\JOIN issue_label il ON il.label_id = l.id
+        \\WHERE il.issue_id = $1
+        \\ORDER BY l.name
+    , .{issue_id});
+    defer result.deinit();
+    
+    var labels = std.ArrayList(Label).init(allocator);
+    errdefer {
+        for (labels.items) |label| {
+            allocator.free(label.name);
+            allocator.free(label.color);
+        }
+        labels.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const color = row.get([]const u8, 3);
+        
+        try labels.append(Label{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .color = try allocator.dupe(u8, color),
+        });
+    }
+    
+    return labels.toOwnedSlice();
+}
+
+// Review methods
+pub fn createReview(self: *DataAccessObject, allocator: std.mem.Allocator, review: Review) !i64 {
+    _ = allocator;
+    
+    var row = try self.pool.row(
+        \\INSERT INTO review (type, reviewer_id, issue_id, commit_id)
+        \\VALUES ($1, $2, $3, $4)
+        \\RETURNING id
+    , .{ @intFromEnum(review.type), review.reviewer_id, review.issue_id, review.commit_id }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return row.get(i64, 0);
+}
+
+pub fn getReviews(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64) ![]Review {
+    var result = try self.pool.query(
+        \\SELECT id, type, reviewer_id, issue_id, commit_id
+        \\FROM review WHERE issue_id = $1 ORDER BY id
+    , .{issue_id});
+    defer result.deinit();
+    
+    var reviews = std.ArrayList(Review).init(allocator);
+    errdefer {
+        for (reviews.items) |review| {
+            if (review.commit_id) |c| allocator.free(c);
+        }
+        reviews.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const commit_id = row.get(?[]const u8, 4);
+        
+        try reviews.append(Review{
+            .id = row.get(i64, 0),
+            .type = @enumFromInt(row.get(i16, 1)),
+            .reviewer_id = row.get(i64, 2),
+            .issue_id = row.get(i64, 3),
+            .commit_id = if (commit_id) |c| try allocator.dupe(u8, c) else null,
+        });
+    }
+    
+    return reviews.toOwnedSlice();
+}
+
 test "database CRUD operations" {
     const allocator = std.testing.allocator;
     
