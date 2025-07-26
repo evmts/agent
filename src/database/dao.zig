@@ -26,11 +26,11 @@ pub const ReviewType = issue_models.ReviewType;
 pub const Comment = issue_models.Comment;
 pub const ActionRun = action_models.ActionRun;
 pub const ActionJob = action_models.ActionJob;
+pub const ActionStatus = action_models.ActionStatus;
 pub const ActionRunner = action_models.ActionRunner;
 pub const ActionRunnerToken = action_models.ActionRunnerToken;
 pub const ActionArtifact = action_models.ActionArtifact;
 pub const ActionSecret = action_models.ActionSecret;
-pub const ActionStatus = action_models.ActionStatus;
 
 pub fn init(connection_url: []const u8) !DataAccessObject {
     const uri = try std.Uri.parse(connection_url);
@@ -1091,4 +1091,313 @@ test "database CRUD operations" {
     // Clean up
     dao.deleteUser(allocator, "test_user1") catch {};
     dao.deleteUser(allocator, "test_user2") catch {};
+}
+
+// Actions/CI operations
+pub fn createActionRun(self: *DataAccessObject, _: std.mem.Allocator, run: ActionRun) !i64 {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "INSERT INTO action_run (repo_id, workflow_id, commit_sha, trigger_event, status, created_unix) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id";
+    const result = try client.query(
+        query,
+        .{
+            run.repo_id,
+            run.workflow_id,
+            run.commit_sha,
+            run.trigger_event,
+            @intFromEnum(run.status),
+            std.time.timestamp(),
+        },
+    );
+    
+    if (try result.next()) |row| {
+        return row.get(i64, 0);
+    }
+    
+    return error.DatabaseError;
+}
+
+pub fn getActionRuns(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64) ![]ActionRun {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, repo_id, workflow_id, commit_sha, trigger_event, status, created_unix FROM action_run WHERE repo_id = $1 ORDER BY created_unix DESC";
+    const result = try client.query(query, .{repo_id});
+    
+    var runs = std.ArrayList(ActionRun).init(allocator);
+    defer runs.deinit();
+    
+    while (try result.next()) |row| {
+        const run = ActionRun{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .workflow_id = try allocator.dupe(u8, row.get([]const u8, 2)),
+            .commit_sha = try allocator.dupe(u8, row.get([]const u8, 3)),
+            .trigger_event = try allocator.dupe(u8, row.get([]const u8, 4)),
+            .status = @enumFromInt(row.get(i16, 5)),
+            .created_unix = row.get(i64, 6),
+        };
+        try runs.append(run);
+    }
+    
+    return runs.toOwnedSlice();
+}
+
+pub fn getActionRunById(self: *DataAccessObject, allocator: std.mem.Allocator, run_id: i64) !?ActionRun {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, repo_id, workflow_id, commit_sha, trigger_event, status, created_unix FROM action_run WHERE id = $1";
+    const result = try client.query(query, .{run_id});
+    
+    if (try result.next()) |row| {
+        return ActionRun{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .workflow_id = try allocator.dupe(u8, row.get([]const u8, 2)),
+            .commit_sha = try allocator.dupe(u8, row.get([]const u8, 3)),
+            .trigger_event = try allocator.dupe(u8, row.get([]const u8, 4)),
+            .status = @enumFromInt(row.get(i16, 5)),
+            .created_unix = row.get(i64, 6),
+        };
+    }
+    
+    return null;
+}
+
+pub fn createActionJob(self: *DataAccessObject, _: std.mem.Allocator, job: ActionJob) !i64 {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "INSERT INTO action_job (run_id, name, runs_on, status, log, started, stopped) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id";
+    const result = try client.query(
+        query,
+        .{
+            job.run_id,
+            job.name,
+            job.runs_on,
+            @intFromEnum(job.status),
+            job.log,
+            job.started,
+            job.stopped,
+        },
+    );
+    
+    if (try result.next()) |row| {
+        return row.get(i64, 0);
+    }
+    
+    return error.DatabaseError;
+}
+
+pub fn getActionJobs(self: *DataAccessObject, allocator: std.mem.Allocator, run_id: i64) ![]ActionJob {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, run_id, name, runs_on, status, log, started, stopped FROM action_job WHERE run_id = $1 ORDER BY id";
+    const result = try client.query(query, .{run_id});
+    
+    var jobs = std.ArrayList(ActionJob).init(allocator);
+    defer jobs.deinit();
+    
+    while (try result.next()) |row| {
+        const job = ActionJob{
+            .id = row.get(i64, 0),
+            .run_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, row.get([]const u8, 2)),
+            .runs_on = try allocator.dupe(u8, row.get([]const u8, 3)),
+            .status = @enumFromInt(row.get(i16, 4)),
+            .log = if (row.get(?[]const u8, 5)) |log| try allocator.dupe(u8, log) else null,
+            .started = row.get(?i64, 6),
+            .stopped = row.get(?i64, 7),
+        };
+        try jobs.append(job);
+    }
+    
+    return jobs.toOwnedSlice();
+}
+
+pub fn createActionArtifact(self: *DataAccessObject, _: std.mem.Allocator, artifact: ActionArtifact) !i64 {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "INSERT INTO action_artifact (job_id, name, path, file_size) VALUES ($1, $2, $3, $4) RETURNING id";
+    const result = try client.query(
+        query,
+        .{
+            artifact.job_id,
+            artifact.name,
+            artifact.path,
+            artifact.file_size,
+        },
+    );
+    
+    if (try result.next()) |row| {
+        return row.get(i64, 0);
+    }
+    
+    return error.DatabaseError;
+}
+
+pub fn getActionArtifacts(self: *DataAccessObject, allocator: std.mem.Allocator, job_id: i64) ![]ActionArtifact {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, job_id, name, path, file_size FROM action_artifact WHERE job_id = $1";
+    const result = try client.query(query, .{job_id});
+    
+    var artifacts = std.ArrayList(ActionArtifact).init(allocator);
+    defer artifacts.deinit();
+    
+    while (try result.next()) |row| {
+        const artifact = ActionArtifact{
+            .id = row.get(i64, 0),
+            .job_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, row.get([]const u8, 2)),
+            .path = try allocator.dupe(u8, row.get([]const u8, 3)),
+            .file_size = row.get(i64, 4),
+        };
+        try artifacts.append(artifact);
+    }
+    
+    return artifacts.toOwnedSlice();
+}
+
+pub fn getActionArtifactById(self: *DataAccessObject, allocator: std.mem.Allocator, artifact_id: i64) !?ActionArtifact {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, job_id, name, path, file_size FROM action_artifact WHERE id = $1";
+    const result = try client.query(query, .{artifact_id});
+    
+    if (try result.next()) |row| {
+        return ActionArtifact{
+            .id = row.get(i64, 0),
+            .job_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, row.get([]const u8, 2)),
+            .path = try allocator.dupe(u8, row.get([]const u8, 3)),
+            .file_size = row.get(i64, 4),
+        };
+    }
+    
+    return null;
+}
+
+pub fn createActionSecret(self: *DataAccessObject, _: std.mem.Allocator, secret: ActionSecret) !void {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "INSERT INTO action_secret (owner_id, repo_id, name, data) VALUES ($1, $2, $3, $4) ON CONFLICT (owner_id, repo_id, name) DO UPDATE SET data = $4";
+    _ = try client.query(
+        query,
+        .{
+            secret.owner_id,
+            secret.repo_id,
+            secret.name,
+            secret.data,
+        },
+    );
+}
+
+pub fn getActionSecrets(self: *DataAccessObject, allocator: std.mem.Allocator, owner_id: i64, repo_id: i64) ![]ActionSecret {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, owner_id, repo_id, name, data FROM action_secret WHERE (owner_id = $1 AND repo_id = 0) OR (owner_id = 0 AND repo_id = $2) ORDER BY name";
+    const result = try client.query(query, .{ owner_id, repo_id });
+    
+    var secrets = std.ArrayList(ActionSecret).init(allocator);
+    defer secrets.deinit();
+    
+    while (try result.next()) |row| {
+        const secret = ActionSecret{
+            .id = row.get(i64, 0),
+            .owner_id = row.get(i64, 1),
+            .repo_id = row.get(i64, 2),
+            .name = try allocator.dupe(u8, row.get([]const u8, 3)),
+            .data = try allocator.dupe(u8, row.get([]const u8, 4)),
+        };
+        try secrets.append(secret);
+    }
+    
+    return secrets.toOwnedSlice();
+}
+
+pub fn deleteActionSecret(self: *DataAccessObject, _: std.mem.Allocator, owner_id: i64, repo_id: i64, name: []const u8) !void {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "DELETE FROM action_secret WHERE owner_id = $1 AND repo_id = $2 AND name = $3";
+    _ = try client.query(query, .{ owner_id, repo_id, name });
+}
+
+pub fn createRunnerToken(self: *DataAccessObject, _: std.mem.Allocator, token_hash: []const u8, owner_id: i64, repo_id: i64) !void {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "INSERT INTO action_runner_token (token_hash, owner_id, repo_id) VALUES ($1, $2, $3)";
+    _ = try client.query(query, .{ token_hash, owner_id, repo_id });
+}
+
+pub fn createRunner(self: *DataAccessObject, _: std.mem.Allocator, runner: ActionRunner) !i64 {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "INSERT INTO action_runner (uuid, name, owner_id, repo_id, token_hash, labels, status, last_online) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id";
+    const result = try client.query(
+        query,
+        .{
+            runner.uuid,
+            runner.name,
+            runner.owner_id,
+            runner.repo_id,
+            runner.token_hash,
+            runner.labels,
+            runner.status,
+            runner.last_online,
+        },
+    );
+    
+    if (try result.next()) |row| {
+        return row.get(i64, 0);
+    }
+    
+    return error.DatabaseError;
+}
+
+pub fn getRunners(self: *DataAccessObject, allocator: std.mem.Allocator, owner_id: i64, repo_id: i64) ![]ActionRunner {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "SELECT id, uuid, name, owner_id, repo_id, token_hash, labels, status, last_online FROM action_runner WHERE (owner_id = $1 AND repo_id = 0) OR (owner_id = 0 AND repo_id = $2) ORDER BY name";
+    const result = try client.query(query, .{ owner_id, repo_id });
+    
+    var runners = std.ArrayList(ActionRunner).init(allocator);
+    defer runners.deinit();
+    
+    while (try result.next()) |row| {
+        const runner = ActionRunner{
+            .id = row.get(i64, 0),
+            .uuid = try allocator.dupe(u8, row.get([]const u8, 1)),
+            .name = try allocator.dupe(u8, row.get([]const u8, 2)),
+            .owner_id = row.get(i64, 3),
+            .repo_id = row.get(i64, 4),
+            .token_hash = try allocator.dupe(u8, row.get([]const u8, 5)),
+            .labels = if (row.get(?[]const u8, 6)) |labels| try allocator.dupe(u8, labels) else null,
+            .status = try allocator.dupe(u8, row.get([]const u8, 7)),
+            .last_online = row.get(?i64, 8),
+        };
+        try runners.append(runner);
+    }
+    
+    return runners.toOwnedSlice();
+}
+
+pub fn deleteRunner(self: *DataAccessObject, _: std.mem.Allocator, runner_id: i64) !void {
+    const client = try self.pool.acquire();
+    defer self.pool.release(client);
+    
+    const query = "DELETE FROM action_runner WHERE id = $1";
+    _ = try client.query(query, .{runner_id});
 }
