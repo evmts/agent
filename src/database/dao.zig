@@ -1,14 +1,35 @@
 const std = @import("std");
 const pg = @import("pg");
+const user_models = @import("models/user.zig");
+const repo_models = @import("models/repository.zig");
+const issue_models = @import("models/issue.zig");
+const action_models = @import("models/action.zig");
 
 const DataAccessObject = @This();
 
 pool: *pg.Pool,
 
-const User = struct {
-    id: i32,
-    name: []const u8,
-};
+pub const User = user_models.User;
+pub const UserType = user_models.UserType;
+pub const OrgUser = user_models.OrgUser;
+pub const PublicKey = user_models.PublicKey;
+pub const Repository = repo_models.Repository;
+pub const Branch = repo_models.Branch;
+pub const LFSMetaObject = repo_models.LFSMetaObject;
+pub const LFSLock = repo_models.LFSLock;
+pub const Issue = issue_models.Issue;
+pub const Label = issue_models.Label;
+pub const IssueLabel = issue_models.IssueLabel;
+pub const Review = issue_models.Review;
+pub const ReviewType = issue_models.ReviewType;
+pub const Comment = issue_models.Comment;
+pub const ActionRun = action_models.ActionRun;
+pub const ActionJob = action_models.ActionJob;
+pub const ActionRunner = action_models.ActionRunner;
+pub const ActionRunnerToken = action_models.ActionRunnerToken;
+pub const ActionArtifact = action_models.ActionArtifact;
+pub const ActionSecret = action_models.ActionSecret;
+pub const ActionStatus = action_models.ActionStatus;
 
 pub fn init(connection_url: []const u8) !DataAccessObject {
     const uri = try std.Uri.parse(connection_url);
@@ -23,30 +44,57 @@ pub fn deinit(self: *DataAccessObject) void {
     self.pool.deinit();
 }
 
-pub fn createUser(self: *DataAccessObject, allocator: std.mem.Allocator, name: []const u8) !void {
+pub fn createUser(self: *DataAccessObject, allocator: std.mem.Allocator, user: User) !void {
     _ = allocator;
-    _ = try self.pool.exec("INSERT INTO users (name) VALUES ($1)", .{name});
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec(
+        \\INSERT INTO users (name, email, passwd, type, is_admin, avatar, created_unix, updated_unix)
+        \\VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    , .{
+        user.name, user.email, user.passwd, @intFromEnum(user.type),
+        user.is_admin, user.avatar, unix_time, unix_time,
+    });
 }
 
 pub fn getUserByName(self: *DataAccessObject, allocator: std.mem.Allocator, name: []const u8) !?User {
-    var maybe_row = try self.pool.row("SELECT id, name FROM users WHERE name = $1", .{name});
+    var maybe_row = try self.pool.row(
+        \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
+        \\FROM users WHERE name = $1
+    , .{name});
     
     if (maybe_row) |*row| {
         defer row.deinit() catch {};
         
-        const id = row.get(i32, 0);
+        const id = row.get(i64, 0);
         const username = row.get([]const u8, 1);
+        const email = row.get(?[]const u8, 2);
+        const passwd = row.get(?[]const u8, 3);
+        const user_type = row.get(i16, 4);
+        const is_admin = row.get(bool, 5);
+        const avatar = row.get(?[]const u8, 6);
+        const created_unix = row.get(i64, 7);
+        const updated_unix = row.get(i64, 8);
         
-        // Allocate memory for the name since row data is temporary
+        // Allocate memory for strings since row data is temporary
         const owned_name = try allocator.dupe(u8, username);
+        const owned_email = if (email) |e| try allocator.dupe(u8, e) else null;
+        const owned_passwd = if (passwd) |p| try allocator.dupe(u8, p) else null;
+        const owned_avatar = if (avatar) |a| try allocator.dupe(u8, a) else null;
         
         return User{
             .id = id,
             .name = owned_name,
+            .email = owned_email,
+            .passwd = owned_passwd,
+            .type = @enumFromInt(user_type),
+            .is_admin = is_admin,
+            .avatar = owned_avatar,
+            .created_unix = created_unix,
+            .updated_unix = updated_unix,
         };
     }
     
-    return null; // No user found
+    return null;
 }
 
 pub fn updateUserName(self: *DataAccessObject, allocator: std.mem.Allocator, old_name: []const u8, new_name: []const u8) !void {
@@ -60,31 +108,243 @@ pub fn deleteUser(self: *DataAccessObject, allocator: std.mem.Allocator, name: [
 }
 
 pub fn listUsers(self: *DataAccessObject, allocator: std.mem.Allocator) ![]User {
-    var result = try self.pool.query("SELECT id, name FROM users ORDER BY id", .{});
+    var result = try self.pool.query(
+        \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
+        \\FROM users ORDER BY id
+    , .{});
     defer result.deinit();
     
     var users = std.ArrayList(User).init(allocator);
     errdefer {
         for (users.items) |user| {
             allocator.free(user.name);
+            if (user.email) |e| allocator.free(e);
+            if (user.passwd) |p| allocator.free(p);
+            if (user.avatar) |a| allocator.free(a);
         }
         users.deinit();
     }
     
     while (try result.next()) |row| {
-        const id = row.get(i32, 0);
+        const id = row.get(i64, 0);
         const username = row.get([]const u8, 1);
+        const email = row.get(?[]const u8, 2);
+        const passwd = row.get(?[]const u8, 3);
+        const user_type = row.get(i16, 4);
+        const is_admin = row.get(bool, 5);
+        const avatar = row.get(?[]const u8, 6);
+        const created_unix = row.get(i64, 7);
+        const updated_unix = row.get(i64, 8);
         
-        // Allocate memory for the name
         const owned_name = try allocator.dupe(u8, username);
+        const owned_email = if (email) |e| try allocator.dupe(u8, e) else null;
+        const owned_passwd = if (passwd) |p| try allocator.dupe(u8, p) else null;
+        const owned_avatar = if (avatar) |a| try allocator.dupe(u8, a) else null;
         
         try users.append(User{
             .id = id,
             .name = owned_name,
+            .email = owned_email,
+            .passwd = owned_passwd,
+            .type = @enumFromInt(user_type),
+            .is_admin = is_admin,
+            .avatar = owned_avatar,
+            .created_unix = created_unix,
+            .updated_unix = updated_unix,
         });
     }
     
     return users.toOwnedSlice();
+}
+
+// Organization User methods
+pub fn addUserToOrg(self: *DataAccessObject, allocator: std.mem.Allocator, uid: i64, org_id: i64, is_owner: bool) !void {
+    _ = allocator;
+    _ = try self.pool.exec(
+        \\INSERT INTO org_user (uid, org_id, is_owner)
+        \\VALUES ($1, $2, $3)
+    , .{ uid, org_id, is_owner });
+}
+
+pub fn getOrgUsers(self: *DataAccessObject, allocator: std.mem.Allocator, org_id: i64) ![]OrgUser {
+    var result = try self.pool.query(
+        \\SELECT id, uid, org_id, is_owner
+        \\FROM org_user WHERE org_id = $1 ORDER BY id
+    , .{org_id});
+    defer result.deinit();
+    
+    var org_users = std.ArrayList(OrgUser).init(allocator);
+    errdefer org_users.deinit();
+    
+    while (try result.next()) |row| {
+        try org_users.append(OrgUser{
+            .id = row.get(i64, 0),
+            .uid = row.get(i64, 1),
+            .org_id = row.get(i64, 2),
+            .is_owner = row.get(bool, 3),
+        });
+    }
+    
+    return org_users.toOwnedSlice();
+}
+
+// SSH Key methods
+pub fn addPublicKey(self: *DataAccessObject, allocator: std.mem.Allocator, key: PublicKey) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec(
+        \\INSERT INTO public_key (owner_id, name, content, fingerprint, created_unix, updated_unix)
+        \\VALUES ($1, $2, $3, $4, $5, $6)
+    , .{ key.owner_id, key.name, key.content, key.fingerprint, unix_time, unix_time });
+}
+
+pub fn getUserPublicKeys(self: *DataAccessObject, allocator: std.mem.Allocator, owner_id: i64) ![]PublicKey {
+    var result = try self.pool.query(
+        \\SELECT id, owner_id, name, content, fingerprint, created_unix, updated_unix
+        \\FROM public_key WHERE owner_id = $1 ORDER BY id
+    , .{owner_id});
+    defer result.deinit();
+    
+    var keys = std.ArrayList(PublicKey).init(allocator);
+    errdefer {
+        for (keys.items) |key| {
+            allocator.free(key.name);
+            allocator.free(key.content);
+            allocator.free(key.fingerprint);
+        }
+        keys.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const content = row.get([]const u8, 3);
+        const fingerprint = row.get([]const u8, 4);
+        
+        try keys.append(PublicKey{
+            .id = row.get(i64, 0),
+            .owner_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .content = try allocator.dupe(u8, content),
+            .fingerprint = try allocator.dupe(u8, fingerprint),
+            .created_unix = row.get(i64, 5),
+            .updated_unix = row.get(i64, 6),
+        });
+    }
+    
+    return keys.toOwnedSlice();
+}
+
+// Repository methods
+pub fn createRepository(self: *DataAccessObject, allocator: std.mem.Allocator, repo: Repository) !i64 {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    var row = try self.pool.row(
+        \\INSERT INTO repository (owner_id, lower_name, name, description, default_branch, 
+        \\  is_private, is_fork, fork_id, created_unix, updated_unix)
+        \\VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        \\RETURNING id
+    , .{
+        repo.owner_id, repo.lower_name, repo.name, repo.description,
+        repo.default_branch, repo.is_private, repo.is_fork, repo.fork_id,
+        unix_time, unix_time,
+    }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return row.get(i64, 0);
+}
+
+pub fn getRepositoryByName(self: *DataAccessObject, allocator: std.mem.Allocator, owner_id: i64, name: []const u8) !?Repository {
+    const lower_name = try std.ascii.allocLowerString(allocator, name);
+    defer allocator.free(lower_name);
+    
+    var maybe_row = try self.pool.row(
+        \\SELECT id, owner_id, lower_name, name, description, default_branch,
+        \\  is_private, is_fork, fork_id, created_unix, updated_unix
+        \\FROM repository WHERE owner_id = $1 AND lower_name = $2
+    , .{ owner_id, lower_name });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const repo_name = row.get([]const u8, 3);
+        const repo_lower_name = row.get([]const u8, 2);
+        const desc = row.get(?[]const u8, 4);
+        const default_branch = row.get([]const u8, 5);
+        
+        return Repository{
+            .id = row.get(i64, 0),
+            .owner_id = row.get(i64, 1),
+            .lower_name = try allocator.dupe(u8, repo_lower_name),
+            .name = try allocator.dupe(u8, repo_name),
+            .description = if (desc) |d| try allocator.dupe(u8, d) else null,
+            .default_branch = try allocator.dupe(u8, default_branch),
+            .is_private = row.get(bool, 6),
+            .is_fork = row.get(bool, 7),
+            .fork_id = row.get(?i64, 8),
+            .created_unix = row.get(i64, 9),
+            .updated_unix = row.get(i64, 10),
+        };
+    }
+    
+    return null;
+}
+
+// Issue methods
+pub fn createIssue(self: *DataAccessObject, allocator: std.mem.Allocator, issue: Issue) !i64 {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    
+    // Get next issue index for this repo
+    var row = try self.pool.row(
+        \\SELECT COALESCE(MAX(index), 0) + 1 FROM issue WHERE repo_id = $1
+    , .{issue.repo_id}) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    const next_index = row.get(i64, 0);
+    
+    // Create the issue
+    var created_row = try self.pool.row(
+        \\INSERT INTO issue (repo_id, index, poster_id, title, content, 
+        \\  is_closed, is_pull, assignee_id, created_unix)
+        \\VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        \\RETURNING id
+    , .{
+        issue.repo_id, next_index, issue.poster_id, issue.title,
+        issue.content, issue.is_closed, issue.is_pull, issue.assignee_id,
+        unix_time,
+    }) orelse return error.DatabaseError;
+    defer created_row.deinit() catch {};
+    
+    return created_row.get(i64, 0);
+}
+
+pub fn getIssue(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, index: i64) !?Issue {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, repo_id, index, poster_id, title, content,
+        \\  is_closed, is_pull, assignee_id, created_unix
+        \\FROM issue WHERE repo_id = $1 AND index = $2
+    , .{ repo_id, index });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const title = row.get([]const u8, 4);
+        const content = row.get(?[]const u8, 5);
+        
+        return Issue{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .index = row.get(i64, 2),
+            .poster_id = row.get(i64, 3),
+            .title = try allocator.dupe(u8, title),
+            .content = if (content) |c| try allocator.dupe(u8, c) else null,
+            .is_closed = row.get(bool, 6),
+            .is_pull = row.get(bool, 7),
+            .assignee_id = row.get(?i64, 8),
+            .created_unix = row.get(i64, 9),
+        };
+    }
+    
+    return null;
 }
 
 test "database CRUD operations" {
@@ -107,20 +367,43 @@ test "database CRUD operations" {
     dao.deleteUser(allocator, "test_alice_updated") catch {};
     
     // Test create
-    try dao.createUser(allocator, "test_alice");
+    const test_user = User{
+        .id = 0, // Will be assigned by database
+        .name = "test_alice",
+        .email = "alice@test.com",
+        .passwd = "hashed_password",
+        .type = .individual,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0, // Will be set by DAO
+        .updated_unix = 0, // Will be set by DAO
+    };
+    try dao.createUser(allocator, test_user);
     
     // Test read
     const user = try dao.getUserByName(allocator, "test_alice");
-    defer if (user) |u| allocator.free(u.name);
+    defer if (user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
     
     try std.testing.expect(user != null);
     try std.testing.expectEqualStrings("test_alice", user.?.name);
+    try std.testing.expectEqualStrings("alice@test.com", user.?.email.?);
+    try std.testing.expectEqual(UserType.individual, user.?.type);
     
     // Test update
     try dao.updateUserName(allocator, "test_alice", "test_alice_updated");
     
     const updated_user = try dao.getUserByName(allocator, "test_alice_updated");
-    defer if (updated_user) |u| allocator.free(u.name);
+    defer if (updated_user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
     
     try std.testing.expect(updated_user != null);
     try std.testing.expectEqualStrings("test_alice_updated", updated_user.?.name);
@@ -132,13 +415,38 @@ test "database CRUD operations" {
     try std.testing.expect(deleted_user == null);
     
     // Test list
-    try dao.createUser(allocator, "test_user1");
-    try dao.createUser(allocator, "test_user2");
+    const user1 = User{
+        .id = 0,
+        .name = "test_user1",
+        .email = null,
+        .passwd = null,
+        .type = .individual,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    const user2 = User{
+        .id = 0,
+        .name = "test_user2",
+        .email = null,
+        .passwd = null,
+        .type = .organization,
+        .is_admin = false,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    try dao.createUser(allocator, user1);
+    try dao.createUser(allocator, user2);
     
     const users = try dao.listUsers(allocator);
     defer {
         for (users) |list_user| {
             allocator.free(list_user.name);
+            if (list_user.email) |e| allocator.free(e);
+            if (list_user.passwd) |p| allocator.free(p);
+            if (list_user.avatar) |a| allocator.free(a);
         }
         allocator.free(users);
     }
