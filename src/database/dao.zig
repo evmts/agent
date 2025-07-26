@@ -467,6 +467,146 @@ pub fn getRepositoryByName(self: *DataAccessObject, allocator: std.mem.Allocator
     return null;
 }
 
+pub const RepositoryUpdate = struct {
+    description: ?[]const u8,
+    is_private: ?bool,
+    default_branch: ?[]const u8,
+};
+
+pub fn updateRepository(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, updates: RepositoryUpdate) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    
+    // For simplicity, just update with provided fields
+    if (updates.description != null and updates.is_private != null and updates.default_branch != null) {
+        _ = try self.pool.exec(
+            \\UPDATE repository SET description = $1, is_private = $2, default_branch = $3, updated_unix = $4 WHERE id = $5
+        , .{ updates.description, updates.is_private.?, updates.default_branch, unix_time, repo_id });
+    } else if (updates.description != null) {
+        _ = try self.pool.exec(
+            \\UPDATE repository SET description = $1, updated_unix = $2 WHERE id = $3
+        , .{ updates.description, unix_time, repo_id });
+    } else if (updates.is_private != null) {
+        _ = try self.pool.exec(
+            \\UPDATE repository SET is_private = $1, updated_unix = $2 WHERE id = $3
+        , .{ updates.is_private.?, unix_time, repo_id });
+    } else if (updates.default_branch != null) {
+        _ = try self.pool.exec(
+            \\UPDATE repository SET default_branch = $1, updated_unix = $2 WHERE id = $3
+        , .{ updates.default_branch, unix_time, repo_id });
+    }
+}
+
+pub fn deleteRepository(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM repository WHERE id = $1", .{repo_id});
+}
+
+pub fn forkRepository(self: *DataAccessObject, allocator: std.mem.Allocator, source_id: i64, owner_id: i64, name: []const u8) !i64 {
+    // Get source repository
+    var maybe_row = try self.pool.row(
+        \\SELECT lower_name, description, default_branch, is_private
+        \\FROM repository WHERE id = $1
+    , .{source_id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const lower_name = row.get([]const u8, 0);
+        const description = row.get(?[]const u8, 1);
+        const default_branch = row.get([]const u8, 2);
+        const is_private = row.get(bool, 3);
+        
+        const fork = Repository{
+            .id = 0,
+            .owner_id = owner_id,
+            .lower_name = lower_name,
+            .name = name,
+            .description = description,
+            .default_branch = default_branch,
+            .is_private = is_private,
+            .is_fork = true,
+            .fork_id = source_id,
+            .created_unix = 0,
+            .updated_unix = 0,
+        };
+        
+        return self.createRepository(allocator, fork);
+    }
+    
+    return error.SourceNotFound;
+}
+
+// Branch methods
+pub fn createBranch(self: *DataAccessObject, allocator: std.mem.Allocator, branch: Branch) !void {
+    _ = allocator;
+    _ = try self.pool.exec(
+        \\INSERT INTO branch (repo_id, name, commit_id, is_protected)
+        \\VALUES ($1, $2, $3, $4)
+    , .{ branch.repo_id, branch.name, branch.commit_id, branch.is_protected });
+}
+
+pub fn getBranches(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64) ![]Branch {
+    var result = try self.pool.query(
+        \\SELECT id, repo_id, name, commit_id, is_protected
+        \\FROM branch WHERE repo_id = $1 ORDER BY name
+    , .{repo_id});
+    defer result.deinit();
+    
+    var branches = std.ArrayList(Branch).init(allocator);
+    errdefer {
+        for (branches.items) |branch| {
+            allocator.free(branch.name);
+            if (branch.commit_id) |c| allocator.free(c);
+        }
+        branches.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const commit_id = row.get(?[]const u8, 3);
+        
+        try branches.append(Branch{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .commit_id = if (commit_id) |c| try allocator.dupe(u8, c) else null,
+            .is_protected = row.get(bool, 4),
+        });
+    }
+    
+    return branches.toOwnedSlice();
+}
+
+pub fn getBranchByName(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, name: []const u8) !?Branch {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, repo_id, name, commit_id, is_protected
+        \\FROM branch WHERE repo_id = $1 AND name = $2
+    , .{ repo_id, name });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const branch_name = row.get([]const u8, 2);
+        const commit_id = row.get(?[]const u8, 3);
+        
+        return Branch{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, branch_name),
+            .commit_id = if (commit_id) |c| try allocator.dupe(u8, c) else null,
+            .is_protected = row.get(bool, 4),
+        };
+    }
+    
+    return null;
+}
+
+pub fn deleteBranch(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, name: []const u8) !void {
+    _ = allocator;
+    _ = try self.pool.exec("DELETE FROM branch WHERE repo_id = $1 AND name = $2", .{ repo_id, name });
+}
+
 // Issue methods
 pub fn createIssue(self: *DataAccessObject, allocator: std.mem.Allocator, issue: Issue) !i64 {
     _ = allocator;

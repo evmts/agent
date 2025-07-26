@@ -41,8 +41,16 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     router.get("/orgs/:org/members", listOrgMembersHandler, .{}); // List org members
     router.delete("/orgs/:org/members/:username", removeOrgMemberHandler, .{}); // Remove member
     router.get("/user/orgs", listUserOrgsHandler, .{}); // List user's organizations
-    router.post("/repos", createRepoHandler, .{});
+    router.post("/user/repos", createUserRepoHandler, .{}); // Create user repository
+    router.post("/orgs/:org/repos", createOrgRepoHandler, .{}); // Create org repository
     router.get("/repos/:owner/:name", getRepoHandler, .{});
+    router.patch("/repos/:owner/:name", updateRepoHandler, .{}); // Update repository
+    router.delete("/repos/:owner/:name", deleteRepoHandler, .{}); // Delete repository
+    router.post("/repos/:owner/:name/forks", forkRepoHandler, .{}); // Fork repository
+    router.get("/repos/:owner/:name/branches", listBranchesHandler, .{}); // List branches
+    router.get("/repos/:owner/:name/branches/:branch", getBranchHandler, .{}); // Get branch
+    router.post("/repos/:owner/:name/branches", createBranchHandler, .{}); // Create branch
+    router.delete("/repos/:owner/:name/branches/:branch", deleteBranchHandler, .{}); // Delete branch
     router.post("/repos/:owner/:name/issues", createIssueHandler, .{});
     router.get("/repos/:owner/:name/issues/:index", getIssueHandler, .{});
     
@@ -927,61 +935,43 @@ fn listUserOrgsHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     try writeJson(res, allocator, response_orgs);
 }
 
-fn createRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+// Repository handlers
+fn createUserRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const allocator = req.arena;
     
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
     const body = req.body() orelse {
-        res.status = 400;
-        res.body = "Missing request body";
+        try writeError(res, allocator, 400, "Missing request body");
         return;
     };
     
-    // Parse JSON - expecting {"owner": "username", "name": "repo-name", "description": "...", "is_private": false}
+    // Parse JSON
     var json_data = std.json.parseFromSlice(struct {
-        owner: []const u8,
         name: []const u8,
         description: ?[]const u8 = null,
-        is_private: bool = false,
+        @"private": bool = false,
+        default_branch: ?[]const u8 = null,
     }, allocator, body, .{}) catch {
-        res.status = 400;
-        res.body = "Invalid JSON";
+        try writeError(res, allocator, 400, "Invalid JSON");
         return;
     };
     defer json_data.deinit();
     
     const repo_data = json_data.value;
     
-    // Get owner user
-    const owner = ctx.dao.getUserByName(allocator, repo_data.owner) catch |err| {
-        res.status = 500;
-        res.body = "Database error";
-        std.log.err("Failed to get user: {}", .{err});
-        return;
-    };
-    defer if (owner) |u| {
-        allocator.free(u.name);
-        if (u.email) |e| allocator.free(e);
-        if (u.passwd) |p| allocator.free(p);
-        if (u.avatar) |a| allocator.free(a);
-    };
-    
-    if (owner == null) {
-        res.status = 404;
-        res.body = "Owner not found";
-        return;
-    }
-    
     const lower_name = try std.ascii.allocLowerString(allocator, repo_data.name);
     defer allocator.free(lower_name);
     
     const repo = DataAccessObject.Repository{
         .id = 0,
-        .owner_id = owner.?.id,
+        .owner_id = user_id,
         .lower_name = lower_name,
         .name = repo_data.name,
         .description = repo_data.description,
-        .default_branch = "main",
-        .is_private = repo_data.is_private,
+        .default_branch = repo_data.default_branch orelse "main",
+        .is_private = repo_data.@"private",
         .is_fork = false,
         .fork_id = null,
         .created_unix = 0,
@@ -989,91 +979,822 @@ fn createRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     };
     
     const repo_id = ctx.dao.createRepository(allocator, repo) catch |err| {
-        res.status = 500;
-        res.body = "Database error";
         std.log.err("Failed to create repository: {}", .{err});
+        // Check if it's a duplicate
+        if (err == error.DatabaseError) {
+            try writeError(res, allocator, 409, "Repository already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
         return;
     };
     
-    res.content_type = .JSON;
     res.status = 201;
-    res.body = try std.fmt.allocPrint(allocator, "{{\"id\":{}}}", .{repo_id});
+    try writeJson(res, allocator, .{
+        .id = repo_id,
+        .name = repo_data.name,
+        .owner_id = user_id,
+    });
+}
+
+fn createOrgRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const org_name = req.param("org") orelse {
+        try writeError(res, allocator, 400, "Missing organization name");
+        return;
+    };
+    
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Missing request body");
+        return;
+    };
+    
+    // Get the organization
+    const org = ctx.dao.getUserByName(allocator, org_name) catch |err| {
+        std.log.err("Failed to get organization: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    };
+    defer {
+        allocator.free(org.name);
+        if (org.email) |e| allocator.free(e);
+        if (org.passwd) |p| allocator.free(p);
+        if (org.avatar) |a| allocator.free(a);
+    }
+    
+    if (org.type != .organization) {
+        try writeError(res, allocator, 404, "Organization not found");
+        return;
+    }
+    
+    // Check if user is member of org
+    const members = ctx.dao.getOrgUsers(allocator, org.id) catch |err| {
+        std.log.err("Failed to get org members: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer allocator.free(members);
+    
+    var is_member = false;
+    for (members) |member| {
+        if (member.uid == user_id) {
+            is_member = true;
+            break;
+        }
+    }
+    
+    if (!is_member) {
+        try writeError(res, allocator, 403, "You must be a member of the organization");
+        return;
+    }
+    
+    // Parse JSON
+    var json_data = std.json.parseFromSlice(struct {
+        name: []const u8,
+        description: ?[]const u8 = null,
+        @"private": bool = false,
+        default_branch: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    const repo_data = json_data.value;
+    
+    const lower_name = try std.ascii.allocLowerString(allocator, repo_data.name);
+    defer allocator.free(lower_name);
+    
+    const repo = DataAccessObject.Repository{
+        .id = 0,
+        .owner_id = org.id,
+        .lower_name = lower_name,
+        .name = repo_data.name,
+        .description = repo_data.description,
+        .default_branch = repo_data.default_branch orelse "main",
+        .is_private = repo_data.@"private",
+        .is_fork = false,
+        .fork_id = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    const repo_id = ctx.dao.createRepository(allocator, repo) catch |err| {
+        std.log.err("Failed to create repository: {}", .{err});
+        if (err == error.DatabaseError) {
+            try writeError(res, allocator, 409, "Repository already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{
+        .id = repo_id,
+        .name = repo_data.name,
+        .owner_id = org.id,
+    });
 }
 
 fn getRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const allocator = req.arena;
     const owner_name = req.param("owner") orelse {
-        res.status = 400;
-        res.body = "Missing owner parameter";
+        try writeError(res, allocator, 400, "Missing owner parameter");
         return;
     };
     const repo_name = req.param("name") orelse {
-        res.status = 400;
-        res.body = "Missing name parameter";
+        try writeError(res, allocator, 400, "Missing name parameter");
         return;
     };
     
     // Get owner user
     const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
-        res.status = 500;
-        res.body = "Database error";
         std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
         return;
     };
-    defer if (owner) |u| {
-        allocator.free(u.name);
-        if (u.email) |e| allocator.free(e);
-        if (u.passwd) |p| allocator.free(p);
-        if (u.avatar) |a| allocator.free(a);
-    };
-    
-    if (owner == null) {
-        res.status = 404;
-        res.body = "Owner not found";
-        return;
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
     }
     
-    const repo = ctx.dao.getRepositoryByName(allocator, owner.?.id, repo_name) catch |err| {
-        res.status = 500;
-        res.body = "Database error";
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
         std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
         return;
     };
-    defer if (repo) |r| {
-        allocator.free(r.lower_name);
-        allocator.free(r.name);
-        if (r.description) |d| allocator.free(d);
-        allocator.free(r.default_branch);
-    };
-    
-    if (repo == null) {
-        res.status = 404;
-        res.body = "Repository not found";
-        return;
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
     }
     
-    var json_builder = std.ArrayList(u8).init(allocator);
-    const writer = json_builder.writer();
-    try writer.print("{{\"id\":{},\"owner_id\":{},\"name\":\"{s}\",\"description\":", .{
-        repo.?.id,
-        repo.?.owner_id,
-        repo.?.name,
-    });
-    if (repo.?.description) |desc| {
-        try writer.print("\"{s}\"", .{desc});
-    } else {
-        try writer.writeAll("null");
-    }
-    try writer.print(",\"default_branch\":\"{s}\",\"is_private\":{},\"is_fork\":{}}}", .{
-        repo.?.default_branch,
-        repo.?.is_private,
-        repo.?.is_fork,
-    });
-    
-    res.content_type = .JSON;
     res.status = 200;
-    res.body = try allocator.dupe(u8, json_builder.items);
-    json_builder.deinit();
+    try writeJson(res, allocator, .{
+        .id = repo.id,
+        .owner_id = repo.owner_id,
+        .name = repo.name,
+        .description = repo.description,
+        .default_branch = repo.default_branch,
+        .is_private = repo.is_private,
+        .is_fork = repo.is_fork,
+        .fork_id = repo.fork_id,
+        .created_unix = repo.created_unix,
+        .updated_unix = repo.updated_unix,
+    });
+}
+
+fn updateRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Missing request body");
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Check permissions
+    if (owner.type == .individual) {
+        if (owner.id != user_id) {
+            try writeError(res, allocator, 403, "Only repository owner can update settings");
+            return;
+        }
+    } else {
+        // For organizations, check if user is a member
+        const members = ctx.dao.getOrgUsers(allocator, owner.id) catch |err| {
+            std.log.err("Failed to get org members: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+        defer allocator.free(members);
+        
+        var is_member = false;
+        for (members) |member| {
+            if (member.uid == user_id) {
+                is_member = true;
+                break;
+            }
+        }
+        
+        if (!is_member) {
+            try writeError(res, allocator, 403, "Only organization members can update repositories");
+            return;
+        }
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Parse update data
+    var json_data = std.json.parseFromSlice(struct {
+        description: ?[]const u8 = null,
+        @"private": ?bool = null,
+        default_branch: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    const update_data = json_data.value;
+    
+    // Update repository
+    const updates = DataAccessObject.RepositoryUpdate{
+        .description = update_data.description,
+        .is_private = update_data.@"private",
+        .default_branch = update_data.default_branch,
+    };
+    
+    ctx.dao.updateRepository(allocator, repo.id, updates) catch |err| {
+        std.log.err("Failed to update repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "Repository updated successfully" });
+}
+
+fn deleteRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Check permissions
+    if (owner.type == .individual) {
+        if (owner.id != user_id) {
+            try writeError(res, allocator, 403, "Only repository owner can delete repository");
+            return;
+        }
+    } else {
+        // For organizations, check if user is an owner
+        const members = ctx.dao.getOrgUsers(allocator, owner.id) catch |err| {
+            std.log.err("Failed to get org members: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+        defer allocator.free(members);
+        
+        var is_owner = false;
+        for (members) |member| {
+            if (member.uid == user_id and member.is_owner) {
+                is_owner = true;
+                break;
+            }
+        }
+        
+        if (!is_owner) {
+            try writeError(res, allocator, 403, "Only organization owners can delete repositories");
+            return;
+        }
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    ctx.dao.deleteRepository(allocator, repo.id) catch |err| {
+        std.log.err("Failed to delete repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "Repository deleted successfully" });
+}
+
+fn forkRepoHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    
+    // Get source repository owner
+    const source_owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(source_owner.name);
+        if (source_owner.email) |e| allocator.free(e);
+        if (source_owner.passwd) |p| allocator.free(p);
+        if (source_owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Get source repository
+    const source_repo = ctx.dao.getRepositoryByName(allocator, source_owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(source_repo.lower_name);
+        allocator.free(source_repo.name);
+        if (source_repo.description) |d| allocator.free(d);
+        allocator.free(source_repo.default_branch);
+    }
+    
+    // Create fork
+    const fork_id = ctx.dao.forkRepository(allocator, source_repo.id, user_id, source_repo.name) catch |err| {
+        std.log.err("Failed to fork repository: {}", .{err});
+        if (err == error.DatabaseError) {
+            try writeError(res, allocator, 409, "Fork already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{
+        .id = fork_id,
+        .name = source_repo.name,
+        .owner_id = user_id,
+        .fork_id = source_repo.id,
+    });
+}
+
+// Branch handlers
+fn listBranchesHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    const branches = ctx.dao.getBranches(allocator, repo.id) catch |err| {
+        std.log.err("Failed to get branches: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    defer {
+        for (branches) |branch| {
+            allocator.free(branch.name);
+            if (branch.commit_id) |c| allocator.free(c);
+        }
+        allocator.free(branches);
+    }
+    
+    // Build response
+    var response_branches = try allocator.alloc(struct {
+        name: []const u8,
+        commit_id: ?[]const u8,
+        is_protected: bool,
+    }, branches.len);
+    
+    for (branches, 0..) |branch, i| {
+        response_branches[i] = .{
+            .name = branch.name,
+            .commit_id = branch.commit_id,
+            .is_protected = branch.is_protected,
+        };
+    }
+    
+    res.status = 200;
+    try writeJson(res, allocator, response_branches);
+}
+
+fn getBranchHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    const branch_name = req.param("branch") orelse {
+        try writeError(res, allocator, 400, "Missing branch parameter");
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    const branch = ctx.dao.getBranchByName(allocator, repo.id, branch_name) catch |err| {
+        std.log.err("Failed to get branch: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Branch not found");
+        return;
+    };
+    defer {
+        allocator.free(branch.name);
+        if (branch.commit_id) |c| allocator.free(c);
+    }
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{
+        .name = branch.name,
+        .commit_id = branch.commit_id,
+        .is_protected = branch.is_protected,
+    });
+}
+
+fn createBranchHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Missing request body");
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Check permissions
+    var has_permission = false;
+    if (owner.type == .individual) {
+        has_permission = owner.id == user_id;
+    } else {
+        const members = ctx.dao.getOrgUsers(allocator, owner.id) catch |err| {
+            std.log.err("Failed to get org members: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+        defer allocator.free(members);
+        
+        for (members) |member| {
+            if (member.uid == user_id) {
+                has_permission = true;
+                break;
+            }
+        }
+    }
+    
+    if (!has_permission) {
+        try writeError(res, allocator, 403, "You don't have permission to create branches");
+        return;
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Parse JSON
+    var json_data = std.json.parseFromSlice(struct {
+        branch: []const u8,
+        source: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    const branch_data = json_data.value;
+    
+    // For now, we'll create branch without actual git operations
+    const new_branch = DataAccessObject.Branch{
+        .id = 0,
+        .repo_id = repo.id,
+        .name = branch_data.branch,
+        .commit_id = null, // Would be set from actual git
+        .is_protected = false,
+    };
+    
+    ctx.dao.createBranch(allocator, new_branch) catch |err| {
+        std.log.err("Failed to create branch: {}", .{err});
+        if (err == error.DatabaseError) {
+            try writeError(res, allocator, 409, "Branch already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{
+        .name = branch_data.branch,
+        .is_protected = false,
+    });
+}
+
+fn deleteBranchHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request
+    const user_id = try authMiddleware(ctx, req, res) orelse return;
+    
+    const owner_name = req.param("owner") orelse {
+        try writeError(res, allocator, 400, "Missing owner parameter");
+        return;
+    };
+    const repo_name = req.param("name") orelse {
+        try writeError(res, allocator, 400, "Missing name parameter");
+        return;
+    };
+    const branch_name = req.param("branch") orelse {
+        try writeError(res, allocator, 400, "Missing branch parameter");
+        return;
+    };
+    
+    // Get owner
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get owner: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.passwd) |p| allocator.free(p);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    // Check permissions (same as create)
+    var has_permission = false;
+    if (owner.type == .individual) {
+        has_permission = owner.id == user_id;
+    } else {
+        const members = ctx.dao.getOrgUsers(allocator, owner.id) catch |err| {
+            std.log.err("Failed to get org members: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+        defer allocator.free(members);
+        
+        for (members) |member| {
+            if (member.uid == user_id) {
+                has_permission = true;
+                break;
+            }
+        }
+    }
+    
+    if (!has_permission) {
+        try writeError(res, allocator, 403, "You don't have permission to delete branches");
+        return;
+    }
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Check if branch is default branch
+    if (std.mem.eql(u8, branch_name, repo.default_branch)) {
+        try writeError(res, allocator, 400, "Cannot delete default branch");
+        return;
+    }
+    
+    // Check if branch is protected
+    const branch = ctx.dao.getBranchByName(allocator, repo.id, branch_name) catch |err| {
+        std.log.err("Failed to get branch: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "Branch not found");
+        return;
+    };
+    defer {
+        allocator.free(branch.name);
+        if (branch.commit_id) |c| allocator.free(c);
+    }
+    
+    if (branch.is_protected) {
+        try writeError(res, allocator, 403, "Cannot delete protected branch");
+        return;
+    }
+    
+    ctx.dao.deleteBranch(allocator, repo.id, branch_name) catch |err| {
+        std.log.err("Failed to delete branch: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    };
+    
+    res.status = 200;
+    try writeJson(res, allocator, .{ .message = "Branch deleted successfully" });
 }
 
 fn createIssueHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
