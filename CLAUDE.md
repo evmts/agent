@@ -89,6 +89,17 @@ All tests in this codebase should be written with **zero abstractions or indirec
 2. **No shared test utilities** - Each test should be completely self-contained
 3. **Explicit is better than DRY** - Readability and clarity over code reuse in tests
 
+### No Database Mocking
+
+**CRITICAL**: We NEVER mock the database in tests. All tests must:
+
+1. **Use a real PostgreSQL database** - Either local or in Docker
+2. **Connect to actual database instances** - No in-memory substitutes
+3. **Skip gracefully if database unavailable** - Return early with a warning
+4. **Clean up test data** - Explicitly delete any created test records
+
+This ensures our tests catch real database issues and SQL compatibility problems.
+
 ### CRITICAL: Test Failures Are Always Regressions You Caused
 
 **FUNDAMENTAL PRINCIPLE**: If tests were passing before your changes and failing after, YOU caused a regression. There are NO pre-existing test failures in this codebase.
