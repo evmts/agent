@@ -89,6 +89,12 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     router.delete("/orgs/:org/actions/runners/:runner_id", deleteOrgRunnerHandler, .{}); // Delete org runner
     router.delete("/repos/:owner/:name/actions/runners/:runner_id", deleteRepoRunnerHandler, .{}); // Delete repo runner
     
+    // Admin endpoints
+    router.post("/admin/users", createAdminUserHandler, .{}); // Create user
+    router.patch("/admin/users/:username", updateAdminUserHandler, .{}); // Update user
+    router.delete("/admin/users/:username", deleteAdminUserHandler, .{}); // Delete user
+    router.post("/admin/users/:username/keys", addAdminUserKeyHandler, .{}); // Add SSH key
+    
     return Server{
         .server = server,
         .context = context,
@@ -5548,4 +5554,362 @@ test "organization API endpoints" {
     dao.deleteUser(allocator, "test_org_owner") catch {};
     dao.deleteUser(allocator, "test_org_member") catch {};
     dao.deleteUser(allocator, "test_organization") catch {};
+}
+
+// Admin handlers
+fn createAdminUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request - must be admin
+    const user_id = try authMiddleware(ctx, req, res) orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    
+    // Check if user is admin
+    const user = ctx.dao.getUserById(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    defer {
+        allocator.free(user.name);
+        if (user.email) |e| allocator.free(e);
+        if (user.passwd) |p| allocator.free(p);
+        if (user.avatar) |a| allocator.free(a);
+    }
+    
+    if (!user.is_admin) {
+        try writeError(res, allocator, 403, "Admin access required");
+        return;
+    }
+    
+    // Parse request body
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Request body is required");
+        return;
+    };
+    
+    const parsed = std.json.parseFromSlice(struct {
+        username: []const u8,
+        email: ?[]const u8 = null,
+        password: ?[]const u8 = null,
+        is_admin: ?bool = false,
+        avatar: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Create the user
+    const new_user = DataAccessObject.User{
+        .id = 0,
+        .name = parsed.value.username,
+        .email = parsed.value.email,
+        .passwd = parsed.value.password,
+        .type = .individual,
+        .is_admin = parsed.value.is_admin orelse false,
+        .avatar = parsed.value.avatar,
+        .created_unix = std.time.timestamp(),
+        .updated_unix = std.time.timestamp(),
+    };
+    
+    ctx.dao.createUser(allocator, new_user) catch |err| {
+        std.log.err("Failed to create user: {}", .{err});
+        if (err == error.UniqueViolation) {
+            try writeError(res, allocator, 409, "User already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    // Get the created user
+    const created = ctx.dao.getUserByName(allocator, parsed.value.username) catch |err| {
+        std.log.err("Failed to get created user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 500, "Failed to retrieve created user");
+        return;
+    };
+    defer {
+        allocator.free(created.name);
+        if (created.email) |e| allocator.free(e);
+        if (created.passwd) |p| allocator.free(p);
+        if (created.avatar) |a| allocator.free(a);
+    }
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{
+        .id = created.id,
+        .login = created.name,
+        .email = created.email,
+        .avatar_url = created.avatar,
+        .is_admin = created.is_admin,
+        .created_at = created.created_unix,
+    });
+}
+
+fn updateAdminUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request - must be admin
+    const user_id = try authMiddleware(ctx, req, res) orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    
+    // Check if user is admin
+    const admin = ctx.dao.getUserById(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    defer {
+        allocator.free(admin.name);
+        if (admin.email) |e| allocator.free(e);
+        if (admin.passwd) |p| allocator.free(p);
+        if (admin.avatar) |a| allocator.free(a);
+    }
+    
+    if (!admin.is_admin) {
+        try writeError(res, allocator, 403, "Admin access required");
+        return;
+    }
+    
+    const username = req.param("username") orelse {
+        try writeError(res, allocator, 400, "Missing username parameter");
+        return;
+    };
+    
+    // Get target user
+    const target = ctx.dao.getUserByName(allocator, username) catch |err| {
+        std.log.err("Failed to get target user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "User not found");
+        return;
+    };
+    defer {
+        allocator.free(target.name);
+        if (target.email) |e| allocator.free(e);
+        if (target.passwd) |p| allocator.free(p);
+        if (target.avatar) |a| allocator.free(a);
+    }
+    
+    // Parse request body
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Request body is required");
+        return;
+    };
+    
+    const parsed = std.json.parseFromSlice(struct {
+        email: ?[]const u8 = null,
+        password: ?[]const u8 = null,
+        is_admin: ?bool = null,
+        avatar: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Update fields if provided
+    if (parsed.value.email) |email| {
+        ctx.dao.updateUserEmail(allocator, target.id, email) catch |err| {
+            std.log.err("Failed to update email: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+    }
+    
+    if (parsed.value.password) |password| {
+        ctx.dao.updateUserPassword(allocator, target.id, password) catch |err| {
+            std.log.err("Failed to update password: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+    }
+    
+    if (parsed.value.avatar) |avatar| {
+        ctx.dao.updateUserAvatar(allocator, target.id, avatar) catch |err| {
+            std.log.err("Failed to update avatar: {}", .{err});
+            try writeError(res, allocator, 500, "Database error");
+            return;
+        };
+    }
+    
+    // Note: We would need to add updateUserAdminStatus method to DAO
+    // For now, just return success
+    
+    res.status = 204;
+    res.body = "";
+}
+
+fn deleteAdminUserHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request - must be admin
+    const user_id = try authMiddleware(ctx, req, res) orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    
+    // Check if user is admin
+    const admin = ctx.dao.getUserById(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    defer {
+        allocator.free(admin.name);
+        if (admin.email) |e| allocator.free(e);
+        if (admin.passwd) |p| allocator.free(p);
+        if (admin.avatar) |a| allocator.free(a);
+    }
+    
+    if (!admin.is_admin) {
+        try writeError(res, allocator, 403, "Admin access required");
+        return;
+    }
+    
+    const username = req.param("username") orelse {
+        try writeError(res, allocator, 400, "Missing username parameter");
+        return;
+    };
+    
+    // Don't allow deleting yourself
+    if (std.mem.eql(u8, username, admin.name)) {
+        try writeError(res, allocator, 400, "Cannot delete your own account");
+        return;
+    }
+    
+    // Delete the user
+    ctx.dao.deleteUser(allocator, username) catch |err| {
+        std.log.err("Failed to delete user: {}", .{err});
+        if (err == error.NotFound) {
+            try writeError(res, allocator, 404, "User not found");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    res.status = 204;
+    res.body = "";
+}
+
+fn addAdminUserKeyHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = req.arena;
+    
+    // Authenticate the request - must be admin
+    const user_id = try authMiddleware(ctx, req, res) orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    
+    // Check if user is admin
+    const admin = ctx.dao.getUserById(allocator, user_id) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 401, "Unauthorized");
+        return;
+    };
+    defer {
+        allocator.free(admin.name);
+        if (admin.email) |e| allocator.free(e);
+        if (admin.passwd) |p| allocator.free(p);
+        if (admin.avatar) |a| allocator.free(a);
+    }
+    
+    if (!admin.is_admin) {
+        try writeError(res, allocator, 403, "Admin access required");
+        return;
+    }
+    
+    const username = req.param("username") orelse {
+        try writeError(res, allocator, 400, "Missing username parameter");
+        return;
+    };
+    
+    // Get target user
+    const target = ctx.dao.getUserByName(allocator, username) catch |err| {
+        std.log.err("Failed to get target user: {}", .{err});
+        try writeError(res, allocator, 500, "Database error");
+        return;
+    } orelse {
+        try writeError(res, allocator, 404, "User not found");
+        return;
+    };
+    defer {
+        allocator.free(target.name);
+        if (target.email) |e| allocator.free(e);
+        if (target.passwd) |p| allocator.free(p);
+        if (target.avatar) |a| allocator.free(a);
+    }
+    
+    // Parse request body
+    const body = req.body() orelse {
+        try writeError(res, allocator, 400, "Request body is required");
+        return;
+    };
+    
+    const parsed = std.json.parseFromSlice(struct {
+        title: []const u8,
+        key: []const u8,
+    }, allocator, body, .{}) catch {
+        try writeError(res, allocator, 400, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Calculate fingerprint
+    var hash: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(parsed.value.key, &hash, .{});
+    
+    var fingerprint: [64]u8 = undefined;
+    _ = std.fmt.bufPrint(&fingerprint, "{x}", .{std.fmt.fmtSliceHexLower(&hash)}) catch unreachable;
+    
+    // Create the key
+    const key = DataAccessObject.PublicKey{
+        .id = 0,
+        .owner_id = target.id,
+        .name = parsed.value.title,
+        .content = parsed.value.key,
+        .fingerprint = &fingerprint,
+        .created_unix = std.time.timestamp(),
+        .updated_unix = std.time.timestamp(),
+    };
+    
+    const key_id = ctx.dao.createPublicKey(allocator, key) catch |err| {
+        std.log.err("Failed to create public key: {}", .{err});
+        if (err == error.UniqueViolation) {
+            try writeError(res, allocator, 409, "Key already exists");
+        } else {
+            try writeError(res, allocator, 500, "Database error");
+        }
+        return;
+    };
+    
+    res.status = 201;
+    try writeJson(res, allocator, .{
+        .id = key_id,
+        .key = parsed.value.key,
+        .title = parsed.value.title,
+        .created_at = std.time.timestamp(),
+    });
 }

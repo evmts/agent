@@ -154,6 +154,18 @@ pub fn updateUserAvatar(self: *DataAccessObject, allocator: std.mem.Allocator, i
     _ = try self.pool.exec("UPDATE users SET avatar = $1, updated_unix = $2 WHERE id = $3", .{ avatar, unix_time, id });
 }
 
+pub fn updateUserEmail(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64, email: []const u8) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec("UPDATE users SET email = $1, updated_unix = $2 WHERE id = $3", .{ email, unix_time, id });
+}
+
+pub fn updateUserPassword(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64, password: []const u8) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec("UPDATE users SET passwd = $1, updated_unix = $2 WHERE id = $3", .{ password, unix_time, id });
+}
+
 pub fn listUsers(self: *DataAccessObject, allocator: std.mem.Allocator) ![]User {
     var result = try self.pool.query(
         \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
@@ -299,6 +311,21 @@ pub fn addPublicKey(self: *DataAccessObject, allocator: std.mem.Allocator, key: 
         \\INSERT INTO public_key (owner_id, name, content, fingerprint, created_unix, updated_unix)
         \\VALUES ($1, $2, $3, $4, $5, $6)
     , .{ key.owner_id, key.name, key.content, key.fingerprint, unix_time, unix_time });
+}
+
+pub fn createPublicKey(self: *DataAccessObject, allocator: std.mem.Allocator, key: PublicKey) !i64 {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    const result = try self.pool.query(
+        \\INSERT INTO public_key (owner_id, name, content, fingerprint, created_unix, updated_unix)
+        \\VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+    , .{ key.owner_id, key.name, key.content, key.fingerprint, unix_time, unix_time });
+    
+    if (try result.next()) |row| {
+        return row.get(i64, 0);
+    }
+    
+    return error.DatabaseError;
 }
 
 pub fn getUserPublicKeys(self: *DataAccessObject, allocator: std.mem.Allocator, owner_id: i64) ![]PublicKey {
