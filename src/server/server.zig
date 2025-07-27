@@ -131,13 +131,17 @@ fn on_request(r: zap.Request) void {
             } else if (std.mem.indexOf(u8, path, "/actions/artifacts/") != null) {
                 return getArtifactHandler(r, global_context);
             } else if (std.mem.endsWith(u8, path, "/actions/secrets")) {
-                return repos.listRepoSecretsHandler(r, global_context);
+                router.callHandler(r, repos.listRepoSecretsHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/actions/runners")) {
-                return repos.listRepoRunnersHandler(r, global_context);
+                router.callHandler(r, repos.listRepoRunnersHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/actions/runners/registration-token")) {
-                return repos.getRepoRunnerTokenHandler(r, global_context);
+                router.callHandler(r, repos.getRepoRunnerTokenHandler, global_context);
+                return;
             } else {
-                return repos.getRepoHandler(r, global_context);
+                router.callHandler(r, repos.getRepoHandler, global_context);
+                return;
             }
         }
     } else if (r.methodAsEnum() == .POST) {
@@ -158,7 +162,8 @@ fn on_request(r: zap.Request) void {
             return;
         } else if (std.mem.startsWith(u8, path, "/repos/")) {
             if (std.mem.endsWith(u8, path, "/forks")) {
-                return repos.forkRepoHandler(r, global_context);
+                router.callHandler(r, repos.forkRepoHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/branches")) {
                 return createBranchHandler(r, global_context);
             } else if (std.mem.endsWith(u8, path, "/issues")) {
@@ -193,7 +198,8 @@ fn on_request(r: zap.Request) void {
             router.callHandler(r, orgs.createOrgSecretHandler, global_context);
             return;
         } else if (std.mem.startsWith(u8, path, "/repos/") and std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
-            return repos.createRepoSecretHandler(r, global_context);
+            router.callHandler(r, repos.createRepoSecretHandler, global_context);
+            return;
         }
     } else if (r.methodAsEnum() == .PATCH) {
         if (std.mem.startsWith(u8, path, "/orgs/")) {
@@ -205,7 +211,8 @@ fn on_request(r: zap.Request) void {
             } else if (std.mem.indexOf(u8, path, "/labels/") != null) {
                 return updateLabelHandler(r, global_context);
             } else {
-                return repos.updateRepoHandler(r, global_context);
+                router.callHandler(r, repos.updateRepoHandler, global_context);
+                return;
             }
         } else if (std.mem.startsWith(u8, path, "/admin/users/")) {
             return updateAdminUserHandler(r, global_context);
@@ -241,11 +248,14 @@ fn on_request(r: zap.Request) void {
                     return deleteLabelHandler(r, global_context);
                 }
             } else if (std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
-                return repos.deleteRepoSecretHandler(r, global_context);
+                router.callHandler(r, repos.deleteRepoSecretHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/actions/runners/") != null) {
-                return repos.deleteRepoRunnerHandler(r, global_context);
+                router.callHandler(r, repos.deleteRepoRunnerHandler, global_context);
+                return;
             } else {
-                return repos.deleteRepoHandler(r, global_context);
+                router.callHandler(r, repos.deleteRepoHandler, global_context);
+                return;
             }
         } else if (std.mem.startsWith(u8, path, "/admin/users/")) {
             return deleteAdminUserHandler(r, global_context);
