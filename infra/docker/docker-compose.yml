@@ -17,7 +17,8 @@ services:
 
   api-server:
     build:
-      context: .
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
       target: cli
     depends_on:
       db-migrate:
@@ -35,7 +36,8 @@ services:
 
   web:
     build:
-      context: .
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
       target: web
     ports:
       - "3000:80"
@@ -57,13 +59,14 @@ services:
       POSTGRES_PASSWORD: plue_password
       POSTGRES_DB: plue
     volumes:
-      - ./scripts:/app/scripts
+      - ../../scripts:/app/scripts
     working_dir: /app
     command: ["sh", "-c", "pip install psycopg2-binary && python scripts/migrate.py up"]
 
   api-test:
     build:
-      context: .
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
       target: cli
     depends_on:
       db-migrate:
@@ -74,8 +77,8 @@ services:
 
   healthcheck:
     build:
-      context: .
-      dockerfile: Dockerfile.healthcheck
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.healthcheck
     depends_on:
       web:
         condition: service_healthy
@@ -87,7 +90,7 @@ services:
         condition: service_completed_successfully
     command: ["python", "/app/scripts/healthcheck.py"]
     volumes:
-      - ./scripts:/app/scripts
+      - ../../scripts:/app/scripts
 
 volumes:
   postgres_data:

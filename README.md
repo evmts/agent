@@ -16,13 +16,13 @@ A git wrapper application with a web interface, REST API, and PostgreSQL databas
 
 ```bash
 # Start all services
-docker-compose up -d
+docker-compose -f infra/docker/docker-compose.yml up -d
 
 # Run health checks
-docker-compose run --rm healthcheck python /app/scripts/healthcheck.py
+docker-compose -f infra/docker/docker-compose.yml run --rm healthcheck python /app/scripts/healthcheck.py
 
 # View logs
-docker-compose logs -f
+docker-compose -f infra/docker/docker-compose.yml logs -f
 ```
 
 Services will be available at:
@@ -68,9 +68,12 @@ plue/
 ├── scripts/
 │   ├── migrate.py        # Database migrations
 │   └── healthcheck.py    # End-to-end health checks
-└── docker/
-    ├── Dockerfile        # Multi-stage build
-    └── docker-compose.yml # Service orchestration
+├── infra/                # Infrastructure code
+│   ├── docker/           # Docker configurations
+│   │   ├── Dockerfile
+│   │   └── docker-compose.yml
+│   └── ...               # Terraform modules
+└── scripts/              # Utility scripts
 ```
 
 ## Dependencies

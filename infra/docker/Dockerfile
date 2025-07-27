@@ -44,7 +44,7 @@ RUN npm run build
 FROM nginx:alpine as web
 
 COPY --from=spa-builder /app/gui/dist /usr/share/nginx/html
-COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY infra/docker/nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 80
 

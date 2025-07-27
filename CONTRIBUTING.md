@@ -41,20 +41,20 @@ DATABASE_URL=postgresql://plue:plue_password@localhost:5432/plue zig build run -
 ### Docker Development
 ```bash
 # Start all services
-docker-compose up -d
+docker-compose -f infra/docker/docker-compose.yml up -d
 
 # Run database migrations
-docker-compose run --rm db-migrate
+docker-compose -f infra/docker/docker-compose.yml run --rm db-migrate
 
 # Run health checks
-docker-compose run --rm healthcheck python /app/scripts/healthcheck.py
+docker-compose -f infra/docker/docker-compose.yml run --rm healthcheck python /app/scripts/healthcheck.py
 
 # View logs
-docker-compose logs -f api-server
+docker-compose -f infra/docker/docker-compose.yml logs -f api-server
 
 # Rebuild after changes
-docker-compose build api-server
-docker-compose up -d api-server
+docker-compose -f infra/docker/docker-compose.yml build api-server
+docker-compose -f infra/docker/docker-compose.yml up -d api-server
 ```
 
 ### Web UI Development
@@ -128,10 +128,12 @@ plue/
 ├── scripts/
 │   ├── migrate.py        # Database migration tool
 │   └── healthcheck.py    # End-to-end health verification
-├── docker/
-│   └── nginx.conf        # Web server configuration
-├── Dockerfile            # Multi-stage build configuration
-├── docker-compose.yml    # Service orchestration
+├── infra/                # Infrastructure code
+│   ├── docker/           # Docker configurations
+│   │   ├── Dockerfile
+│   │   ├── docker-compose.yml
+│   │   └── nginx.conf
+│   └── ...               # Terraform modules
 └── build.zig            # Build configuration
 ```
 
@@ -141,7 +143,7 @@ Migrations are managed by `scripts/migrate.py`:
 
 ```bash
 # Run migrations (in Docker)
-docker-compose run --rm db-migrate
+docker-compose -f infra/docker/docker-compose.yml run --rm db-migrate
 
 # Run migrations locally
 python scripts/migrate.py up
@@ -165,12 +167,12 @@ python scripts/migrate.py down
 ### Database Connection
 If you see "Failed to connect to database", ensure PostgreSQL is running:
 ```bash
-docker-compose up -d postgres
-docker-compose run --rm db-migrate
+docker-compose -f infra/docker/docker-compose.yml up -d postgres
+docker-compose -f infra/docker/docker-compose.yml run --rm db-migrate
 ```
 
 ### Port Conflicts
-If ports 3000, 8000, or 5432 are in use, modify `docker-compose.yml` to use different ports.
+If ports 3000, 8000, or 5432 are in use, modify `infra/docker/docker-compose.yml` to use different ports.
 
 ### Memory Leaks
 Always use defer patterns for cleanup:
@@ -182,7 +184,7 @@ defer allocator.destroy(thing);
 ## Submitting Changes
 
 1. Ensure all tests pass: `zig build && zig build test`
-2. Run the health check: `docker-compose run --rm healthcheck python /app/scripts/healthcheck.py`
+2. Run the health check: `docker-compose -f infra/docker/docker-compose.yml run --rm healthcheck python /app/scripts/healthcheck.py`
 3. Follow conventional commit format: `feat: Add new feature`
 4. Update documentation if adding new features
 5. Submit pull request with clear description
