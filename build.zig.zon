@@ -44,13 +44,13 @@
             .url = "https://github.com/webui-dev/webui/archive/699119f42fc64ae42c9121bc4749b740f71949af.tar.gz",
             .hash = "webui-2.5.0-beta.4-pxqD5esSNwCHzwq6ndnW-ShzC_nPNAzGu13l4Unk0rFl",
         },
-        .httpz = .{
-            .url = "git+https://github.com/karlseguin/http.zig?ref=master#2924ead41db9e1986db3b4909a82185c576f6361",
-            .hash = "httpz-0.0.0-PNVzrC7CBgDSMZNP7chgAczR3FyAz5Eum6Kb1_K9kmYR",
-        },
         .pg = .{
             .url = "git+https://github.com/karlseguin/pg.zig?ref=master#f5d46c0721db63bc42354f1dcda03d63bdabdac6",
             .hash = "pg-0.0.0-Wp_7gS8DBgAMo_tz7-KNu5OxmKZn1tCeVWNeipSANF64",
+        },
+        .zap = .{
+            .url = "git+https://github.com/zigzap/zap?ref=v0.8.0#5de9b42f0de533bfb9f37480ea89f0a0d71d1769",
+            .hash = "zap-0.8.0-AAAAAF2qIwCZNsMzO1O1Ptz0U7FnC6u5rowhl7HKYnwB",
         },
     },
     .paths = .{
