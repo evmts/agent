@@ -245,6 +245,48 @@ This ensures we stay aligned with the project's intentions and don't create unin
 - Always wait for dependent services using health checks
 - Keep containers minimal - use Alpine Linux base images
 
+## Code Documentation and Comments
+
+### Comment Philosophy
+
+Comments should **enhance understanding**, not restate the obvious. Follow these principles:
+
+1. **Never comment what the code clearly shows**
+   ```zig
+   // Bad: Increment counter by 1
+   counter += 1;
+   
+   // Good: Reset counter when reaching max connections to prevent overflow
+   counter += 1;
+   ```
+
+2. **Document the WHY, not the WHAT**
+   - Explain business logic decisions
+   - Note performance considerations
+   - Clarify non-obvious edge cases
+   - Reference external requirements or RFCs
+
+3. **Use comments to provide context**
+   ```terraform
+   # EFS mount targets must be in different AZs for high availability
+   # AWS requirement: one mount target per AZ maximum
+   resource "aws_efs_mount_target" "main" {
+     count = length(var.private_subnet_ids)
+     ...
+   }
+   ```
+
+4. **Document assumptions and constraints**
+   ```zig
+   // Assumes connection pool size never exceeds 1000
+   // Based on AWS RDS connection limits for db.t3.micro instances
+   ```
+
+5. **Keep comments concise and relevant**
+   - Remove outdated comments immediately
+   - Update comments when code changes
+   - Avoid redundant information
+
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
