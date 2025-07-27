@@ -484,7 +484,12 @@ pub fn listRepoSecretsHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Re
     }
     
     // Build response
-    var response_items = try allocator.alloc(@TypeOf(response_items[0]), secrets.len);
+    const ResponseItem = struct {
+        name: []const u8,
+        created_at: []const u8,
+        updated_at: []const u8,
+    };
+    var response_items = try allocator.alloc(ResponseItem, secrets.len);
     defer allocator.free(response_items);
     
     for (secrets, 0..) |secret, i| {
@@ -741,7 +746,15 @@ pub fn listRepoRunnersHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Re
     }
     
     // Build response
-    var response_items = try allocator.alloc(@TypeOf(response_items[0]), runners.len);
+    const ResponseItem = struct {
+        id: i64,
+        name: []const u8,
+        os: []const u8,
+        status: []const u8,
+        busy: bool,
+        labels: []const []const u8,
+    };
+    var response_items = try allocator.alloc(ResponseItem, runners.len);
     defer allocator.free(response_items);
     
     for (runners, 0..) |runner, i| {

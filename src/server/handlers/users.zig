@@ -61,7 +61,17 @@ pub fn getUsersHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
     
     // Build response array
-    var response_items = try allocator.alloc(@TypeOf(response_items[0]), users.len);
+    const ResponseItem = struct {
+        id: i64,
+        name: []const u8,
+        email: ?[]const u8,
+        type: []const u8,
+        is_admin: bool,
+        avatar: ?[]const u8,
+        created_unix: i64,
+        updated_unix: i64,
+    };
+    var response_items = try allocator.alloc(ResponseItem, users.len);
     defer allocator.free(response_items);
     
     for (users, 0..) |user, i| {
@@ -339,7 +349,16 @@ pub fn createSSHKeyHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
     
     // Create the SSH key
-    const key_id = ctx.dao.addPublicKey(allocator, user_id, key_req.name, key_req.key) catch |err| {
+    const key = server.DataAccessObject.PublicKey{
+        .id = 0,
+        .owner_id = user_id,
+        .name = key_req.name,
+        .content = key_req.key,
+        .fingerprint = "TODO", // TODO: Calculate fingerprint
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    const key_id = ctx.dao.createPublicKey(allocator, key) catch |err| {
         std.log.err("Failed to add SSH key: {}", .{err});
         try json.writeError(res, allocator, 500, "Failed to add SSH key");
         return;
@@ -376,7 +395,13 @@ pub fn listSSHKeysHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
     
     // Build response array
-    var response_items = try allocator.alloc(@TypeOf(response_items[0]), keys.len);
+    const ResponseItem = struct {
+        id: i64,
+        name: []const u8,
+        key: []const u8,
+        created_unix: i64,
+    };
+    var response_items = try allocator.alloc(ResponseItem, keys.len);
     defer allocator.free(response_items);
     
     for (keys, 0..) |key, i| {
@@ -467,7 +492,14 @@ pub fn listUserOrgsHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
     
     // Build response array
-    var response_items = try allocator.alloc(@TypeOf(response_items[0]), orgs.len);
+    const ResponseItem = struct {
+        id: i64,
+        name: []const u8,
+        description: ?[]const u8,
+        avatar: ?[]const u8,
+        created_unix: i64,
+    };
+    var response_items = try allocator.alloc(ResponseItem, orgs.len);
     defer allocator.free(response_items);
     
     for (orgs, 0..) |org, i| {
