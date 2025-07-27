@@ -12,6 +12,7 @@ pub fn createOrgHandler(r: zap.Request, ctx: *Context) !void {
     
     // Authenticate the request
     const user_id = try auth.authMiddleware(r, ctx, allocator) orelse return;
+    _ = user_id; // TODO: Implement organization creation with proper permissions
     
     const body = r.body orelse {
         try json.writeError(r, allocator, .bad_request, "Missing request body");
@@ -35,7 +36,7 @@ pub fn createOrgHandler(r: zap.Request, ctx: *Context) !void {
         .id = 0,
         .name = org_data.name,
         .email = null,
-        .password_hash = null,
+        .passwd = null,
         .type = .organization,
         .is_admin = false,
         .avatar = null,
@@ -213,7 +214,7 @@ pub fn deleteOrgHandler(r: zap.Request, ctx: *Context) !void {
     }
     
     // Delete the organization
-    ctx.dao.deleteUser(org.id) catch |err| {
+    ctx.dao.deleteUser(allocator, org.name) catch |err| {
         std.log.err("Failed to delete organization: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Failed to delete organization");
         return;

@@ -114,7 +114,19 @@ pub fn createUserHandler(r: zap.Request, ctx: *Context) !void {
     const request = parsed.value;
     
     // Create user
-    const user_id = ctx.dao.createUser(request.name, request.email, request.password, request.is_admin) catch |err| {
+    const new_user = server.DataAccessObject.User{
+        .id = 0,
+        .name = request.name,
+        .email = request.email,
+        .passwd = request.password,
+        .type = .individual,
+        .is_admin = request.is_admin,
+        .avatar = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    ctx.dao.createUser(allocator, new_user) catch |err| {
         std.log.err("Failed to create user: {}", .{err});
         if (err == error.UniqueViolation) {
             try json.writeError(r, allocator, .conflict, "User already exists");
@@ -125,7 +137,7 @@ pub fn createUserHandler(r: zap.Request, ctx: *Context) !void {
     };
     
     // Get created user
-    const user = ctx.dao.getUserById(allocator, user_id) catch |err| {
+    const user = ctx.dao.getUserByName(allocator, request.name) catch |err| {
         std.log.err("Failed to get created user: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Database error");
         return;
@@ -238,12 +250,22 @@ pub fn updateUserHandler(r: zap.Request, ctx: *Context) !void {
         if (user.avatar) |a| allocator.free(a);
     }
     
-    // Update user
-    ctx.dao.updateUser(user.id, request.email, request.avatar) catch |err| {
-        std.log.err("Failed to update user: {}", .{err});
-        try json.writeError(r, allocator, .internal_server_error, "Database error");
-        return;
-    };
+    // Update user fields individually
+    if (request.email) |email| {
+        ctx.dao.updateUserEmail(allocator, user.id, email) catch |err| {
+            std.log.err("Failed to update user email: {}", .{err});
+            try json.writeError(r, allocator, .internal_server_error, "Database error");
+            return;
+        };
+    }
+    
+    if (request.avatar) |avatar| {
+        ctx.dao.updateUserAvatar(allocator, user.id, avatar) catch |err| {
+            std.log.err("Failed to update user avatar: {}", .{err});
+            try json.writeError(r, allocator, .internal_server_error, "Database error");
+            return;
+        };
+    }
     
     // Get updated user
     const updated_user = ctx.dao.getUserById(allocator, user.id) catch |err| {
@@ -299,7 +321,7 @@ pub fn deleteUserHandler(r: zap.Request, ctx: *Context) !void {
     }
     
     // Delete user
-    ctx.dao.deleteUser(user.id) catch |err| {
+    ctx.dao.deleteUser(allocator, user.name) catch |err| {
         std.log.err("Failed to delete user: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Database error");
         return;
@@ -335,7 +357,17 @@ pub fn createSSHKeyHandler(r: zap.Request, ctx: *Context) !void {
     const request = parsed.value;
     
     // Create SSH key
-    const key_id = ctx.dao.createSSHKey(user_id, request.title, request.key) catch |err| {
+    const ssh_key = server.DataAccessObject.PublicKey{
+        .id = 0,
+        .owner_id = user_id,
+        .name = request.title,
+        .content = request.key,
+        .fingerprint = "",  // TODO: Calculate fingerprint
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    const key_id = ctx.dao.createPublicKey(allocator, ssh_key) catch |err| {
         std.log.err("Failed to create SSH key: {}", .{err});
         if (err == error.UniqueViolation) {
             try json.writeError(r, allocator, .conflict, "SSH key already exists");
@@ -362,15 +394,16 @@ pub fn listSSHKeysHandler(r: zap.Request, ctx: *Context) !void {
     // Authenticate the request
     const user_id = try auth.authMiddleware(r, ctx, allocator) orelse return;
     
-    const keys = ctx.dao.listSSHKeys(allocator, user_id) catch |err| {
+    const keys = ctx.dao.getUserPublicKeys(allocator, user_id) catch |err| {
         std.log.err("Failed to list SSH keys: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Database error");
         return;
     };
     defer {
         for (keys) |key| {
-            allocator.free(key.title);
-            allocator.free(key.key);
+            allocator.free(key.name);
+            allocator.free(key.content);
+            allocator.free(key.fingerprint);
         }
         allocator.free(keys);
     }
@@ -388,8 +421,8 @@ pub fn listSSHKeysHandler(r: zap.Request, ctx: *Context) !void {
     for (keys, 0..) |key, i| {
         response_items[i] = .{
             .id = key.id,
-            .title = key.title,
-            .key = key.key,
+            .title = key.name,
+            .key = key.content,
             .created_unix = key.created_unix,
         };
     }
@@ -402,6 +435,7 @@ pub fn deleteSSHKeyHandler(r: zap.Request, ctx: *Context) !void {
     
     // Authenticate the request
     const user_id = try auth.authMiddleware(r, ctx, allocator) orelse return;
+    _ = user_id; // TODO: Verify ownership of the key
     
     // Extract key ID from path
     const path = r.path orelse return error.NoPath;
@@ -417,7 +451,7 @@ pub fn deleteSSHKeyHandler(r: zap.Request, ctx: *Context) !void {
     };
     
     // Delete SSH key
-    ctx.dao.deleteSSHKey(user_id, key_id) catch |err| {
+    ctx.dao.deletePublicKey(allocator, key_id) catch |err| {
         std.log.err("Failed to delete SSH key: {}", .{err});
         if (err == error.NotFound) {
             try json.writeError(r, allocator, .not_found, "SSH key not found");
@@ -437,18 +471,17 @@ pub fn listUserOrgsHandler(r: zap.Request, ctx: *Context) !void {
     // Authenticate the request
     const user_id = try auth.authMiddleware(r, ctx, allocator) orelse return;
     
-    const orgs = ctx.dao.listUserOrganizations(allocator, user_id) catch |err| {
+    const orgs = ctx.dao.getUserOrganizations(allocator, user_id) catch |err| {
         std.log.err("Failed to list user organizations: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Database error");
         return;
     };
     defer {
         for (orgs) |org| {
-            allocator.free(org.name);
-            if (org.description) |d| allocator.free(d);
-            if (org.website) |w| allocator.free(w);
-            if (org.location) |l| allocator.free(l);
-            if (org.avatar) |a| allocator.free(a);
+            allocator.free(org.org.name);
+            if (org.org.email) |e| allocator.free(e);
+            if (org.org.passwd) |p| allocator.free(p);
+            if (org.org.avatar) |a| allocator.free(a);
         }
         allocator.free(orgs);
     }
@@ -457,10 +490,8 @@ pub fn listUserOrgsHandler(r: zap.Request, ctx: *Context) !void {
     const ResponseItem = struct {
         id: i64,
         name: []const u8,
-        description: ?[]const u8,
-        website: ?[]const u8,
-        location: ?[]const u8,
         avatar: ?[]const u8,
+        is_owner: bool,
         created_unix: i64,
         updated_unix: i64,
     };
@@ -469,14 +500,12 @@ pub fn listUserOrgsHandler(r: zap.Request, ctx: *Context) !void {
     
     for (orgs, 0..) |org, i| {
         response_items[i] = .{
-            .id = org.id,
-            .name = org.name,
-            .description = org.description,
-            .website = org.website,
-            .location = org.location,
-            .avatar = org.avatar,
-            .created_unix = org.created_unix,
-            .updated_unix = org.updated_unix,
+            .id = org.org.id,
+            .name = org.org.name,
+            .avatar = org.org.avatar,
+            .is_owner = org.is_owner,
+            .created_unix = org.org.created_unix,
+            .updated_unix = org.org.updated_unix,
         };
     }
     
@@ -514,13 +543,24 @@ pub fn createUserRepoHandler(r: zap.Request, ctx: *Context) !void {
     const request = parsed.value;
     
     // Create repository
-    const repo_id = ctx.dao.createRepository(
-        user_id,
-        null, // org_id
-        request.name,
-        request.description,
-        request.is_private,
-    ) catch |err| {
+    var lower_name_buf: [256]u8 = undefined;
+    const lower_name = std.ascii.lowerString(&lower_name_buf, request.name);
+    
+    const new_repo = server.DataAccessObject.Repository{
+        .id = 0,
+        .owner_id = user_id,
+        .lower_name = lower_name,
+        .name = request.name,
+        .description = request.description,
+        .default_branch = "main",
+        .is_private = request.is_private,
+        .is_fork = false,
+        .fork_id = null,
+        .created_unix = 0,
+        .updated_unix = 0,
+    };
+    
+    _ = ctx.dao.createRepository(allocator, new_repo) catch |err| {
         std.log.err("Failed to create repository: {}", .{err});
         if (err == error.UniqueViolation) {
             try json.writeError(r, allocator, .conflict, "Repository already exists");
@@ -530,20 +570,7 @@ pub fn createUserRepoHandler(r: zap.Request, ctx: *Context) !void {
         return;
     };
     
-    // Get created repository
-    const repo = ctx.dao.getRepositoryById(allocator, repo_id) catch |err| {
-        std.log.err("Failed to get created repository: {}", .{err});
-        try json.writeError(r, allocator, .internal_server_error, "Database error");
-        return;
-    } orelse unreachable;
-    defer {
-        allocator.free(repo.name);
-        if (repo.description) |d| allocator.free(d);
-        if (repo.default_branch) |b| allocator.free(b);
-        if (repo.website) |w| allocator.free(w);
-    }
-    
-    // Get owner details
+    // Get owner details first
     const user = ctx.dao.getUserById(allocator, user_id) catch |err| {
         std.log.err("Failed to get user: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Database error");
@@ -553,6 +580,19 @@ pub fn createUserRepoHandler(r: zap.Request, ctx: *Context) !void {
         allocator.free(user.name);
         if (user.email) |e| allocator.free(e);
         if (user.avatar) |a| allocator.free(a);
+    }
+    
+    // Get created repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, request.name) catch |err| {
+        std.log.err("Failed to get created repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse unreachable;
+    defer {
+        allocator.free(repo.lower_name);
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
     }
     
     const response = .{

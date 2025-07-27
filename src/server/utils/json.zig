@@ -7,7 +7,7 @@ pub fn writeJson(r: zap.Request, allocator: std.mem.Allocator, value: anytype) !
     
     try std.json.stringify(value, .{}, json_builder.writer());
     
-    _ = r.setHeader("Content-Type", "application/json");
+    r.setHeader("Content-Type", "application/json") catch {};
     try r.sendBody(json_builder.items);
 }
 

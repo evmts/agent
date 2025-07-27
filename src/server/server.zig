@@ -97,39 +97,53 @@ fn on_request(r: zap.Request) void {
         // Repository routes
         else if (std.mem.startsWith(u8, path, "/repos/")) {
             if (std.mem.endsWith(u8, path, "/branches")) {
-                return listBranchesHandler(r, global_context);
+                router.callHandler(r, listBranchesHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/branches/") != null) {
-                return getBranchHandler(r, global_context);
+                router.callHandler(r, getBranchHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/issues")) {
-                return listIssuesHandler(r, global_context);
+                router.callHandler(r, listIssuesHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/issues/") != null) {
                 if (std.mem.endsWith(u8, path, "/comments")) {
-                    return getCommentsHandler(r, global_context);
+                    router.callHandler(r, getCommentsHandler, global_context);
+                return;
                 } else {
-                    return getIssueHandler(r, global_context);
+                    router.callHandler(r, getIssueHandler, global_context);
+                return;
                 }
             } else if (std.mem.endsWith(u8, path, "/labels")) {
-                return listLabelsHandler(r, global_context);
+                router.callHandler(r, listLabelsHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/pulls")) {
-                return listPullsHandler(r, global_context);
+                router.callHandler(r, listPullsHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/pulls/") != null) {
                 if (std.mem.endsWith(u8, path, "/reviews")) {
-                    return listReviewsHandler(r, global_context);
+                    router.callHandler(r, listReviewsHandler, global_context);
+                return;
                 } else {
-                    return getPullHandler(r, global_context);
+                    router.callHandler(r, getPullHandler, global_context);
+                return;
                 }
             } else if (std.mem.endsWith(u8, path, "/actions/runs")) {
-                return listRunsHandler(r, global_context);
+                router.callHandler(r, listRunsHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/actions/runs/") != null) {
                 if (std.mem.endsWith(u8, path, "/jobs")) {
-                    return listJobsHandler(r, global_context);
+                    router.callHandler(r, listJobsHandler, global_context);
+                return;
                 } else if (std.mem.endsWith(u8, path, "/artifacts")) {
-                    return listArtifactsHandler(r, global_context);
+                    router.callHandler(r, listArtifactsHandler, global_context);
+                return;
                 } else {
-                    return getRunHandler(r, global_context);
+                    router.callHandler(r, getRunHandler, global_context);
+                return;
                 }
             } else if (std.mem.indexOf(u8, path, "/actions/artifacts/") != null) {
-                return getArtifactHandler(r, global_context);
+                router.callHandler(r, getArtifactHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/actions/secrets")) {
                 router.callHandler(r, repos.listRepoSecretsHandler, global_context);
                 return;
@@ -165,29 +179,39 @@ fn on_request(r: zap.Request) void {
                 router.callHandler(r, repos.forkRepoHandler, global_context);
                 return;
             } else if (std.mem.endsWith(u8, path, "/branches")) {
-                return createBranchHandler(r, global_context);
+                router.callHandler(r, createBranchHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/issues")) {
-                return createIssueHandler(r, global_context);
+                router.callHandler(r, createIssueHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/issues/") != null and std.mem.endsWith(u8, path, "/comments")) {
-                return createCommentHandler(r, global_context);
+                router.callHandler(r, createCommentHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/issues/") != null and std.mem.endsWith(u8, path, "/labels")) {
-                return addLabelsToIssueHandler(r, global_context);
+                router.callHandler(r, addLabelsToIssueHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/labels")) {
-                return createLabelHandler(r, global_context);
+                router.callHandler(r, createLabelHandler, global_context);
+                return;
             } else if (std.mem.endsWith(u8, path, "/pulls")) {
-                return createPullHandler(r, global_context);
+                router.callHandler(r, createPullHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/pulls/") != null) {
                 if (std.mem.endsWith(u8, path, "/reviews")) {
-                    return createReviewHandler(r, global_context);
+                    router.callHandler(r, createReviewHandler, global_context);
+                return;
                 } else if (std.mem.endsWith(u8, path, "/merge")) {
-                    return mergePullHandler(r, global_context);
+                    router.callHandler(r, mergePullHandler, global_context);
+                return;
                 }
             }
         } else if (std.mem.startsWith(u8, path, "/admin/users")) {
             if (std.mem.endsWith(u8, path, "/keys")) {
-                return addAdminUserKeyHandler(r, global_context);
+                router.callHandler(r, addAdminUserKeyHandler, global_context);
+                return;
             } else {
-                return createAdminUserHandler(r, global_context);
+                router.callHandler(r, createAdminUserHandler, global_context);
+                return;
             }
         }
     } else if (r.methodAsEnum() == .PUT) {
@@ -207,15 +231,18 @@ fn on_request(r: zap.Request) void {
             return;
         } else if (std.mem.startsWith(u8, path, "/repos/")) {
             if (std.mem.indexOf(u8, path, "/issues/") != null) {
-                return updateIssueHandler(r, global_context);
+                router.callHandler(r, updateIssueHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/labels/") != null) {
-                return updateLabelHandler(r, global_context);
+                router.callHandler(r, updateLabelHandler, global_context);
+                return;
             } else {
                 router.callHandler(r, repos.updateRepoHandler, global_context);
                 return;
             }
         } else if (std.mem.startsWith(u8, path, "/admin/users/")) {
-            return updateAdminUserHandler(r, global_context);
+            router.callHandler(r, updateAdminUserHandler, global_context);
+                return;
         }
     } else if (r.methodAsEnum() == .DELETE) {
         if (std.mem.startsWith(u8, path, "/user/keys/")) {
@@ -240,12 +267,15 @@ fn on_request(r: zap.Request) void {
             }
         } else if (std.mem.startsWith(u8, path, "/repos/")) {
             if (std.mem.indexOf(u8, path, "/branches/") != null) {
-                return deleteBranchHandler(r, global_context);
+                router.callHandler(r, deleteBranchHandler, global_context);
+                return;
             } else if (std.mem.indexOf(u8, path, "/labels/") != null) {
                 if (std.mem.indexOf(u8, path, "/issues/") != null) {
-                    return removeLabelFromIssueHandler(r, global_context);
+                    router.callHandler(r, removeLabelFromIssueHandler, global_context);
+                return;
                 } else {
-                    return deleteLabelHandler(r, global_context);
+                    router.callHandler(r, deleteLabelHandler, global_context);
+                return;
                 }
             } else if (std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
                 router.callHandler(r, repos.deleteRepoSecretHandler, global_context);
@@ -258,7 +288,8 @@ fn on_request(r: zap.Request) void {
                 return;
             }
         } else if (std.mem.startsWith(u8, path, "/admin/users/")) {
-            return deleteAdminUserHandler(r, global_context);
+            router.callHandler(r, deleteAdminUserHandler, global_context);
+                return;
         }
     }
     

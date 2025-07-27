@@ -72,8 +72,6 @@ pub fn getRepoHandler(r: zap.Request, ctx: *Context) !void {
         .created_at = repo.created_unix,
         .updated_at = repo.updated_unix,
         .default_branch = repo.default_branch,
-        .size = repo.size,
-        .language = repo.language,
     };
     defer allocator.free(response.full_name);
     
@@ -229,7 +227,7 @@ pub fn deleteRepoHandler(r: zap.Request, ctx: *Context) !void {
     }
     
     // Delete the repository
-    ctx.dao.deleteRepository(repo.id) catch |err| {
+    ctx.dao.deleteRepository(allocator, repo.id) catch |err| {
         std.log.err("Failed to delete repository: {}", .{err});
         try json.writeError(r, allocator, .internal_server_error, "Failed to delete repository");
         return;
