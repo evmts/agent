@@ -1,6 +1,7 @@
 const std = @import("std");
-const httpz = @import("httpz");
+const zap = @import("zap");
 pub const DataAccessObject = @import("../database/dao.zig");
+const router = @import("router.zig");
 
 // Import handlers
 const health = @import("handlers/health.zig");
@@ -12,277 +13,494 @@ const Server = @This();
 
 pub const Context = struct {
     dao: *DataAccessObject,
+    allocator: std.mem.Allocator,
 };
 
-server: httpz.Server(*Context),
+listener: zap.HttpListener,
 context: *Context,
+
+// Global context for handlers to access
+var global_context: *Context = undefined;
 
 pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
     const context = try allocator.create(Context);
-    context.* = Context{ .dao = dao };
+    context.* = Context{ 
+        .dao = dao,
+        .allocator = allocator,
+    };
     
-    var server = try httpz.Server(*Context).init(allocator, .{ .port = 8000, .address = "0.0.0.0" }, context);
+    // Store context globally for handler access
+    global_context = context;
     
-    var router = try server.router(.{});
-    router.get("/", health.indexHandler, .{});
-    router.get("/health", health.healthHandler, .{});
-    
-    // User endpoints
-    router.get("/user", users.getCurrentUserHandler, .{}); // Authenticated user endpoint
-    router.post("/user/keys", users.createSSHKeyHandler, .{}); // Create SSH key
-    router.get("/user/keys", users.listSSHKeysHandler, .{}); // List SSH keys
-    router.delete("/user/keys/:id", users.deleteSSHKeyHandler, .{}); // Delete SSH key
-    router.get("/users", users.getUsersHandler, .{});
-    router.post("/users", users.createUserHandler, .{});
-    router.get("/users/:name", users.getUserHandler, .{});
-    router.put("/users/:name", users.updateUserHandler, .{});
-    router.delete("/users/:name", users.deleteUserHandler, .{});
-    router.get("/user/orgs", users.listUserOrgsHandler, .{}); // List user's organizations
-    router.post("/user/repos", users.createUserRepoHandler, .{}); // Create user repository
-    
-    // Organization endpoints
-    router.post("/orgs", orgs.createOrgHandler, .{}); // Create organization
-    router.get("/orgs/:org", orgs.getOrgHandler, .{}); // Get organization
-    router.patch("/orgs/:org", orgs.updateOrgHandler, .{}); // Update organization
-    router.delete("/orgs/:org", orgs.deleteOrgHandler, .{}); // Delete organization
-    router.get("/orgs/:org/members", orgs.listOrgMembersHandler, .{}); // List org members
-    router.delete("/orgs/:org/members/:username", orgs.removeOrgMemberHandler, .{}); // Remove member
-    router.post("/orgs/:org/repos", orgs.createOrgRepoHandler, .{}); // Create org repository
-    
-    // Repository endpoints
-    router.get("/repos/:owner/:name", repos.getRepoHandler, .{});
-    router.patch("/repos/:owner/:name", repos.updateRepoHandler, .{}); // Update repository
-    router.delete("/repos/:owner/:name", repos.deleteRepoHandler, .{}); // Delete repository
-    router.post("/repos/:owner/:name/forks", repos.forkRepoHandler, .{}); // Fork repository
-    
-    // Branch endpoints (TODO: move to branches.zig)
-    router.get("/repos/:owner/:name/branches", listBranchesHandler, .{}); // List branches
-    router.get("/repos/:owner/:name/branches/:branch", getBranchHandler, .{}); // Get branch
-    router.post("/repos/:owner/:name/branches", createBranchHandler, .{}); // Create branch
-    router.delete("/repos/:owner/:name/branches/:branch", deleteBranchHandler, .{}); // Delete branch
-    
-    // Issue endpoints (TODO: move to issues.zig)
-    router.get("/repos/:owner/:name/issues", listIssuesHandler, .{}); // List issues
-    router.post("/repos/:owner/:name/issues", createIssueHandler, .{});
-    router.get("/repos/:owner/:name/issues/:index", getIssueHandler, .{});
-    router.patch("/repos/:owner/:name/issues/:index", updateIssueHandler, .{}); // Update issue
-    router.get("/repos/:owner/:name/issues/:index/comments", getCommentsHandler, .{}); // List comments
-    router.post("/repos/:owner/:name/issues/:index/comments", createCommentHandler, .{}); // Add comment
-    
-    // Label endpoints (TODO: move to labels.zig)
-    router.get("/repos/:owner/:name/labels", listLabelsHandler, .{}); // List labels
-    router.post("/repos/:owner/:name/labels", createLabelHandler, .{}); // Create label
-    router.patch("/repos/:owner/:name/labels/:id", updateLabelHandler, .{}); // Update label
-    router.delete("/repos/:owner/:name/labels/:id", deleteLabelHandler, .{}); // Delete label
-    router.post("/repos/:owner/:name/issues/:index/labels", addLabelsToIssueHandler, .{}); // Add labels to issue
-    router.delete("/repos/:owner/:name/issues/:index/labels/:id", removeLabelFromIssueHandler, .{}); // Remove label from issue
-    
-    // Pull request endpoints (TODO: move to pulls.zig)
-    router.get("/repos/:owner/:name/pulls", listPullsHandler, .{}); // List pull requests
-    router.post("/repos/:owner/:name/pulls", createPullHandler, .{}); // Create pull request
-    router.get("/repos/:owner/:name/pulls/:index", getPullHandler, .{}); // Get pull request
-    router.get("/repos/:owner/:name/pulls/:index/reviews", listReviewsHandler, .{}); // List reviews
-    router.post("/repos/:owner/:name/pulls/:index/reviews", createReviewHandler, .{}); // Submit review
-    router.post("/repos/:owner/:name/pulls/:index/merge", mergePullHandler, .{}); // Merge PR
-    
-    // Actions/CI endpoints (TODO: move to actions.zig)
-    router.get("/repos/:owner/:name/actions/runs", listRunsHandler, .{}); // List workflow runs
-    router.get("/repos/:owner/:name/actions/runs/:run_id", getRunHandler, .{}); // Get workflow run
-    router.get("/repos/:owner/:name/actions/runs/:run_id/jobs", listJobsHandler, .{}); // List jobs for run
-    router.get("/repos/:owner/:name/actions/runs/:run_id/artifacts", listArtifactsHandler, .{}); // List artifacts for run
-    router.get("/repos/:owner/:name/actions/artifacts/:artifact_id", getArtifactHandler, .{}); // Get artifact
-    
-    // Actions/CI secrets and runners (already moved)
-    router.get("/orgs/:org/actions/secrets", orgs.listOrgSecretsHandler, .{}); // List org secrets
-    router.put("/orgs/:org/actions/secrets/:secretname", orgs.createOrgSecretHandler, .{}); // Create/update org secret
-    router.delete("/orgs/:org/actions/secrets/:secretname", orgs.deleteOrgSecretHandler, .{}); // Delete org secret
-    router.get("/repos/:owner/:name/actions/secrets", repos.listRepoSecretsHandler, .{}); // List repo secrets
-    router.put("/repos/:owner/:name/actions/secrets/:secretname", repos.createRepoSecretHandler, .{}); // Create/update repo secret
-    router.delete("/repos/:owner/:name/actions/secrets/:secretname", repos.deleteRepoSecretHandler, .{}); // Delete repo secret
-    router.get("/orgs/:org/actions/runners", orgs.listOrgRunnersHandler, .{}); // List org runners
-    router.get("/repos/:owner/:name/actions/runners", repos.listRepoRunnersHandler, .{}); // List repo runners
-    router.get("/orgs/:org/actions/runners/registration-token", orgs.getOrgRunnerTokenHandler, .{}); // Get org runner token
-    router.get("/repos/:owner/:name/actions/runners/registration-token", repos.getRepoRunnerTokenHandler, .{}); // Get repo runner token
-    router.delete("/orgs/:org/actions/runners/:runner_id", orgs.deleteOrgRunnerHandler, .{}); // Delete org runner
-    router.delete("/repos/:owner/:name/actions/runners/:runner_id", repos.deleteRepoRunnerHandler, .{}); // Delete repo runner
-    
-    // Admin endpoints (TODO: move to admin.zig)
-    router.post("/admin/users", createAdminUserHandler, .{}); // Create user
-    router.patch("/admin/users/:username", updateAdminUserHandler, .{}); // Update user
-    router.delete("/admin/users/:username", deleteAdminUserHandler, .{}); // Delete user
-    router.post("/admin/users/:username/keys", addAdminUserKeyHandler, .{}); // Add SSH key
+    const listener = zap.HttpListener.init(.{
+        .port = 8000,
+        .on_request = on_request,
+        .log = true,
+        .max_body_size = 100 * 1024 * 1024,
+    });
     
     return Server{
-        .server = server,
+        .listener = listener,
         .context = context,
     };
 }
 
+// Main request handler that dispatches to specific handlers
+fn on_request(r: zap.Request) void {
+    const path = r.path orelse {
+        r.setStatus(.bad_request);
+        r.sendBody("No path provided") catch {};
+        return;
+    };
+    
+    // Route dispatching
+    if (r.methodAsEnum() == .GET) {
+        if (std.mem.eql(u8, path, "/")) {
+            router.callHandler(r, health.indexHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/health")) {
+            router.callHandler(r, health.healthHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/user")) {
+            router.callHandler(r, users.getCurrentUserHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/user/keys")) {
+            router.callHandler(r, users.listSSHKeysHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/users")) {
+            router.callHandler(r, users.getUsersHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/user/orgs")) {
+            router.callHandler(r, users.listUserOrgsHandler, global_context);
+            return;
+        }
+        // Handle parameterized routes
+        else if (std.mem.startsWith(u8, path, "/users/")) {
+            router.callHandler(r, users.getUserHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/members")) {
+            router.callHandler(r, orgs.listOrgMembersHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/actions/secrets")) {
+            router.callHandler(r, orgs.listOrgSecretsHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/actions/runners")) {
+            router.callHandler(r, orgs.listOrgRunnersHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/actions/runners/registration-token")) {
+            router.callHandler(r, orgs.getOrgRunnerTokenHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/")) {
+            router.callHandler(r, orgs.getOrgHandler, global_context);
+            return;
+        }
+        // Repository routes
+        else if (std.mem.startsWith(u8, path, "/repos/")) {
+            if (std.mem.endsWith(u8, path, "/branches")) {
+                router.callHandler(r, listBranchesHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/branches/") != null) {
+                router.callHandler(r, getBranchHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/issues")) {
+                router.callHandler(r, listIssuesHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/issues/") != null) {
+                if (std.mem.endsWith(u8, path, "/comments")) {
+                    router.callHandler(r, getCommentsHandler, global_context);
+                return;
+                } else {
+                    router.callHandler(r, getIssueHandler, global_context);
+                return;
+                }
+            } else if (std.mem.endsWith(u8, path, "/labels")) {
+                router.callHandler(r, listLabelsHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/pulls")) {
+                router.callHandler(r, listPullsHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/pulls/") != null) {
+                if (std.mem.endsWith(u8, path, "/reviews")) {
+                    router.callHandler(r, listReviewsHandler, global_context);
+                return;
+                } else {
+                    router.callHandler(r, getPullHandler, global_context);
+                return;
+                }
+            } else if (std.mem.endsWith(u8, path, "/actions/runs")) {
+                router.callHandler(r, listRunsHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/actions/runs/") != null) {
+                if (std.mem.endsWith(u8, path, "/jobs")) {
+                    router.callHandler(r, listJobsHandler, global_context);
+                return;
+                } else if (std.mem.endsWith(u8, path, "/artifacts")) {
+                    router.callHandler(r, listArtifactsHandler, global_context);
+                return;
+                } else {
+                    router.callHandler(r, getRunHandler, global_context);
+                return;
+                }
+            } else if (std.mem.indexOf(u8, path, "/actions/artifacts/") != null) {
+                router.callHandler(r, getArtifactHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/actions/secrets")) {
+                router.callHandler(r, repos.listRepoSecretsHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/actions/runners")) {
+                router.callHandler(r, repos.listRepoRunnersHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/actions/runners/registration-token")) {
+                router.callHandler(r, repos.getRepoRunnerTokenHandler, global_context);
+                return;
+            } else {
+                router.callHandler(r, repos.getRepoHandler, global_context);
+                return;
+            }
+        }
+    } else if (r.methodAsEnum() == .POST) {
+        if (std.mem.eql(u8, path, "/user/keys")) {
+            router.callHandler(r, users.createSSHKeyHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/users")) {
+            router.callHandler(r, users.createUserHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/user/repos")) {
+            router.callHandler(r, users.createUserRepoHandler, global_context);
+            return;
+        } else if (std.mem.eql(u8, path, "/orgs")) {
+            router.callHandler(r, orgs.createOrgHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/repos")) {
+            router.callHandler(r, orgs.createOrgRepoHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/repos/")) {
+            if (std.mem.endsWith(u8, path, "/forks")) {
+                router.callHandler(r, repos.forkRepoHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/branches")) {
+                router.callHandler(r, createBranchHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/issues")) {
+                router.callHandler(r, createIssueHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/issues/") != null and std.mem.endsWith(u8, path, "/comments")) {
+                router.callHandler(r, createCommentHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/issues/") != null and std.mem.endsWith(u8, path, "/labels")) {
+                router.callHandler(r, addLabelsToIssueHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/labels")) {
+                router.callHandler(r, createLabelHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/pulls")) {
+                router.callHandler(r, createPullHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/pulls/") != null) {
+                if (std.mem.endsWith(u8, path, "/reviews")) {
+                    router.callHandler(r, createReviewHandler, global_context);
+                return;
+                } else if (std.mem.endsWith(u8, path, "/merge")) {
+                    router.callHandler(r, mergePullHandler, global_context);
+                return;
+                }
+            }
+        } else if (std.mem.startsWith(u8, path, "/admin/users")) {
+            if (std.mem.endsWith(u8, path, "/keys")) {
+                router.callHandler(r, addAdminUserKeyHandler, global_context);
+                return;
+            } else {
+                router.callHandler(r, createAdminUserHandler, global_context);
+                return;
+            }
+        }
+    } else if (r.methodAsEnum() == .PUT) {
+        if (std.mem.startsWith(u8, path, "/users/")) {
+            router.callHandler(r, users.updateUserHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
+            router.callHandler(r, orgs.createOrgSecretHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/repos/") and std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
+            router.callHandler(r, repos.createRepoSecretHandler, global_context);
+            return;
+        }
+    } else if (r.methodAsEnum() == .PATCH) {
+        if (std.mem.startsWith(u8, path, "/orgs/")) {
+            router.callHandler(r, orgs.updateOrgHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/repos/")) {
+            if (std.mem.indexOf(u8, path, "/issues/") != null) {
+                router.callHandler(r, updateIssueHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/labels/") != null) {
+                router.callHandler(r, updateLabelHandler, global_context);
+                return;
+            } else {
+                router.callHandler(r, repos.updateRepoHandler, global_context);
+                return;
+            }
+        } else if (std.mem.startsWith(u8, path, "/admin/users/")) {
+            router.callHandler(r, updateAdminUserHandler, global_context);
+                return;
+        }
+    } else if (r.methodAsEnum() == .DELETE) {
+        if (std.mem.startsWith(u8, path, "/user/keys/")) {
+            router.callHandler(r, users.deleteSSHKeyHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/users/")) {
+            router.callHandler(r, users.deleteUserHandler, global_context);
+            return;
+        } else if (std.mem.startsWith(u8, path, "/orgs/")) {
+            if (std.mem.indexOf(u8, path, "/members/") != null) {
+                router.callHandler(r, orgs.removeOrgMemberHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
+                router.callHandler(r, orgs.deleteOrgSecretHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/actions/runners/") != null) {
+                router.callHandler(r, orgs.deleteOrgRunnerHandler, global_context);
+                return;
+            } else {
+                router.callHandler(r, orgs.deleteOrgHandler, global_context);
+                return;
+            }
+        } else if (std.mem.startsWith(u8, path, "/repos/")) {
+            if (std.mem.indexOf(u8, path, "/branches/") != null) {
+                router.callHandler(r, deleteBranchHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/labels/") != null) {
+                if (std.mem.indexOf(u8, path, "/issues/") != null) {
+                    router.callHandler(r, removeLabelFromIssueHandler, global_context);
+                return;
+                } else {
+                    router.callHandler(r, deleteLabelHandler, global_context);
+                return;
+                }
+            } else if (std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
+                router.callHandler(r, repos.deleteRepoSecretHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/actions/runners/") != null) {
+                router.callHandler(r, repos.deleteRepoRunnerHandler, global_context);
+                return;
+            } else {
+                router.callHandler(r, repos.deleteRepoHandler, global_context);
+                return;
+            }
+        } else if (std.mem.startsWith(u8, path, "/admin/users/")) {
+            router.callHandler(r, deleteAdminUserHandler, global_context);
+                return;
+        }
+    }
+    
+    // If no route matches, return 404
+    r.setStatus(.not_found);
+    r.sendBody("Not Found") catch {};
+}
+
 pub fn deinit(self: *Server, allocator: std.mem.Allocator) void {
     allocator.destroy(self.context);
-    self.server.deinit();
 }
 
 pub fn listen(self: *Server) !void {
-    try self.server.listen();
+    try self.listener.listen();
+    
+    std.debug.print("\n🚀 Plue API Server listening on 0.0.0.0:8000\n", .{});
+    
+    // Start zap
+    zap.start(.{
+        .threads = 2,
+        .workers = 2,
+    });
 }
 
 // Temporary placeholder functions for handlers not yet moved
 // These will be removed as we extract more handler files
 
-fn listBranchesHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listBranchesHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn getBranchHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn getBranchHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createBranchHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createBranchHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn deleteBranchHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn deleteBranchHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listIssuesHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listIssuesHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createIssueHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createIssueHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn getIssueHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn getIssueHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn updateIssueHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn updateIssueHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn getCommentsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn getCommentsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createCommentHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createCommentHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listLabelsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listLabelsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createLabelHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createLabelHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn updateLabelHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn updateLabelHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn deleteLabelHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn deleteLabelHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn addLabelsToIssueHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn addLabelsToIssueHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn removeLabelFromIssueHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn removeLabelFromIssueHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listPullsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listPullsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createPullHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createPullHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn getPullHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn getPullHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listReviewsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listReviewsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createReviewHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createReviewHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn mergePullHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listRunsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listRunsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn getRunHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn getRunHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listJobsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listJobsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn listArtifactsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn listArtifactsHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn getArtifactHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn getArtifactHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn createAdminUserHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn createAdminUserHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn updateAdminUserHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn updateAdminUserHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn deleteAdminUserHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn deleteAdminUserHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
-fn addAdminUserKeyHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.status = 501;
-    res.body = "Not implemented";
+fn addAdminUserKeyHandler(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    r.setStatus(.not_implemented);
+    try r.sendBody("Not implemented");
 }
 
 test "server initializes correctly" {

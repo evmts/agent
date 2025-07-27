@@ -194,11 +194,11 @@ pub fn build(b: *std.Build) void {
     const clap = b.dependency("clap", .{});
     exe_mod.addImport("clap", clap.module("clap"));
     
-    const httpz = b.dependency("httpz", .{
+    const zap = b.dependency("zap", .{
         .target = target,
         .optimize = optimize,
     });
-    exe_mod.addImport("httpz", httpz.module("httpz"));
+    exe_mod.addImport("zap", zap.module("zap"));
     
     const pg = b.dependency("pg", .{
         .target = target,

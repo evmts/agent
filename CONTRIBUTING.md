@@ -9,7 +9,7 @@
 ### Dependencies
 - [zig-clap GitHub](https://github.com/Hejsil/zig-clap) - Command line argument parser
 - [zig-clap Generated Docs](https://hejsil.github.io/zig-clap/) - API reference documentation
-- [httpz GitHub](https://github.com/karlseguin/http.zig) - HTTP server framework
+- [zap GitHub](https://github.com/zigzap/zap) - Blazingly fast web framework built on facil.io
 - [pg.zig GitHub](https://github.com/karlseguin/pg.zig) - PostgreSQL client library
 
 ## Development Setup

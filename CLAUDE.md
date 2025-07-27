@@ -255,10 +255,12 @@ This ensures we stay aligned with the project's intentions and don't create unin
 ## Project-Specific Standards
 
 ### HTTP Server Development
-- Use httpz request arena allocator for all request-scoped allocations
+- Use context allocator for all request-scoped allocations (no longer using request arena)
 - Always set `Content-Type` header for JSON responses
 - Handle JSON parsing errors gracefully with appropriate HTTP status codes
 - Use simple JSON parsing for small payloads to avoid dependencies
+- Handler signatures follow zap pattern: `fn(r: zap.Request, ctx: *Context) !void`
+- Use `router.callHandler` for centralized error handling
 
 ### Database Patterns
 - Database connections are managed by the pool - never manually close connections

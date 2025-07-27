@@ -1,15 +1,17 @@
 const std = @import("std");
-const httpz = @import("httpz");
+const zap = @import("zap");
 
-pub fn writeJson(res: *httpz.Response, allocator: std.mem.Allocator, value: anytype) !void {
+pub fn writeJson(r: zap.Request, allocator: std.mem.Allocator, value: anytype) !void {
     var json_builder = std.ArrayList(u8).init(allocator);
+    defer json_builder.deinit();
+    
     try std.json.stringify(value, .{}, json_builder.writer());
-    res.content_type = .JSON;
-    res.body = try allocator.dupe(u8, json_builder.items);
-    json_builder.deinit();
+    
+    r.setHeader("Content-Type", "application/json") catch {};
+    try r.sendBody(json_builder.items);
 }
 
-pub fn writeError(res: *httpz.Response, allocator: std.mem.Allocator, status: u16, message: []const u8) !void {
-    res.status = status;
-    try writeJson(res, allocator, .{ .@"error" = message });
+pub fn writeError(r: zap.Request, allocator: std.mem.Allocator, status: zap.StatusCode, message: []const u8) !void {
+    r.setStatus(status);
+    try writeJson(r, allocator, .{ .@"error" = message });
 }
