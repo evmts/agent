@@ -48,7 +48,7 @@ pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
 // Main request handler that dispatches to specific handlers
 fn on_request(r: zap.Request) void {
     const path = r.path orelse {
-        r.setStatus(.bad_request) catch {};
+        r.setStatus(.bad_request);
         r.sendBody("No path provided") catch {};
         return;
     };
@@ -62,17 +62,22 @@ fn on_request(r: zap.Request) void {
             router.callHandler(r, health.healthHandler, global_context);
             return;
         } else if (std.mem.eql(u8, path, "/user")) {
-            return users.getCurrentUserHandler(r, global_context);
+            router.callHandler(r, users.getCurrentUserHandler, global_context);
+            return;
         } else if (std.mem.eql(u8, path, "/user/keys")) {
-            return users.listSSHKeysHandler(r, global_context);
+            router.callHandler(r, users.listSSHKeysHandler, global_context);
+            return;
         } else if (std.mem.eql(u8, path, "/users")) {
-            return users.getUsersHandler(r, global_context);
+            router.callHandler(r, users.getUsersHandler, global_context);
+            return;
         } else if (std.mem.eql(u8, path, "/user/orgs")) {
-            return users.listUserOrgsHandler(r, global_context);
+            router.callHandler(r, users.listUserOrgsHandler, global_context);
+            return;
         }
         // Handle parameterized routes
         else if (std.mem.startsWith(u8, path, "/users/")) {
-            return users.getUserHandler(r, global_context);
+            router.callHandler(r, users.getUserHandler, global_context);
+            return;
         } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/members")) {
             return orgs.listOrgMembersHandler(r, global_context);
         } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/actions/secrets")) {
@@ -132,11 +137,14 @@ fn on_request(r: zap.Request) void {
         }
     } else if (r.methodAsEnum() == .POST) {
         if (std.mem.eql(u8, path, "/user/keys")) {
-            return users.createSSHKeyHandler(r, global_context);
+            router.callHandler(r, users.createSSHKeyHandler, global_context);
+            return;
         } else if (std.mem.eql(u8, path, "/users")) {
-            return users.createUserHandler(r, global_context);
+            router.callHandler(r, users.createUserHandler, global_context);
+            return;
         } else if (std.mem.eql(u8, path, "/user/repos")) {
-            return users.createUserRepoHandler(r, global_context);
+            router.callHandler(r, users.createUserRepoHandler, global_context);
+            return;
         } else if (std.mem.eql(u8, path, "/orgs")) {
             return orgs.createOrgHandler(r, global_context);
         } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.endsWith(u8, path, "/repos")) {
@@ -172,7 +180,8 @@ fn on_request(r: zap.Request) void {
         }
     } else if (r.methodAsEnum() == .PUT) {
         if (std.mem.startsWith(u8, path, "/users/")) {
-            return users.updateUserHandler(r, global_context);
+            router.callHandler(r, users.updateUserHandler, global_context);
+            return;
         } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
             return orgs.createOrgSecretHandler(r, global_context);
         } else if (std.mem.startsWith(u8, path, "/repos/") and std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
@@ -194,9 +203,11 @@ fn on_request(r: zap.Request) void {
         }
     } else if (r.methodAsEnum() == .DELETE) {
         if (std.mem.startsWith(u8, path, "/user/keys/")) {
-            return users.deleteSSHKeyHandler(r, global_context);
+            router.callHandler(r, users.deleteSSHKeyHandler, global_context);
+            return;
         } else if (std.mem.startsWith(u8, path, "/users/")) {
-            return users.deleteUserHandler(r, global_context);
+            router.callHandler(r, users.deleteUserHandler, global_context);
+            return;
         } else if (std.mem.startsWith(u8, path, "/orgs/")) {
             if (std.mem.indexOf(u8, path, "/members/") != null) {
                 return orgs.removeOrgMemberHandler(r, global_context);
@@ -229,8 +240,8 @@ fn on_request(r: zap.Request) void {
     }
     
     // If no route matches, return 404
-    try r.setStatus(.not_found);
-    try r.sendBody("Not Found");
+    r.setStatus(.not_found);
+    r.sendBody("Not Found") catch {};
 }
 
 pub fn deinit(self: *Server, allocator: std.mem.Allocator) void {
@@ -254,187 +265,187 @@ pub fn listen(self: *Server) !void {
 
 fn listBranchesHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn getBranchHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createBranchHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn deleteBranchHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listIssuesHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createIssueHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn getIssueHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn updateIssueHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn getCommentsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createCommentHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listLabelsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createLabelHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn updateLabelHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn deleteLabelHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn addLabelsToIssueHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn removeLabelFromIssueHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listPullsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createPullHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn getPullHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listReviewsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createReviewHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listRunsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn getRunHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listJobsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn listArtifactsHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn getArtifactHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn createAdminUserHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn updateAdminUserHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn deleteAdminUserHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 
 fn addAdminUserKeyHandler(r: zap.Request, ctx: *Context) !void {
     _ = ctx;
-    try r.setStatus(.not_implemented);
+    r.setStatus(.not_implemented);
     try r.sendBody("Not implemented");
 }
 

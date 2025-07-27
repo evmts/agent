@@ -7,11 +7,11 @@ pub fn writeJson(r: zap.Request, allocator: std.mem.Allocator, value: anytype) !
     
     try std.json.stringify(value, .{}, json_builder.writer());
     
-    r.setHeader("Content-Type", "application/json") catch {};
+    r.setHeader("Content-Type", "application/json");
     try r.sendBody(json_builder.items);
 }
 
 pub fn writeError(r: zap.Request, allocator: std.mem.Allocator, status: zap.StatusCode, message: []const u8) !void {
-    try r.setStatus(status);
+    r.setStatus(status);
     try writeJson(r, allocator, .{ .@"error" = message });
 }
