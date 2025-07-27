@@ -5,7 +5,7 @@ const zap = @import("zap");
 pub fn callHandler(r: zap.Request, comptime handler: anytype, context: anytype) void {
     handler(r, context) catch |err| {
         std.log.err("Handler error: {}", .{err});
-        r.setStatus(.internal_server_error) catch {};
+        r.setStatus(.internal_server_error);
         r.sendBody("Internal Server Error") catch {};
     };
 }
