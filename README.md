@@ -76,7 +76,7 @@ plue/
 ## Dependencies
 
 - **Zig 0.14.0**: Systems programming language
-- **httpz**: HTTP server framework
+- **zap**: Blazingly fast web framework
 - **pg.zig**: PostgreSQL client library
 - **zig-clap**: Command-line argument parser
 - **SolidJS**: Reactive UI framework
