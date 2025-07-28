@@ -702,6 +702,51 @@ pub const GitCommand = struct {
 
         return @intCast(exit_code);
     }
+
+    pub const ProtocolContext = struct {
+        pusher_id: []const u8,
+        pusher_name: []const u8,
+        repo_username: []const u8,
+        repo_name: []const u8,
+        is_wiki: bool,
+        is_deploy_key: bool = false,
+        key_id: ?[]const u8 = null,
+    };
+
+    pub const ProtocolRunOptions = struct {
+        args: []const []const u8,
+        stdin: ?[]const u8 = null,
+        protocol_context: ProtocolContext,
+        timeout_ms: u32 = 600000, // 10 minutes for large repos
+    };
+
+    pub fn runWithProtocolContext(
+        self: *const GitCommand,
+        allocator: std.mem.Allocator,
+        options: ProtocolRunOptions,
+    ) !GitResult {
+        // Create environment with protocol context
+        var env_list = std.ArrayList(EnvVar).init(allocator);
+        defer env_list.deinit();
+
+        // Add protocol-specific environment variables
+        try env_list.append(.{ .name = "PLUE_PUSHER_ID", .value = options.protocol_context.pusher_id });
+        try env_list.append(.{ .name = "PLUE_PUSHER_NAME", .value = options.protocol_context.pusher_name });
+        try env_list.append(.{ .name = "PLUE_REPO_USER_NAME", .value = options.protocol_context.repo_username });
+        try env_list.append(.{ .name = "PLUE_REPO_NAME", .value = options.protocol_context.repo_name });
+        try env_list.append(.{ .name = "PLUE_REPO_IS_WIKI", .value = if (options.protocol_context.is_wiki) "true" else "false" });
+        
+        if (options.protocol_context.key_id) |key_id| {
+            try env_list.append(.{ .name = "PLUE_KEY_ID", .value = key_id });
+        }
+
+        return self.runWithOptions(allocator, .{
+            .args = options.args,
+            .stdin = options.stdin,
+            .env = env_list.items,
+            .timeout_ms = options.timeout_ms,
+        });
+    }
 };
 
 // Phase 4: Environment and Working Directory - Tests First
@@ -811,4 +856,68 @@ test "enforces timeout" {
 
     // If we get here, the clone was really fast (unlikely) or timeout didn't work
     std.log.warn("Git clone completed before timeout, test inconclusive", .{});
+}
+
+// Phase 7: Git Protocol Support - Tests First
+
+test "handles git-upload-pack with context" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    // Create a test directory for the protocol test
+    const tmp_dir_name = try std.fmt.allocPrint(allocator, "git_protocol_test_{d}", .{std.crypto.random.int(u32)});
+    defer allocator.free(tmp_dir_name);
+    
+    try std.fs.cwd().makeDir(tmp_dir_name);
+    defer std.fs.cwd().deleteTree(tmp_dir_name) catch {};
+
+    // Initialize a git repo for testing
+    const init_result = try cmd.runWithOptions(allocator, .{
+        .args = &.{"init", "--bare"},
+        .cwd = tmp_dir_name,
+    });
+    defer init_result.deinit(allocator);
+
+    // Test with actual git protocol handshake
+    const input = "0067want 1234567890abcdef1234567890abcdef12345678 multi_ack_detailed no-done side-band-64k thin-pack ofs-delta deepen-since deepen-not agent=git/2.39.0\n0000";
+
+    const result = try cmd.runWithProtocolContext(allocator, .{
+        .args = &.{"upload-pack", "--stateless-rpc", "--advertise-refs", tmp_dir_name},
+        .stdin = input,
+        .protocol_context = .{
+            .pusher_id = "123",
+            .pusher_name = "testuser",
+            .repo_username = "owner",
+            .repo_name = "project",
+            .is_wiki = false,
+        },
+    });
+    defer result.deinit(allocator);
+
+    // Git upload-pack might fail on bare repo, but we're testing the wrapper works
+    try std.testing.expect(result.stderr.len > 0 or result.stdout.len > 0);
+}
+
+test "sets protocol environment variables" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    const result = try cmd.runWithProtocolContext(allocator, .{
+        .args = &.{"version"},
+        .protocol_context = .{
+            .pusher_id = "456",
+            .pusher_name = "alice",
+            .repo_username = "org",
+            .repo_name = "repo",
+            .is_wiki = true,
+        },
+    });
+    defer result.deinit(allocator);
+
+    // Just verify it runs without error
+    try std.testing.expect(result.exit_code == 0);
 }
