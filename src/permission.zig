@@ -276,19 +276,43 @@ const UserExt = struct {
     visibility: []const u8,
 };
 
+// Team type for testing
+const Team = struct {
+    id: i64,
+    org_id: i64,
+    name: []const u8,
+    access_mode: []const u8,
+    can_create_org_repo: bool,
+    is_owner_team: bool,
+    units: ?[]const u8,
+    created_at: i64,
+
+    pub fn hasAdminAccess(self: Team) bool {
+        return self.can_create_org_repo or self.is_owner_team;
+    }
+};
+
 // Mock DAO for testing (defined before use)
 const MockDAO = struct {
     const Self = @This();
     const OrgMember = struct { org_id: i64, user_id: i64 };
+    const TeamMember = struct { team_id: i64, user_id: i64 };
+    const TeamRepo = struct { team_id: i64, repo_id: i64 };
 
     users: std.StringHashMap(UserExt),
     org_members: std.ArrayList(OrgMember),
+    teams: std.ArrayList(Team),
+    team_members: std.ArrayList(TeamMember),
+    team_repos: std.ArrayList(TeamRepo),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .users = std.StringHashMap(UserExt).init(allocator),
             .org_members = std.ArrayList(OrgMember).init(allocator),
+            .teams = std.ArrayList(Team).init(allocator),
+            .team_members = std.ArrayList(TeamMember).init(allocator),
+            .team_repos = std.ArrayList(TeamRepo).init(allocator),
             .allocator = allocator,
         };
     }
@@ -302,6 +326,15 @@ const MockDAO = struct {
         }
         self.users.deinit();
         self.org_members.deinit();
+        
+        for (self.teams.items) |team| {
+            self.allocator.free(team.name);
+            self.allocator.free(team.access_mode);
+            if (team.units) |units| self.allocator.free(units);
+        }
+        self.teams.deinit();
+        self.team_members.deinit();
+        self.team_repos.deinit();
     }
 
     pub fn addUser(self: *Self, user: UserExt) !void {
@@ -351,6 +384,80 @@ const MockDAO = struct {
 
     pub fn addOrgMember(self: *Self, org_id: i64, user_id: i64) !void {
         try self.org_members.append(OrgMember{ .org_id = org_id, .user_id = user_id });
+    }
+
+    pub fn addTeam(self: *Self, team: Team) !void {
+        const team_copy = Team{
+            .id = team.id,
+            .org_id = team.org_id,
+            .name = try self.allocator.dupe(u8, team.name),
+            .access_mode = try self.allocator.dupe(u8, team.access_mode),
+            .can_create_org_repo = team.can_create_org_repo,
+            .is_owner_team = team.is_owner_team,
+            .units = if (team.units) |u| try self.allocator.dupe(u8, u) else null,
+            .created_at = team.created_at,
+        };
+        try self.teams.append(team_copy);
+    }
+
+    pub fn addTeamMember(self: *Self, team_id: i64, user_id: i64) !void {
+        try self.team_members.append(TeamMember{ .team_id = team_id, .user_id = user_id });
+    }
+
+    pub fn addTeamRepo(self: *Self, team_id: i64, repo_id: i64) !void {
+        try self.team_repos.append(TeamRepo{ .team_id = team_id, .repo_id = repo_id });
+    }
+
+    pub fn getUserRepoTeams(self: *Self, allocator: std.mem.Allocator, org_id: i64, user_id: i64, repo_id: i64) !std.ArrayList(Team) {
+        var result = std.ArrayList(Team).init(allocator);
+        errdefer {
+            for (result.items) |team| {
+                allocator.free(team.name);
+                allocator.free(team.access_mode);
+                if (team.units) |u| allocator.free(u);
+            }
+            result.deinit();
+        }
+
+        // Find teams where user is member and team has access to repo
+        for (self.teams.items) |team| {
+            if (team.org_id != org_id) continue;
+
+            // Check if user is member of this team
+            var is_member = false;
+            for (self.team_members.items) |tm| {
+                if (tm.team_id == team.id and tm.user_id == user_id) {
+                    is_member = true;
+                    break;
+                }
+            }
+            if (!is_member) continue;
+
+            // Check if team has access to this repo
+            var has_repo = false;
+            for (self.team_repos.items) |tr| {
+                if (tr.team_id == team.id and tr.repo_id == repo_id) {
+                    has_repo = true;
+                    break;
+                }
+            }
+            if (!has_repo) continue;
+
+            // Add copy of team to result
+            const team_copy = Team{
+                .id = team.id,
+                .org_id = team.org_id,
+                .name = try allocator.dupe(u8, team.name),
+                .access_mode = try allocator.dupe(u8, team.access_mode),
+                .can_create_org_repo = team.can_create_org_repo,
+                .is_owner_team = team.is_owner_team,
+                .units = if (team.units) |u| try allocator.dupe(u8, u) else null,
+                .created_at = team.created_at,
+            };
+            try result.append(team_copy);
+        }
+
+        return result;
     }
 };
 
@@ -609,4 +716,196 @@ test "hasOrgOrUserVisible - restricted user" {
     
     // Now they can see it
     try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 300, .organization, .Limited, 999));
+}
+
+// Check organization team permissions
+fn checkOrgTeamPermission(
+    allocator: std.mem.Allocator,
+    dao: *DataAccessObject,
+    org_id: i64,
+    user_id: i64,
+    repo_id: i64,
+) !Permission {
+    var permission = Permission{
+        .access_mode = .None,
+        .units = std.EnumMap(UnitType, AccessMode).initFull(.None),
+        .everyone_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
+        .anonymous_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
+    };
+
+    // Get user's teams in this organization that have access to this repository
+    const teams = try dao.getUserRepoTeams(allocator, org_id, user_id, repo_id);
+    defer {
+        for (teams.items) |team| {
+            allocator.free(team.name);
+            allocator.free(team.access_mode);
+            if (team.units) |u| allocator.free(u);
+        }
+        teams.deinit();
+    }
+
+    // Check for admin teams first (they get full access immediately)
+    for (teams.items) |team| {
+        if (team.hasAdminAccess()) {
+            permission.access_mode = .Owner; // Admin teams get Owner access
+            permission.units = null; // Clear units map - admin overrides everything
+            return permission;
+        }
+    }
+
+    // Process each unit across all teams
+    inline for (std.meta.fields(UnitType)) |field| {
+        const unit_type = @field(UnitType, field.name);
+        var max_unit_access = AccessMode.None;
+
+        for (teams.items) |team| {
+            // Get team's access mode for this unit
+            const team_unit_mode = try getTeamUnitAccessMode(allocator, dao, team, unit_type);
+            if (@intFromEnum(team_unit_mode) > @intFromEnum(max_unit_access)) {
+                max_unit_access = team_unit_mode;
+            }
+        }
+
+        if (permission.units) |*units| {
+            units.put(unit_type, max_unit_access);
+        }
+
+        // Update overall access mode to be at least the max unit access
+        if (@intFromEnum(max_unit_access) > @intFromEnum(permission.access_mode)) {
+            permission.access_mode = max_unit_access;
+        }
+    }
+
+    return permission;
+}
+
+// Get team unit access mode
+fn getTeamUnitAccessMode(
+    allocator: std.mem.Allocator,
+    dao: *DataAccessObject,
+    team: Team,
+    unit_type: UnitType,
+) !AccessMode {
+    _ = allocator;
+    _ = dao;
+    _ = unit_type;
+    
+    // For now, just return the team's general access mode
+    // In a real implementation, we'd parse the units JSON
+    return std.meta.stringToEnum(AccessMode, team.access_mode) orelse .None;
+}
+
+test "checkOrgTeamPermission - no teams" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    const perm = try checkOrgTeamPermission(allocator, @ptrCast(&dao), 1, 100, 200);
+    try testing.expectEqual(AccessMode.None, perm.access_mode);
+    try testing.expect(perm.units != null);
+}
+
+test "checkOrgTeamPermission - admin team" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add admin team
+    try dao.addTeam(.{
+        .id = 1,
+        .org_id = 10,
+        .name = "admins",
+        .access_mode = "admin",
+        .can_create_org_repo = true,
+        .is_owner_team = false,
+        .units = null,
+        .created_at = 1234567890,
+    });
+
+    // Add user to team
+    try dao.addTeamMember(1, 100);
+    
+    // Add repo to team
+    try dao.addTeamRepo(1, 200);
+
+    const perm = try checkOrgTeamPermission(allocator, @ptrCast(&dao), 10, 100, 200);
+    try testing.expectEqual(AccessMode.Owner, perm.access_mode);
+    try testing.expect(perm.units == null); // Admin override
+}
+
+test "checkOrgTeamPermission - multiple teams" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add read team
+    try dao.addTeam(.{
+        .id = 1,
+        .org_id = 10,
+        .name = "readers",
+        .access_mode = "Read",
+        .can_create_org_repo = false,
+        .is_owner_team = false,
+        .units = null,
+        .created_at = 1234567890,
+    });
+
+    // Add write team
+    try dao.addTeam(.{
+        .id = 2,
+        .org_id = 10,
+        .name = "writers",
+        .access_mode = "Write",
+        .can_create_org_repo = false,
+        .is_owner_team = false,
+        .units = null,
+        .created_at = 1234567890,
+    });
+
+    // Add user to both teams
+    try dao.addTeamMember(1, 100);
+    try dao.addTeamMember(2, 100);
+    
+    // Add repo to both teams
+    try dao.addTeamRepo(1, 200);
+    try dao.addTeamRepo(2, 200);
+
+    const perm = try checkOrgTeamPermission(allocator, @ptrCast(&dao), 10, 100, 200);
+    try testing.expectEqual(AccessMode.Write, perm.access_mode); // Max of Read and Write
+    
+    // All units should have Write access
+    if (perm.units) |units| {
+        inline for (std.meta.fields(UnitType)) |field| {
+            const unit_type = @field(UnitType, field.name);
+            try testing.expectEqual(AccessMode.Write, units.get(unit_type).?);
+        }
+    }
+}
+
+test "checkOrgTeamPermission - owner team" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add owner team
+    try dao.addTeam(.{
+        .id = 1,
+        .org_id = 10,
+        .name = "owners",
+        .access_mode = "Owner",
+        .can_create_org_repo = false,
+        .is_owner_team = true,
+        .units = null,
+        .created_at = 1234567890,
+    });
+
+    // Add user to team
+    try dao.addTeamMember(1, 100);
+    
+    // Add repo to team
+    try dao.addTeamRepo(1, 200);
+
+    const perm = try checkOrgTeamPermission(allocator, @ptrCast(&dao), 10, 100, 200);
+    try testing.expectEqual(AccessMode.Owner, perm.access_mode);
+    try testing.expect(perm.units == null); // Owner team gets admin override
 }
