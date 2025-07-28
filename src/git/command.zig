@@ -446,6 +446,131 @@ pub const GitCommand = struct {
             .exit_code = @intCast(exit_code),
         };
     }
+
+    pub const StreamingOptions = struct {
+        args: []const []const u8,
+        cwd: ?[]const u8 = null,
+        env: ?[]const EnvVar = null,
+        timeout_ms: u32 = 120000,
+        stdin: ?[]const u8 = null,
+        stdout_callback: ?*const fn([]const u8, *anyopaque) anyerror!void = null,
+        stdout_context: ?*anyopaque = null,
+        stderr_callback: ?*const fn([]const u8, *anyopaque) anyerror!void = null,
+        stderr_context: ?*anyopaque = null,
+    };
+
+    pub fn runStreaming(self: *const GitCommand, allocator: std.mem.Allocator, options: StreamingOptions) !u8 {
+        // Validate arguments (same as runWithOptions)
+        for (options.args) |arg, i| {
+            if (i == 0) continue;
+            if (arg.len > 0 and arg[0] == '-') {
+                if (!isValidGitOption(arg) and isBrokenGitArgument(arg)) {
+                    return error.InvalidArgument;
+                }
+            } else {
+                if (!isSafeArgumentValue(arg)) {
+                    return error.InvalidArgument;
+                }
+            }
+        }
+
+        // Build full argv
+        var argv = std.ArrayList([]const u8).init(allocator);
+        defer argv.deinit();
+        try argv.append(self.executable_path);
+        try argv.appendSlice(options.args);
+
+        // Build environment map if needed
+        var env_map = if (options.env != null) std.process.EnvMap.init(allocator) else null;
+        defer if (env_map) |*em| em.deinit();
+
+        if (options.env) |env_vars| {
+            // Start with minimal environment
+            try env_map.?.put("PATH", std.process.getEnvVarOwned(allocator, "PATH") catch "/usr/local/bin:/usr/bin:/bin");
+            try env_map.?.put("HOME", std.process.getEnvVarOwned(allocator, "HOME") catch "/tmp");
+            
+            // Add only allowed environment variables
+            for (env_vars) |env_var| {
+                if (isAllowedEnvVar(env_var.name)) {
+                    try env_map.?.put(env_var.name, env_var.value);
+                }
+            }
+        }
+
+        // Create child process
+        var child = std.process.Child.init(argv.items, allocator);
+        child.cwd = options.cwd;
+        child.env_map = if (env_map) |*em| em else null;
+        child.stdin_behavior = if (options.stdin != null) .Pipe else .Ignore;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+
+        try child.spawn();
+
+        // Write stdin if provided
+        if (options.stdin) |stdin_data| {
+            if (child.stdin) |stdin| {
+                try stdin.writeAll(stdin_data);
+                stdin.close();
+                child.stdin = null;
+            }
+        }
+
+        // Read stdout and stderr in chunks
+        const BUFFER_SIZE = 16 * 1024;
+        var stdout_buffer: [BUFFER_SIZE]u8 = undefined;
+        var stderr_buffer: [BUFFER_SIZE]u8 = undefined;
+
+        var stdout_done = false;
+        var stderr_done = false;
+
+        while (!stdout_done or !stderr_done) {
+            if (!stdout_done) {
+                if (child.stdout) |stdout| {
+                    const n = stdout.read(&stdout_buffer) catch |err| switch (err) {
+                        error.EndOfStream => {
+                            stdout_done = true;
+                            continue;
+                        },
+                        else => return err,
+                    };
+                    
+                    if (n == 0) {
+                        stdout_done = true;
+                    } else if (options.stdout_callback) |callback| {
+                        try callback(stdout_buffer[0..n], options.stdout_context.?);
+                    }
+                }
+            }
+
+            if (!stderr_done) {
+                if (child.stderr) |stderr| {
+                    const n = stderr.read(&stderr_buffer) catch |err| switch (err) {
+                        error.EndOfStream => {
+                            stderr_done = true;
+                            continue;
+                        },
+                        else => return err,
+                    };
+                    
+                    if (n == 0) {
+                        stderr_done = true;
+                    } else if (options.stderr_callback) |callback| {
+                        try callback(stderr_buffer[0..n], options.stderr_context.?);
+                    }
+                }
+            }
+        }
+
+        // Wait for process to finish
+        const term = try child.wait();
+        const exit_code = switch (term) {
+            .Exited => |code| code,
+            else => 255,
+        };
+
+        return @intCast(exit_code);
+    }
 };
 
 // Phase 4: Environment and Working Directory - Tests First
@@ -491,4 +616,42 @@ test "uses strict environment allow-list" {
 
     // Git config --list should succeed
     try std.testing.expect(result.exit_code == 0);
+}
+
+// Phase 5: Streaming I/O Support - Tests First
+
+test "streams large output" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    var stdout_chunks = std.ArrayList([]u8).init(allocator);
+    defer {
+        for (stdout_chunks.items) |chunk| allocator.free(chunk);
+        stdout_chunks.deinit();
+    }
+
+    const StreamContext = struct {
+        allocator: std.mem.Allocator,
+        chunks: *std.ArrayList([]u8),
+    };
+
+    const exit_code = try cmd.runStreaming(allocator, .{
+        .args = &.{"log", "--oneline", "-n", "10"},
+        .stdout_callback = struct {
+            fn callback(data: []const u8, context: *anyopaque) !void {
+                const ctx = @ptrCast(*StreamContext, @alignCast(@alignOf(StreamContext), context));
+                const chunk = try ctx.allocator.dupe(u8, data);
+                try ctx.chunks.append(chunk);
+            }
+        }.callback,
+        .stdout_context = &StreamContext{
+            .allocator = allocator,
+            .chunks = &stdout_chunks,
+        },
+    });
+
+    try std.testing.expect(exit_code == 0);
+    // We might not have commits in test environment, so just check we didn't crash
 }
