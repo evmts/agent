@@ -138,3 +138,97 @@ test "sanitizes git urls with credentials" {
     defer allocator.free(url2);
     try std.testing.expectEqualStrings("git@github.com:owner/repo.git", url2);
 }
+
+// Phase 2: Git Executable Detection - Tests First
+
+test "finds git executable" {
+    const allocator = std.testing.allocator;
+    const git_path = findGitExecutable(allocator) catch {
+        std.log.warn("Git not available, skipping test", .{});
+        return;
+    };
+    defer allocator.free(git_path);
+
+    try std.testing.expect(git_path.len > 0);
+    try std.testing.expect(std.mem.endsWith(u8, git_path, "git") or 
+                          (builtin.os.tag == .windows and std.mem.endsWith(u8, git_path, "git.exe")));
+}
+
+test "detects git version" {
+    const allocator = std.testing.allocator;
+    const version = getGitVersion(allocator) catch {
+        std.log.warn("Git not available, skipping test", .{});
+        return;
+    };
+    defer allocator.free(version);
+
+    try std.testing.expect(std.mem.indexOf(u8, version, "git version") != null);
+}
+
+// Global cache for git executable path
+var g_git_path: ?[]const u8 = null;
+var g_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+pub fn findGitExecutable(allocator: std.mem.Allocator) ![]const u8 {
+    if (g_git_path) |path| return allocator.dupe(u8, path);
+    
+    // Check standard paths first
+    const standard_paths = if (builtin.os.tag == .windows)
+        [_][]const u8{ "C:\\Program Files\\Git\\bin\\git.exe", "C:\\Program Files (x86)\\Git\\bin\\git.exe" }
+    else
+        [_][]const u8{ "/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git" };
+    
+    for (standard_paths) |path| {
+        const stat = std.fs.cwd().statFile(path) catch continue;
+        if (stat.kind == .file) {
+            g_git_path = try g_arena.allocator().dupe(u8, path);
+            return allocator.dupe(u8, g_git_path.?);
+        }
+    }
+    
+    // Search PATH
+    const path_env = std.process.getEnvVarOwned(allocator, "PATH") catch {
+        return error.GitNotFound;
+    };
+    defer allocator.free(path_env);
+    
+    var it = std.mem.tokenize(u8, path_env, &[_]u8{std.fs.path.delimiter});
+    while (it.next()) |dir| {
+        const git_name = if (builtin.os.tag == .windows) "git.exe" else "git";
+        const git_path = try std.fs.path.join(allocator, &.{ dir, git_name });
+        defer allocator.free(git_path);
+        
+        // Check if executable exists
+        const stat = std.fs.cwd().statFile(git_path) catch continue;
+        if (stat.kind != .file) continue;
+        
+        // Check if executable on Unix
+        if (builtin.os.tag.isDarwin() or builtin.os.tag == .linux) {
+            if (stat.mode & 0o111 == 0) continue;
+        }
+        
+        g_git_path = try g_arena.allocator().dupe(u8, git_path);
+        return allocator.dupe(u8, g_git_path.?);
+    }
+    
+    return error.GitNotFound;
+}
+
+fn getGitVersion(allocator: std.mem.Allocator) ![]u8 {
+    const git_path = try findGitExecutable(allocator);
+    defer allocator.free(git_path);
+    
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{ git_path, "--version" },
+    });
+    defer allocator.free(result.stderr);
+    defer allocator.free(result.stdout);
+    
+    if (result.term.Exited != 0) {
+        return error.GitNotFound;
+    }
+    
+    // Return a copy of stdout
+    return allocator.dupe(u8, std.mem.trimRight(u8, result.stdout, "\n\r"));
+}
