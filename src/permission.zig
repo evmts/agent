@@ -258,8 +258,104 @@ test "Permission with public access modes" {
     try testing.expectEqual(AccessMode.None, perm.unitAccessMode(.Wiki));
 }
 
-// Forward declarations
-const DataAccessObject = @import("database/dao.zig");
+// Owner type (duplicated here to avoid circular imports in tests)
+pub const OwnerType = enum {
+    user,
+    organization,
+};
+
+// UserExt type for testing
+const UserExt = struct {
+    id: i64,
+    name: []const u8,
+    is_admin: bool,
+    is_restricted: bool,
+    is_deleted: bool,
+    is_active: bool,
+    prohibit_login: bool,
+    visibility: []const u8,
+};
+
+// Mock DAO for testing (defined before use)
+const MockDAO = struct {
+    const Self = @This();
+    const OrgMember = struct { org_id: i64, user_id: i64 };
+
+    users: std.StringHashMap(UserExt),
+    org_members: std.ArrayList(OrgMember),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .users = std.StringHashMap(UserExt).init(allocator),
+            .org_members = std.ArrayList(OrgMember).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        var it = self.users.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*); // Free the key
+            self.allocator.free(entry.value_ptr.name);
+            self.allocator.free(entry.value_ptr.visibility);
+        }
+        self.users.deinit();
+        self.org_members.deinit();
+    }
+
+    pub fn addUser(self: *Self, user: UserExt) !void {
+        const key = try std.fmt.allocPrint(self.allocator, "{d}", .{user.id});
+        // Don't defer free the key - it's owned by the hashmap
+        
+        const user_copy = UserExt{
+            .id = user.id,
+            .name = try self.allocator.dupe(u8, user.name),
+            .is_admin = user.is_admin,
+            .is_restricted = user.is_restricted,
+            .is_deleted = user.is_deleted,
+            .is_active = user.is_active,
+            .prohibit_login = user.prohibit_login,
+            .visibility = try self.allocator.dupe(u8, user.visibility),
+        };
+        try self.users.put(key, user_copy);
+    }
+
+    pub fn getUserExt(self: *Self, allocator: std.mem.Allocator, user_id: i64) !UserExt {
+        const key = try std.fmt.allocPrint(self.allocator, "{d}", .{user_id});
+        defer self.allocator.free(key);
+        
+        if (self.users.get(key)) |user| {
+            return UserExt{
+                .id = user.id,
+                .name = try allocator.dupe(u8, user.name),
+                .is_admin = user.is_admin,
+                .is_restricted = user.is_restricted,
+                .is_deleted = user.is_deleted,
+                .is_active = user.is_active,
+                .prohibit_login = user.prohibit_login,
+                .visibility = try allocator.dupe(u8, user.visibility),
+            };
+        }
+        return error.NotFound;
+    }
+
+    pub fn isOrganizationMember(self: *Self, org_id: i64, user_id: i64) !bool {
+        for (self.org_members.items) |member| {
+            if (member.org_id == org_id and member.user_id == user_id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn addOrgMember(self: *Self, org_id: i64, user_id: i64) !void {
+        try self.org_members.append(OrgMember{ .org_id = org_id, .user_id = user_id });
+    }
+};
+
+// Forward declaration - interface for DAO
+const DataAccessObject = if (@import("builtin").is_test) MockDAO else @import("database/dao.zig");
 
 // Declare loadUserRepoPermission as it will be implemented later
 fn loadUserRepoPermission(
@@ -360,4 +456,157 @@ test "PermissionCache with null user_id" {
 
     try testing.expect(key1.eql(key2));
     try testing.expect(!key1.eql(key3));
+}
+
+// Check if organization or user is visible to requesting user
+pub fn hasOrgOrUserVisible(
+    allocator: std.mem.Allocator,
+    dao: *DataAccessObject,
+    owner_id: i64,
+    owner_type: OwnerType,
+    owner_visibility: Visibility,
+    requesting_user: ?i64,
+) !bool {
+    // Anonymous users only see public entities
+    if (requesting_user == null) {
+        return owner_visibility == .Public;
+    }
+
+    const user_id = requesting_user.?;
+
+    // Load user to check admin status
+    const user = try dao.getUserExt(allocator, user_id);
+    defer allocator.free(user.name);
+    defer allocator.free(user.visibility);
+
+    // Admins and self always have visibility
+    if (user.is_admin or (owner_type == .user and owner_id == user_id)) {
+        return true;
+    }
+
+    // Check organization membership
+    if (owner_type == .organization) {
+        // Private orgs require membership
+        if (owner_visibility == .Private) {
+            return try dao.isOrganizationMember(owner_id, user_id);
+        }
+
+        // Limited visibility orgs are hidden from restricted users unless they're members
+        if (owner_visibility == .Limited and user.is_restricted) {
+            return try dao.isOrganizationMember(owner_id, user_id);
+        }
+    }
+
+    return true;
+}
+
+
+test "hasOrgOrUserVisible - anonymous user" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Anonymous users only see public entities
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .user, .Public, null));
+    try testing.expect(!try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .user, .Limited, null));
+    try testing.expect(!try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .user, .Private, null));
+}
+
+test "hasOrgOrUserVisible - admin user" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add admin user
+    try dao.addUser(.{
+        .id = 123,
+        .name = "admin",
+        .is_admin = true,
+        .is_restricted = false,
+        .is_deleted = false,
+        .is_active = true,
+        .prohibit_login = false,
+        .visibility = "public",
+    });
+
+    // Admins see everything
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .user, .Public, 123));
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .user, .Limited, 123));
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .user, .Private, 123));
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 1, .organization, .Private, 123));
+}
+
+test "hasOrgOrUserVisible - self visibility" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add regular user
+    try dao.addUser(.{
+        .id = 456,
+        .name = "user",
+        .is_admin = false,
+        .is_restricted = false,
+        .is_deleted = false,
+        .is_active = true,
+        .prohibit_login = false,
+        .visibility = "private",
+    });
+
+    // Users always see themselves
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 456, .user, .Private, 456));
+}
+
+test "hasOrgOrUserVisible - organization membership" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add regular user
+    try dao.addUser(.{
+        .id = 789,
+        .name = "member",
+        .is_admin = false,
+        .is_restricted = false,
+        .is_deleted = false,
+        .is_active = true,
+        .prohibit_login = false,
+        .visibility = "public",
+    });
+
+    // Add user as org member
+    try dao.addOrgMember(100, 789);
+
+    // Member sees private org
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 100, .organization, .Private, 789));
+    
+    // Non-member doesn't see private org
+    try testing.expect(!try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 200, .organization, .Private, 789));
+}
+
+test "hasOrgOrUserVisible - restricted user" {
+    const allocator = testing.allocator;
+    var dao = MockDAO.init(allocator);
+    defer dao.deinit();
+
+    // Add restricted user
+    try dao.addUser(.{
+        .id = 999,
+        .name = "restricted",
+        .is_admin = false,
+        .is_restricted = true,
+        .is_deleted = false,
+        .is_active = true,
+        .prohibit_login = false,
+        .visibility = "public",
+    });
+
+    // Restricted user can't see limited orgs unless member
+    try testing.expect(!try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 300, .organization, .Limited, 999));
+
+    // Add as member
+    try dao.addOrgMember(300, 999);
+    
+    // Now they can see it
+    try testing.expect(try hasOrgOrUserVisible(allocator, @ptrCast(&dao), 300, .organization, .Limited, 999));
 }
