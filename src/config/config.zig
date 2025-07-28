@@ -183,6 +183,125 @@ const IniParser = struct {
     }
 };
 
+pub const Config = struct {
+    allocator: std.mem.Allocator,
+    server: ServerConfig,
+    database: DatabaseConfig,
+    repository: RepositoryConfig,
+    security: SecurityConfig,
+    
+    // Store allocated strings for cleanup
+    allocated_strings: std.ArrayList([]u8),
+    
+    pub fn init(allocator: std.mem.Allocator) !Config {
+        return .{
+            .allocator = allocator,
+            .server = .{},
+            .database = .{},
+            .repository = .{},
+            .security = .{},
+            .allocated_strings = std.ArrayList([]u8).init(allocator),
+        };
+    }
+    
+    pub fn deinit(self: *Config) void {
+        for (self.allocated_strings.items) |str| {
+            self.allocator.free(str);
+        }
+        self.allocated_strings.deinit();
+    }
+    
+    pub fn loadEnvironmentOverrides(self: *Config) !void {
+        // Server overrides
+        if (try self.getEnvValue("server", "host")) |value| {
+            self.server.host = value;
+        }
+        if (try self.getEnvValue("server", "port")) |value| {
+            const port = std.fmt.parseInt(u16, value, 10) catch return ConfigError.InvalidPort;
+            if (port == 0) return ConfigError.InvalidPort;
+            self.server.port = port;
+        }
+        if (try self.getEnvValue("server", "worker_threads")) |value| {
+            const threads = std.fmt.parseInt(u32, value, 10) catch return ConfigError.InvalidValue;
+            if (threads == 0 or threads > 1024) return ConfigError.InvalidValue;
+            self.server.worker_threads = threads;
+        }
+        
+        // Database overrides
+        if (try self.getEnvValue("database", "connection_url")) |value| {
+            // Validate connection URL
+            if (!std.mem.startsWith(u8, value, "postgresql://") and
+                !std.mem.startsWith(u8, value, "postgres://")) {
+                return ConfigError.InvalidUrl;
+            }
+            self.database.connection_url = value;
+        }
+        if (try self.getEnvValue("database", "max_connections")) |value| {
+            const connections = std.fmt.parseInt(u32, value, 10) catch return ConfigError.InvalidValue;
+            if (connections == 0 or connections > 1000) return ConfigError.InvalidValue;
+            self.database.max_connections = connections;
+        }
+        
+        // Repository overrides
+        if (try self.getEnvValue("repository", "base_path")) |value| {
+            // Validate path exists and is directory
+            const stat = std.fs.cwd().statFile(value) catch return ConfigError.InvalidPath;
+            if (stat.kind != .directory) return ConfigError.InvalidPath;
+            self.repository.base_path = value;
+        }
+        
+        // Security overrides
+        if (try self.getEnvValue("security", "secret_key")) |value| {
+            if (value.len < 32) return ConfigError.WeakSecretKey;
+            self.security.secret_key = value;
+        }
+        if (try self.getEnvValue("security", "enable_registration")) |value| {
+            self.security.enable_registration = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
+        }
+    }
+    
+    fn getEnvValue(self: *Config, section: []const u8, key: []const u8) !?[]const u8 {
+        const env_name = try buildEnvVarName(self.allocator, section, key);
+        defer self.allocator.free(env_name);
+        
+        // Regular environment variable
+        const value = try std.process.getEnvVarOwned(self.allocator, env_name) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => return null,
+            else => return err,
+        };
+        
+        // Already owned from getEnvVarOwned, just track it
+        try self.allocated_strings.append(value);
+        
+        return value;
+    }
+};
+
+fn buildEnvVarName(allocator: std.mem.Allocator, section: []const u8, key: []const u8) ![]u8 {
+    // Convert to PLUE_SECTION_KEY format
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
+    
+    try result.appendSlice("PLUE_");
+    
+    // Uppercase section
+    for (section) |c| {
+        try result.append(std.ascii.toUpper(c));
+    }
+    
+    try result.append('_');
+    
+    // Uppercase key, converting camelCase to SNAKE_CASE
+    for (key, 0..) |c, i| {
+        if (i > 0 and std.ascii.isUpper(c)) {
+            try result.append('_');
+        }
+        try result.append(std.ascii.toUpper(c));
+    }
+    
+    return result.toOwnedSlice();
+}
+
 test "ConfigError provides detailed error information" {
     const err = ConfigError.InvalidPort;
     try std.testing.expectEqual(ConfigError.InvalidPort, err);
@@ -303,4 +422,43 @@ test "handles malformed INI gracefully" {
     
     // No equals sign
     try std.testing.expectError(ConfigError.ParseError, parser.parse("[section]\nkey value"));
+}
+
+test "environment variables override config file values" {
+    const allocator = std.testing.allocator;
+    
+    // Set test environment variables
+    try std.testing.expectEqual(true, try std.process.hasEnvVar(allocator, "PATH"));
+    try std.posix.setenv("PLUE_SERVER_PORT", "9999", 1);
+    try std.posix.setenv("PLUE_DATABASE_MAX_CONNECTIONS", "100", 1);
+    defer {
+        std.posix.unsetenv("PLUE_SERVER_PORT") catch {};
+        std.posix.unsetenv("PLUE_DATABASE_MAX_CONNECTIONS") catch {};
+    }
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    // Load base configuration
+    config.server.port = 8000;
+    config.database.max_connections = 25;
+    
+    // Apply environment overrides
+    try config.loadEnvironmentOverrides();
+    
+    try std.testing.expectEqual(@as(u16, 9999), config.server.port);
+    try std.testing.expectEqual(@as(u32, 100), config.database.max_connections);
+}
+
+test "environment variable name format" {
+    // Test the conversion function
+    const allocator = std.testing.allocator;
+    
+    const env_name = try buildEnvVarName(allocator, "server", "worker_threads");
+    defer allocator.free(env_name);
+    try std.testing.expectEqualStrings("PLUE_SERVER_WORKER_THREADS", env_name);
+    
+    const env_name2 = try buildEnvVarName(allocator, "database", "connection_url");
+    defer allocator.free(env_name2);
+    try std.testing.expectEqualStrings("PLUE_DATABASE_CONNECTION_URL", env_name2);
 }
