@@ -257,3 +257,107 @@ test "Permission with public access modes" {
     try testing.expectEqual(AccessMode.Read, perm.unitAccessMode(.Issues));
     try testing.expectEqual(AccessMode.None, perm.unitAccessMode(.Wiki));
 }
+
+// Forward declarations
+const DataAccessObject = @import("database/dao.zig");
+
+// Declare loadUserRepoPermission as it will be implemented later
+fn loadUserRepoPermission(
+    allocator: std.mem.Allocator,
+    dao: *DataAccessObject,
+    user_id: ?i64,
+    repo_id: i64,
+) PermissionError!Permission {
+    _ = allocator;
+    _ = dao;
+    _ = user_id;
+    _ = repo_id;
+    // This will be implemented later
+    return Permission{
+        .access_mode = .None,
+        .units = std.EnumMap(UnitType, AccessMode).initFull(.None),
+        .everyone_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
+        .anonymous_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
+    };
+}
+
+// Request-level permission cache
+pub const PermissionCache = struct {
+    const CacheKey = struct {
+        user_id: ?i64,
+        repo_id: i64,
+
+        pub fn hash(self: CacheKey) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            std.hash.autoHash(&hasher, self.user_id);
+            std.hash.autoHash(&hasher, self.repo_id);
+            return hasher.final();
+        }
+
+        pub fn eql(self: CacheKey, other: CacheKey) bool {
+            return self.user_id == other.user_id and self.repo_id == other.repo_id;
+        }
+    };
+
+    cache: std.HashMap(CacheKey, Permission, std.hash_map.AutoContext(CacheKey), 80),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) PermissionCache {
+        return .{
+            .cache = std.HashMap(CacheKey, Permission, std.hash_map.AutoContext(CacheKey), 80).init(allocator),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *PermissionCache) void {
+        self.cache.deinit();
+    }
+
+    pub fn getOrCompute(
+        self: *PermissionCache,
+        dao: *DataAccessObject,
+        user_id: ?i64,
+        repo_id: i64,
+    ) !Permission {
+        const key = CacheKey{ .user_id = user_id, .repo_id = repo_id };
+        if (self.cache.get(key)) |cached| {
+            return cached;
+        }
+
+        const permission = try loadUserRepoPermission(self.allocator, dao, user_id, repo_id);
+        try self.cache.put(key, permission);
+        return permission;
+    }
+};
+
+test "PermissionCache basic operations" {
+    const allocator = testing.allocator;
+    var cache = PermissionCache.init(allocator);
+    defer cache.deinit();
+
+    // Test that cache starts empty
+    try testing.expectEqual(@as(usize, 0), cache.cache.count());
+
+    // Test cache key hashing and equality
+    const key1 = PermissionCache.CacheKey{ .user_id = 123, .repo_id = 456 };
+    const key2 = PermissionCache.CacheKey{ .user_id = 123, .repo_id = 456 };
+    const key3 = PermissionCache.CacheKey{ .user_id = 789, .repo_id = 456 };
+
+    try testing.expect(key1.eql(key2));
+    try testing.expect(!key1.eql(key3));
+    try testing.expectEqual(key1.hash(), key2.hash());
+}
+
+test "PermissionCache with null user_id" {
+    const allocator = testing.allocator;
+    var cache = PermissionCache.init(allocator);
+    defer cache.deinit();
+
+    // Test cache keys with null user_id
+    const key1 = PermissionCache.CacheKey{ .user_id = null, .repo_id = 123 };
+    const key2 = PermissionCache.CacheKey{ .user_id = null, .repo_id = 123 };
+    const key3 = PermissionCache.CacheKey{ .user_id = 456, .repo_id = 123 };
+
+    try testing.expect(key1.eql(key2));
+    try testing.expect(!key1.eql(key3));
+}
