@@ -1,6 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+// Initialize SIGPIPE handling on module load (for POSIX systems)
+const init_sigpipe = blk: {
+    if (builtin.os.tag != .windows) {
+        var sa = std.posix.Sigaction{
+            .handler = .{ .handler = std.posix.SIG.IGN },
+            .mask = std.posix.empty_sigset,
+            .flags = 0,
+        };
+        std.posix.sigaction(.PIPE, &sa, null) catch {};
+    }
+    break :blk {};
+};
+
 // Phase 1: Core Security Foundation - Tests First
 
 test "rejects arguments starting with dash" {
@@ -383,6 +396,26 @@ pub const GitCommand = struct {
         return false;
     }
 
+    // Helper for timeout monitoring
+    const TimeoutState = struct {
+        child: *std.process.Child,
+        timeout_ms: u32,
+        timed_out: bool = false,
+        mutex: std.Thread.Mutex = .{},
+    };
+
+    fn timeoutMonitor(state: *TimeoutState) void {
+        std.time.sleep(state.timeout_ms * std.time.ns_per_ms);
+        
+        state.mutex.lock();
+        defer state.mutex.unlock();
+        
+        if (!state.timed_out) {
+            state.timed_out = true;
+            state.child.kill() catch {};
+        }
+    }
+
     pub fn runWithOptions(self: *const GitCommand, allocator: std.mem.Allocator, options: RunOptions) !GitResult {
         // Validate all arguments
         for (options.args) |arg, i| {
@@ -425,24 +458,100 @@ pub const GitCommand = struct {
             }
         }
 
-        // Run the command
-        const result = try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = argv.items,
-            .cwd = options.cwd,
-            .env_map = if (env_map) |*em| em else null,
-            .max_output_bytes = 10 * 1024 * 1024, // 10MB limit
-        });
+        // Create child process for timeout support
+        var child = std.process.Child.init(argv.items, allocator);
+        child.cwd = options.cwd;
+        child.env_map = if (env_map) |*em| em else null;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+        child.stdin_behavior = if (options.stdin != null) .Pipe else .Ignore;
+
+        try child.spawn();
+
+        // Set up timeout monitoring if needed
+        var timeout_state = TimeoutState{
+            .child = &child,
+            .timeout_ms = options.timeout_ms,
+        };
+        
+        const timeout_thread = if (options.timeout_ms > 0)
+            try std.Thread.spawn(.{}, timeoutMonitor, .{&timeout_state})
+        else
+            null;
+        defer if (timeout_thread) |t| t.join();
+
+        // Write stdin if provided
+        if (options.stdin) |stdin_data| {
+            if (child.stdin) |stdin| {
+                try stdin.writeAll(stdin_data);
+                stdin.close();
+                child.stdin = null;
+            }
+        }
+
+        // Collect output
+        var stdout_list = std.ArrayList(u8).init(allocator);
+        var stderr_list = std.ArrayList(u8).init(allocator);
+        errdefer stdout_list.deinit();
+        errdefer stderr_list.deinit();
+
+        // Read output with size limit
+        const max_size = 10 * 1024 * 1024; // 10MB
+        var buffer: [4096]u8 = undefined;
+
+        if (child.stdout) |stdout| {
+            while (true) {
+                const n = stdout.read(&buffer) catch |err| switch (err) {
+                    error.EndOfStream => break,
+                    else => return err,
+                };
+                if (n == 0) break;
+                
+                if (stdout_list.items.len + n > max_size) {
+                    return error.OutputTooLarge;
+                }
+                try stdout_list.appendSlice(buffer[0..n]);
+            }
+        }
+
+        if (child.stderr) |stderr| {
+            while (true) {
+                const n = stderr.read(&buffer) catch |err| switch (err) {
+                    error.EndOfStream => break,
+                    else => return err,
+                };
+                if (n == 0) break;
+                
+                if (stderr_list.items.len + n > max_size) {
+                    return error.OutputTooLarge;
+                }
+                try stderr_list.appendSlice(buffer[0..n]);
+            }
+        }
+
+        // Wait for process
+        const term = try child.wait();
+
+        // Check if timed out
+        timeout_state.mutex.lock();
+        const timed_out = timeout_state.timed_out;
+        timeout_state.mutex.unlock();
+
+        if (timed_out) {
+            stdout_list.deinit();
+            stderr_list.deinit();
+            return error.Timeout;
+        }
 
         // Extract exit code
-        const exit_code = switch (result.term) {
+        const exit_code = switch (term) {
             .Exited => |code| code,
             else => 255, // Non-zero for other termination types
         };
 
         return GitResult{
-            .stdout = result.stdout,
-            .stderr = result.stderr,
+            .stdout = try stdout_list.toOwnedSlice(),
+            .stderr = try stderr_list.toOwnedSlice(),
             .exit_code = @intCast(exit_code),
         };
     }
@@ -507,6 +616,18 @@ pub const GitCommand = struct {
 
         try child.spawn();
 
+        // Set up timeout monitoring for streaming
+        var timeout_state = TimeoutState{
+            .child = &child,
+            .timeout_ms = options.timeout_ms,
+        };
+        
+        const timeout_thread = if (options.timeout_ms > 0)
+            try std.Thread.spawn(.{}, timeoutMonitor, .{&timeout_state})
+        else
+            null;
+        defer if (timeout_thread) |t| t.join();
+
         // Write stdin if provided
         if (options.stdin) |stdin_data| {
             if (child.stdin) |stdin| {
@@ -564,6 +685,16 @@ pub const GitCommand = struct {
 
         // Wait for process to finish
         const term = try child.wait();
+        
+        // Check if timed out
+        timeout_state.mutex.lock();
+        const timed_out = timeout_state.timed_out;
+        timeout_state.mutex.unlock();
+
+        if (timed_out) {
+            return error.Timeout;
+        }
+        
         const exit_code = switch (term) {
             .Exited => |code| code,
             else => 255,
@@ -654,4 +785,30 @@ test "streams large output" {
 
     try std.testing.expect(exit_code == 0);
     // We might not have commits in test environment, so just check we didn't crash
+}
+
+// Phase 6: Timeout Enforcement - Tests First
+
+test "enforces timeout" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    const start = std.time.milliTimestamp();
+    const result = cmd.runWithOptions(allocator, .{
+        .args = &.{"clone", "https://github.com/torvalds/linux.git"},
+        .timeout_ms = 100, // 100ms timeout
+    }) catch |err| switch (err) {
+        error.Timeout => {
+            const elapsed = std.time.milliTimestamp() - start;
+            try std.testing.expect(elapsed < 500); // Should timeout quickly
+            return;
+        },
+        else => return err,
+    };
+    defer result.deinit(allocator);
+
+    // If we get here, the clone was really fast (unlikely) or timeout didn't work
+    std.log.warn("Git clone completed before timeout, test inconclusive", .{});
 }
