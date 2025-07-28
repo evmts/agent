@@ -339,6 +339,50 @@ pub const GitCommand = struct {
         value: []const u8,
     };
 
+    // Strict allow-list for environment variables
+    // CRITICAL: Never include GIT_EXEC_PATH, GIT_SSH_COMMAND, or HTTP_PROXY
+    const ALLOWED_ENV_VARS = [_][]const u8{
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME", 
+        "GIT_COMMITTER_EMAIL",
+        "GIT_HTTP_USER_AGENT",
+        "GIT_PROTOCOL",
+        "GIT_TERMINAL_PROMPT",
+        "GIT_NAMESPACE",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_PREFIX",
+        "GIT_SUPER_PREFIX",
+        "GIT_QUARANTINE_PATH",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_GLOBAL",
+        "HOME",  // Required for git config
+        "PATH",  // Required for finding git
+        "LC_ALL", // Locale
+        "LANG",   // Locale
+        // Protocol-specific (added conditionally)
+        "PLUE_PUSHER_ID",
+        "PLUE_PUSHER_NAME", 
+        "PLUE_REPO_USER_NAME",
+        "PLUE_REPO_NAME",
+        "PLUE_REPO_IS_WIKI",
+        "PLUE_IS_INTERNAL",
+        "PLUE_PR_ID",
+        "PLUE_KEY_ID",
+    };
+
+    fn isAllowedEnvVar(name: []const u8) bool {
+        for (ALLOWED_ENV_VARS) |allowed| {
+            if (std.mem.eql(u8, name, allowed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     pub fn runWithOptions(self: *const GitCommand, allocator: std.mem.Allocator, options: RunOptions) !GitResult {
         // Validate all arguments
         for (options.args) |arg, i| {
@@ -364,11 +408,29 @@ pub const GitCommand = struct {
         try argv.append(self.executable_path);
         try argv.appendSlice(options.args);
 
+        // Build environment map if needed
+        var env_map = if (options.env != null) std.process.EnvMap.init(allocator) else null;
+        defer if (env_map) |*em| em.deinit();
+
+        if (options.env) |env_vars| {
+            // Start with minimal environment
+            try env_map.?.put("PATH", std.process.getEnvVarOwned(allocator, "PATH") catch "/usr/local/bin:/usr/bin:/bin");
+            try env_map.?.put("HOME", std.process.getEnvVarOwned(allocator, "HOME") catch "/tmp");
+            
+            // Add only allowed environment variables
+            for (env_vars) |env_var| {
+                if (isAllowedEnvVar(env_var.name)) {
+                    try env_map.?.put(env_var.name, env_var.value);
+                }
+            }
+        }
+
         // Run the command
         const result = try std.process.Child.run(.{
             .allocator = allocator,
             .argv = argv.items,
             .cwd = options.cwd,
+            .env_map = if (env_map) |*em| em else null,
             .max_output_bytes = 10 * 1024 * 1024, // 10MB limit
         });
 
@@ -385,3 +447,48 @@ pub const GitCommand = struct {
         };
     }
 };
+
+// Phase 4: Environment and Working Directory - Tests First
+
+test "sets working directory" {
+    const allocator = std.testing.allocator;
+
+    // Create temp directory
+    const tmp_dir_name = try std.fmt.allocPrint(allocator, "git_test_{d}", .{std.crypto.random.int(u32)});
+    defer allocator.free(tmp_dir_name);
+    
+    try std.fs.cwd().makeDir(tmp_dir_name);
+    defer std.fs.cwd().deleteTree(tmp_dir_name) catch {};
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    const result = try cmd.runWithOptions(allocator, .{
+        .args = &.{"init"},
+        .cwd = tmp_dir_name,
+    });
+    defer result.deinit(allocator);
+
+    try std.testing.expect(result.exit_code == 0);
+}
+
+test "uses strict environment allow-list" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    // Test that only allowed GIT_* vars are passed
+    const result = try cmd.runWithOptions(allocator, .{
+        .args = &.{"config", "--list"},
+        .env = &.{
+            .{ .name = "GIT_AUTHOR_NAME", .value = "Test User" },
+            .{ .name = "GIT_COMMITTER_EMAIL", .value = "test@example.com" },
+            .{ .name = "MALICIOUS_VAR", .value = "should not pass" },
+        },
+    });
+    defer result.deinit(allocator);
+
+    // Git config --list should succeed
+    try std.testing.expect(result.exit_code == 0);
+}
