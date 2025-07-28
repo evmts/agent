@@ -309,10 +309,6 @@ pub fn build(b: *std.Build) void {
     // Link webui library to lib tests (needed for GUI tests)
     lib_unit_tests.linkLibrary(webui.artifact("webui"));
     lib_unit_tests.linkLibC();
-    
-    // Link libssh2 to tests
-    ssh2.link(lib_unit_tests);
-    tls.link(lib_unit_tests);
     if (target.result.os.tag == .macos) {
         lib_unit_tests.linkFramework("WebKit");
     }
@@ -331,10 +327,6 @@ pub fn build(b: *std.Build) void {
     // Link webui library to exe tests (needed for GUI tests)
     exe_unit_tests.linkLibrary(webui.artifact("webui"));
     exe_unit_tests.linkLibC();
-    
-    // Link libssh2 to tests
-    ssh2.link(exe_unit_tests);
-    tls.link(exe_unit_tests);
     if (target.result.os.tag == .macos) {
         exe_unit_tests.linkFramework("WebKit");
     }
