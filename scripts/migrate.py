@@ -329,6 +329,139 @@ def migrate_up():
                 CREATE INDEX idx_auth_token_token ON auth_token(token);
                 CREATE INDEX idx_auth_token_expires ON auth_token(expires_unix);
             """),
+            (12, "Add permission system columns to users", """
+                -- Add permission-related columns to users table
+                ALTER TABLE users
+                ADD COLUMN is_restricted BOOLEAN DEFAULT FALSE,
+                ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE,
+                ADD COLUMN is_active BOOLEAN DEFAULT TRUE,
+                ADD COLUMN prohibit_login BOOLEAN DEFAULT FALSE,
+                ADD COLUMN visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'limited', 'private'));
+                
+                -- Create indexes for permission checks
+                CREATE INDEX idx_user_is_restricted ON users(is_restricted) WHERE NOT is_deleted;
+                CREATE INDEX idx_user_is_admin ON users(is_admin) WHERE NOT is_deleted;
+                CREATE INDEX idx_user_is_active ON users(is_active) WHERE NOT is_deleted;
+            """),
+            (13, "Create owner type enum and update repository", """
+                -- Create owner type enum
+                CREATE TYPE owner_type AS ENUM ('user', 'organization');
+                
+                -- Add owner_type to repository
+                ALTER TABLE repository
+                ADD COLUMN owner_type owner_type DEFAULT 'user',
+                ADD COLUMN is_mirror BOOLEAN DEFAULT FALSE,
+                ADD COLUMN is_archived BOOLEAN DEFAULT FALSE,
+                ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE,
+                ADD COLUMN visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'limited', 'private'));
+                
+                -- Update constraint to include owner_type
+                ALTER TABLE repository DROP CONSTRAINT repository_owner_id_lower_name_key;
+                ALTER TABLE repository ADD CONSTRAINT repository_owner_type_id_name_key UNIQUE(owner_id, owner_type, lower_name);
+                
+                -- Add indexes for permission optimization
+                CREATE INDEX idx_repositories_owner ON repository(owner_id, owner_type) WHERE NOT is_deleted;
+                CREATE INDEX idx_repositories_is_archived ON repository(is_archived) WHERE NOT is_deleted;
+                CREATE INDEX idx_repositories_is_mirror ON repository(is_mirror) WHERE NOT is_deleted;
+            """),
+            (14, "Create organizations table", """
+                -- Organizations are a special type of user, but we'll track them separately for clarity
+                CREATE TABLE organizations (
+                    id BIGSERIAL PRIMARY KEY,
+                    name VARCHAR(255) UNIQUE NOT NULL,
+                    visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'limited', 'private')),
+                    max_repo_creation INTEGER DEFAULT -1,  -- -1 = unlimited
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                -- Organization memberships (replaces org_user for clarity)
+                CREATE TABLE org_users (
+                    org_id BIGINT REFERENCES organizations(id) ON DELETE CASCADE,
+                    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                    is_public BOOLEAN DEFAULT FALSE,  -- Whether membership is publicly visible
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (org_id, user_id)
+                );
+                
+                CREATE INDEX idx_org_users_user ON org_users(user_id);
+                CREATE INDEX idx_org_users_org ON org_users(org_id);
+            """),
+            (15, "Create teams and team permissions", """
+                -- Teams within organizations
+                CREATE TABLE teams (
+                    id BIGSERIAL PRIMARY KEY,
+                    org_id BIGINT REFERENCES organizations(id) ON DELETE CASCADE,
+                    name VARCHAR(255) NOT NULL,
+                    access_mode VARCHAR(20) NOT NULL DEFAULT 'read' CHECK (access_mode IN ('none', 'read', 'write', 'admin', 'owner')),
+                    can_create_org_repo BOOLEAN DEFAULT FALSE,  -- Admin teams
+                    is_owner_team BOOLEAN DEFAULT FALSE,  -- Special owner team
+                    units JSONB,  -- Unit-specific permissions: {"issues": "write", "wiki": "admin"}
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(org_id, name)
+                );
+                
+                CREATE INDEX idx_teams_org ON teams(org_id);
+                
+                -- Team memberships
+                CREATE TABLE team_users (
+                    team_id BIGINT REFERENCES teams(id) ON DELETE CASCADE,
+                    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (team_id, user_id)
+                );
+                
+                CREATE INDEX idx_team_users_user ON team_users(user_id);
+                CREATE INDEX idx_team_users_team ON team_users(team_id);
+                
+                -- Team repository access
+                CREATE TABLE team_repos (
+                    team_id BIGINT REFERENCES teams(id) ON DELETE CASCADE,
+                    repo_id BIGINT REFERENCES repository(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (team_id, repo_id)
+                );
+                
+                CREATE INDEX idx_team_repos_repo ON team_repos(repo_id);
+                CREATE INDEX idx_team_repos_team ON team_repos(team_id);
+            """),
+            (16, "Create collaborations table", """
+                -- Individual repository collaborations
+                CREATE TABLE collaborations (
+                    id BIGSERIAL PRIMARY KEY,
+                    repo_id BIGINT REFERENCES repository(id) ON DELETE CASCADE,
+                    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                    mode VARCHAR(20) NOT NULL CHECK (mode IN ('none', 'read', 'write', 'admin')),
+                    units JSONB,  -- Optional unit-specific permissions
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(repo_id, user_id)
+                );
+                
+                CREATE INDEX idx_collaborations_user_repo ON collaborations(user_id, repo_id);
+                CREATE INDEX idx_collaborations_repo ON collaborations(repo_id);
+            """),
+            (17, "Create access cache table", """
+                -- Pre-computed access levels for performance optimization
+                -- This table is maintained by triggers/background jobs
+                CREATE TABLE access (
+                    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                    repo_id BIGINT REFERENCES repository(id) ON DELETE CASCADE,
+                    mode VARCHAR(20) NOT NULL CHECK (mode IN ('none', 'read', 'write', 'admin', 'owner')),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, repo_id)
+                );
+                
+                CREATE INDEX idx_access_lookup ON access(user_id, repo_id);
+                CREATE INDEX idx_access_repo ON access(repo_id);
+                
+                -- Function to update access cache when permissions change
+                CREATE OR REPLACE FUNCTION update_access_cache() RETURNS TRIGGER AS $$
+                BEGIN
+                    -- This is a placeholder - actual implementation would recalculate permissions
+                    -- For now, we'll handle this in application code
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+            """),
             # Add more migrations here as needed
         ]
         
@@ -379,6 +512,13 @@ def migrate_down(target_version):
         # Drop tables if rolling back to version 0
         if target_version == 0:
             # Drop in reverse dependency order
+            cursor.execute("DROP TABLE IF EXISTS access CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS collaborations CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS team_repos CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS team_users CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS teams CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS org_users CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS organizations CASCADE")
             cursor.execute("DROP TABLE IF EXISTS auth_token CASCADE")
             cursor.execute("DROP TABLE IF EXISTS action_secret CASCADE")
             cursor.execute("DROP TABLE IF EXISTS action_artifact CASCADE")
@@ -397,6 +537,7 @@ def migrate_down(target_version):
             cursor.execute("DROP TABLE IF EXISTS repository CASCADE")
             cursor.execute("DROP TABLE IF EXISTS public_key CASCADE")
             cursor.execute("DROP TABLE IF EXISTS org_user CASCADE")
+            cursor.execute("DROP TYPE IF EXISTS owner_type CASCADE")
             cursor.execute("DROP TABLE IF EXISTS users CASCADE")
             cursor.execute("DROP TABLE IF EXISTS schema_version")
         
