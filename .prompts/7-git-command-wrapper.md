@@ -17,6 +17,7 @@ Create a secure, high-performance Git command execution wrapper in Zig that prov
 ### Business Context
 
 Plue is a Git wrapper application that needs to execute Git commands securely and efficiently. This wrapper will be used by:
+
 - CLI commands for local Git operations
 - REST API handlers for remote Git operations
 - Web UI backend for repository browsing
@@ -27,6 +28,7 @@ Plue is a Git wrapper application that needs to execute Git commands securely an
 ### Input
 
 Git commands with arguments that need to be executed securely, with support for:
+
 - Standard Git commands (clone, fetch, push, status, diff, log, etc.)
 - Git smart HTTP protocol commands (git-upload-pack, git-receive-pack)
 - Streaming I/O for large operations
@@ -36,6 +38,7 @@ Git commands with arguments that need to be executed securely, with support for:
 ### Expected Output
 
 A robust Git command wrapper that:
+
 1. Prevents command injection attacks
 2. Handles process lifecycle correctly
 3. Streams I/O efficiently
@@ -45,17 +48,22 @@ A robust Git command wrapper that:
 
 ### Steps
 
-**CRITICAL**: Follow TDD approach - write tests first, then implementation. Run `zig build && zig build test` after EVERY change.
+**CRITICAL**: Follow TDD approach - write tests first, then implementation. Run `zig build && zig build test` after EVERY change. Always add tests to the same file as the source code.
+
+**Note** Though we tried our best all code should be treated as pseudocode. it is your job to make sure it gets implemented correctly and think harder about the implementation in context as you are making them.
+**Amendments** You may run into an issue and need to change the plan. This is meant to be avoided at all costs and should never happen for sake of just reducing scope or workload. It should only be because the spec didn't take something into account. If you learn anything major as you go consider adding amendments to bottom of this md file
 
 #### Phase 1: Core Security Foundation (TDD)
 
 1. **Create module structure**
+
    ```bash
    mkdir -p src/git
    touch src/git/command.zig
    ```
 
 2. **Write security validation tests first**
+
    ```zig
    test "rejects arguments starting with dash" {
        const allocator = std.testing.allocator;
@@ -70,6 +78,13 @@ A robust Git command wrapper that:
        try std.testing.expect(!isValidGitOption("--random-flag"));
    }
 
+   test "rejects broken git arguments" {
+       // Test known problematic arguments
+       try std.testing.expect(isBrokenGitArgument("--upload-pack"));
+       try std.testing.expect(isBrokenGitArgument("-c"));
+       try std.testing.expect(!isBrokenGitArgument("--version"));
+   }
+
    test "sanitizes repository paths" {
        const allocator = std.testing.allocator;
        try std.testing.expectError(error.InvalidRepository, validateRepositoryPath("../../../etc"));
@@ -81,12 +96,14 @@ A robust Git command wrapper that:
 3. **Implement security functions**
    - `isSafeArgumentValue()` - Prevent dash-prefixed values
    - `isValidGitOption()` - Whitelist known Git options
+   - `isBrokenGitArgument()` - Blacklist known problematic arguments
    - `validateRepositoryPath()` - Prevent directory traversal
    - `sanitizeGitUrl()` - Remove credentials from URLs
 
 #### Phase 2: Git Executable Detection (TDD)
 
 1. **Write detection tests**
+
    ```zig
    test "finds git executable" {
        const allocator = std.testing.allocator;
@@ -95,7 +112,7 @@ A robust Git command wrapper that:
            return;
        };
        defer allocator.free(git_path);
-       
+
        try std.testing.expect(git_path.len > 0);
        try std.testing.expect(std.mem.endsWith(u8, git_path, "git"));
    }
@@ -107,7 +124,7 @@ A robust Git command wrapper that:
            return;
        };
        defer allocator.free(version);
-       
+
        try std.testing.expect(std.mem.indexOf(u8, version, "git version") != null);
    }
    ```
@@ -121,54 +138,112 @@ A robust Git command wrapper that:
 #### Phase 3: Basic Command Execution (TDD)
 
 1. **Write execution tests**
+
    ```zig
    test "executes simple git command" {
        const allocator = std.testing.allocator;
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
-       
+       defer cmd.deinit(allocator);
+
        const result = try cmd.run(allocator, &.{"version"});
        defer result.deinit(allocator);
-       
+
        try std.testing.expect(result.exit_code == 0);
        try std.testing.expect(std.mem.indexOf(u8, result.stdout, "git version") != null);
    }
 
    test "captures stderr on failure" {
        const allocator = std.testing.allocator;
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
-       
+       defer cmd.deinit(allocator);
+
        const result = try cmd.run(allocator, &.{"invalid-command"});
        defer result.deinit(allocator);
-       
+
        try std.testing.expect(result.exit_code != 0);
        try std.testing.expect(result.stderr.len > 0);
    }
    ```
 
 2. **Implement GitCommand struct**
+
    ```zig
+   pub const GitError = error{
+       GitNotFound,
+       InvalidArgument,
+       CommandInjection,
+       Timeout,
+       ProcessFailed,
+       PermissionDenied,
+       InvalidRepository,
+       AuthenticationFailed,
+       ChildProcessFailed,
+       OutputTooLarge,
+   };
+
+   pub const GitResult = struct {
+       stdout: []u8,
+       stderr: []u8,
+       exit_code: u8,
+
+       pub fn deinit(self: *GitResult, allocator: std.mem.Allocator) void {
+           allocator.free(self.stdout);
+           allocator.free(self.stderr);
+       }
+   };
+
+   // Rich error information for debugging
+   pub const GitCommandError = struct {
+       err: GitError,
+       exit_code: ?u8 = null,
+       command: []const u8,
+       args: []const []const u8,
+       cwd: ?[]const u8 = null,
+       stderr: ?[]const u8 = null,
+
+       pub fn format(
+           self: GitCommandError,
+           comptime fmt: []const u8,
+           options: std.fmt.FormatOptions,
+           writer: anytype,
+       ) !void {
+           _ = fmt;
+           _ = options;
+           try writer.print("Git command failed: {s}", .{@errorName(self.err)});
+           if (self.exit_code) |code| {
+               try writer.print(" (exit code: {})", .{code});
+           }
+           try writer.print("\nCommand: {s}", .{self.command});
+           for (self.args) |arg| {
+               try writer.print(" {s}", .{arg});
+           }
+           if (self.cwd) |cwd| {
+               try writer.print("\nWorking directory: {s}", .{cwd});
+           }
+           if (self.stderr) |stderr| {
+               try writer.print("\nStderr: {s}", .{stderr});
+           }
+       }
+   };
+
    pub const GitCommand = struct {
        executable_path: []const u8,
-       allocator: std.mem.Allocator,
-       
+
        pub fn init(allocator: std.mem.Allocator) !GitCommand {
            const path = try findGitExecutable(allocator);
            return GitCommand{
                .executable_path = path,
-               .allocator = allocator,
            };
        }
-       
-       pub fn deinit(self: *GitCommand) void {
-           self.allocator.free(self.executable_path);
+
+       pub fn deinit(self: *GitCommand, allocator: std.mem.Allocator) void {
+           allocator.free(self.executable_path);
        }
-       
-       pub fn run(self: *GitCommand, allocator: std.mem.Allocator, args: []const []const u8) !GitResult {
-           // Implementation with ChildProcess
+
+       pub fn run(self: *const GitCommand, allocator: std.mem.Allocator, args: []const []const u8) !GitResult {
+           return self.runWithOptions(allocator, .{ .args = args });
        }
    };
    ```
@@ -176,72 +251,114 @@ A robust Git command wrapper that:
 #### Phase 4: Environment and Working Directory (TDD)
 
 1. **Write environment tests**
+
    ```zig
    test "sets working directory" {
        const allocator = std.testing.allocator;
-       
+
        // Create temp directory
        const tmp_dir = try std.fs.cwd().makeTempDir("git_test_");
        defer std.fs.cwd().deleteTree(tmp_dir.sub_path) catch {};
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
-       
+       defer cmd.deinit(allocator);
+
        const result = try cmd.runWithOptions(allocator, .{
            .args = &.{"init"},
            .cwd = tmp_dir.sub_path,
        });
        defer result.deinit(allocator);
-       
+
        try std.testing.expect(result.exit_code == 0);
    }
 
-   test "filters environment variables" {
+   test "uses strict environment allow-list" {
        const allocator = std.testing.allocator;
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
+       defer cmd.deinit(allocator);
+
+       // Test that parent process env vars don't leak
+       try std.os.setenv("DATABASE_URL", "postgresql://secret", true);
+       try std.os.setenv("AWS_SECRET_ACCESS_KEY", "secret-key", true);
        
        const result = try cmd.runWithOptions(allocator, .{
            .args = &.{"config", "--list"},
            .env = &.{
                .{ .name = "GIT_AUTHOR_NAME", .value = "Test User" },
+               .{ .name = "GIT_COMMITTER_EMAIL", .value = "test@example.com" },
                .{ .name = "MALICIOUS_VAR", .value = "should not pass" },
            },
        });
        defer result.deinit(allocator);
-       
-       // Verify only safe env vars were passed
+
+       // Verify only allowed GIT_* vars were passed
+       try std.testing.expect(std.mem.indexOf(u8, result.stdout, "GIT_AUTHOR_NAME=Test User") != null);
+       try std.testing.expect(std.mem.indexOf(u8, result.stdout, "DATABASE_URL") == null);
+       try std.testing.expect(std.mem.indexOf(u8, result.stdout, "AWS_SECRET_ACCESS_KEY") == null);
+       try std.testing.expect(std.mem.indexOf(u8, result.stdout, "MALICIOUS_VAR") == null);
    }
    ```
 
-2. **Implement RunOptions**
+2. **Implement RunOptions with strict environment control**
    ```zig
+   pub const EnvVar = struct {
+       name: []const u8,
+       value: []const u8,
+   };
+
    pub const RunOptions = struct {
        args: []const []const u8,
        cwd: ?[]const u8 = null,
-       env: ?[]const EnvVar = null,
+       env: ?[]const EnvVar = null,  // Only allowed vars will be passed
        timeout_ms: u32 = 120000, // 2 minutes default
        stdin: ?[]const u8 = null,
+   };
+
+   // Strict allow-list for environment variables
+   const ALLOWED_ENV_VARS = [_][]const u8{
+       "GIT_AUTHOR_NAME",
+       "GIT_AUTHOR_EMAIL",
+       "GIT_COMMITTER_NAME", 
+       "GIT_COMMITTER_EMAIL",
+       "GIT_HTTP_USER_AGENT",
+       "GIT_PROTOCOL",
+       "GIT_TERMINAL_PROMPT",
+       "GIT_ASKPASS",
+       "GIT_NAMESPACE",
+       "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+       "GIT_OBJECT_DIRECTORY",
+       "GIT_DIR",
+       "GIT_WORK_TREE",
+       "GIT_PREFIX",
+       "GIT_SUPER_PREFIX",
+       "GIT_QUARANTINE_PATH",
+       "GIT_CONFIG_NOSYSTEM",
+       "GIT_CONFIG_GLOBAL",
+       "HOME",  // Required for git config
+       "PATH",  // Required for finding git
+       "LC_ALL", // Locale
+       "LANG",   // Locale
    };
    ```
 
 #### Phase 5: Streaming I/O Support (TDD)
 
 1. **Write streaming tests**
+
    ```zig
    test "streams large output" {
        const allocator = std.testing.allocator;
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
-       
+       defer cmd.deinit(allocator);
+
        var stdout_chunks = std.ArrayList([]u8).init(allocator);
        defer {
            for (stdout_chunks.items) |chunk| allocator.free(chunk);
            stdout_chunks.deinit();
        }
-       
+
        const exit_code = try cmd.runStreaming(allocator, .{
            .args = &.{"log", "--oneline", "-n", "1000"},
            .stdout_callback = struct {
@@ -252,7 +369,7 @@ A robust Git command wrapper that:
            }.callback,
            .stdout_context = &stdout_chunks,
        });
-       
+
        try std.testing.expect(exit_code == 0);
        try std.testing.expect(stdout_chunks.items.len > 0);
    }
@@ -267,13 +384,14 @@ A robust Git command wrapper that:
 #### Phase 6: Timeout Enforcement (TDD)
 
 1. **Write timeout tests**
+
    ```zig
    test "enforces timeout" {
        const allocator = std.testing.allocator;
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
-       
+       defer cmd.deinit(allocator);
+
        const start = std.time.milliTimestamp();
        const result = cmd.runWithOptions(allocator, .{
            .args = &.{"clone", "https://github.com/torvalds/linux.git"},
@@ -286,7 +404,7 @@ A robust Git command wrapper that:
            },
            else => return err,
        };
-       
+
        unreachable; // Should have timed out
    }
    ```
@@ -298,64 +416,138 @@ A robust Git command wrapper that:
 
 #### Phase 7: Git Protocol Support (TDD)
 
-1. **Write protocol tests**
+1. **Write protocol tests with contextual environment**
+
    ```zig
-   test "handles git-upload-pack" {
+   test "handles git-upload-pack with context" {
        const allocator = std.testing.allocator;
-       
+
        var cmd = try GitCommand.init(allocator);
-       defer cmd.deinit();
-       
+       defer cmd.deinit(allocator);
+
        // Test with actual git protocol handshake
        const input = "0067want 1234567890abcdef1234567890abcdef12345678 multi_ack_detailed no-done side-band-64k thin-pack ofs-delta deepen-since deepen-not agent=git/2.39.0\n0000";
-       
-       const result = try cmd.runWithOptions(allocator, .{
+
+       const result = try cmd.runWithProtocolContext(allocator, .{
            .args = &.{"upload-pack", "--stateless-rpc", "--advertise-refs", "."},
            .stdin = input,
+           .protocol_context = .{
+               .pusher_id = "123",
+               .pusher_name = "testuser",
+               .repo_username = "owner",
+               .repo_name = "project",
+               .is_wiki = false,
+           },
        });
        defer result.deinit(allocator);
-       
+
        try std.testing.expect(result.exit_code == 0);
        // Verify protocol response format
+   }
+
+   test "sets protocol environment variables" {
+       const allocator = std.testing.allocator;
+
+       var cmd = try GitCommand.init(allocator);
+       defer cmd.deinit(allocator);
+
+       const result = try cmd.runWithProtocolContext(allocator, .{
+           .args = &.{"config", "--list"},
+           .protocol_context = .{
+               .pusher_id = "456",
+               .pusher_name = "alice",
+               .repo_username = "org",
+               .repo_name = "repo",
+               .is_wiki = true,
+           },
+       });
+       defer result.deinit(allocator);
+
+       // These would be available to hooks
+       try std.testing.expect(result.exit_code == 0);
    }
    ```
 
 2. **Implement protocol-specific handling**
-   - Support for git-upload-pack
-   - Support for git-receive-pack
-   - Handle binary protocol data
-   - Proper stdin/stdout handling for protocol
+   ```zig
+   pub const ProtocolContext = struct {
+       pusher_id: []const u8,
+       pusher_name: []const u8,
+       repo_username: []const u8,
+       repo_name: []const u8,
+       is_wiki: bool,
+       is_deploy_key: bool = false,
+       key_id: ?[]const u8 = null,
+   };
+
+   pub const ProtocolRunOptions = struct {
+       args: []const []const u8,
+       stdin: ?[]const u8 = null,
+       protocol_context: ProtocolContext,
+       timeout_ms: u32 = 600000, // 10 minutes for large repos
+   };
+
+   pub fn runWithProtocolContext(
+       self: *const GitCommand,
+       allocator: std.mem.Allocator,
+       options: ProtocolRunOptions,
+   ) !GitResult {
+       // Create environment with protocol context
+       var env_list = std.ArrayList(EnvVar).init(allocator);
+       defer env_list.deinit();
+
+       // Add protocol-specific environment variables
+       try env_list.append(.{ .name = "PLUE_PUSHER_ID", .value = options.protocol_context.pusher_id });
+       try env_list.append(.{ .name = "PLUE_PUSHER_NAME", .value = options.protocol_context.pusher_name });
+       try env_list.append(.{ .name = "PLUE_REPO_USER_NAME", .value = options.protocol_context.repo_username });
+       try env_list.append(.{ .name = "PLUE_REPO_NAME", .value = options.protocol_context.repo_name });
+       try env_list.append(.{ .name = "PLUE_REPO_IS_WIKI", .value = if (options.protocol_context.is_wiki) "true" else "false" });
+       
+       if (options.protocol_context.key_id) |key_id| {
+           try env_list.append(.{ .name = "PLUE_KEY_ID", .value = key_id });
+       }
+
+       return self.runWithOptions(allocator, .{
+           .args = options.args,
+           .stdin = options.stdin,
+           .env = env_list.items,
+           .timeout_ms = options.timeout_ms,
+       });
+   }
+   ```
 
 #### Phase 8: Integration with Server (TDD)
 
 1. **Write handler integration test**
+
    ```zig
    test "integrates with zap handler" {
        const allocator = std.testing.allocator;
-       
+
        // Mock zap request
        var req = TestRequest{
            .path = "/repos/user/project.git/info/refs",
            .query = "service=git-upload-pack",
        };
-       
+
        var ctx = Context{
            .allocator = allocator,
            .dao = undefined, // Mock DAO
        };
-       
+
        try gitSmartHttpHandler(&req, &ctx);
-       
+
        try std.testing.expectEqualStrings("application/x-git-upload-pack-advertisement", req.response_content_type);
    }
    ```
 
 2. **Create server handlers**
+
    ```zig
    // src/server/handlers/git.zig
    pub fn gitSmartHttpHandler(r: zap.Request, ctx: *Context) !void {
        const allocator = ctx.allocator;
-       
+
        // Parse service type from query
        // Validate repository access
        // Execute appropriate git command
@@ -366,22 +558,27 @@ A robust Git command wrapper that:
 ### Critical Implementation Details
 
 1. **Memory Management**
+
    - Never store allocator in GitCommand struct (pass to methods)
    - Use explicit defer for all allocations
    - Result structs own memory that caller must free
    - Stream callbacks should not retain references to data
+   - GitCommandError should be stack-allocated when possible
 
 2. **Process Management**
+
    - Always use process groups for timeout handling
    - Clean up child processes on all error paths
    - Handle SIGPIPE for broken connections
    - Set appropriate process limits
 
 3. **Security Hardening**
+
    - Validate all inputs before process creation
-   - Use minimal environment variables
+   - Start with empty environment, add only from allow-list
    - Never pass user input directly to shell
    - Implement argument count limits
+   - Maintain blacklist for known problematic arguments
 
 4. **Docker Compatibility**
    - Handle different Git paths in Alpine
@@ -391,16 +588,19 @@ A robust Git command wrapper that:
 ### Common Pitfalls to Avoid
 
 1. **Process Leaks**
+
    - Always kill child processes on timeout
    - Handle partial reads/writes correctly
    - Clean up on all error paths
 
 2. **Memory Issues**
+
    - Don't retain pointers to process output after free
    - Handle large outputs without OOM
    - Free partial results on error
 
 3. **Security Vulnerabilities**
+
    - Never use shell expansion
    - Validate all file paths
    - Sanitize environment variables
@@ -455,6 +655,7 @@ project/
 ## Build Verification Protocol
 
 **MANDATORY**: After EVERY code change:
+
 ```bash
 zig build && zig build test
 ```
@@ -469,7 +670,7 @@ zig build && zig build test
 ```zig
 // CLI usage
 const git = try GitCommand.init(allocator);
-defer git.deinit();
+defer git.deinit(allocator);
 
 const result = try git.run(allocator, &.{"status", "--porcelain"});
 defer result.deinit(allocator);
@@ -480,23 +681,23 @@ std.log.info("Git status: {s}", .{result.stdout});
 pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
     const repo_url = try r.getParam("url");
-    
+
     var git = try GitCommand.init(allocator);
-    defer git.deinit();
-    
+    defer git.deinit(allocator);
+
     // Stream progress to client
     const exit_code = try git.runStreaming(allocator, .{
         .args = &.{"clone", "--progress", repo_url},
         .stderr_callback = sendProgressToClient,
         .stderr_context = r,
     });
-    
+
     if (exit_code != 0) {
         try r.setStatus(.bad_request);
         try r.sendBody("Clone failed");
         return;
     }
-    
+
     try r.sendJson(.{ .status = "success" });
 }
 ```
@@ -507,3 +708,8 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
 - Git Protocol: https://git-scm.com/book/en/v2/Git-on-the-Server-The-Protocols
 - Zig Process API: https://ziglang.org/documentation/master/std/#std.process
 - Security Best Practices: OWASP Command Injection
+- Gitea Implementation: https://github.com/go-gitea/gitea/blob/main/modules/git/command.go
+
+## Amendments
+
+_This section will be updated with any significant learnings or changes discovered during implementation._
