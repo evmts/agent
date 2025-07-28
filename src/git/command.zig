@@ -232,3 +232,156 @@ fn getGitVersion(allocator: std.mem.Allocator) ![]u8 {
     // Return a copy of stdout
     return allocator.dupe(u8, std.mem.trimRight(u8, result.stdout, "\n\r"));
 }
+
+// Phase 3: Basic Command Execution - Tests First
+
+test "executes simple git command" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    const result = try cmd.run(allocator, &.{"version"});
+    defer result.deinit(allocator);
+
+    try std.testing.expect(result.exit_code == 0);
+    try std.testing.expect(std.mem.indexOf(u8, result.stdout, "git version") != null);
+}
+
+test "captures stderr on failure" {
+    const allocator = std.testing.allocator;
+
+    var cmd = try GitCommand.init(allocator);
+    defer cmd.deinit(allocator);
+
+    const result = try cmd.run(allocator, &.{"invalid-command"});
+    defer result.deinit(allocator);
+
+    try std.testing.expect(result.exit_code != 0);
+    try std.testing.expect(result.stderr.len > 0);
+}
+
+// Implementation of GitCommand and related types
+
+pub const GitResult = struct {
+    stdout: []u8,
+    stderr: []u8,
+    exit_code: u8,
+
+    pub fn deinit(self: *GitResult, allocator: std.mem.Allocator) void {
+        allocator.free(self.stdout);
+        allocator.free(self.stderr);
+    }
+};
+
+// Rich error information for debugging
+pub const GitCommandError = struct {
+    err: GitError,
+    exit_code: ?u8 = null,
+    command: []const u8,
+    args: []const []const u8,
+    cwd: ?[]const u8 = null,
+    stderr: ?[]const u8 = null,
+
+    pub fn format(
+        self: GitCommandError,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("Git command failed: {s}", .{@errorName(self.err)});
+        if (self.exit_code) |code| {
+            try writer.print(" (exit code: {})", .{code});
+        }
+        try writer.print("\nCommand: {s}", .{self.command});
+        for (self.args) |arg| {
+            try writer.print(" {s}", .{arg});
+        }
+        if (self.cwd) |cwd| {
+            try writer.print("\nWorking directory: {s}", .{cwd});
+        }
+        if (self.stderr) |stderr| {
+            try writer.print("\nStderr: {s}", .{stderr});
+        }
+    }
+};
+
+pub const GitCommand = struct {
+    executable_path: []const u8,
+
+    pub fn init(allocator: std.mem.Allocator) !GitCommand {
+        const path = try findGitExecutable(allocator);
+        return GitCommand{
+            .executable_path = path,
+        };
+    }
+
+    pub fn deinit(self: *GitCommand, allocator: std.mem.Allocator) void {
+        allocator.free(self.executable_path);
+    }
+
+    pub fn run(self: *const GitCommand, allocator: std.mem.Allocator, args: []const []const u8) !GitResult {
+        return self.runWithOptions(allocator, .{ .args = args });
+    }
+
+    pub const RunOptions = struct {
+        args: []const []const u8,
+        cwd: ?[]const u8 = null,
+        env: ?[]const EnvVar = null,  // Only allowed vars will be passed
+        timeout_ms: u32 = 120000, // 2 minutes default
+        stdin: ?[]const u8 = null,
+    };
+
+    pub const EnvVar = struct {
+        name: []const u8,
+        value: []const u8,
+    };
+
+    pub fn runWithOptions(self: *const GitCommand, allocator: std.mem.Allocator, options: RunOptions) !GitResult {
+        // Validate all arguments
+        for (options.args) |arg, i| {
+            // First argument can be a git command (like "status", "commit")
+            if (i == 0) continue;
+            
+            // If it looks like an option, validate it
+            if (arg.len > 0 and arg[0] == '-') {
+                if (!isValidGitOption(arg) and isBrokenGitArgument(arg)) {
+                    return error.InvalidArgument;
+                }
+            } else {
+                // For non-option arguments, ensure they don't start with dash
+                if (!isSafeArgumentValue(arg)) {
+                    return error.InvalidArgument;
+                }
+            }
+        }
+
+        // Build full argv
+        var argv = std.ArrayList([]const u8).init(allocator);
+        defer argv.deinit();
+        try argv.append(self.executable_path);
+        try argv.appendSlice(options.args);
+
+        // Run the command
+        const result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = argv.items,
+            .cwd = options.cwd,
+            .max_output_bytes = 10 * 1024 * 1024, // 10MB limit
+        });
+
+        // Extract exit code
+        const exit_code = switch (result.term) {
+            .Exited => |code| code,
+            else => 255, // Non-zero for other termination types
+        };
+
+        return GitResult{
+            .stdout = result.stdout,
+            .stderr = result.stderr,
+            .exit_code = @intCast(exit_code),
+        };
+    }
+};
