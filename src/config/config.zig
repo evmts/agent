@@ -275,6 +275,106 @@ pub const Config = struct {
         
         return value;
     }
+    
+    pub fn validate(self: *const Config) !void {
+        try self.validateServer();
+        try self.validateDatabase();
+        try self.validateRepository();
+        try self.validateSecurity();
+    }
+    
+    fn validateServer(self: *const Config) !void {
+        if (self.server.port == 0) {
+            return ConfigError.InvalidPort;
+        }
+        
+        if (self.server.host.len == 0) {
+            return ConfigError.InvalidValue;
+        }
+        
+        if (self.server.worker_threads == 0 or self.server.worker_threads > 1024) {
+            return ConfigError.InvalidValue;
+        }
+        
+        if (self.server.request_timeout_ms < 1000) { // Minimum 1 second
+            return ConfigError.InvalidValue;
+        }
+    }
+    
+    fn validateDatabase(self: *const Config) !void {
+        if (self.database.connection_url.len == 0) {
+            return ConfigError.MissingRequired;
+        }
+        
+        // Validate PostgreSQL URL format
+        if (!std.mem.startsWith(u8, self.database.connection_url, "postgresql://") and
+            !std.mem.startsWith(u8, self.database.connection_url, "postgres://")) {
+            return ConfigError.InvalidUrl;
+        }
+        
+        if (self.database.max_connections == 0 or self.database.max_connections > 1000) {
+            return ConfigError.InvalidValue;
+        }
+        
+        if (self.database.connection_timeout_seconds == 0) {
+            return ConfigError.InvalidValue;
+        }
+    }
+    
+    fn validateRepository(self: *const Config) !void {
+        if (self.repository.base_path.len == 0) {
+            return ConfigError.InvalidPath;
+        }
+        
+        // Enforce absolute paths
+        if (!std.fs.path.isAbsolute(self.repository.base_path)) {
+            std.log.err("Repository base_path must be an absolute path, got: {s}", .{self.repository.base_path});
+            return ConfigError.PathNotAbsolute;
+        }
+        
+        // Check if base path exists and is directory
+        const stat = std.fs.cwd().statFile(self.repository.base_path) catch |err| switch (err) {
+            error.FileNotFound => return ConfigError.InvalidPath,
+            else => return ConfigError.InvalidPath,
+        };
+        
+        if (stat.kind != .directory) {
+            return ConfigError.InvalidPath;
+        }
+        
+        if (self.repository.max_repo_size == 0) {
+            return ConfigError.InvalidValue;
+        }
+        
+        if (self.repository.default_branch.len == 0) {
+            return ConfigError.InvalidValue;
+        }
+    }
+    
+    fn validateSecurity(self: *const Config) !void {
+        // Check for default/weak secret key
+        if (std.mem.eql(u8, self.security.secret_key, "CHANGE-ME-GENERATE-RANDOM-KEY-IN-PRODUCTION")) {
+            std.log.err("CRITICAL: Using default secret key! Generate a secure random key for production.", .{});
+            return ConfigError.WeakSecretKey;
+        }
+        
+        if (self.security.secret_key.len < 32) {
+            std.log.err("Secret key too short. Minimum 32 characters required.", .{});
+            return ConfigError.WeakSecretKey;
+        }
+        
+        if (self.security.min_password_length < 8) {
+            return ConfigError.InvalidValue;
+        }
+        
+        if (self.security.bcrypt_cost < 10 or self.security.bcrypt_cost > 31) {
+            return ConfigError.InvalidValue;
+        }
+        
+        if (self.security.token_expiration_hours == 0 or self.security.token_expiration_hours > 24 * 365) {
+            return ConfigError.InvalidValue;
+        }
+    }
 };
 
 fn buildEnvVarName(allocator: std.mem.Allocator, section: []const u8, key: []const u8) ![]u8 {
@@ -461,4 +561,65 @@ test "environment variable name format" {
     const env_name2 = try buildEnvVarName(allocator, "database", "connection_url");
     defer allocator.free(env_name2);
     try std.testing.expectEqualStrings("PLUE_DATABASE_CONNECTION_URL", env_name2);
+}
+
+test "validates server configuration" {
+    const allocator = std.testing.allocator;
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    // Valid configuration
+    config.server.port = 8080;
+    config.server.host = "0.0.0.0";
+    try config.validateServer();
+    
+    // Invalid port (0)
+    config.server.port = 0;
+    try std.testing.expectError(ConfigError.InvalidPort, config.validateServer());
+    
+    // Invalid host
+    config.server.host = "";
+    config.server.port = 8080;
+    try std.testing.expectError(ConfigError.InvalidValue, config.validateServer());
+}
+
+test "validates database configuration" {
+    const allocator = std.testing.allocator;
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    // Missing connection URL
+    try std.testing.expectError(ConfigError.MissingRequired, config.validateDatabase());
+    
+    // Invalid URL format
+    config.database.connection_url = "mysql://localhost/db";
+    try std.testing.expectError(ConfigError.InvalidUrl, config.validateDatabase());
+    
+    // Valid PostgreSQL URL
+    config.database.connection_url = "postgresql://user:pass@localhost:5432/plue";
+    try config.validateDatabase();
+}
+
+test "validates security configuration" {
+    const allocator = std.testing.allocator;
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    // Default secret key should trigger error
+    try std.testing.expectError(ConfigError.WeakSecretKey, config.validateSecurity());
+    
+    // Weak secret key
+    config.security.secret_key = "too-short";
+    try std.testing.expectError(ConfigError.WeakSecretKey, config.validateSecurity());
+    
+    // Valid secret key
+    config.security.secret_key = "this-is-a-sufficiently-long-secret-key-for-production-use";
+    try config.validateSecurity();
+    
+    // Invalid bcrypt cost
+    config.security.bcrypt_cost = 3;
+    try std.testing.expectError(ConfigError.InvalidValue, config.validateSecurity());
 }
