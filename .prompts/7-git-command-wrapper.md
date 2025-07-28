@@ -1,12 +1,12 @@
 # Implement Secure Git Command Execution Wrapper
 
-## Task Definition
-
+<task_definition>
 Create a secure, high-performance Git command execution wrapper in Zig that provides a safe interface for running Git operations. This wrapper will be the foundation for all Git functionality in Plue, supporting both local operations and Git smart HTTP protocol for remote operations.
+</task_definition>
 
-## Context & Constraints
+<context_and_constraints>
 
-### Technical Requirements
+<technical_requirements>
 
 - **Language/Framework**: Zig - https://ziglang.org/documentation/master/
 - **Dependencies**: None (uses only Zig standard library)
@@ -14,7 +14,9 @@ Create a secure, high-performance Git command execution wrapper in Zig that prov
 - **Compatibility**: Must work in Docker containers (Alpine Linux) and native environments
 - **Security**: Zero tolerance for command injection vulnerabilities
 
-### Business Context
+</technical_requirements>
+
+<business_context>
 
 Plue is a Git wrapper application that needs to execute Git commands securely and efficiently. This wrapper will be used by:
 
@@ -22,10 +24,13 @@ Plue is a Git wrapper application that needs to execute Git commands securely an
 - REST API handlers for remote Git operations
 - Web UI backend for repository browsing
 - Git smart HTTP protocol implementation (git-upload-pack, git-receive-pack)
+</business_context>
 
-## Detailed Specifications
+</context_and_constraints>
 
-### Input
+<detailed_specifications>
+
+<input>
 
 Git commands with arguments that need to be executed securely, with support for:
 
@@ -34,8 +39,9 @@ Git commands with arguments that need to be executed securely, with support for:
 - Streaming I/O for large operations
 - Environment variable management
 - Timeout enforcement
+</input>
 
-### Expected Output
+<expected_output>
 
 A robust Git command wrapper that:
 
@@ -45,15 +51,17 @@ A robust Git command wrapper that:
 4. Enforces timeouts
 5. Provides detailed error information
 6. Works across different environments
+</expected_output>
 
-### Steps
+<implementation_steps>
 
 **CRITICAL**: Follow TDD approach - write tests first, then implementation. Run `zig build && zig build test` after EVERY change. Always add tests to the same file as the source code.
 
 **Note** Though we tried our best all code should be treated as pseudocode. it is your job to make sure it gets implemented correctly and think harder about the implementation in context as you are making them.
 **Amendments** You may run into an issue and need to change the plan. This is meant to be avoided at all costs and should never happen for sake of just reducing scope or workload. It should only be because the spec didn't take something into account. If you learn anything major as you go consider adding amendments to bottom of this md file
 
-#### Phase 1: Core Security Foundation (TDD)
+<phase_1>
+<title>Phase 1: Core Security Foundation (TDD)</title>
 
 1. **Create module structure**
 
@@ -99,8 +107,10 @@ A robust Git command wrapper that:
    - `isBrokenGitArgument()` - Blacklist known problematic arguments
    - `validateRepositoryPath()` - Prevent directory traversal
    - `sanitizeGitUrl()` - Remove credentials from URLs
+</phase_1>
 
-#### Phase 2: Git Executable Detection (TDD)
+<phase_2>
+<title>Phase 2: Git Executable Detection (TDD)</title>
 
 1. **Write detection tests**
 
@@ -134,8 +144,10 @@ A robust Git command wrapper that:
    - Parse PATH environment variable
    - Validate executable exists and is runnable
    - Extract and parse version information
+</phase_2>
 
-#### Phase 3: Basic Command Execution (TDD)
+<phase_3>
+<title>Phase 3: Basic Command Execution (TDD)</title>
 
 1. **Write execution tests**
 
@@ -247,8 +259,10 @@ A robust Git command wrapper that:
        }
    };
    ```
+</phase_3>
 
-#### Phase 4: Environment and Working Directory (TDD)
+<phase_4>
+<title>Phase 4: Environment and Working Directory (TDD)</title>
 
 1. **Write environment tests**
 
@@ -350,8 +364,10 @@ A robust Git command wrapper that:
        "PLUE_KEY_ID",
    };
    ```
+</phase_4>
 
-#### Phase 5: Streaming I/O Support (TDD)
+<phase_5>
+<title>Phase 5: Streaming I/O Support (TDD)</title>
 
 1. **Write streaming tests**
 
@@ -420,8 +436,10 @@ A robust Git command wrapper that:
        }
    }
    ```
+</phase_5>
 
-#### Phase 6: Timeout Enforcement (TDD)
+<phase_6>
+<title>Phase 6: Timeout Enforcement (TDD)</title>
 
 1. **Write timeout tests**
 
@@ -496,8 +514,10 @@ A robust Git command wrapper that:
        }
    }
    ```
+</phase_6>
 
-#### Phase 7: Git Protocol Support (TDD)
+<phase_7>
+<title>Phase 7: Git Protocol Support (TDD)</title>
 
 1. **Write protocol tests with contextual environment**
 
@@ -598,8 +618,10 @@ A robust Git command wrapper that:
        });
    }
    ```
+</phase_7>
 
-#### Phase 8: Integration with Server (TDD)
+<phase_8>
+<title>Phase 8: Integration with Server (TDD)</title>
 
 1. **Write handler integration test**
 
@@ -637,89 +659,111 @@ A robust Git command wrapper that:
        // Stream response back
    }
    ```
+</phase_8>
 
-### Critical Implementation Details
+</implementation_steps>
 
-1. **Memory Management**
+</detailed_specifications>
 
-   - Never store allocator in GitCommand struct (pass to methods)
-   - Use explicit defer for all allocations
-   - Result structs own memory that caller must free
-   - Stream callbacks should not retain references to data
-   - GitCommandError should be stack-allocated when possible
-   - Use ArenaAllocator for request-scoped operations
-   - Combine ArenaAllocator (temporary) with GeneralPurposeAllocator (long-lived)
+<critical_implementation_details>
 
-2. **Process Management**
+<memory_management>
+<title>Memory Management</title>
+- Never store allocator in GitCommand struct (pass to methods)
+- Use explicit defer for all allocations
+- Result structs own memory that caller must free
+- Stream callbacks should not retain references to data
+- GitCommandError should be stack-allocated when possible
+- Use ArenaAllocator for request-scoped operations
+- Combine ArenaAllocator (temporary) with GeneralPurposeAllocator (long-lived)
+</memory_management>
 
-   - Always use process groups for timeout handling (requires manual fork/exec)
-   - Clean up child processes on all error paths
-   - Ignore SIGPIPE at startup: `std.posix.sigaction(.PIPE, &.{ .handler = .{ .handler = std.posix.SIG.IGN } }, null)`
-   - Set resource limits with setrlimit before exec
-   - Use dedicated monitoring thread for timeouts (not async/await)
+<process_management>
+<title>Process Management</title>
+- Always use process groups for timeout handling (requires manual fork/exec)
+- Clean up child processes on all error paths
+- Ignore SIGPIPE at startup: `std.posix.sigaction(.PIPE, &.{ .handler = .{ .handler = std.posix.SIG.IGN } }, null)`
+- Set resource limits with setrlimit before exec
+- Use dedicated monitoring thread for timeouts (not async/await)
+</process_management>
 
-3. **Security Hardening**
+<security_hardening>
+<title>Security Hardening</title>
+- Validate all inputs before process creation
+- Start with empty environment, add only from allow-list
+- Never pass user input directly to shell
+- Implement argument count limits
+- Maintain blacklist for known problematic arguments
+</security_hardening>
 
-   - Validate all inputs before process creation
-   - Start with empty environment, add only from allow-list
-   - Never pass user input directly to shell
-   - Implement argument count limits
-   - Maintain blacklist for known problematic arguments
+<docker_compatibility>
+<title>Docker Compatibility</title>
+- Handle different Git paths in Alpine
+- Work with limited process capabilities
+- Handle missing locales gracefully
+- Cache git executable path globally after first lookup
+</docker_compatibility>
 
-4. **Docker Compatibility**
-   - Handle different Git paths in Alpine
-   - Work with limited process capabilities
-   - Handle missing locales gracefully
-   - Cache git executable path globally after first lookup
+<error_handling>
+<title>Error Handling</title>
+- Parse stderr for specific Git errors (e.g., "repository not found")
+- Differentiate spawn errors from execution errors
+- Use Diagnostics Pattern for rich error context
+- Map errno values to domain-specific errors
+</error_handling>
 
-5. **Error Handling**
-   - Parse stderr for specific Git errors (e.g., "repository not found")
-   - Differentiate spawn errors from execution errors
-   - Use Diagnostics Pattern for rich error context
-   - Map errno values to domain-specific errors
+<io_patterns>
+<title>I/O Patterns</title>
+- Use 4-16KB buffers for pipe reads
+- Configure non-blocking I/O with fcntl
+- Use poll() to avoid busy-waiting on pipes
+- Handle error.WouldBlock gracefully
+</io_patterns>
+</critical_implementation_details>
 
-6. **I/O Patterns**
-   - Use 4-16KB buffers for pipe reads
-   - Configure non-blocking I/O with fcntl
-   - Use poll() to avoid busy-waiting on pipes
-   - Handle error.WouldBlock gracefully
+<common_pitfalls>
 
-### Common Pitfalls to Avoid
+<process_leaks>
+<title>Process Leaks</title>
+- Always kill child processes on timeout
+- Handle partial reads/writes correctly
+- Clean up on all error paths
+</process_leaks>
 
-1. **Process Leaks**
+<memory_issues>
+<title>Memory Issues</title>
+- Don't retain pointers to process output after free
+- Handle large outputs without OOM
+- Free partial results on error
+</memory_issues>
 
-   - Always kill child processes on timeout
-   - Handle partial reads/writes correctly
-   - Clean up on all error paths
+<security_vulnerabilities>
+<title>Security Vulnerabilities</title>
+- Never use shell expansion
+- Validate all file paths
+- Sanitize environment variables
+- Limit resource usage
+</security_vulnerabilities>
 
-2. **Memory Issues**
+<platform_issues>
+<title>Platform Issues</title>
+- Test on both Linux and macOS
+- Handle different Git versions
+- Work in restricted containers
+</platform_issues>
+</common_pitfalls>
 
-   - Don't retain pointers to process output after free
-   - Handle large outputs without OOM
-   - Free partial results on error
+<code_style_and_architecture>
 
-3. **Security Vulnerabilities**
-
-   - Never use shell expansion
-   - Validate all file paths
-   - Sanitize environment variables
-   - Limit resource usage
-
-4. **Platform Issues**
-   - Test on both Linux and macOS
-   - Handle different Git versions
-   - Work in restricted containers
-
-## Code Style & Architecture
-
-### Design Patterns
+<design_patterns>
 
 - **Builder Pattern**: Use options struct for complex function parameters
 - **Result Pattern**: Return structured results with explicit ownership
 - **Callback Pattern**: For streaming operations with context
 - **Resource Management**: RAII with init/deinit patterns
+</design_patterns>
 
-### Code Organization
+<code_organization>
 
 ```
 project/
@@ -732,16 +776,20 @@ project/
 │   └── commands/
 │       └── git.zig           # CLI git commands
 ```
+</code_organization>
 
-### Testing Strategy
+<testing_strategy>
 
 1. **Unit Tests**: Each security function tested in isolation
 2. **Integration Tests**: Full command execution with real Git
 3. **Protocol Tests**: Git smart HTTP protocol compliance
 4. **Stress Tests**: Large repository operations
 5. **Security Tests**: Attempt injection attacks
+</testing_strategy>
 
-## Success Criteria
+</code_style_and_architecture>
+
+<success_criteria>
 
 1. **Security**: Zero command injection vulnerabilities
 2. **Performance**: Stream 1GB+ repositories without OOM
@@ -750,8 +798,9 @@ project/
 5. **Integration**: Seamless use in handlers and CLI
 6. **Testing**: 100% coverage of security paths
 7. **Documentation**: Clear examples for common operations
+</success_criteria>
 
-## Build Verification Protocol
+<build_verification_protocol>
 
 **MANDATORY**: After EVERY code change:
 
@@ -763,8 +812,9 @@ zig build && zig build test
 - Zero tolerance for compilation failures
 - If tests fail, YOU caused a regression
 - Fix immediately before proceeding
+</build_verification_protocol>
 
-## Example Usage
+<example_usage>
 
 ```zig
 // CLI usage
@@ -800,18 +850,21 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
     try r.sendJson(.{ .status = "success" });
 }
 ```
+</example_usage>
 
-## References
+<references>
 
 - Git Documentation: https://git-scm.com/docs
 - Git Protocol: https://git-scm.com/book/en/v2/Git-on-the-Server-The-Protocols
 - Zig Process API: https://ziglang.org/documentation/master/std/#std.process
 - Security Best Practices: OWASP Command Injection
 - Gitea Implementation: https://github.com/go-gitea/gitea/blob/main/modules/git/command.go
+</references>
 
-## Amendments
+<amendments>
 
-### Implementation Guidance from Zig Research
+<zig_implementation_guidance>
+<title>Implementation Guidance from Zig Research</title>
 
 1. **Process Groups Require Manual Fork/Exec**
    - `std.process.Child` doesn't expose `setpgid` functionality
@@ -936,8 +989,10 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
        // Indirect function call overhead
    }
    ```
+</zig_implementation_guidance>
 
-### Additional Security Insights from Gitea Analysis
+<gitea_security_insights>
+<title>Additional Security Insights from Gitea Analysis</title>
 
 1. **Broken Arguments List**
    - `--upload-archive`: Old syntax, security risk
@@ -953,8 +1008,10 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
    - Pass context via `PLUE_*` variables for hooks
    - Pre-receive is synchronous (can reject push)
    - Post-receive is asynchronous (for side effects)
+</gitea_security_insights>
 
-### Error Handling Patterns from Zig Research
+<zig_error_handling>
+<title>Error Handling Patterns from Zig Research</title>
 
 1. **Spawn vs Execution Errors**
    ```zig
@@ -1036,5 +1093,7 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
        // Test logic
    }
    ```
+</zig_error_handling>
 
 _This section will be updated with any significant learnings or changes discovered during implementation._
+</amendments>
