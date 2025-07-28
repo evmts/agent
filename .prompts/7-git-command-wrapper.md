@@ -817,6 +817,17 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
    - `std.process.Child` doesn't expose `setpgid` functionality
    - Must use `std.posix.fork()` and `std.posix.setpgid(0, 0)` pattern
    - Call `setpgid` in child before `execvpe` to avoid race conditions
+   - Complete pattern:
+   ```zig
+   const pid = try std.posix.fork();
+   if (pid == 0) {
+       // Child process
+       _ = std.posix.setpgid(0, 0) catch std.posix.exit(1);
+       const argv = [_:null]?[*:0]const u8{ "git", "status", null };
+       const envp = [_:null]?[*:0]const u8{ null };
+       std.posix.execvpeZ("git", &argv, &envp) catch std.posix.exit(1);
+   }
+   ```
 
 2. **SIGPIPE Handling Pattern**
    ```zig
@@ -845,6 +856,87 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
    - Use `std.fs.path` for cross-platform path handling
    - Git paths in Alpine: `/usr/bin/git` (busybox)
 
+6. **Complete findGitExecutable Implementation**
+   ```zig
+   var g_git_path: ?[]const u8 = null;
+   var g_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+   
+   pub fn findGitExecutable(allocator: std.mem.Allocator) ![]const u8 {
+       if (g_git_path) |path| return path;
+       
+       const path_env = try std.process.getEnvVarOwned(allocator, "PATH");
+       defer allocator.free(path_env);
+       
+       var it = std.mem.tokenize(u8, path_env, &[_]u8{std.fs.path.delimiter});
+       while (it.next()) |dir| {
+           const git_name = if (builtin.os.tag == .windows) "git.exe" else "git";
+           const git_path = try std.fs.path.join(allocator, &.{ dir, git_name });
+           defer allocator.free(git_path);
+           
+           // Check if executable
+           const stat = std.fs.cwd().statFile(git_path) catch continue;
+           if (stat.kind != .file) continue;
+           if (builtin.os.tag.isDarwin() or builtin.os.tag == .linux) {
+               if (stat.mode & 0o111 == 0) continue;
+           }
+           
+           g_git_path = try g_arena.allocator().dupe(u8, git_path);
+           return g_git_path.?;
+       }
+       
+       return error.GitNotFound;
+   }
+   ```
+
+7. **String Ownership Pattern**
+   ```zig
+   const GitResult = struct {
+       stdout: []u8,
+       stderr: []u8,
+       exit_code: u8,
+       
+       pub fn init(allocator: std.mem.Allocator, stdout: []const u8, stderr: []const u8, code: u8) !GitResult {
+           return GitResult{
+               .stdout = try allocator.dupe(u8, stdout),
+               .stderr = try allocator.dupe(u8, stderr),
+               .exit_code = code,
+           };
+       }
+       
+       pub fn deinit(self: *GitResult, allocator: std.mem.Allocator) void {
+           allocator.free(self.stdout);
+           allocator.free(self.stderr);
+           self.* = undefined; // Invalidate
+       }
+   };
+   ```
+
+8. **Callback Pattern for Streaming**
+   ```zig
+   // Prefer comptime callbacks for performance
+   pub fn runStreamingComptime(
+       self: *const GitCommand,
+       allocator: std.mem.Allocator,
+       options: RunOptions,
+       comptime CallbackT: type,
+       callback: CallbackT,
+       context: anytype,
+   ) !u8 {
+       // Compiler can inline the callback
+   }
+   
+   // Runtime callbacks for flexibility
+   pub fn runStreamingRuntime(
+       self: *const GitCommand,
+       allocator: std.mem.Allocator,
+       options: RunOptions,
+       callback: *const fn([]const u8, *anyopaque) anyerror!void,
+       context: *anyopaque,
+   ) !u8 {
+       // Indirect function call overhead
+   }
+   ```
+
 ### Additional Security Insights from Gitea Analysis
 
 1. **Broken Arguments List**
@@ -861,5 +953,88 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
    - Pass context via `PLUE_*` variables for hooks
    - Pre-receive is synchronous (can reject push)
    - Post-receive is asynchronous (for side effects)
+
+### Error Handling Patterns from Zig Research
+
+1. **Spawn vs Execution Errors**
+   ```zig
+   // Spawn errors (can't start process)
+   child.spawn() catch |err| switch (err) {
+       error.FileNotFound => return error.GitNotFound,
+       error.AccessDenied => return error.PermissionDenied,
+       else => return err,
+   };
+   
+   // Execution errors (process ran but failed)
+   const term = try child.wait();
+   switch (term) {
+       .Exited => |code| if (code != 0) return error.ProcessFailed,
+       .Signal => |sig| return error.ProcessKilled,
+       else => return error.UnknownTermination,
+   }
+   ```
+
+2. **Diagnostics Pattern for Rich Errors**
+   ```zig
+   const GitDiagnostics = struct {
+       command: []const u8 = "",
+       args: []const []const u8 = &.{},
+       exit_code: ?u8 = null,
+       stderr: []const u8 = "",
+       cwd: []const u8 = "",
+   };
+   
+   pub fn runWithDiagnostics(
+       self: *const GitCommand,
+       allocator: std.mem.Allocator,
+       options: RunOptions,
+       diags: ?*GitDiagnostics,
+   ) GitError!GitResult {
+       // On error, populate diagnostics before returning
+       errdefer if (diags) |d| {
+           d.command = self.executable_path;
+           d.args = options.args;
+           d.cwd = options.cwd orelse std.fs.cwd().realpathAlloc(allocator, ".") catch "";
+       };
+   }
+   ```
+
+3. **Thread Safety Patterns**
+   ```zig
+   // Option 1: Thread-local instances (simplest)
+   threadlocal var tl_git_cmd: ?GitCommand = null;
+   
+   // Option 2: Mutex-protected shared instance
+   const SharedGitCommand = struct {
+       mutex: std.Thread.Mutex = .{},
+       cmd: GitCommand,
+       
+       pub fn run(self: *SharedGitCommand, allocator: std.mem.Allocator, args: []const []const u8) !GitResult {
+           self.mutex.lock();
+           defer self.mutex.unlock();
+           return self.cmd.run(allocator, args);
+       }
+   };
+   
+   // Option 3: Atomic counters for statistics
+   var active_git_processes = std.atomic.Atomic(u32).init(0);
+   _ = active_git_processes.fetchAdd(1, .Monotonic);
+   defer _ = active_git_processes.fetchSub(1, .Monotonic);
+   ```
+
+4. **Testing Patterns**
+   ```zig
+   // Dependency injection for testability
+   const GitRunner = struct {
+       runFn: *const fn (allocator: std.mem.Allocator, args: []const []const u8) anyerror!GitResult,
+       context: *anyopaque,
+   };
+   
+   // Platform-specific test
+   test "posix process groups" {
+       if (builtin.os.tag == .windows) return error.SkipZigTest;
+       // Test logic
+   }
+   ```
 
 _This section will be updated with any significant learnings or changes discovered during implementation._
