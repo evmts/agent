@@ -24,7 +24,7 @@ pub const ConfigError = error{
 
 pub const ConfigSeverity = enum {
     warning, // Log and continue with defaults
-    error, // Return error, allow caller to decide
+    @"error", // Return error, allow caller to decide
     fatal, // Immediately terminate application
 };
 
@@ -124,7 +124,7 @@ const IniParser = struct {
     }
     
     pub fn parse(self: *IniParser, content: []const u8) !void {
-        var lines = std.mem.tokenize(u8, content, "\n\r");
+        var lines = std.mem.tokenizeAny(u8, content, "\n\r");
         var current_section: ?[]const u8 = null;
         
         while (lines.next()) |line| {
@@ -183,6 +183,27 @@ const IniParser = struct {
     }
 };
 
+pub const EnvProvider = struct {
+    getEnvVarFn: *const fn (allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8,
+    
+    pub fn getEnvVar(self: *const EnvProvider, allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
+        return self.getEnvVarFn(allocator, key);
+    }
+};
+
+pub const SystemEnvProvider = struct {
+    pub fn getEnvVar(allocator: std.mem.Allocator, key: []const u8) !?[]u8 {
+        return std.process.getEnvVarOwned(allocator, key) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => return null,
+            else => return err,
+        };
+    }
+    
+    pub fn provider() EnvProvider {
+        return .{ .getEnvVarFn = getEnvVar };
+    }
+};
+
 pub const Config = struct {
     allocator: std.mem.Allocator,
     server: ServerConfig,
@@ -193,6 +214,9 @@ pub const Config = struct {
     // Store allocated strings for cleanup
     allocated_strings: std.ArrayList([]u8),
     
+    // Environment provider for dependency injection
+    env_provider: EnvProvider,
+    
     pub fn init(allocator: std.mem.Allocator) !Config {
         return .{
             .allocator = allocator,
@@ -201,6 +225,19 @@ pub const Config = struct {
             .repository = .{},
             .security = .{},
             .allocated_strings = std.ArrayList([]u8).init(allocator),
+            .env_provider = SystemEnvProvider.provider(),
+        };
+    }
+    
+    pub fn initWithEnvProvider(allocator: std.mem.Allocator, env_provider: EnvProvider) !Config {
+        return .{
+            .allocator = allocator,
+            .server = .{},
+            .database = .{},
+            .repository = .{},
+            .security = .{},
+            .allocated_strings = std.ArrayList([]u8).init(allocator),
+            .env_provider = env_provider,
         };
     }
     
@@ -268,10 +305,7 @@ pub const Config = struct {
         const file_env_name = try std.fmt.allocPrint(self.allocator, "{s}__FILE", .{env_name});
         defer self.allocator.free(file_env_name);
         
-        const file_value = try std.process.getEnvVarOwned(self.allocator, file_env_name) catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => null,
-            else => return err,
-        };
+        const file_value = try self.env_provider.getEnvVar(self.allocator, file_env_name);
         defer if (file_value) |v| self.allocator.free(v);
         
         if (file_value) |file_path| {
@@ -281,15 +315,15 @@ pub const Config = struct {
         }
         
         // Regular environment variable
-        const value = try std.process.getEnvVarOwned(self.allocator, env_name) catch |err| switch (err) {
-            error.EnvironmentVariableNotFound => return null,
-            else => return err,
-        };
+        const value = try self.env_provider.getEnvVar(self.allocator, env_name);
         
-        // Already owned from getEnvVarOwned, just track it
-        try self.allocated_strings.append(value);
+        if (value) |v| {
+            // Already owned from getEnvVar, just track it
+            try self.allocated_strings.append(v);
+            return v;
+        }
         
-        return value;
+        return null;
     }
     
     pub fn validate(self: *const Config) !void {
@@ -426,6 +460,22 @@ pub const Config = struct {
     // Main loading function
     pub fn load(allocator: std.mem.Allocator, config_path: []const u8) !Config {
         var config = try Config.init(allocator);
+        errdefer config.deinit();
+        
+        // Step 1: Load from file
+        try config.loadFromFileInternal(config_path);
+        
+        // Step 2: Apply environment overrides
+        try config.loadEnvironmentOverrides();
+        
+        // Step 3: Validate final configuration
+        try config.validate();
+        
+        return config;
+    }
+    
+    pub fn loadWithEnvProvider(allocator: std.mem.Allocator, config_path: []const u8, env_provider: EnvProvider) !Config {
+        var config = try Config.initWithEnvProvider(allocator, env_provider);
         errdefer config.deinit();
         
         // Step 1: Load from file
@@ -691,27 +741,27 @@ pub fn generateDefaultConfig(allocator: std.mem.Allocator) ![]u8 {
         \\bcrypt_cost = {d}
         \\
     , .{
-        ServerConfig{}.host,
-        ServerConfig{}.port,
-        ServerConfig{}.worker_threads,
-        ServerConfig{}.request_timeout_ms,
-        ServerConfig{}.max_request_size,
-        DatabaseConfig{}.connection_url,
-        DatabaseConfig{}.max_connections,
-        DatabaseConfig{}.connection_timeout_seconds,
-        DatabaseConfig{}.idle_timeout_seconds,
-        DatabaseConfig{}.statement_cache_size,
-        RepositoryConfig{}.base_path,
-        RepositoryConfig{}.max_repo_size,
-        if (RepositoryConfig{}.allow_force_push) "true" else "false",
-        if (RepositoryConfig{}.enable_lfs) "true" else "false",
-        RepositoryConfig{}.default_branch,
-        SecurityConfig{}.secret_key,
-        SecurityConfig{}.token_expiration_hours,
-        if (SecurityConfig{}.enable_registration) "true" else "false",
-        if (SecurityConfig{}.require_email_verification) "true" else "false",
-        SecurityConfig{}.min_password_length,
-        SecurityConfig{}.bcrypt_cost,
+        (ServerConfig{}).host,
+        (ServerConfig{}).port,
+        (ServerConfig{}).worker_threads,
+        (ServerConfig{}).request_timeout_ms,
+        (ServerConfig{}).max_request_size,
+        (DatabaseConfig{}).connection_url,
+        (DatabaseConfig{}).max_connections,
+        (DatabaseConfig{}).connection_timeout_seconds,
+        (DatabaseConfig{}).idle_timeout_seconds,
+        (DatabaseConfig{}).statement_cache_size,
+        (RepositoryConfig{}).base_path,
+        (RepositoryConfig{}).max_repo_size,
+        if ((RepositoryConfig{}).allow_force_push) "true" else "false",
+        if ((RepositoryConfig{}).enable_lfs) "true" else "false",
+        (RepositoryConfig{}).default_branch,
+        (SecurityConfig{}).secret_key,
+        (SecurityConfig{}).token_expiration_hours,
+        if ((SecurityConfig{}).enable_registration) "true" else "false",
+        if ((SecurityConfig{}).require_email_verification) "true" else "false",
+        (SecurityConfig{}).min_password_length,
+        (SecurityConfig{}).bcrypt_cost,
     });
     
     return buffer.toOwnedSlice();
@@ -757,7 +807,9 @@ test "validates file permissions for security" {
     try std.testing.expectError(ConfigError.FilePermissionTooOpen, result);
     
     // Fix permissions and retry
-    try tmp_dir.dir.chmod(test_file, 0o600);
+    const file_handle = try tmp_dir.dir.openFile(test_file, .{});
+    defer file_handle.close();
+    try file_handle.chmod(0o600);
     try validateConfigFilePermissions(full_path);
 }
 
@@ -842,16 +894,42 @@ test "handles malformed INI gracefully" {
 test "environment variables override config file values" {
     const allocator = std.testing.allocator;
     
-    // Set test environment variables
-    try std.testing.expectEqual(true, try std.process.hasEnvVar(allocator, "PATH"));
-    try std.posix.setenv("PLUE_SERVER_PORT", "9999", 1);
-    try std.posix.setenv("PLUE_DATABASE_MAX_CONNECTIONS", "100", 1);
-    defer {
-        std.posix.unsetenv("PLUE_SERVER_PORT") catch {};
-        std.posix.unsetenv("PLUE_DATABASE_MAX_CONNECTIONS") catch {};
-    }
+    // Create a test environment provider
+    const TestEnvProvider = struct {
+        var env_map: std.StringHashMap([]const u8) = undefined;
+        
+        pub fn init(alloc: std.mem.Allocator) void {
+            env_map = std.StringHashMap([]const u8).init(alloc);
+        }
+        
+        pub fn deinit() void {
+            env_map.deinit();
+        }
+        
+        pub fn put(key: []const u8, value: []const u8) !void {
+            try env_map.put(key, value);
+        }
+        
+        pub fn getEnvVar(alloc: std.mem.Allocator, key: []const u8) !?[]u8 {
+            if (env_map.get(key)) |value| {
+                return try alloc.dupe(u8, value);
+            }
+            return null;
+        }
+        
+        pub fn provider() EnvProvider {
+            return .{ .getEnvVarFn = getEnvVar };
+        }
+    };
     
-    var config = try Config.init(allocator);
+    // Set up test environment
+    TestEnvProvider.init(allocator);
+    defer TestEnvProvider.deinit();
+    
+    try TestEnvProvider.put("PLUE_SERVER_PORT", "9999");
+    try TestEnvProvider.put("PLUE_DATABASE_MAX_CONNECTIONS", "100");
+    
+    var config = try Config.initWithEnvProvider(allocator, TestEnvProvider.provider());
     defer config.deinit();
     
     // Load base configuration
@@ -949,23 +1027,53 @@ test "loads environment values from files with __FILE suffix" {
     // Create secret file
     const secret_file = "env_secret.txt";
     const file = try tmp_dir.dir.createFile(secret_file, .{ .mode = 0o600 });
-    try file.writeAll("secret-from-env-file");
+    try file.writeAll("secret-from-env-file-that-is-at-least-32-chars");
     file.close();
     
     // Get full path
     const full_path = try tmp_dir.dir.realpathAlloc(allocator, secret_file);
     defer allocator.free(full_path);
     
-    // Set environment variable with __FILE suffix
-    try std.posix.setenv("PLUE_SECURITY_SECRET_KEY__FILE", full_path, 1);
-    defer std.posix.unsetenv("PLUE_SECURITY_SECRET_KEY__FILE") catch {};
+    // Create a test environment provider
+    const TestEnvProvider = struct {
+        var env_map: std.StringHashMap([]const u8) = undefined;
+        
+        pub fn init(alloc: std.mem.Allocator) void {
+            env_map = std.StringHashMap([]const u8).init(alloc);
+        }
+        
+        pub fn deinit() void {
+            env_map.deinit();
+        }
+        
+        pub fn put(key: []const u8, value: []const u8) !void {
+            try env_map.put(key, value);
+        }
+        
+        pub fn getEnvVar(alloc: std.mem.Allocator, key: []const u8) !?[]u8 {
+            if (env_map.get(key)) |value| {
+                return try alloc.dupe(u8, value);
+            }
+            return null;
+        }
+        
+        pub fn provider() EnvProvider {
+            return .{ .getEnvVarFn = getEnvVar };
+        }
+    };
     
-    var config = try Config.init(allocator);
+    // Set up test environment
+    TestEnvProvider.init(allocator);
+    defer TestEnvProvider.deinit();
+    
+    try TestEnvProvider.put("PLUE_SECURITY_SECRET_KEY__FILE", full_path);
+    
+    var config = try Config.initWithEnvProvider(allocator, TestEnvProvider.provider());
     defer config.deinit();
     
     try config.loadEnvironmentOverrides();
     
-    try std.testing.expectEqualStrings("secret-from-env-file", config.security.secret_key);
+    try std.testing.expectEqualStrings("secret-from-env-file-that-is-at-least-32-chars", config.security.secret_key);
 }
 
 test "validates secret file permissions" {
@@ -1052,9 +1160,39 @@ test "complete configuration lifecycle with overrides" {
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
     
-    // Set environment override
-    try std.posix.setenv("PLUE_SERVER_PORT", "9090", 1);
-    defer std.posix.unsetenv("PLUE_SERVER_PORT") catch {};
+    // Create a test environment provider
+    const TestEnvProvider = struct {
+        var env_map: std.StringHashMap([]const u8) = undefined;
+        
+        pub fn init(alloc: std.mem.Allocator) void {
+            env_map = std.StringHashMap([]const u8).init(alloc);
+        }
+        
+        pub fn deinit() void {
+            env_map.deinit();
+        }
+        
+        pub fn put(key: []const u8, value: []const u8) !void {
+            try env_map.put(key, value);
+        }
+        
+        pub fn getEnvVar(alloc: std.mem.Allocator, key: []const u8) !?[]u8 {
+            if (env_map.get(key)) |value| {
+                return try alloc.dupe(u8, value);
+            }
+            return null;
+        }
+        
+        pub fn provider() EnvProvider {
+            return .{ .getEnvVarFn = getEnvVar };
+        }
+    };
+    
+    // Set up test environment
+    TestEnvProvider.init(allocator);
+    defer TestEnvProvider.deinit();
+    
+    try TestEnvProvider.put("PLUE_SERVER_PORT", "9090");
     
     // Create minimal config file
     const config_content =
@@ -1065,9 +1203,15 @@ test "complete configuration lifecycle with overrides" {
         \\[database]
         \\connection_url = postgresql://localhost/plue
         \\
+        \\[repository]
+        \\base_path = ./repos
+        \\
         \\[security]
         \\secret_key = production-secret-key-with-sufficient-length-123456
     ;
+    
+    // Create repository directory
+    try tmp_dir.dir.makeDir("repos");
     
     const config_file = "test_lifecycle.ini";
     const file = try tmp_dir.dir.createFile(config_file, .{ .mode = 0o600 });
@@ -1079,7 +1223,7 @@ test "complete configuration lifecycle with overrides" {
     defer allocator.free(full_path);
     
     // Load with all steps
-    var config = try Config.load(allocator, full_path);
+    var config = try Config.loadWithEnvProvider(allocator, full_path, TestEnvProvider.provider());
     defer config.deinit();
     
     // Environment should override file
@@ -1101,7 +1245,7 @@ test "sanitizes configuration for logging" {
     config.security.secret_key = "super-secret-key-12345";
     config.database.connection_url = "postgresql://user:password@localhost:5432/plue";
     
-    const sanitized = try config.sanitizeForLogging(allocator);
+    var sanitized = try config.sanitizeForLogging(allocator);
     defer sanitized.deinit();
     
     try std.testing.expectEqualStrings("[REDACTED]", sanitized.security.secret_key);
