@@ -2,19 +2,29 @@
 
 ## Overview
 
-Implement a production-ready SSH server in Zig that handles git operations over SSH protocol. The server must authenticate users via public keys AND certificates, support deploy keys, extract and validate git commands from SSH sessions, and provide enterprise-grade reliability with graceful shutdown, advanced security hardening, and comprehensive monitoring.
+Implement a production-ready SSH server in Zig that handles git operations over SSH protocol. The server will wrap a mature C SSH library (details forthcoming) for protocol handling while implementing all server logic, authentication, session management, and git integration in pure Zig. The server must authenticate users via public keys AND certificates, support deploy keys, extract and validate git commands from SSH sessions, and provide enterprise-grade reliability with graceful shutdown, advanced security hardening, and comprehensive monitoring.
+
+## Architectural Approach
+
+Based on comprehensive research of Zig's ecosystem, this implementation will use a hybrid approach:
+- **SSH Protocol Layer**: Wrap a battle-tested C library (e.g., libssh2) for SSH transport, key exchange, and encryption
+- **Server Logic**: Pure Zig for networking, concurrency, authentication, session management, and git integration
+- **Memory Management**: Leverage Zig's allocator system with per-connection arenas for safety and performance
+- **Concurrency Model**: Event-driven architecture using Zig's async/await with explicit event loop management
 
 ## Core Requirements
 
 ### 1. SSH Server Core
 
 Create a configurable SSH server that can:
-- Listen on configurable host and port with proxy protocol support
-- Support configurable SSH ciphers, key exchanges, and MACs
-- Generate and manage multiple SSH host keys (RSA, ECDSA, Ed25519)
-- Handle graceful shutdown with connection draining
+- Listen on configurable host and port using `std.net.StreamServer` or direct `std.posix` APIs
+- Configure SSH library settings for ciphers, key exchanges, and MACs
+- Load pre-generated SSH host keys (RSA, ECDSA, Ed25519) from filesystem
+- Handle graceful shutdown with connection draining using signal handlers
 - Implement per-write and per-KB timeouts for DoS protection
 - Support proxy protocol for load balancer integration
+- Use `SO_REUSEADDR` for quick server restarts
+- Manage a central event loop for async I/O operations
 
 ### 2. Authentication Methods
 
@@ -95,13 +105,67 @@ pub const KeySizeValidator = struct {
 ```
 
 #### Advanced Security Features
-- **Rate Limiting**: Prevent SSH brute force attacks with per-IP tracking
-- **Connection Limits**: Enforce maximum concurrent connections
-- **Timeout Management**: Per-write and per-KB timeouts
-- **Input Validation**: Validate all SSH protocol inputs and git commands
-- **Command Validation**: Strict validation against allowed git verbs
-- **Certificate Validation**: Verify certificate chains and principals
-- **Audit Logging**: Detailed authentication and command logging
+
+**Rate Limiting with std.AutoHashMap**:
+```zig
+pub const RateLimiter = struct {
+    const RateLimitEntry = struct {
+        first_attempt: std.time.Instant,
+        attempts: u32,
+    };
+    
+    entries: std.AutoHashMap(std.net.Address, RateLimitEntry),
+    mutex: std.Thread.Mutex,
+    config: Config,
+    
+    pub fn checkAllowed(self: *RateLimiter, addr: std.net.Address) !bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        
+        const now = std.time.Instant.now() catch unreachable;
+        
+        if (self.entries.get(addr)) |*entry| {
+            const elapsed = now.since(entry.first_attempt);
+            if (elapsed > self.config.window_ns) {
+                // Reset window
+                entry.first_attempt = now;
+                entry.attempts = 1;
+                return true;
+            }
+            
+            entry.attempts += 1;
+            return entry.attempts <= self.config.max_attempts;
+        } else {
+            // New entry
+            try self.entries.put(addr, .{
+                .first_attempt = now,
+                .attempts = 1,
+            });
+            return true;
+        }
+    }
+};
+```
+
+**Connection Tracking with std.atomic**:
+```zig
+pub const ConnectionTracker = struct {
+    active_connections: std.atomic.Atomic(u32) = .{ .value = 0 },
+    max_connections: u32,
+    
+    pub fn tryAdd(self: *ConnectionTracker) bool {
+        const current = self.active_connections.load(.monotonic);
+        if (current >= self.max_connections) return false;
+        
+        _ = self.active_connections.fetchAdd(1, .monotonic);
+        return true;
+    }
+    
+    pub fn remove(self: *ConnectionTracker) void {
+        _ = self.active_connections.fetchSub(1, .monotonic);
+    }
+};
+```
 
 ### 6. Command Validation
 
@@ -145,20 +209,118 @@ pub const GitCommandValidator = struct {
 
 ```
 src/ssh/
-├── server.zig          // Main SSH server implementation
-├── auth.zig            // Public key authentication
+├── server.zig          // Main SSH server implementation with event loop
+├── auth.zig            // Public key authentication using database lookups
 ├── certificate.zig     // SSH certificate support
-├── session.zig         // SSH session handling
+├── session.zig         // SSH session handling with process management
 ├── command.zig         // Command extraction and validation
-├── security.zig        // Rate limiting and security
-├── host_key.zig        // Host key management
-├── shutdown.zig        // Graceful shutdown handling
+├── security.zig        // Rate limiting with std.AutoHashMap and connection tracking
+├── host_key.zig        // Host key loading and management
+├── shutdown.zig        // Graceful shutdown with signal handling
 ├── key_validator.zig   // Key size and type validation
 ├── deploy_key.zig      // Deploy key specific logic
-└── shellquote.zig      // Shell quote parsing
+├── shellquote.zig      // Shell quote parsing
+├── ssh_wrapper.zig     // C library wrapper and FFI definitions
+└── event_loop.zig      // Central async event loop management
+```
+
+## Critical Implementation Details
+
+### Socket Configuration for Production
+
+```zig
+// Essential for high-availability deployments
+const listener_fd = try std.posix.socket(address.any.family, std.posix.SOCK.STREAM, 0);
+errdefer std.posix.close(listener_fd);
+
+// Allow immediate reuse of address after restart
+try std.posix.setsockopt(
+    listener_fd,
+    std.posix.SOL.SOCKET,
+    std.posix.SO.REUSEADDR,
+    &std.mem.toBytes(@as(c_int, 1)),
+);
+
+try std.posix.bind(listener_fd, &address.any, address.getOsSockLen());
+try std.posix.listen(listener_fd, 128); // Common backlog size
+```
+
+### Graceful Shutdown Pattern
+
+The critical issue: `accept()` is not interrupted by signals in Zig by default. Solution:
+
+```zig
+var shutdown_requested = std.atomic.Atomic(bool).init(false);
+var listener_fd_global: std.posix.fd_t = undefined; // Accessible to signal handler
+
+fn sigtermHandler(signum: c_int) callconv(.C) void {
+    _ = signum;
+    shutdown_requested.store(true, .release);
+    // CRITICAL: Close listener to unblock accept()
+    std.posix.close(listener_fd_global);
+}
+
+// In main():
+const sa = std.posix.Sigaction{
+    .handler = .{ .handler = sigtermHandler },
+    .mask = std.posix.empty_sigset,
+    .flags = 0, // No SA_RESTART
+};
+try std.posix.sigaction(std.posix.SIG.TERM, &sa, null);
+try std.posix.sigaction(std.posix.SIG.INT, &sa, null);
+
+// In accept loop:
+while (!shutdown_requested.load(.acquire)) {
+    const conn = server.accept() catch |err| {
+        if (shutdown_requested.load(.acquire)) break; // Expected during shutdown
+        return err;
+    };
+    // Handle connection...
+}
 ```
 
 ## Implementation Guidelines
+
+### Memory Management Strategy
+
+Use a hierarchical allocator pattern for safety and performance:
+
+1. **Global Allocator**: A single `std.heap.GeneralPurposeAllocator` for server-lifetime resources
+   - Wrap in `std.heap.ThreadSafeAllocator` if using helper threads
+   - Used for `RateLimiter`, `ConnectionTracker`, and other global state
+
+2. **Per-Connection Arena**: Create `std.heap.ArenaAllocator` for each connection
+   - All session-related allocations use this arena
+   - Single `arena.deinit()` call frees all connection memory
+   - Eliminates per-session memory leaks
+
+### Event Loop Architecture
+
+Since Zig's async is not a runtime but a language feature, implement an explicit event loop:
+
+```zig
+// Set at root to enable non-blocking I/O
+pub const io_mode = .evented;
+
+pub const EventLoop = struct {
+    allocator: std.mem.Allocator,
+    poll_fds: std.ArrayList(std.posix.pollfd),
+    
+    pub fn run(self: *EventLoop) !void {
+        while (!shutdown_requested.load(.acquire)) {
+            // Poll all file descriptors
+            const ready_count = try std.posix.poll(self.poll_fds.items, 100); // 100ms timeout
+            
+            // Process ready file descriptors
+            for (self.poll_fds.items) |*pfd| {
+                if (pfd.revents & std.posix.POLL.IN != 0) {
+                    // Handle readable fd
+                }
+            }
+        }
+    }
+};
+```
 
 ### Enhanced SSH Server Structure
 
@@ -166,19 +328,33 @@ src/ssh/
 pub const SshServer = struct {
     config: SshConfig,
     db: *DataAccessObject,
-    listener: std.net.Server,
+    allocator: std.mem.Allocator, // Global server-lifetime allocator
+    listener: std.net.StreamServer,
     shutdown_manager: ShutdownManager,
     rate_limiter: RateLimiter,
-    connection_tracker: ConnectionTracker,
+    connection_tracker: ConnectionTracker, // Uses std.atomic counter
     host_key_manager: HostKeyManager,
     key_validator: KeySizeValidator,
     certificate_validator: CertificateValidator,
-    permission_cache: PermissionCache, // Add permission cache for session context
+    permission_cache: PermissionCache,
+    ssh_context: *SshLibraryContext, // Wrapper around C SSH library context
     
-    pub fn handleConnection(self: *SshServer, allocator: std.mem.Allocator, conn: std.net.Connection) !void {
+    pub fn handleConnection(self: *SshServer, conn: std.net.StreamServer.Connection) void {
+        // Create per-connection arena allocator
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit(); // Guarantees all session memory is freed
+        const conn_allocator = arena.allocator();
+        
+        // Handle connection with proper error logging
+        self.handleConnectionInner(conn_allocator, conn) catch |err| {
+            std.log.warn("Connection from {any} failed: {}", .{ conn.address, err });
+        };
+    }
+    
+    fn handleConnectionInner(self: *SshServer, allocator: std.mem.Allocator, conn: std.net.StreamServer.Connection) !void {
         // Handle proxy protocol if enabled
         const real_addr = if (self.config.use_proxy_protocol)
-            try self.parseProxyProtocol(allocator, conn)
+            try self.parseProxyProtocol(allocator, conn.stream)
         else
             conn.address;
             
@@ -188,19 +364,16 @@ pub const SshServer = struct {
             return error.RateLimitExceeded;
         }
         
-        // Track connection
-        const tracked = try self.connection_tracker.tryAdd(allocator, real_addr) orelse {
-            self.logConnectionFailure(real_addr, error.TooManyConnections);
-            return error.TooManyConnections;
-        };
-        defer self.connection_tracker.remove(tracked);
+        // Track connection atomically
+        _ = self.connection_tracker.active_connections.fetchAdd(1, .monotonic);
+        defer _ = self.connection_tracker.active_connections.fetchSub(1, .monotonic);
         
         // Calculate dynamic timeout
         const timeout = self.calculateWriteTimeout(0);
-        try conn.setWriteTimeout(timeout);
+        try conn.stream.setWriteTimeout(timeout);
         
-        // Handle session
-        var session = try SshSession.init(allocator, conn, &self.config);
+        // Create SSH session using C library wrapper
+        var session = try SshSession.init(allocator, conn.stream, self.ssh_context, &self.config);
         defer session.deinit();
         
         try self.handleSession(allocator, &session);
@@ -461,38 +634,113 @@ pub const SshConfig = struct {
 - Handle deploy key permissions specially (repository-specific access)
 - Pass user context through the git command execution chain
 
-### Session Context Structure
+### Session Management with Process Integration
+
 ```zig
-pub const SessionContext = struct {
+pub const SshSession = struct {
+    allocator: std.mem.Allocator, // Per-connection arena
+    stream: std.net.Stream,
+    ssh_session: *c.ssh_session, // C library session handle
     user_id: i64,
     key_id: ?i64,
     key_type: KeyType,
-    deploy_key_id: ?i64, // For deploy key repository access
     security_ctx: *SecurityContext,
+    environment: std.process.EnvMap,
     
-    pub fn checkRepoAccess(self: *SessionContext, repo_path: []const u8, access_mode: AccessMode) !void {
+    pub fn execute(self: *SshSession, command: []const u8) !i32 {
+        // Parse and validate command
+        const parsed = try GitCommandValidator.parseCommand(command);
+        
+        // Check repository access
+        const repo_path = parsed.git.repo_path;
+        const access_mode: AccessMode = if (std.mem.eql(u8, parsed.git.verb, "git-receive-pack")) .Write else .Read;
+        
         const repo_id = try self.resolveRepoPath(repo_path);
-        
-        // Special handling for deploy keys
-        if (self.key_type == .Deploy) {
-            // Verify deploy key has access to this specific repository
-            if (!try self.validateDeployKeyAccess(repo_id)) {
-                return error.AccessDenied;
-            }
-        }
-        
-        // Use permission system for access check
-        const unit_type = if (access_mode == .Write) UnitType.Code else UnitType.Code;
         if (access_mode == .Write) {
-            try self.security_ctx.requireRepoWrite(repo_id, unit_type);
+            try self.security_ctx.requireRepoWrite(repo_id, .Code);
         } else {
-            try self.security_ctx.requireRepoRead(repo_id, unit_type);
+            try self.security_ctx.requireRepoRead(repo_id, .Code);
         }
+        
+        // Spawn git process
+        var child = std.process.Child.init(&.{parsed.git.verb, repo_path}, self.allocator);
+        child.stdin_behavior = .Pipe;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+        child.env_map = &self.environment;
+        
+        try child.spawn();
+        errdefer _ = child.kill();
+        
+        // CRITICAL: Wait for execve to complete
+        try child.waitForSpawn();
+        
+        // Get pipes for I/O proxying
+        const child_stdin = child.stdin.?.writer();
+        const child_stdout = child.stdout.?.reader();
+        
+        // TODO: Integrate with event loop for I/O proxying
+        
+        const result = try child.wait();
+        return result.Exited;
     }
 };
 ```
 
 ## Testing Strategy
+
+### Advanced Testing Techniques
+
+1. **Memory Error Testing with FailingAllocator**:
+```zig
+test "server handles OOM gracefully" {
+    const allocator = testing.allocator;
+    
+    // Test every allocation failure path
+    var fail_index: usize = 0;
+    while (fail_index < 100) : (fail_index += 1) {
+        var failing_allocator = std.testing.FailingAllocator.init(
+            allocator,
+            .{ .fail_index = fail_index }
+        );
+        
+        var server = SshServer.init(failing_allocator.allocator()) catch {
+            // Expected failure, verify cleanup
+            continue;
+        };
+        defer server.deinit();
+        
+        // If we got here, all allocations succeeded
+        break;
+    }
+}
+```
+
+2. **Protocol Testing with Fixed Buffer Streams**:
+```zig
+test "SSH protocol handling" {
+    const allocator = testing.allocator;
+    
+    // Create in-memory streams for testing
+    var server_input_buf: [4096]u8 = undefined;
+    var server_output_buf: [4096]u8 = undefined;
+    
+    var server_in = std.io.fixedBufferStream(&server_input_buf);
+    var server_out = std.io.fixedBufferStream(&server_output_buf);
+    
+    // Write pre-canned SSH packets to server input
+    try server_in.writer().writeAll(ssh_version_exchange);
+    try server_in.writer().writeAll(ssh_kexinit_packet);
+    
+    // Test server response
+    var session = try SshSession.init(allocator, server_in.reader(), server_out.writer());
+    defer session.deinit();
+    
+    // Verify correct protocol response
+    const response = server_out.getWritten();
+    try testing.expect(std.mem.startsWith(u8, response, "SSH-2.0-"));
+}
+```
 
 ### Comprehensive Test Coverage
 
@@ -927,6 +1175,36 @@ pub const CommandEvent = struct {
 - Repository state (archived, mirror) affects write permissions regardless of user permissions
 - Rate limiting should track by IP, not by user (since auth happens after connection)
 
+## Phased Implementation Plan
+
+### Phase 1: Core Infrastructure (Foundation)
+- Implement `SshServer` struct with hierarchical allocators
+- Set up main event loop with `std.posix.poll`
+- Implement atomic `ConnectionTracker`
+- Complete graceful shutdown with signal handling and listener socket closing
+- Validate server lifecycle before adding protocol logic
+
+### Phase 2: Process and I/O Integration
+- Implement git command spawning with `std.process.Child`
+- Handle `stdin`, `stdout`, `stderr` piping correctly
+- Use `waitForSpawn()` to catch command execution errors
+- Integrate child process I/O with event loop
+- Test with mock git commands
+
+### Phase 3: Security and Authentication Layer
+- Implement `RateLimiter` with periodic cleanup task
+- Create database integration for key lookups
+- Implement permission checks using existing permission system
+- Add comprehensive audit logging
+- Test all security boundaries
+
+### Phase 4: SSH Protocol Integration
+- Create `ssh_wrapper.zig` with C library FFI
+- Implement session initialization and cleanup
+- Handle authentication callbacks from C library
+- Integrate with Zig authentication logic
+- Extensive protocol testing with fixed buffer streams
+
 ## References
 
 - [Gitea SSH Implementation](https://github.com/go-gitea/gitea/blob/main/modules/ssh/ssh.go)
@@ -935,3 +1213,5 @@ pub const CommandEvent = struct {
 - [SSH Certificate Authentication](https://github.com/go-gitea/gitea/blob/main/models/asymkey/ssh_key_principals.go)
 - [SSH Protocol RFC](https://www.rfc-editor.org/rfc/rfc4253)
 - [OpenSSH Certificate Protocol](https://cvsweb.openbsd.org/src/usr.bin/ssh/PROTOCOL.certkeys)
+- [Zig Standard Library Documentation](https://ziglang.org/documentation/master/std/)
+- [zig-libssh2](https://github.com/allyourcodebase/libssh2-zig) - Build integration for libssh2
