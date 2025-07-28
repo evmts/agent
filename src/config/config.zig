@@ -422,6 +422,137 @@ pub const Config = struct {
         
         return secret_copy;
     }
+    
+    // Main loading function
+    pub fn load(allocator: std.mem.Allocator, config_path: []const u8) !Config {
+        var config = try Config.init(allocator);
+        errdefer config.deinit();
+        
+        // Step 1: Load from file
+        try config.loadFromFileInternal(config_path);
+        
+        // Step 2: Apply environment overrides
+        try config.loadEnvironmentOverrides();
+        
+        // Step 3: Validate final configuration
+        try config.validate();
+        
+        return config;
+    }
+    
+    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !Config {
+        var config = try Config.init(allocator);
+        errdefer config.deinit();
+        
+        try config.loadFromFileInternal(path);
+        
+        return config;
+    }
+    
+    fn loadFromFileInternal(self: *Config, path: []const u8) !void {
+        // Validate file permissions
+        try validateConfigFilePermissions(path);
+        
+        // Read file content
+        const content = try std.fs.cwd().readFileAlloc(self.allocator, path, 1024 * 1024); // 1MB max
+        defer self.allocator.free(content);
+        
+        // Parse INI
+        var parser = try IniParser.init(self.allocator);
+        defer parser.deinit();
+        
+        try parser.parse(content);
+        
+        // Load server section
+        if (parser.getValue("server", "host")) |value| {
+            const host_copy = try self.allocator.dupe(u8, value);
+            try self.allocated_strings.append(host_copy);
+            self.server.host = host_copy;
+        } else |_| {}
+        
+        if (parser.getValue("server", "port")) |value| {
+            self.server.port = try std.fmt.parseInt(u16, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("server", "worker_threads")) |value| {
+            self.server.worker_threads = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("server", "request_timeout_ms")) |value| {
+            self.server.request_timeout_ms = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("server", "max_request_size")) |value| {
+            self.server.max_request_size = try std.fmt.parseInt(usize, value, 10);
+        } else |_| {}
+        
+        // Load database section
+        if (parser.getValue("database", "connection_url")) |value| {
+            const url_copy = try self.allocator.dupe(u8, value);
+            try self.allocated_strings.append(url_copy);
+            self.database.connection_url = url_copy;
+        } else |_| {}
+        
+        if (parser.getValue("database", "max_connections")) |value| {
+            self.database.max_connections = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("database", "connection_timeout_seconds")) |value| {
+            self.database.connection_timeout_seconds = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+        
+        // Load repository section
+        if (parser.getValue("repository", "base_path")) |value| {
+            const path_copy = try self.allocator.dupe(u8, value);
+            try self.allocated_strings.append(path_copy);
+            self.repository.base_path = path_copy;
+        } else |_| {}
+        
+        if (parser.getValue("repository", "max_repo_size")) |value| {
+            self.repository.max_repo_size = try std.fmt.parseInt(u64, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("repository", "allow_force_push")) |value| {
+            self.repository.allow_force_push = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
+        } else |_| {}
+        
+        if (parser.getValue("repository", "enable_lfs")) |value| {
+            self.repository.enable_lfs = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
+        } else |_| {}
+        
+        if (parser.getValue("repository", "default_branch")) |value| {
+            const branch_copy = try self.allocator.dupe(u8, value);
+            try self.allocated_strings.append(branch_copy);
+            self.repository.default_branch = branch_copy;
+        } else |_| {}
+        
+        // Load security section
+        if (parser.getValue("security", "secret_key")) |value| {
+            const key_copy = try self.allocator.dupe(u8, value);
+            try self.allocated_strings.append(key_copy);
+            self.security.secret_key = key_copy;
+        } else |_| {}
+        
+        if (parser.getValue("security", "token_expiration_hours")) |value| {
+            self.security.token_expiration_hours = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("security", "enable_registration")) |value| {
+            self.security.enable_registration = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
+        } else |_| {}
+        
+        if (parser.getValue("security", "require_email_verification")) |value| {
+            self.security.require_email_verification = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
+        } else |_| {}
+        
+        if (parser.getValue("security", "min_password_length")) |value| {
+            self.security.min_password_length = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+        
+        if (parser.getValue("security", "bcrypt_cost")) |value| {
+            self.security.bcrypt_cost = try std.fmt.parseInt(u32, value, 10);
+        } else |_| {}
+    }
 };
 
 fn buildEnvVarName(allocator: std.mem.Allocator, section: []const u8, key: []const u8) ![]u8 {
@@ -722,4 +853,104 @@ test "validates secret file permissions" {
     
     const result = config.loadSecretFromFile(full_path);
     try std.testing.expectError(ConfigError.FilePermissionTooOpen, result);
+}
+
+test "loads complete configuration from file" {
+    const allocator = std.testing.allocator;
+    
+    // Create test directory
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Create test config file
+    const config_content =
+        \\[server]
+        \\host = 0.0.0.0
+        \\port = 8080
+        \\worker_threads = 8
+        \\
+        \\[database]
+        \\connection_url = postgresql://testuser:testpass@localhost:5432/testdb
+        \\max_connections = 30
+        \\
+        \\[repository]
+        \\base_path = /tmp
+        \\max_repo_size = 2147483648
+        \\
+        \\[security]
+        \\secret_key = test-secret-key-that-is-long-enough-for-validation
+        \\token_expiration_hours = 48
+        \\enable_registration = false
+    ;
+    
+    const config_file = "test_config.ini";
+    const file = try tmp_dir.dir.createFile(config_file, .{ .mode = 0o600 });
+    try file.writeAll(config_content);
+    file.close();
+    
+    // Get full path
+    const full_path = try tmp_dir.dir.realpathAlloc(allocator, config_file);
+    defer allocator.free(full_path);
+    
+    var config = try Config.loadFromFile(allocator, full_path);
+    defer config.deinit();
+    
+    try std.testing.expectEqualStrings("0.0.0.0", config.server.host);
+    try std.testing.expectEqual(@as(u16, 8080), config.server.port);
+    try std.testing.expectEqual(@as(u32, 8), config.server.worker_threads);
+    
+    try std.testing.expectEqualStrings("postgresql://testuser:testpass@localhost:5432/testdb", config.database.connection_url);
+    try std.testing.expectEqual(@as(u32, 30), config.database.max_connections);
+    
+    try std.testing.expectEqualStrings("/tmp", config.repository.base_path);
+    try std.testing.expectEqual(@as(u64, 2147483648), config.repository.max_repo_size);
+    
+    try std.testing.expectEqual(false, config.security.enable_registration);
+}
+
+test "complete configuration lifecycle with overrides" {
+    const allocator = std.testing.allocator;
+    
+    // Create test directory
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Set environment override
+    try std.posix.setenv("PLUE_SERVER_PORT", "9090", 1);
+    defer std.posix.unsetenv("PLUE_SERVER_PORT") catch {};
+    
+    // Create minimal config file
+    const config_content =
+        \\[server]
+        \\host = 127.0.0.1
+        \\port = 8000
+        \\
+        \\[database]
+        \\connection_url = postgresql://localhost/plue
+        \\
+        \\[security]
+        \\secret_key = production-secret-key-with-sufficient-length-123456
+    ;
+    
+    const config_file = "test_lifecycle.ini";
+    const file = try tmp_dir.dir.createFile(config_file, .{ .mode = 0o600 });
+    try file.writeAll(config_content);
+    file.close();
+    
+    // Get full path
+    const full_path = try tmp_dir.dir.realpathAlloc(allocator, config_file);
+    defer allocator.free(full_path);
+    
+    // Load with all steps
+    var config = try Config.load(allocator, full_path);
+    defer config.deinit();
+    
+    // Environment should override file
+    try std.testing.expectEqual(@as(u16, 9090), config.server.port);
+    
+    // File values should be loaded
+    try std.testing.expectEqualStrings("127.0.0.1", config.server.host);
+    
+    // Defaults should be used for missing values
+    try std.testing.expectEqual(@as(u32, 4), config.server.worker_threads);
 }
