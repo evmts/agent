@@ -553,6 +553,50 @@ pub const Config = struct {
             self.security.bcrypt_cost = try std.fmt.parseInt(u32, value, 10);
         } else |_| {}
     }
+    
+    pub fn sanitizeForLogging(self: *const Config, allocator: std.mem.Allocator) !Config {
+        var sanitized = try Config.init(allocator);
+        errdefer sanitized.deinit();
+        
+        // Copy non-sensitive values
+        sanitized.server = self.server;
+        sanitized.repository = self.repository;
+        sanitized.database = self.database;
+        sanitized.security = self.security;
+        
+        // Sanitize sensitive values
+        const redacted = try allocator.dupe(u8, "[REDACTED]");
+        try sanitized.allocated_strings.append(redacted);
+        sanitized.security.secret_key = redacted;
+        
+        // Sanitize database URL
+        if (std.mem.indexOf(u8, self.database.connection_url, "://")) |scheme_end| {
+            if (std.mem.indexOf(u8, self.database.connection_url[scheme_end..], "@")) |at_pos| {
+                // Extract parts
+                const scheme = self.database.connection_url[0..scheme_end + 3];
+                const after_at = self.database.connection_url[scheme_end + at_pos + 1..];
+                
+                const sanitized_url = try std.fmt.allocPrint(
+                    allocator, 
+                    "{s}[REDACTED]@{s}", 
+                    .{scheme, after_at}
+                );
+                try sanitized.allocated_strings.append(sanitized_url);
+                sanitized.database.connection_url = sanitized_url;
+            } else {
+                const url_copy = try allocator.dupe(u8, self.database.connection_url);
+                try sanitized.allocated_strings.append(url_copy);
+                sanitized.database.connection_url = url_copy;
+            }
+        } else {
+            // No scheme found, just copy as-is
+            const url_copy = try allocator.dupe(u8, self.database.connection_url);
+            try sanitized.allocated_strings.append(url_copy);
+            sanitized.database.connection_url = url_copy;
+        }
+        
+        return sanitized;
+    }
 };
 
 fn buildEnvVarName(allocator: std.mem.Allocator, section: []const u8, key: []const u8) ![]u8 {
@@ -953,4 +997,21 @@ test "complete configuration lifecycle with overrides" {
     
     // Defaults should be used for missing values
     try std.testing.expectEqual(@as(u32, 4), config.server.worker_threads);
+}
+
+test "sanitizes configuration for logging" {
+    const allocator = std.testing.allocator;
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    config.security.secret_key = "super-secret-key-12345";
+    config.database.connection_url = "postgresql://user:password@localhost:5432/plue";
+    
+    const sanitized = try config.sanitizeForLogging(allocator);
+    defer sanitized.deinit();
+    
+    try std.testing.expectEqualStrings("[REDACTED]", sanitized.security.secret_key);
+    try std.testing.expect(std.mem.indexOf(u8, sanitized.database.connection_url, "password") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sanitized.database.connection_url, "[REDACTED]") != null);
 }
