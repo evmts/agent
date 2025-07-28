@@ -93,6 +93,96 @@ fn validateConfigFilePermissions(path: []const u8) ConfigError!void {
     }
 }
 
+const IniParser = struct {
+    allocator: std.mem.Allocator,
+    sections: std.StringHashMap(Section),
+    
+    const Section = std.StringHashMap([]const u8);
+    
+    pub fn init(allocator: std.mem.Allocator) !IniParser {
+        return .{
+            .allocator = allocator,
+            .sections = std.StringHashMap(Section).init(allocator),
+        };
+    }
+    
+    pub fn deinit(self: *IniParser) void {
+        var section_iter = self.sections.iterator();
+        while (section_iter.next()) |entry| {
+            var section = entry.value_ptr.*;
+            
+            var value_iter = section.iterator();
+            while (value_iter.next()) |value_entry| {
+                self.allocator.free(value_entry.key_ptr.*);
+                self.allocator.free(value_entry.value_ptr.*);
+            }
+            
+            section.deinit();
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.sections.deinit();
+    }
+    
+    pub fn parse(self: *IniParser, content: []const u8) !void {
+        var lines = std.mem.tokenize(u8, content, "\n\r");
+        var current_section: ?[]const u8 = null;
+        
+        while (lines.next()) |line| {
+            // Trim whitespace
+            const trimmed = std.mem.trim(u8, line, " \t");
+            
+            // Skip empty lines and comments
+            if (trimmed.len == 0 or trimmed[0] == '#' or trimmed[0] == ';') {
+                continue;
+            }
+            
+            // Check for section header
+            if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
+                const section_name = trimmed[1 .. trimmed.len - 1];
+                
+                // Validate section name
+                if (std.mem.indexOf(u8, section_name, " ") != null) {
+                    return ConfigError.ParseError;
+                }
+                
+                const section_key = try self.allocator.dupe(u8, section_name);
+                try self.sections.put(section_key, Section.init(self.allocator));
+                current_section = section_key;
+                continue;
+            }
+            
+            // Parse key-value pair
+            if (current_section == null) {
+                return ConfigError.ParseError;
+            }
+            
+            const eq_pos = std.mem.indexOf(u8, trimmed, "=") orelse return ConfigError.ParseError;
+            
+            const key = std.mem.trim(u8, trimmed[0..eq_pos], " \t");
+            var value = std.mem.trim(u8, trimmed[eq_pos + 1 ..], " \t");
+            
+            // Remove inline comments
+            if (std.mem.indexOf(u8, value, "#")) |comment_pos| {
+                value = std.mem.trim(u8, value[0..comment_pos], " \t");
+            }
+            if (std.mem.indexOf(u8, value, ";")) |comment_pos| {
+                value = std.mem.trim(u8, value[0..comment_pos], " \t");
+            }
+            
+            // Store key-value pair
+            var section = self.sections.getPtr(current_section.?).?;
+            const key_copy = try self.allocator.dupe(u8, key);
+            const value_copy = try self.allocator.dupe(u8, value);
+            try section.put(key_copy, value_copy);
+        }
+    }
+    
+    pub fn getValue(self: *IniParser, section: []const u8, key: []const u8) ![]const u8 {
+        const section_map = self.sections.get(section) orelse return ConfigError.InvalidSection;
+        return section_map.get(key) orelse return ConfigError.InvalidKey;
+    }
+};
+
 test "ConfigError provides detailed error information" {
     const err = ConfigError.InvalidPort;
     try std.testing.expectEqual(ConfigError.InvalidPort, err);
@@ -140,4 +230,77 @@ test "validates file permissions for security" {
 test "handles missing config files gracefully" {
     const result = validateConfigFilePermissions("nonexistent.ini");
     try std.testing.expectError(ConfigError.FileNotFound, result);
+}
+
+test "parses basic INI format" {
+    const allocator = std.testing.allocator;
+    
+    const ini_content =
+        \\[server]
+        \\host = 0.0.0.0
+        \\port = 9000
+        \\
+        \\[database]
+        \\connection_url = postgresql://localhost/test
+        \\max_connections = 50
+    ;
+    
+    var parser = try IniParser.init(allocator);
+    defer parser.deinit();
+    
+    try parser.parse(ini_content);
+    
+    const server_host = try parser.getValue("server", "host");
+    try std.testing.expectEqualStrings("0.0.0.0", server_host);
+    
+    const server_port = try parser.getValue("server", "port");
+    try std.testing.expectEqualStrings("9000", server_port);
+    
+    const db_url = try parser.getValue("database", "connection_url");
+    try std.testing.expectEqualStrings("postgresql://localhost/test", db_url);
+}
+
+test "handles comments and empty lines" {
+    const allocator = std.testing.allocator;
+    
+    const ini_content =
+        \\# This is a comment
+        \\[server]
+        \\host = localhost  # inline comment
+        \\
+        \\# Another comment
+        \\port = 8080
+        \\
+        \\; Semicolon comment
+        \\[database]
+        \\; connection_url = postgresql://prod  ; commented out
+        \\connection_url = postgresql://dev
+    ;
+    
+    var parser = try IniParser.init(allocator);
+    defer parser.deinit();
+    
+    try parser.parse(ini_content);
+    
+    const host = try parser.getValue("server", "host");
+    try std.testing.expectEqualStrings("localhost", host);
+    
+    const url = try parser.getValue("database", "connection_url");
+    try std.testing.expectEqualStrings("postgresql://dev", url);
+}
+
+test "handles malformed INI gracefully" {
+    const allocator = std.testing.allocator;
+    
+    var parser = try IniParser.init(allocator);
+    defer parser.deinit();
+    
+    // Missing section header
+    try std.testing.expectError(ConfigError.ParseError, parser.parse("key = value"));
+    
+    // Invalid section format
+    try std.testing.expectError(ConfigError.ParseError, parser.parse("[invalid section with spaces]"));
+    
+    // No equals sign
+    try std.testing.expectError(ConfigError.ParseError, parser.parse("[section]\nkey value"));
 }
