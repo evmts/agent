@@ -4,6 +4,7 @@ const user_models = @import("models/user.zig");
 const repo_models = @import("models/repository.zig");
 const issue_models = @import("models/issue.zig");
 const action_models = @import("models/action.zig");
+const permission_models = @import("models/permission.zig");
 
 const DataAccessObject = @This();
 
@@ -31,6 +32,18 @@ pub const ActionRunner = action_models.ActionRunner;
 pub const ActionRunnerToken = action_models.ActionRunnerToken;
 pub const ActionArtifact = action_models.ActionArtifact;
 pub const ActionSecret = action_models.ActionSecret;
+
+// Permission models
+pub const OwnerType = permission_models.OwnerType;
+pub const Organization = permission_models.Organization;
+pub const Team = permission_models.Team;
+pub const TeamUser = permission_models.TeamUser;
+pub const TeamRepo = permission_models.TeamRepo;
+pub const Collaboration = permission_models.Collaboration;
+pub const Access = permission_models.Access;
+pub const OrgUsers = permission_models.OrgUsers;
+pub const RepositoryExt = permission_models.RepositoryExt;
+pub const UserExt = permission_models.UserExt;
 
 pub fn init(connection_url: []const u8) !DataAccessObject {
     const uri = try std.Uri.parse(connection_url);
@@ -1427,4 +1440,211 @@ pub fn deleteRunner(self: *DataAccessObject, _: std.mem.Allocator, runner_id: i6
     
     const query = "DELETE FROM action_runner WHERE id = $1";
     _ = try client.query(query, .{runner_id});
+}
+
+// Permission-related methods
+
+// Get extended user with permission fields
+pub fn getUserExt(self: *DataAccessObject, allocator: std.mem.Allocator, user_id: i64) !UserExt {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, name, is_admin, is_restricted, is_deleted, is_active, prohibit_login, visibility
+        \\FROM users WHERE id = $1
+    , .{user_id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const name = row.get([]const u8, 1);
+        const visibility = row.get([]const u8, 7);
+        
+        return UserExt{
+            .id = row.get(i64, 0),
+            .name = try allocator.dupe(u8, name),
+            .is_admin = row.get(bool, 2),
+            .is_restricted = row.get(bool, 3),
+            .is_deleted = row.get(bool, 4),
+            .is_active = row.get(bool, 5),
+            .prohibit_login = row.get(bool, 6),
+            .visibility = try allocator.dupe(u8, visibility),
+        };
+    }
+    
+    return error.NotFound;
+}
+
+// Get extended repository with permission fields
+pub fn getRepositoryExt(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64) !RepositoryExt {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, owner_id, owner_type, name, is_private, is_mirror, is_archived, is_deleted, visibility
+        \\FROM repository WHERE id = $1
+    , .{repo_id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const owner_type_str = row.get([]const u8, 2);
+        const owner_type = std.meta.stringToEnum(OwnerType, owner_type_str) orelse .user;
+        const name = row.get([]const u8, 3);
+        const visibility = row.get([]const u8, 8);
+        
+        return RepositoryExt{
+            .id = row.get(i64, 0),
+            .owner_id = row.get(i64, 1),
+            .owner_type = owner_type,
+            .name = try allocator.dupe(u8, name),
+            .is_private = row.get(bool, 4),
+            .is_mirror = row.get(bool, 5),
+            .is_archived = row.get(bool, 6),
+            .is_deleted = row.get(bool, 7),
+            .visibility = try allocator.dupe(u8, visibility),
+        };
+    }
+    
+    return error.NotFound;
+}
+
+// Get organization
+pub fn getOrganization(self: *DataAccessObject, allocator: std.mem.Allocator, org_id: i64) !Organization {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, name, visibility, max_repo_creation, 
+        \\       EXTRACT(EPOCH FROM created_at)::BIGINT
+        \\FROM organizations WHERE id = $1
+    , .{org_id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const name = row.get([]const u8, 1);
+        const visibility = row.get([]const u8, 2);
+        
+        return Organization{
+            .id = row.get(i64, 0),
+            .name = try allocator.dupe(u8, name),
+            .visibility = try allocator.dupe(u8, visibility),
+            .max_repo_creation = row.get(i32, 3),
+            .created_at = row.get(i64, 4),
+        };
+    }
+    
+    return error.NotFound;
+}
+
+// Check if user is organization member
+pub fn isOrganizationMember(self: *DataAccessObject, org_id: i64, user_id: i64) !bool {
+    var maybe_row = try self.pool.row(
+        \\SELECT 1 FROM org_users WHERE org_id = $1 AND user_id = $2
+    , .{ org_id, user_id });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        return true;
+    }
+    
+    return false;
+}
+
+// Check if user is a collaborator
+pub fn isCollaborator(self: *DataAccessObject, user_id: i64, repo_id: i64) !bool {
+    var maybe_row = try self.pool.row(
+        \\SELECT 1 FROM collaborations WHERE user_id = $1 AND repo_id = $2
+    , .{ user_id, repo_id });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        return true;
+    }
+    
+    return false;
+}
+
+// Get access level from pre-computed cache
+pub fn getAccessLevel(self: *DataAccessObject, user_id: i64, repo_id: i64) !?Access {
+    var maybe_row = try self.pool.row(
+        \\SELECT user_id, repo_id, mode, EXTRACT(EPOCH FROM updated_at)::BIGINT
+        \\FROM access WHERE user_id = $1 AND repo_id = $2
+    , .{ user_id, repo_id });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const mode = row.get([]const u8, 2);
+        
+        return Access{
+            .user_id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .mode = mode, // Caller is responsible for duping if needed
+            .updated_at = row.get(i64, 3),
+        };
+    }
+    
+    return null;
+}
+
+// Get collaboration details
+pub fn getCollaboration(self: *DataAccessObject, allocator: std.mem.Allocator, user_id: i64, repo_id: i64) !?Collaboration {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, repo_id, user_id, mode, units, EXTRACT(EPOCH FROM created_at)::BIGINT
+        \\FROM collaborations WHERE user_id = $1 AND repo_id = $2
+    , .{ user_id, repo_id });
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const mode = row.get([]const u8, 3);
+        const units = row.get(?[]const u8, 4);
+        
+        return Collaboration{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .user_id = row.get(i64, 2),
+            .mode = try allocator.dupe(u8, mode),
+            .units = if (units) |u| try allocator.dupe(u8, u) else null,
+            .created_at = row.get(i64, 5),
+        };
+    }
+    
+    return null;
+}
+
+// Get user's teams in an organization that have access to a repository
+pub fn getUserRepoTeams(self: *DataAccessObject, allocator: std.mem.Allocator, org_id: i64, user_id: i64, repo_id: i64) !std.ArrayList(Team) {
+    var result = try self.pool.query(
+        \\SELECT t.id, t.org_id, t.name, t.access_mode, t.can_create_org_repo, 
+        \\       t.is_owner_team, t.units, EXTRACT(EPOCH FROM t.created_at)::BIGINT
+        \\FROM teams t
+        \\INNER JOIN team_users tu ON t.id = tu.team_id
+        \\INNER JOIN team_repos tr ON t.id = tr.team_id
+        \\WHERE t.org_id = $1 AND tu.user_id = $2 AND tr.repo_id = $3
+    , .{ org_id, user_id, repo_id });
+    defer result.deinit();
+    
+    var teams = std.ArrayList(Team).init(allocator);
+    errdefer {
+        for (teams.items) |team| {
+            allocator.free(team.name);
+            allocator.free(team.access_mode);
+            if (team.units) |u| allocator.free(u);
+        }
+        teams.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const access_mode = row.get([]const u8, 3);
+        const units = row.get(?[]const u8, 6);
+        
+        const team = Team{
+            .id = row.get(i64, 0),
+            .org_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .access_mode = try allocator.dupe(u8, access_mode),
+            .can_create_org_repo = row.get(bool, 4),
+            .is_owner_team = row.get(bool, 5),
+            .units = if (units) |u| try allocator.dupe(u8, u) else null,
+            .created_at = row.get(i64, 7),
+        };
+        try teams.append(team);
+    }
+    
+    return teams;
 }
