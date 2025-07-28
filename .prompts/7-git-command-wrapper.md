@@ -80,8 +80,8 @@ A robust Git command wrapper that:
 
    test "rejects broken git arguments" {
        // Test known problematic arguments
-       try std.testing.expect(isBrokenGitArgument("--upload-pack"));
-       try std.testing.expect(isBrokenGitArgument("-c"));
+       try std.testing.expect(isBrokenGitArgument("--upload-archive"));  // Old syntax
+       try std.testing.expect(isBrokenGitArgument("--output"));  // Can write arbitrary files
        try std.testing.expect(!isBrokenGitArgument("--version"));
    }
 
@@ -316,6 +316,7 @@ A robust Git command wrapper that:
    };
 
    // Strict allow-list for environment variables
+   // CRITICAL: Never include GIT_EXEC_PATH, GIT_SSH_COMMAND, or HTTP_PROXY
    const ALLOWED_ENV_VARS = [_][]const u8{
        "GIT_AUTHOR_NAME",
        "GIT_AUTHOR_EMAIL",
@@ -324,7 +325,6 @@ A robust Git command wrapper that:
        "GIT_HTTP_USER_AGENT",
        "GIT_PROTOCOL",
        "GIT_TERMINAL_PROMPT",
-       "GIT_ASKPASS",
        "GIT_NAMESPACE",
        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
        "GIT_OBJECT_DIRECTORY",
@@ -339,6 +339,15 @@ A robust Git command wrapper that:
        "PATH",  // Required for finding git
        "LC_ALL", // Locale
        "LANG",   // Locale
+       // Protocol-specific (added conditionally)
+       "PLUE_PUSHER_ID",
+       "PLUE_PUSHER_NAME", 
+       "PLUE_REPO_USER_NAME",
+       "PLUE_REPO_NAME",
+       "PLUE_REPO_IS_WIKI",
+       "PLUE_IS_INTERNAL",
+       "PLUE_PR_ID",
+       "PLUE_KEY_ID",
    };
    ```
 
@@ -375,11 +384,42 @@ A robust Git command wrapper that:
    }
    ```
 
-2. **Implement streaming execution**
-   - Use pipes for stdout/stderr
-   - Read in chunks with configurable buffer size
-   - Call callbacks for each chunk
-   - Handle backpressure correctly
+2. **Implement streaming execution with proper I/O handling**
+   ```zig
+   // Set up non-blocking pipes
+   var stdout_pipe = try std.posix.pipe();
+   var stderr_pipe = try std.posix.pipe();
+   
+   // Configure non-blocking I/O
+   const flags = try std.posix.fcntl(stdout_pipe[0], .F_GETFL, 0);
+   _ = try std.posix.fcntl(stdout_pipe[0], .F_SETFL, flags | std.posix.O.NONBLOCK);
+   
+   // Efficient buffer size (4-16KB typical)
+   const BUFFER_SIZE = 16 * 1024;
+   var buffer: [BUFFER_SIZE]u8 = undefined;
+   
+   // Read loop with poll for efficiency
+   var pollfds = [_]std.posix.pollfd{
+       .{ .fd = stdout_pipe[0], .events = std.posix.POLL.IN, .revents = 0 },
+       .{ .fd = stderr_pipe[0], .events = std.posix.POLL.IN, .revents = 0 },
+   };
+   
+   while (true) {
+       _ = try std.posix.poll(&pollfds, 1000); // 1 second timeout
+       
+       if (pollfds[0].revents & std.posix.POLL.IN != 0) {
+           const n = std.posix.read(stdout_pipe[0], &buffer) catch |err| switch (err) {
+               error.WouldBlock => continue,
+               else => return err,
+           };
+           
+           if (n == 0) break; // EOF
+           
+           // Call callback with chunk
+           try options.stdout_callback(buffer[0..n], options.stdout_context);
+       }
+   }
+   ```
 
 #### Phase 6: Timeout Enforcement (TDD)
 
@@ -409,10 +449,53 @@ A robust Git command wrapper that:
    }
    ```
 
-2. **Implement timeout mechanism**
-   - Use separate thread for timeout monitoring
-   - Kill process group on timeout
-   - Clean up resources properly
+2. **Implement timeout mechanism with process groups**
+   ```zig
+   // Note: std.process.Child doesn't expose setpgid directly
+   // Must use manual fork/exec pattern for process groups
+   const pid = try std.posix.fork();
+   
+   if (pid == 0) {
+       // Child: Create new process group
+       _ = std.posix.setpgid(0, 0) catch std.posix.exit(1);
+       
+       // Set resource limits if needed
+       const rlim = std.posix.rlimit{
+           .cur = 256 * 1024 * 1024, // 256MB memory limit
+           .max = 256 * 1024 * 1024,
+       };
+       _ = std.posix.setrlimit(.AS, &rlim) catch {};
+       
+       // Execute git
+       const argv = [_:null]?[*:0]const u8{ git_path, args... };
+       std.posix.execvpeZ(git_path, &argv, envp) catch std.posix.exit(1);
+   }
+   
+   // Parent: Monitor with timeout thread
+   const State = struct {
+       mutex: std.Thread.Mutex = .{},
+       is_done: bool = false,
+       child_pgid: std.posix.pid_t,
+   };
+   
+   var state = State{ .child_pgid = pid };
+   const monitor = try std.Thread.spawn(.{}, monitorThread, .{ &state, timeout_ms });
+   
+   // On timeout, kill entire process group
+   fn monitorThread(state: *State, timeout_ms: u64) void {
+       std.time.sleep(timeout_ms * std.time.ns_per_ms);
+       
+       state.mutex.lock();
+       defer state.mutex.unlock();
+       
+       if (!state.is_done) {
+           // Kill entire process group (negative PID)
+           _ = std.posix.kill(-state.child_pgid, .TERM) catch {};
+           std.time.sleep(100 * std.time.ns_per_ms);
+           _ = std.posix.kill(-state.child_pgid, .KILL) catch {};
+       }
+   }
+   ```
 
 #### Phase 7: Git Protocol Support (TDD)
 
@@ -564,13 +647,16 @@ A robust Git command wrapper that:
    - Result structs own memory that caller must free
    - Stream callbacks should not retain references to data
    - GitCommandError should be stack-allocated when possible
+   - Use ArenaAllocator for request-scoped operations
+   - Combine ArenaAllocator (temporary) with GeneralPurposeAllocator (long-lived)
 
 2. **Process Management**
 
-   - Always use process groups for timeout handling
+   - Always use process groups for timeout handling (requires manual fork/exec)
    - Clean up child processes on all error paths
-   - Handle SIGPIPE for broken connections
-   - Set appropriate process limits
+   - Ignore SIGPIPE at startup: `std.posix.sigaction(.PIPE, &.{ .handler = .{ .handler = std.posix.SIG.IGN } }, null)`
+   - Set resource limits with setrlimit before exec
+   - Use dedicated monitoring thread for timeouts (not async/await)
 
 3. **Security Hardening**
 
@@ -584,6 +670,19 @@ A robust Git command wrapper that:
    - Handle different Git paths in Alpine
    - Work with limited process capabilities
    - Handle missing locales gracefully
+   - Cache git executable path globally after first lookup
+
+5. **Error Handling**
+   - Parse stderr for specific Git errors (e.g., "repository not found")
+   - Differentiate spawn errors from execution errors
+   - Use Diagnostics Pattern for rich error context
+   - Map errno values to domain-specific errors
+
+6. **I/O Patterns**
+   - Use 4-16KB buffers for pipe reads
+   - Configure non-blocking I/O with fcntl
+   - Use poll() to avoid busy-waiting on pipes
+   - Handle error.WouldBlock gracefully
 
 ### Common Pitfalls to Avoid
 
@@ -711,5 +810,56 @@ pub fn cloneHandler(r: zap.Request, ctx: *Context) !void {
 - Gitea Implementation: https://github.com/go-gitea/gitea/blob/main/modules/git/command.go
 
 ## Amendments
+
+### Implementation Guidance from Zig Research
+
+1. **Process Groups Require Manual Fork/Exec**
+   - `std.process.Child` doesn't expose `setpgid` functionality
+   - Must use `std.posix.fork()` and `std.posix.setpgid(0, 0)` pattern
+   - Call `setpgid` in child before `execvpe` to avoid race conditions
+
+2. **SIGPIPE Handling Pattern**
+   ```zig
+   // At application startup
+   var sa = std.posix.Sigaction{
+       .handler = .{ .handler = std.posix.SIG.IGN },
+       .mask = std.posix.empty_sigset,
+       .flags = 0,
+   };
+   try std.posix.sigaction(.PIPE, &sa, null);
+   ```
+
+3. **Memory Allocation Strategy**
+   - Use `ArenaAllocator` for per-command temporary memory
+   - Use `GeneralPurposeAllocator` for long-lived results
+   - Global arena for caching git executable path
+
+4. **Non-Blocking I/O Pattern**
+   ```zig
+   const flags = try std.posix.fcntl(fd, .F_GETFL, 0);
+   _ = try std.posix.fcntl(fd, .F_SETFL, flags | std.posix.O.NONBLOCK);
+   ```
+
+5. **Platform-Specific Considerations**
+   - Windows: Check for `git.exe`, handle different process termination
+   - Use `std.fs.path` for cross-platform path handling
+   - Git paths in Alpine: `/usr/bin/git` (busybox)
+
+### Additional Security Insights from Gitea Analysis
+
+1. **Broken Arguments List**
+   - `--upload-archive`: Old syntax, security risk
+   - `--output`: Can write to arbitrary files
+   - `-c` is allowed but values must be hardcoded by application
+
+2. **Protocol Headers**
+   - Upload-pack advertisement: `Content-Type: application/x-git-upload-pack-advertisement`
+   - Upload-pack result: `Content-Type: application/x-git-upload-pack-result`
+   - Include `Cache-Control: no-cache`
+
+3. **Hook Environment Variables**
+   - Pass context via `PLUE_*` variables for hooks
+   - Pre-receive is synchronous (can reject push)
+   - Post-receive is asynchronous (for side effects)
 
 _This section will be updated with any significant learnings or changes discovered during implementation._
