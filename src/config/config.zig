@@ -624,6 +624,99 @@ fn buildEnvVarName(allocator: std.mem.Allocator, section: []const u8, key: []con
     return result.toOwnedSlice();
 }
 
+pub fn generateDefaultConfig(allocator: std.mem.Allocator) ![]u8 {
+    var buffer = std.ArrayList(u8).init(allocator);
+    errdefer buffer.deinit();
+    
+    const writer = buffer.writer();
+    
+    try writer.print(
+        \\# Plue Configuration File
+        \\# 
+        \\# This file should be readable only by the owner (chmod 600)
+        \\# Environment variables can override these values using PLUE_SECTION_KEY format
+        \\#
+        \\# For file-based secrets, use: file:///path/to/secret
+        \\
+        \\[server]
+        \\# Interface to bind to (0.0.0.0 for all interfaces)
+        \\host = {s}
+        \\# Port to listen on
+        \\port = {d}
+        \\# Number of worker threads
+        \\worker_threads = {d}
+        \\# Request timeout in milliseconds
+        \\request_timeout_ms = {d}
+        \\# Maximum request size in bytes
+        \\max_request_size = {d}
+        \\
+        \\[database]
+        \\# PostgreSQL connection URL
+        \\# Example: postgresql://username:password@localhost:5432/database
+        \\connection_url = {s}
+        \\# Maximum number of database connections
+        \\max_connections = {d}
+        \\# Connection timeout in seconds
+        \\connection_timeout_seconds = {d}
+        \\# Idle connection timeout in seconds
+        \\idle_timeout_seconds = {d}
+        \\# Statement cache size
+        \\statement_cache_size = {d}
+        \\
+        \\[repository]
+        \\# Base path for git repositories
+        \\base_path = {s}
+        \\# Maximum repository size in bytes (default: 1GB)
+        \\max_repo_size = {d}
+        \\# Allow force push operations
+        \\allow_force_push = {s}
+        \\# Enable Git LFS support
+        \\enable_lfs = {s}
+        \\# Default branch name for new repositories
+        \\default_branch = {s}
+        \\
+        \\[security]
+        \\# Secret key for session encryption (CHANGE THIS!)
+        \\# Generate with: openssl rand -hex 32
+        \\secret_key = {s}
+        \\# Token expiration time in hours
+        \\token_expiration_hours = {d}
+        \\# Allow new user registration
+        \\enable_registration = {s}
+        \\# Require email verification for new users
+        \\require_email_verification = {s}
+        \\# Minimum password length
+        \\min_password_length = {d}
+        \\# Bcrypt cost factor (10-31, higher is more secure but slower)
+        \\bcrypt_cost = {d}
+        \\
+    , .{
+        ServerConfig{}.host,
+        ServerConfig{}.port,
+        ServerConfig{}.worker_threads,
+        ServerConfig{}.request_timeout_ms,
+        ServerConfig{}.max_request_size,
+        DatabaseConfig{}.connection_url,
+        DatabaseConfig{}.max_connections,
+        DatabaseConfig{}.connection_timeout_seconds,
+        DatabaseConfig{}.idle_timeout_seconds,
+        DatabaseConfig{}.statement_cache_size,
+        RepositoryConfig{}.base_path,
+        RepositoryConfig{}.max_repo_size,
+        if (RepositoryConfig{}.allow_force_push) "true" else "false",
+        if (RepositoryConfig{}.enable_lfs) "true" else "false",
+        RepositoryConfig{}.default_branch,
+        SecurityConfig{}.secret_key,
+        SecurityConfig{}.token_expiration_hours,
+        if (SecurityConfig{}.enable_registration) "true" else "false",
+        if (SecurityConfig{}.require_email_verification) "true" else "false",
+        SecurityConfig{}.min_password_length,
+        SecurityConfig{}.bcrypt_cost,
+    });
+    
+    return buffer.toOwnedSlice();
+}
+
 test "ConfigError provides detailed error information" {
     const err = ConfigError.InvalidPort;
     try std.testing.expectEqual(ConfigError.InvalidPort, err);
@@ -1014,4 +1107,26 @@ test "sanitizes configuration for logging" {
     try std.testing.expectEqualStrings("[REDACTED]", sanitized.security.secret_key);
     try std.testing.expect(std.mem.indexOf(u8, sanitized.database.connection_url, "password") == null);
     try std.testing.expect(std.mem.indexOf(u8, sanitized.database.connection_url, "[REDACTED]") != null);
+}
+
+test "example: generating default configuration" {
+    const allocator = std.testing.allocator;
+    
+    const default_config = try generateDefaultConfig(allocator);
+    defer allocator.free(default_config);
+    
+    // Should generate a valid INI file
+    try std.testing.expect(std.mem.indexOf(u8, default_config, "[server]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, default_config, "[database]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, default_config, "[repository]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, default_config, "[security]") != null);
+    
+    // Create test directory for example file
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Write to file for user
+    const file = try tmp_dir.dir.createFile("plue.ini.example", .{});
+    defer file.close();
+    try file.writeAll(default_config);
 }
