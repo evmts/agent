@@ -264,6 +264,22 @@ pub const Config = struct {
         const env_name = try buildEnvVarName(self.allocator, section, key);
         defer self.allocator.free(env_name);
         
+        // Check for __FILE suffix first
+        const file_env_name = try std.fmt.allocPrint(self.allocator, "{s}__FILE", .{env_name});
+        defer self.allocator.free(file_env_name);
+        
+        const file_value = try std.process.getEnvVarOwned(self.allocator, file_env_name) catch |err| switch (err) {
+            error.EnvironmentVariableNotFound => null,
+            else => return err,
+        };
+        defer if (file_value) |v| self.allocator.free(v);
+        
+        if (file_value) |file_path| {
+            // Load from file
+            const content = try self.loadSecretFromFile(file_path);
+            return content;
+        }
+        
         // Regular environment variable
         const value = try std.process.getEnvVarOwned(self.allocator, env_name) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => return null,
@@ -374,6 +390,37 @@ pub const Config = struct {
         if (self.security.token_expiration_hours == 0 or self.security.token_expiration_hours > 24 * 365) {
             return ConfigError.InvalidValue;
         }
+    }
+    
+    fn loadSecretFromFile(self: *Config, path: []const u8) ![]const u8 {
+        // Validate file permissions first
+        try validateConfigFilePermissions(path);
+        
+        // Read file content with size limit
+        const MAX_SECRET_FILE_SIZE = 64 * 1024; // 64KB max for secrets
+        const content = std.fs.cwd().readFileAlloc(self.allocator, path, MAX_SECRET_FILE_SIZE) catch |err| switch (err) {
+            error.FileNotFound => return ConfigError.FileNotFound,
+            error.AccessDenied => return ConfigError.PermissionDenied,
+            error.FileTooBig => return ConfigError.FileSizeTooLarge,
+            else => return err,
+        };
+        errdefer self.allocator.free(content);
+        
+        // Trim whitespace and newlines
+        const trimmed = std.mem.trim(u8, content, " \t\n\r");
+        
+        // Empty file is an error for secrets
+        if (trimmed.len == 0) {
+            self.allocator.free(content);
+            return ConfigError.EmptySecretFile;
+        }
+        
+        // Store the secret
+        const secret_copy = try self.allocator.dupe(u8, trimmed);
+        try self.allocated_strings.append(secret_copy);
+        self.allocator.free(content);
+        
+        return secret_copy;
     }
 };
 
@@ -622,4 +669,57 @@ test "validates security configuration" {
     // Invalid bcrypt cost
     config.security.bcrypt_cost = 3;
     try std.testing.expectError(ConfigError.InvalidValue, config.validateSecurity());
+}
+
+test "loads environment values from files with __FILE suffix" {
+    const allocator = std.testing.allocator;
+    
+    // Create test directory
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Create secret file
+    const secret_file = "env_secret.txt";
+    const file = try tmp_dir.dir.createFile(secret_file, .{ .mode = 0o600 });
+    try file.writeAll("secret-from-env-file");
+    file.close();
+    
+    // Get full path
+    const full_path = try tmp_dir.dir.realpathAlloc(allocator, secret_file);
+    defer allocator.free(full_path);
+    
+    // Set environment variable with __FILE suffix
+    try std.posix.setenv("PLUE_SECURITY_SECRET_KEY__FILE", full_path, 1);
+    defer std.posix.unsetenv("PLUE_SECURITY_SECRET_KEY__FILE") catch {};
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    try config.loadEnvironmentOverrides();
+    
+    try std.testing.expectEqualStrings("secret-from-env-file", config.security.secret_key);
+}
+
+test "validates secret file permissions" {
+    const allocator = std.testing.allocator;
+    
+    // Create test directory
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Create test secret file with bad permissions
+    const secret_file = "bad_secret.txt";
+    const file = try tmp_dir.dir.createFile(secret_file, .{ .mode = 0o644 });
+    try file.writeAll("secret");
+    file.close();
+    
+    // Get full path
+    const full_path = try tmp_dir.dir.realpathAlloc(allocator, secret_file);
+    defer allocator.free(full_path);
+    
+    var config = try Config.init(allocator);
+    defer config.deinit();
+    
+    const result = config.loadSecretFromFile(full_path);
+    try std.testing.expectError(ConfigError.FilePermissionTooOpen, result);
 }
