@@ -1,5 +1,5 @@
 const std = @import("std");
-const libssh2 = @import("deps/zig-libssh2/libssh2.zig");
+const libssh2 = @import("src/libssh2.zig");
 const mbedtls = @import("deps/zig-mbedtls/mbedtls.zig");
 
 // Asset generation step for GUI
@@ -267,9 +267,9 @@ pub fn build(b: *std.Build) void {
     // Build mbedTLS first
     const tls = mbedtls.create(b, target, optimize);
     
-    // Build libssh2 and link with mbedTLS
+    // Build libssh2 with our direct integration
     const ssh2 = libssh2.create(b, target, optimize);
-    tls.link(ssh2.step);
+    tls.link(ssh2.step); // Link mbedTLS to libssh2
     
     // Link libssh2 to main executable
     ssh2.link(exe);
