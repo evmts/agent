@@ -1,1234 +1,666 @@
-# Permission System Implementation
+# Implement Enterprise Permission System with Organization/Team Support (ENHANCED WITH GITEA PRODUCTION PATTERNS)
 
-## Overview
+<task_definition>
+Implement a comprehensive enterprise-grade permission system for repository access control that provides organization/team support, unit-level permissions, visibility patterns, and request-level caching. This system handles complex permission hierarchies, team-based access control, fine-grained repository permissions, and Git protocol authorization with production-grade security and performance following Gitea's battle-tested patterns.
+</task_definition>
 
-Implement a comprehensive permission checking system for repository access control in the Plue application, following Gitea's production-proven patterns. This system will serve as the authorization foundation for all git operations, supporting individual users, organizations, teams, and fine-grained unit-level permissions with proper handling of edge cases like archived repositories, mirrors, and restricted users.
+<context_and_constraints>
 
-## Core Requirements
+<technical_requirements>
 
-### 1. Access Mode Enumeration
+- **Language/Framework**: Zig - https://ziglang.org/documentation/master/
+- **Dependencies**: Database models (issue #18), Configuration system
+- **Location**: `src/auth/permissions.zig`, `src/auth/teams.zig`, `src/auth/units.zig`
+- **Database**: PostgreSQL with advanced indexing for complex queries
+- **Security**: Multi-tier RBAC with organization/team/unit-level permissions
+- **Memory**: Request-level caching with invalidation cascades
+- **🆕 Organizations**: Full organization support with team hierarchies
+- **🆕 Unit Permissions**: Fine-grained unit-level access control (issues, PRs, wiki, etc.)
+- **🆕 Visibility Patterns**: Complex visibility rules with inheritance
+- **Integration**: SSH server, HTTP Git server, API endpoints, webhook systems
 
-Create an `AccessMode` enum with the following permission levels:
+</technical_requirements>
+
+<business_context>
+
+Plue requires an enterprise-grade permission system to support:
+
+- **🆕 Organization Management**: Multi-tier organization hierarchies with team structures
+- **🆕 Team-Based Access**: Granular team permissions with inheritance patterns
+- **🆕 Unit-Level Permissions**: Fine-grained control over repository features (issues, PRs, wiki, releases, packages)
+- **🆕 Complex Visibility**: Public, private, internal, and limited visibility with organization-specific rules
+- **Repository Access Control**: Repository-level permissions with collaborative features
+- **Git Protocol Authorization**: SSH and HTTP Git operations with team-aware routing
+- **Admin Operations**: Multi-level administration (system, organization, repository)
+- **API Access Control**: Context-aware API endpoint authorization
+- **🆕 Audit & Compliance**: Comprehensive audit trails with organization-level reporting
+- **🆕 Integration Patterns**: Webhook permissions, external authentication, LDAP/SAML integration
+
+The system must scale to thousands of organizations, teams, and repositories while maintaining sub-millisecond permission checks through request-level caching and smart invalidation patterns following Gitea's production architecture.
+
+</business_context>
+
+</context_and_constraints>
+
+<detailed_specifications>
+
+<input>
+
+🆕 **Enterprise Permission System Requirements (Gitea Production Patterns)**:
+
+1. **🆕 Multi-Tier Permission Architecture**:
+   ```zig
+   // Repository-level permissions
+   const RepositoryPermission = enum {
+       none,      // No access
+       read,      // Clone, fetch, pull operations
+       write,     // Push operations, branch management  
+       admin,     // Repository settings, collaborator management
+       owner,     // Full control including deletion
+   };
+   
+   // Organization-level roles
+   const OrganizationRole = enum {
+       none,      // No organization access
+       member,    // Basic organization access
+       admin,     // Organization management
+       owner,     // Full organization control
+   };
+   
+   // Team-level permissions with inheritance
+   const TeamPermission = enum {
+       none,      // No team access
+       read,      // Team visibility, basic access
+       write,     // Team repository write access
+       admin,     // Team management, member administration
+   };
+   ```
+
+2. **🆕 Unit-Level Permissions (Fine-Grained Control)**:
+   ```zig
+   const UnitType = enum {
+       code,           // Repository code access
+       issues,         // Issue tracking
+       pull_requests,  // Pull request management
+       releases,       // Release management
+       wiki,           // Wiki access
+       packages,       // Package management
+       actions,        // CI/CD actions
+       projects,       // Project management
+   };
+   
+   const UnitPermission = struct {
+       unit_type: UnitType,
+       access_mode: AccessMode,
+       
+       const AccessMode = enum {
+           none,    // Unit disabled
+           read,    // Read-only access
+           write,   // Read-write access
+           admin,   // Administrative access
+       };
+   };
+   ```
+
+3. **🆕 Complex Visibility Patterns**:
+   ```zig
+   const RepositoryVisibility = enum {
+       public,      // Visible to everyone
+       internal,    // Visible to authenticated users
+       private,     // Visible only to authorized users
+       limited,     // Visible to organization members only
+       
+       pub fn isVisibleTo(self: RepositoryVisibility, user: ?User, org: ?Organization) bool;
+   };
+   ```
+
+4. **🆕 Team Hierarchy and Inheritance**:
+   - Teams can inherit permissions from parent teams
+   - Team permissions override individual collaborator permissions
+   - Organization-level default permissions
+   - Repository-specific team access controls
+
+5. **🆕 Permission Resolution Priority** (highest to lowest):
+   - Repository owner permissions
+   - Repository admin collaborator permissions
+   - Organization owner permissions
+   - Team-specific permissions (merged)
+   - Organization member base permissions
+   - Repository visibility settings
+   - System-level permissions
+
+6. **🆕 Advanced Permission Sources**:
+   - Direct repository collaborators
+   - Organization team memberships (with inheritance)
+   - Organization base permissions
+   - Repository ownership
+   - System administrator privileges
+   - External authentication provider groups (LDAP/SAML)
+   - Temporary access grants
+
+🆕 **Expected Enterprise Permission Check Scenarios**:
 ```zig
-pub const AccessMode = enum(u8) {
-    None = 0,
-    Read = 1,
-    Write = 2,
-    Admin = 3,
-    Owner = 4,
+// Multi-tier permission resolution
+const context = PermissionContext{
+    .user_id = user_id,
+    .organization_id = org_id,
+    .repository_id = repo_id,
+    .request_id = request_id, // For caching
+};
+
+// Repository-level permissions with team inheritance
+const repo_permission = try permission_checker.getUserRepoPermission(allocator, context);
+
+// Unit-level permission checks
+const can_view_issues = try permission_checker.hasUnitAccess(allocator, context, .issues, .read);
+const can_manage_releases = try permission_checker.hasUnitAccess(allocator, context, .releases, .admin);
+
+// Team-based authorization with inheritance
+const team_permissions = try permission_checker.getUserTeamPermissions(allocator, user_id, org_id);
+
+// Organization role resolution
+const org_role = try permission_checker.getUserOrgRole(allocator, user_id, org_id);
+
+// Complex visibility checks
+const can_see_repo = try permission_checker.canUserSeeRepository(allocator, user_id, repo_path);
+
+// Git protocol authorization with team context
+const git_auth = GitAuthContext{
+    .user_id = user_id,
+    .repository_path = "org/repo.git",
+    .operation = .push,
+    .branch = "main",
+    .team_context = team_context,
+};
+const can_push = try permission_checker.authorizeGitOperation(allocator, git_auth);
+
+// API endpoint authorization with unit awareness
+const api_context = APIAuthContext{
+    .user_id = user_id,
+    .endpoint = "/api/v1/repos/org/repo/issues",
+    .method = .POST,
+    .required_unit = .issues,
+    .required_access = .write,
+};
+const can_access_api = try permission_checker.authorizeAPIAccess(allocator, api_context);
+```
+
+</input>
+
+<expected_output>
+
+🆕 **Complete Enterprise Permission System Providing**:
+
+1. **🆕 Multi-Tier Permission Checker**: Core authorization with organization/team/unit awareness
+2. **🆕 Team Management System**: Team hierarchies with permission inheritance
+3. **🆕 Unit-Level Access Control**: Fine-grained feature-level permissions
+4. **🆕 Organization Role Management**: Complex organization structures with role inheritance
+5. **🆕 Advanced Visibility Engine**: Complex visibility patterns with organization rules
+6. **Repository Access Control**: Enhanced repository permissions with team integration
+7. **Git Protocol Authorization**: Team-aware SSH and HTTP Git operation authorization
+8. **🆕 Request-Level Caching**: High-performance caching with cascade invalidation
+9. **🆕 Comprehensive Audit System**: Multi-level audit trails with organization reporting
+10. **🆕 Integration Framework**: LDAP/SAML, webhook permissions, external auth providers
+11. **Admin Interface**: Multi-tier administration tools (system/org/repo)
+12. **Performance Optimization**: Sub-millisecond checks with smart caching patterns
+
+🆕 **Enhanced Enterprise Permission Architecture**:
+```zig
+const PermissionChecker = struct {
+    db: *DatabaseConnection,
+    cache: *RequestLevelCache,
+    audit_logger: *AuditLogger,
+    team_manager: *TeamManager,
+    org_manager: *OrganizationManager,
+
+    // 🆕 Multi-tier permission resolution
+    pub fn getUserRepoPermission(self: *PermissionChecker, allocator: std.mem.Allocator, context: PermissionContext) !ResolvedPermission;
+    pub fn hasUnitAccess(self: *PermissionChecker, allocator: std.mem.Allocator, context: PermissionContext, unit: UnitType, access: AccessMode) !bool;
     
-    pub fn atLeast(self: AccessMode, required: AccessMode) bool {
-        return @intFromEnum(self) >= @intFromEnum(required);
-    }
+    // 🆕 Team-based authorization
+    pub fn getUserTeamPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, org_id: u32) ![]TeamPermissionSet;
+    pub fn resolveTeamInheritance(self: *PermissionChecker, allocator: std.mem.Allocator, team_id: u32) !ResolvedTeamPermission;
+    
+    // 🆕 Organization management
+    pub fn getUserOrgRole(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, org_id: u32) !OrganizationRole;
+    pub fn checkOrgTeamPermission(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, org_id: u32, team_id: u32) !TeamPermission;
+    
+    // 🆕 Advanced visibility and access
+    pub fn canUserSeeRepository(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, repo_path: []const u8) !bool;
+    pub fn getRepositoryVisibilityLevel(self: *PermissionChecker, allocator: std.mem.Allocator, repo_id: u32, user_context: UserContext) !VisibilityLevel;
+    
+    // 🆕 Enhanced Git protocol authorization
+    pub fn authorizeGitOperation(self: *PermissionChecker, allocator: std.mem.Allocator, context: GitAuthContext) !AuthorizationResult;
+    pub fn authorizeAPIAccess(self: *PermissionChecker, allocator: std.mem.Allocator, context: APIAuthContext) !APIAuthorizationResult;
+    
+    // 🆕 Advanced permission management
+    pub fn grantTeamRepoAccess(self: *PermissionChecker, allocator: std.mem.Allocator, granter_id: u32, team_id: u32, repo_id: u32, units: []UnitPermission) !void;
+    pub fn updateUserOrgRole(self: *PermissionChecker, allocator: std.mem.Allocator, admin_id: u32, user_id: u32, org_id: u32, role: OrganizationRole) !void;
+    pub fn bulkUpdateTeamPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, team_updates: []TeamPermissionUpdate) !BulkUpdateResult;
+    
+    // 🆕 Request-level caching with invalidation
+    pub fn invalidateUserPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32) !void;
+    pub fn invalidateRepositoryPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, repo_id: u32) !void;
+    pub fn invalidateOrganizationPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, org_id: u32) !void;
+};
+
+// 🆕 Enhanced permission structures
+const ResolvedPermission = struct {
+    repository_access: RepositoryPermission,
+    unit_permissions: []UnitPermission,
+    source: PermissionSource,
+    team_context: ?TeamContext,
+    expires_at: ?i64,
+    
+    const PermissionSource = enum {
+        repository_owner,
+        repository_collaborator,
+        organization_owner,
+        organization_admin,
+        team_permission,
+        organization_member,
+        public_access,
+        system_admin,
+    };
+};
+
+const PermissionContext = struct {
+    user_id: u32,
+    repository_id: ?u32,
+    organization_id: ?u32,
+    team_id: ?u32,
+    request_id: []const u8, // For request-level caching
+    client_ip: ?[]const u8,
+    user_agent: ?[]const u8,
+};
+
+// 🆕 Team management structures
+const TeamManager = struct {
+    pub fn getTeamHierarchy(self: *TeamManager, allocator: std.mem.Allocator, team_id: u32) !TeamHierarchy;
+    pub fn resolveInheritedPermissions(self: *TeamManager, allocator: std.mem.Allocator, team_path: []u32) ![]UnitPermission;
+    pub fn validateTeamAccess(self: *TeamManager, allocator: std.mem.Allocator, user_id: u32, team_id: u32) !bool;
+};
+
+const OrganizationManager = struct {
+    pub fn getOrgDefaultPermissions(self: *OrganizationManager, allocator: std.mem.Allocator, org_id: u32) ![]UnitPermission;
+    pub fn getUserOrgMembership(self: *OrganizationManager, allocator: std.mem.Allocator, user_id: u32, org_id: u32) !?OrganizationMembership;
+    pub fn checkOrgVisibilityRules(self: *OrganizationManager, allocator: std.mem.Allocator, org_id: u32, user_context: UserContext) !bool;
 };
 ```
 
-### 2. Unit-Level Permissions with Public Access Support
-
-Support fine-grained permissions per repository unit with separate access modes for different user types:
-```zig
-pub const UnitType = enum {
-    Code,
-    Issues,
-    PullRequests,
-    Wiki,
-    Projects,
-    Actions,
-    Packages,
-    Settings,
-};
-
-pub const Permission = struct {
-    access_mode: AccessMode,
-    units: ?std.EnumMap(UnitType, AccessMode),
-    everyone_access_mode: std.EnumMap(UnitType, AccessMode),   // For signed-in users
-    anonymous_access_mode: std.EnumMap(UnitType, AccessMode),  // For anonymous users
-    
-    pub fn unitAccessMode(self: *const Permission, unit_type: UnitType) AccessMode {
-        // Admin/Owner mode overrides unit-specific permissions
-        if (self.access_mode.atLeast(.Admin)) {
-            return self.access_mode;
-        }
-        
-        // If units map is null (admin override), return general access
-        if (self.units == null) {
-            return self.access_mode;
-        }
-        
-        // Get unit-specific permission or fall back to general access
-        const unit_mode = self.units.?.get(unit_type) orelse self.access_mode;
-        const everyone_mode = self.everyone_access_mode.get(unit_type) orelse .None;
-        const anonymous_mode = self.anonymous_access_mode.get(unit_type) orelse .None;
-        
-        return @max(unit_mode, @max(everyone_mode, anonymous_mode));
-    }
-    
-    pub fn canAccess(self: *const Permission, unit_type: UnitType, required_mode: AccessMode) bool {
-        return self.unitAccessMode(unit_type).atLeast(required_mode);
-    }
-    
-    pub fn canRead(self: *const Permission, unit_type: UnitType) bool {
-        return self.canAccess(unit_type, .Read);
-    }
-    
-    pub fn canWrite(self: *const Permission, unit_type: UnitType) bool {
-        return self.canAccess(unit_type, .Write);
-    }
-};
-```
-
-### 3. Visibility Types
-
-```zig
-pub const Visibility = enum {
-    Public,     // Visible to everyone
-    Limited,    // Visible to signed-in users (not restricted users)
-    Private,    // Visible only to members
-};
-```
-
-### 4. Request-Level Permission Cache
-
-Implement ephemeral caching for the duration of a single request:
-```zig
-pub const PermissionCache = struct {
-    const CacheKey = struct { 
-        user_id: ?i64, 
-        repo_id: i64,
-        
-        pub fn hash(self: CacheKey) u64 {
-            var hasher = std.hash.Wyhash.init(0);
-            std.hash.autoHash(&hasher, self.user_id);
-            std.hash.autoHash(&hasher, self.repo_id);
-            return hasher.final();
-        }
-    };
-    
-    cache: std.HashMap(CacheKey, Permission, std.hash_map.AutoContext(CacheKey), 80),
-    allocator: std.mem.Allocator,
-    
-    pub fn init(allocator: std.mem.Allocator) PermissionCache {
-        return .{
-            .cache = std.HashMap(CacheKey, Permission, std.hash_map.AutoContext(CacheKey), 80).init(allocator),
-            .allocator = allocator,
-        };
-    }
-    
-    pub fn deinit(self: *PermissionCache) void {
-        self.cache.deinit();
-    }
-    
-    pub fn getOrCompute(
-        self: *PermissionCache,
-        dao: *DataAccessObject,
-        user_id: ?i64,
-        repo_id: i64,
-    ) !Permission {
-        const key = CacheKey{ .user_id = user_id, .repo_id = repo_id };
-        if (self.cache.get(key)) |cached| {
-            return cached;
-        }
-        
-        const permission = try loadUserRepoPermission(self.allocator, dao, user_id, repo_id);
-        try self.cache.put(key, permission);
-        return permission;
-    }
-};
-```
-
-### 5. Error Types
-
-```zig
-pub const PermissionError = error{
-    RepositoryNotFound,
-    UserNotFound,
-    DatabaseError,
-    InvalidInput,
-    RepositoryArchived,    // Write denied to archived repos
-    RepositoryMirror,      // Write denied to mirrors
-    OrganizationPrivate,   // Access denied to private org
-    UserRestricted,        // Restricted user access denied
-} || error{OutOfMemory};
-```
-
-### 6. Visibility Check Function
-
-```zig
-pub fn hasOrgOrUserVisible(
-    allocator: std.mem.Allocator,
-    dao: *DataAccessObject,
-    owner_id: i64,
-    owner_type: OwnerType,
-    owner_visibility: Visibility,
-    requesting_user: ?i64,
-) !bool {
-    // Anonymous users only see public entities
-    if (requesting_user == null) {
-        return owner_visibility == .Public;
-    }
-    
-    const user_id = requesting_user.?;
-    
-    // Load user to check admin status
-    const user = try dao.getUser(allocator, user_id);
-    defer allocator.free(user.name);
-    
-    // Admins and self always have visibility
-    if (user.is_admin or (owner_type == .user and owner_id == user_id)) {
-        return true;
-    }
-    
-    // Check organization membership
-    if (owner_type == .organization) {
-        // Private orgs require membership
-        if (owner_visibility == .Private) {
-            return try dao.isOrganizationMember(owner_id, user_id);
-        }
-        
-        // Limited visibility orgs are hidden from restricted users unless they're members
-        if (owner_visibility == .Limited and user.is_restricted) {
-            return try dao.isOrganizationMember(owner_id, user_id);
-        }
-    }
-    
-    return true;
-}
-```
-
-### 7. Core Permission Loading Function
-
-Implement the main permission loading logic with all edge cases:
-```zig
-pub fn loadUserRepoPermission(
-    allocator: std.mem.Allocator,
-    dao: *DataAccessObject,
-    user_id: ?i64,
-    repo_id: i64,
-) !Permission {
-    // Default deny with no unit access
-    var permission = Permission{
-        .access_mode = .None,
-        .units = std.EnumMap(UnitType, AccessMode).initFull(.None),
-        .everyone_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
-        .anonymous_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
-    };
-    
-    // Check if repository exists and is not deleted
-    const repo = dao.getRepository(allocator, repo_id) catch |err| switch (err) {
-        error.NotFound => return PermissionError.RepositoryNotFound,
-        else => {
-            std.log.err("Permission check failed for repo {d}: {}", .{ repo_id, err });
-            return permission; // Fail closed
-        },
-    };
-    defer allocator.free(repo.name);
-    
-    if (repo.is_deleted) {
-        return permission;
-    }
-    
-    // Load repository owner for visibility checks
-    const owner = switch (repo.owner_type) {
-        .user => try dao.getUser(allocator, repo.owner_id),
-        .organization => try dao.getOrganization(allocator, repo.owner_id),
-    };
-    defer allocator.free(owner.name);
-    
-    // Handle anonymous users
-    if (user_id == null) {
-        // Check if owner is visible to anonymous users
-        if (!try hasOrgOrUserVisible(allocator, dao, repo.owner_id, repo.owner_type, owner.visibility, null)) {
-            return permission;
-        }
-        
-        if (!repo.is_private) {
-            permission.access_mode = .Read;
-            // Enable read access for all units except settings
-            var iter = permission.units.?.iterator();
-            while (iter.next()) |entry| {
-                if (entry.key != .Settings) {
-                    permission.units.?.put(entry.key, .Read);
-                    permission.anonymous_access_mode.put(entry.key, .Read);
-                }
-            }
-        }
-        return permission;
-    }
-    
-    const uid = user_id.?;
-    
-    // Check if user exists and is active
-    const user = dao.getUser(allocator, uid) catch {
-        return permission; // Fail closed
-    };
-    defer allocator.free(user.name);
-    
-    if (user.is_deleted or !user.is_active or user.prohibit_login) {
-        return permission;
-    }
-    
-    // Check owner visibility
-    if (!try hasOrgOrUserVisible(allocator, dao, repo.owner_id, repo.owner_type, owner.visibility, uid)) {
-        // Special case: check if user is a collaborator despite org visibility
-        const is_collab = try dao.isCollaborator(uid, repo_id);
-        if (!is_collab) {
-            return permission;
-        }
-    }
-    
-    // Check if user is repository owner
-    if (repo.owner_id == uid and repo.owner_type == .user) {
-        permission.access_mode = .Owner;
-        permission.units = null; // Admin override - no unit restrictions
-        return permission;
-    }
-    
-    // Check if user is admin
-    if (user.is_admin) {
-        // Even admins can't access truly private orgs they're not members of
-        if (repo.owner_type == .organization and owner.visibility == .Private) {
-            if (!try dao.isOrganizationMember(repo.owner_id, uid)) {
-                // Continue to check normal permissions
-            } else {
-                permission.access_mode = .Owner; // Admins get owner access
-                permission.units = null; // Admin override
-                return permission;
-            }
-        } else {
-            permission.access_mode = .Owner;
-            permission.units = null;
-            return permission;
-        }
-    }
-    
-    // Handle restricted users
-    if (user.is_restricted) {
-        // Restricted users can't access limited visibility organizations
-        if (repo.owner_type == .organization and owner.visibility == .Limited) {
-            if (!try dao.isOrganizationMember(repo.owner_id, uid)) {
-                return permission; // Deny access
-            }
-        }
-        
-        // Restricted users get no default read access to public repos
-        // They must have explicit permissions
-    }
-    
-    // Check pre-computed access table first (performance optimization)
-    if (try dao.getAccessLevel(uid, repo_id)) |access| {
-        permission.access_mode = std.meta.stringToEnum(AccessMode, access.mode) orelse .None;
-    }
-    
-    // Check organization and team permissions
-    if (repo.owner_type == .organization) {
-        const team_perm = try checkOrgTeamPermission(allocator, dao, repo.owner_id, uid, repo_id);
-        
-        // Merge permissions taking the maximum
-        permission.access_mode = @max(permission.access_mode, team_perm.access_mode);
-        
-        if (team_perm.units) |team_units| {
-            if (permission.units) |*units| {
-                var iter = team_units.iterator();
-                while (iter.next()) |entry| {
-                    const current = units.get(entry.key) orelse .None;
-                    units.put(entry.key, @max(current, entry.value.*));
-                }
-            } else {
-                // Team gave admin access
-                permission.units = null;
-            }
-        } else if (team_perm.access_mode.atLeast(.Admin)) {
-            // Team gave admin access
-            permission.units = null;
-        }
-    }
-    
-    // Check individual collaboration permissions
-    if (try dao.getCollaboration(allocator, uid, repo_id)) |collab| {
-        defer allocator.free(collab.mode);
-        const collab_mode = std.meta.stringToEnum(AccessMode, collab.mode) orelse .None;
-        permission.access_mode = @max(permission.access_mode, collab_mode);
-        
-        // Apply collaboration unit permissions if specified
-        if (collab.units) |units| {
-            defer allocator.free(units);
-            // Parse and apply unit-specific permissions
-            applyUnitPermissions(&permission, units, collab_mode);
-        }
-    }
-    
-    // Public repository default access (if not already set)
-    if (!repo.is_private and permission.access_mode == .None and !user.is_restricted) {
-        permission.access_mode = .Read;
-        // Enable read access for public units
-        if (permission.units) |*units| {
-            var iter = units.iterator();
-            while (iter.next()) |entry| {
-                if (entry.key != .Settings and entry.value.* == .None) {
-                    units.put(entry.key, .Read);
-                    permission.everyone_access_mode.put(entry.key, .Read);
-                }
-            }
-        }
-    }
-    
-    // Apply repository state restrictions
-    if (repo.is_archived and permission.access_mode.atLeast(.Write)) {
-        std.log.warn("Downgrading write access to read for archived repository {d}", .{repo_id});
-        permission.access_mode = .Read;
-        
-        // Downgrade all unit permissions to read
-        if (permission.units) |*units| {
-            var iter = units.iterator();
-            while (iter.next()) |entry| {
-                if (entry.value.*.atLeast(.Write)) {
-                    units.put(entry.key, .Read);
-                }
-            }
-        }
-    }
-    
-    if (repo.is_mirror and permission.access_mode.atLeast(.Write)) {
-        std.log.warn("Downgrading write access to read for mirror repository {d}", .{repo_id});
-        permission.access_mode = .Read;
-        
-        // Downgrade all unit permissions to read
-        if (permission.units) |*units| {
-            var iter = units.iterator();
-            while (iter.next()) |entry| {
-                if (entry.value.*.atLeast(.Write)) {
-                    units.put(entry.key, .Read);
-                }
-            }
-        }
-    }
-    
-    // Log successful permission load for audit
-    std.log.debug("Permission loaded for user {?d} in repo {d}, access: {}", .{ user_id, repo_id, permission.access_mode });
-    
-    return permission;
-}
-
-fn checkOrgTeamPermission(
-    allocator: std.mem.Allocator,
-    dao: *DataAccessObject,
-    org_id: i64,
-    user_id: i64,
-    repo_id: i64,
-) !Permission {
-    var permission = Permission{
-        .access_mode = .None,
-        .units = std.EnumMap(UnitType, AccessMode).initFull(.None),
-        .everyone_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
-        .anonymous_access_mode = std.EnumMap(UnitType, AccessMode).initFull(.None),
-    };
-    
-    // Get user's teams in this organization that have access to this repository
-    const teams = try dao.getUserRepoTeams(allocator, org_id, user_id, repo_id);
-    defer teams.deinit();
-    
-    // Check for admin teams first (they get full access immediately)
-    for (teams.items) |team| {
-        if (team.hasAdminAccess()) {
-            permission.access_mode = .Owner;  // Admin teams get Owner access
-            permission.units = null; // Clear units map - admin overrides everything
-            return permission;
-        }
-    }
-    
-    // Process each unit across all teams using Gitea's algorithm
-    var unit_iter = std.enums.values(UnitType);
-    while (unit_iter.next()) |unit_type| {
-        var max_unit_access = AccessMode.None;
-        
-        for (teams.items) |team| {
-            // Get team's access mode for this unit
-            const team_unit_mode = try getTeamUnitAccessMode(allocator, dao, team, unit_type);
-            max_unit_access = @max(max_unit_access, team_unit_mode);
-        }
-        
-        if (permission.units) |*units| {
-            units.put(unit_type, max_unit_access);
-        }
-        
-        // Update overall access mode to be at least the max unit access
-        if (max_unit_access > permission.access_mode) {
-            permission.access_mode = max_unit_access;
-        }
-    }
-    
-    return permission;
-}
-
-fn getTeamUnitAccessMode(
-    allocator: std.mem.Allocator,
-    dao: *DataAccessObject,
-    team: Team,
-    unit_type: UnitType,
-) !AccessMode {
-    // Check if team has unit-specific permissions
-    if (team.units) |units_json| {
-        // Parse JSON to find unit-specific access
-        // This is a simplified version - implement proper JSON parsing
-        _ = units_json;
-        _ = allocator;
-    }
-    
-    // Fall back to team's general access mode
-    return std.meta.stringToEnum(AccessMode, team.access_mode) orelse .None;
-}
-
-fn applyUnitPermissions(permission: *Permission, units_json: []const u8, default_mode: AccessMode) void {
-    // Parse JSON unit permissions and apply them
-    // Format: {"issues": "write", "pulls": "admin", "wiki": "none"}
-    // Implementation depends on JSON parsing approach
-    _ = units_json;
-    _ = default_mode;
-    // TODO: Implement JSON parsing for unit permissions
-}
-```
-
-### 8. Helper Functions for Common Checks
-
-```zig
-pub fn canReadRepository(
-    cache: *PermissionCache,
-    dao: *DataAccessObject,
-    user_id: ?i64,
-    repo_id: i64,
-) !bool {
-    const perm = try cache.getOrCompute(dao, user_id, repo_id);
-    return perm.access_mode.atLeast(.Read);
-}
-
-pub fn canWriteRepository(
-    cache: *PermissionCache,
-    dao: *DataAccessObject,
-    user_id: i64,
-    repo_id: i64,
-) !bool {
-    const perm = try cache.getOrCompute(dao, user_id, repo_id);
-    
-    // Check for archived/mirror restrictions
-    const repo = try dao.getRepository(cache.allocator, repo_id);
-    defer cache.allocator.free(repo.name);
-    
-    if (repo.is_archived or repo.is_mirror) {
-        return false;
-    }
-    
-    return perm.access_mode.atLeast(.Write);
-}
-
-pub fn canAccessUnit(
-    cache: *PermissionCache,
-    dao: *DataAccessObject,
-    user_id: ?i64,
-    repo_id: i64,
-    unit_type: UnitType,
-    required_mode: AccessMode,
-) !bool {
-    const perm = try cache.getOrCompute(dao, user_id, repo_id);
-    
-    // For write operations, check repository state
-    if (required_mode.atLeast(.Write)) {
-        const repo = try dao.getRepository(cache.allocator, repo_id);
-        defer cache.allocator.free(repo.name);
-        
-        if (repo.is_archived or repo.is_mirror) {
-            return false;
-        }
-    }
-    
-    return perm.canAccess(unit_type, required_mode);
-}
-
-// Special checks for specific operations
-pub fn canCreateIssue(cache: *PermissionCache, dao: *DataAccessObject, user_id: i64, repo_id: i64) !bool {
-    return canAccessUnit(cache, dao, user_id, repo_id, .Issues, .Write);
-}
-
-pub fn canMergePullRequest(cache: *PermissionCache, dao: *DataAccessObject, user_id: i64, repo_id: i64) !bool {
-    const perm = try cache.getOrCompute(dao, user_id, repo_id);
-    
-    // Check repository state
-    const repo = try dao.getRepository(cache.allocator, repo_id);
-    defer cache.allocator.free(repo.name);
-    
-    if (repo.is_archived or repo.is_mirror) {
-        return false;
-    }
-    
-    // Merging requires write access to code or admin/owner status
-    return perm.canAccess(.Code, .Write) or perm.access_mode.atLeast(.Admin);
-}
-```
-
-### 9. Security Middleware Pattern
-
-```zig
-pub fn requireRepositoryAccess(
-    comptime required_mode: AccessMode,
-    comptime unit_type: UnitType,
-) type {
-    return struct {
-        pub fn middleware(r: zap.Request, ctx: *Context, next: anytype) !void {
-            const cache = try PermissionCache.init(ctx.allocator);
-            defer cache.deinit();
-            
-            const user_id = getUserFromRequest(r) catch null;
-            const repo_id = try getRepoFromPath(r.path);
-            
-            // Load repository to check state
-            const repo = ctx.dao.getRepository(ctx.allocator, repo_id) catch |err| switch (err) {
-                error.NotFound => {
-                    r.setStatus(.not_found);
-                    try r.sendBody("Repository not found");
-                    return;
-                },
-                else => return err,
-            };
-            defer ctx.allocator.free(repo.name);
-            
-            // Block archived repos for write operations
-            if (repo.is_archived and required_mode.atLeast(.Write)) {
-                r.setStatus(.method_not_allowed);
-                try r.sendBody("Repository is archived");
-                return;
-            }
-            
-            // Block mirror repos for write operations  
-            if (repo.is_mirror and required_mode.atLeast(.Write)) {
-                r.setStatus(.method_not_allowed);
-                try r.sendBody("Mirror repository is read-only");
-                return;
-            }
-            
-            const has_access = canAccessUnit(&cache, ctx.dao, user_id, repo_id, unit_type, required_mode) catch false;
-            
-            if (!has_access) {
-                // Security: Return 404 instead of 403 to avoid leaking repository existence
-                r.setStatus(.not_found);
-                try r.sendBody("Repository not found");
-                return;
-            }
-            
-            // Call next handler
-            try next(r, ctx);
-        }
-    };
-}
-```
-
-## Database Schema Requirements
-
-```sql
--- Owner types enum
-CREATE TYPE owner_type AS ENUM ('user', 'organization');
-
--- Users table
-CREATE TABLE users (
-    id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
-    is_admin BOOLEAN DEFAULT FALSE,
-    is_restricted BOOLEAN DEFAULT FALSE,  -- Restricted users have limited access
-    is_deleted BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    prohibit_login BOOLEAN DEFAULT FALSE,
-    visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'limited', 'private')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Organizations
-CREATE TABLE organizations (
-    id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
-    visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'limited', 'private')),
-    max_repo_creation INTEGER DEFAULT -1,  -- -1 = unlimited
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Repositories table
-CREATE TABLE repositories (
-    id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    owner_id BIGINT NOT NULL,  -- References either users.id or organizations.id
-    owner_type owner_type NOT NULL,
-    is_private BOOLEAN DEFAULT FALSE,
-    is_mirror BOOLEAN DEFAULT FALSE,  -- Mirrors are always read-only
-    is_archived BOOLEAN DEFAULT FALSE,  -- Archived repos are read-only  
-    is_fork BOOLEAN DEFAULT FALSE,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    visibility VARCHAR(20) DEFAULT 'public' CHECK (visibility IN ('public', 'limited', 'private')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(owner_id, owner_type, name)
-);
-
--- Teams
-CREATE TABLE teams (
-    id BIGSERIAL PRIMARY KEY,
-    org_id BIGINT REFERENCES organizations(id),
-    name VARCHAR(255) NOT NULL,
-    access_mode VARCHAR(20) NOT NULL DEFAULT 'read',
-    can_create_org_repo BOOLEAN DEFAULT FALSE,  -- Admin teams
-    is_owner_team BOOLEAN DEFAULT FALSE,  -- Special owner team
-    units JSONB,  -- Unit-specific permissions: {"issues": "write", "wiki": "admin"}
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(org_id, name)
-);
-
--- Team memberships
-CREATE TABLE team_users (
-    team_id BIGINT REFERENCES teams(id) ON DELETE CASCADE,
-    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (team_id, user_id)
-);
-
--- Team repository access
-CREATE TABLE team_repos (
-    team_id BIGINT REFERENCES teams(id) ON DELETE CASCADE,
-    repo_id BIGINT REFERENCES repositories(id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (team_id, repo_id)
-);
-
--- Individual collaborations
-CREATE TABLE collaborations (
-    id BIGSERIAL PRIMARY KEY,
-    repo_id BIGINT REFERENCES repositories(id) ON DELETE CASCADE,
-    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-    mode VARCHAR(20) NOT NULL CHECK (mode IN ('read', 'write', 'admin')),
-    units JSONB,  -- Optional unit-specific permissions
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(repo_id, user_id)
-);
-
--- Pre-computed access levels (performance optimization)
--- This table is maintained by triggers/background jobs
-CREATE TABLE access (
-    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-    repo_id BIGINT REFERENCES repositories(id) ON DELETE CASCADE,
-    mode VARCHAR(20) NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, repo_id)
-);
-
--- Organization memberships
-CREATE TABLE org_users (
-    org_id BIGINT REFERENCES organizations(id) ON DELETE CASCADE,
-    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
-    is_public BOOLEAN DEFAULT FALSE,  -- Whether membership is publicly visible
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (org_id, user_id)
-);
-
--- Indexes for performance
-CREATE INDEX idx_repositories_owner ON repositories(owner_id, owner_type) WHERE NOT is_deleted;
-CREATE INDEX idx_repositories_is_archived ON repositories(is_archived) WHERE NOT is_deleted;
-CREATE INDEX idx_repositories_is_mirror ON repositories(is_mirror) WHERE NOT is_deleted;
-CREATE INDEX idx_team_users_user ON team_users(user_id);
-CREATE INDEX idx_team_repos_repo ON team_repos(repo_id);
-CREATE INDEX idx_collaborations_user_repo ON collaborations(user_id, repo_id);
-CREATE INDEX idx_access_lookup ON access(user_id, repo_id);
-CREATE INDEX idx_user_is_restricted ON users(is_restricted) WHERE NOT is_deleted;
-CREATE INDEX idx_org_users_user ON org_users(user_id);
-CREATE INDEX idx_org_users_org ON org_users(org_id);
-```
-
-## Security Considerations
-
-1. **Fail-Safe Defaults**: 
-   - Always start with `AccessMode.None`
-   - Database errors result in access denial
-   - Invalid data results in access denial
-
-2. **No Permission Elevation**:
-   - Restricted users cannot gain admin access
-   - Deleted entities result in immediate denial
-   - Mirror and archived repositories enforce read-only
-
-3. **Visibility Enforcement**:
-   - Private organizations hide all repositories from non-members
-   - Limited organizations are hidden from restricted users
-   - Anonymous users only see public entities
-
-4. **Audit Logging**:
-   - Log successful permission loads at DEBUG level
-   - Log errors at ERROR level without exposing sensitive data
-   - Log permission downgrades (archive/mirror) at WARN level
-   - Do NOT log denied access attempts (following Gitea pattern)
-
-5. **Race Condition Handling**:
-   - Accept eventual consistency
-   - No locking on permission checks
-   - Database constraints prevent corruption
-
-## Testing Strategy
-
-```zig
-test "basic user permissions" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Test owner access
-    const owner_id = try dao.createUser(allocator, "owner");
-    defer dao.deleteUser(owner_id) catch {};
-    
-    const repo_id = try dao.createRepository(allocator, "test-repo", owner_id, .user, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    const perm = try cache.getOrCompute(&dao, owner_id, repo_id);
-    try std.testing.expectEqual(AccessMode.Owner, perm.access_mode);
-    try std.testing.expect(perm.canWrite(.Code));
-}
-
-test "archived repository write denial" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    const owner_id = try dao.createUser(allocator, "owner");
-    defer dao.deleteUser(owner_id) catch {};
-    
-    const repo_id = try dao.createRepository(allocator, "archived-repo", owner_id, .user, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Archive the repository
-    try dao.setRepositoryArchived(repo_id, true);
-    
-    // Owner should have read-only access to archived repo
-    const perm = try cache.getOrCompute(&dao, owner_id, repo_id);
-    try std.testing.expectEqual(AccessMode.Read, perm.access_mode);
-    try std.testing.expect(!perm.canWrite(.Code));
-}
-
-test "mirror repository write denial" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    const owner_id = try dao.createUser(allocator, "owner");
-    defer dao.deleteUser(owner_id) catch {};
-    
-    const repo_id = try dao.createMirrorRepository(allocator, "mirror-repo", owner_id, .user, "https://github.com/example/repo");
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Owner should have read-only access to mirror
-    const perm = try cache.getOrCompute(&dao, owner_id, repo_id);
-    try std.testing.expectEqual(AccessMode.Read, perm.access_mode);
-    
-    // Test write operations are denied
-    try std.testing.expect(!try canWriteRepository(&cache, &dao, owner_id, repo_id));
-}
-
-test "restricted user limited organization access" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Create limited visibility organization
-    const org_id = try dao.createOrganization(allocator, "limited-org", .Limited);
-    defer dao.deleteOrganization(org_id) catch {};
-    
-    // Create restricted user
-    const user_id = try dao.createUser(allocator, "restricted-user");
-    defer dao.deleteUser(user_id) catch {};
-    try dao.setUserRestricted(user_id, true);
-    
-    // Create public repo in limited org
-    const repo_id = try dao.createRepository(allocator, "public-repo", org_id, .organization, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Restricted user should have no access to limited org repos
-    const perm = try cache.getOrCompute(&dao, user_id, repo_id);
-    try std.testing.expectEqual(AccessMode.None, perm.access_mode);
-    
-    // Add user as org member
-    try dao.addOrganizationMember(org_id, user_id);
-    cache.cache.clearRetainingCapacity(); // Clear cache
-    
-    // Now they should have access
-    const perm2 = try cache.getOrCompute(&dao, user_id, repo_id);
-    try std.testing.expectEqual(AccessMode.Read, perm2.access_mode);
-}
-
-test "private organization visibility" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Create private organization
-    const org_id = try dao.createOrganization(allocator, "private-org", .Private);
-    defer dao.deleteOrganization(org_id) catch {};
-    
-    // Create users
-    const member_id = try dao.createUser(allocator, "member");
-    defer dao.deleteUser(member_id) catch {};
-    
-    const non_member_id = try dao.createUser(allocator, "non-member");
-    defer dao.deleteUser(non_member_id) catch {};
-    
-    const admin_id = try dao.createUser(allocator, "admin");
-    defer dao.deleteUser(admin_id) catch {};
-    try dao.setUserAdmin(admin_id, true);
-    
-    // Add member to org
-    try dao.addOrganizationMember(org_id, member_id);
-    
-    // Create public repo in private org
-    const repo_id = try dao.createRepository(allocator, "public-repo", org_id, .organization, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Non-member should have no access
-    const perm1 = try cache.getOrCompute(&dao, non_member_id, repo_id);
-    try std.testing.expectEqual(AccessMode.None, perm1.access_mode);
-    
-    // Member should have read access
-    const perm2 = try cache.getOrCompute(&dao, member_id, repo_id);
-    try std.testing.expectEqual(AccessMode.Read, perm2.access_mode);
-    
-    // Admin not in org should have no access
-    const perm3 = try cache.getOrCompute(&dao, admin_id, repo_id);
-    try std.testing.expectEqual(AccessMode.None, perm3.access_mode);
-}
-
-test "admin team permission override" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Create organization
-    const org_id = try dao.createOrganization(allocator, "test-org", .Public);
-    defer dao.deleteOrganization(org_id) catch {};
-    
-    // Create admin team
-    const admin_team_id = try dao.createTeam(allocator, org_id, "admins", "admin");
-    defer dao.deleteTeam(admin_team_id) catch {};
-    try dao.setTeamCanCreateOrgRepo(admin_team_id, true);
-    
-    // Create regular team with limited permissions
-    const dev_team_id = try dao.createTeam(allocator, org_id, "developers", "write");
-    defer dao.deleteTeam(dev_team_id) catch {};
-    
-    // Create user and add to both teams
-    const user_id = try dao.createUser(allocator, "developer");
-    defer dao.deleteUser(user_id) catch {};
-    
-    try dao.addTeamMember(admin_team_id, user_id);
-    try dao.addTeamMember(dev_team_id, user_id);
-    
-    // Create repository
-    const repo_id = try dao.createRepository(allocator, "team-repo", org_id, .organization, true);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Add repo to both teams
-    try dao.addTeamRepository(admin_team_id, repo_id);
-    try dao.addTeamRepository(dev_team_id, repo_id);
-    
-    // User should get owner access from admin team
-    const perm = try cache.getOrCompute(&dao, user_id, repo_id);
-    try std.testing.expectEqual(AccessMode.Owner, perm.access_mode);
-    try std.testing.expect(perm.units == null); // Admin override
-}
-
-test "unit permission inheritance from teams" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Create organization
-    const org_id = try dao.createOrganization(allocator, "test-org", .Public);
-    defer dao.deleteOrganization(org_id) catch {};
-    
-    // Create teams with different unit permissions
-    const issues_team_id = try dao.createTeamWithUnits(allocator, org_id, "issue-triagers", "read",
-        \\{"issues": "write", "pulls": "read"}
-    );
-    defer dao.deleteTeam(issues_team_id) catch {};
-    
-    const code_team_id = try dao.createTeamWithUnits(allocator, org_id, "code-reviewers", "read",
-        \\{"code": "write", "pulls": "write"}  
-    );
-    defer dao.deleteTeam(code_team_id) catch {};
-    
-    // Create user and add to both teams
-    const user_id = try dao.createUser(allocator, "developer");
-    defer dao.deleteUser(user_id) catch {};
-    
-    try dao.addTeamMember(issues_team_id, user_id);
-    try dao.addTeamMember(code_team_id, user_id);
-    
-    // Create repository
-    const repo_id = try dao.createRepository(allocator, "project", org_id, .organization, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Add repo to both teams
-    try dao.addTeamRepository(issues_team_id, repo_id);
-    try dao.addTeamRepository(code_team_id, repo_id);
-    
-    // User should get combined permissions
-    const perm = try cache.getOrCompute(&dao, user_id, repo_id);
-    try std.testing.expect(perm.canWrite(.Issues));  // From issues team
-    try std.testing.expect(perm.canWrite(.Code));    // From code team
-    try std.testing.expect(perm.canWrite(.PullRequests)); // Max from both teams
-}
-
-test "everyone vs anonymous access modes" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Create public repository with custom unit settings
-    const owner_id = try dao.createUser(allocator, "owner");
-    defer dao.deleteUser(owner_id) catch {};
-    
-    const repo_id = try dao.createRepository(allocator, "public-repo", owner_id, .user, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // Set different permissions for anonymous vs signed-in users
-    try dao.setRepositoryUnitPermissions(repo_id, 
-        \\{
-        \\  "anonymous": {"code": "read", "issues": "none"},
-        \\  "everyone": {"code": "read", "issues": "read"}
-        \\}
-    );
-    
-    // Anonymous user should not see issues
-    const anon_perm = try cache.getOrCompute(&dao, null, repo_id);
-    try std.testing.expect(anon_perm.canRead(.Code));
-    try std.testing.expect(!anon_perm.canRead(.Issues));
-    
-    // Signed-in user should see issues
-    const user_id = try dao.createUser(allocator, "viewer");
-    defer dao.deleteUser(user_id) catch {};
-    
-    const user_perm = try cache.getOrCompute(&dao, user_id, repo_id);
-    try std.testing.expect(user_perm.canRead(.Code));
-    try std.testing.expect(user_perm.canRead(.Issues));
-}
-
-test "permission caching doesn't leak between requests" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    const owner_id = try dao.createUser(allocator, "owner");
-    defer dao.deleteUser(owner_id) catch {};
-    
-    const repo_id = try dao.createRepository(allocator, "test-repo", owner_id, .user, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    // First request
-    {
-        var cache1 = PermissionCache.init(allocator);
-        defer cache1.deinit();
-        
-        const perm1 = try cache1.getOrCompute(&dao, owner_id, repo_id);
-        try std.testing.expectEqual(AccessMode.Owner, perm1.access_mode);
-    }
-    
-    // Second request - should not have cached data
-    {
-        var cache2 = PermissionCache.init(allocator);
-        defer cache2.deinit();
-        
-        // Cache should be empty
-        try std.testing.expect(cache2.cache.count() == 0);
-        
-        const perm2 = try cache2.getOrCompute(&dao, owner_id, repo_id);
-        try std.testing.expectEqual(AccessMode.Owner, perm2.access_mode);
-    }
-}
-
-test "fail closed on errors" {
-    const allocator = std.testing.allocator;
-    
-    var dao = DataAccessObject.init("postgresql://test") catch {
-        std.log.warn("Database not available, skipping", .{});
-        return;
-    };
-    defer dao.deinit();
-    
-    var cache = PermissionCache.init(allocator);
-    defer cache.deinit();
-    
-    // Test with non-existent repository
-    const perm = try cache.getOrCompute(&dao, 123, 999999);
-    try std.testing.expectEqual(AccessMode.None, perm.access_mode);
-    
-    // Test with deleted user
-    const user_id = try dao.createUser(allocator, "deleted-user");
-    try dao.deleteUser(user_id);
-    
-    const repo_id = try dao.createRepository(allocator, "active-repo", 1, .user, false);
-    defer dao.deleteRepository(repo_id) catch {};
-    
-    const perm2 = try cache.getOrCompute(&dao, user_id, repo_id);
-    try std.testing.expectEqual(AccessMode.None, perm2.access_mode);
-}
-```
-
-## Performance Considerations
-
-1. **Request-Level Caching**: Use `PermissionCache` for the entire request lifecycle
-2. **Pre-computed Access Table**: Maintain `access` table via triggers or background jobs
-3. **Efficient Queries**: Single query to `access` table, then lazy-load team data only if needed
-4. **Early Returns**: Check common cases first (deleted, owner, admin)
-5. **Unit Permission Optimization**: Only compute unit permissions when needed
-
-## Integration Points
-
-```zig
-// HTTP handler integration
-fn handleGitOperation(r: zap.Request, ctx: *Context) !void {
-    const middleware = requireRepositoryAccess(.Read, .Code);
-    try middleware.middleware(r, ctx, actualHandler);
-}
-
-// API endpoint integration
-fn handleCreateIssue(r: zap.Request, ctx: *Context) !void {
-    const cache = try PermissionCache.init(ctx.allocator);
-    defer cache.deinit();
-    
-    const user_id = try requireAuth(r);
-    const repo_id = try getRepoFromPath(r.path);
-    
-    if (!try canCreateIssue(&cache, ctx.dao, user_id, repo_id)) {
-        r.setStatus(.forbidden);
-        try r.sendBody("Cannot create issues in this repository");
-        return;
-    }
-    
-    // Create issue...
-}
-
-// Git protocol integration
-fn handleGitReceivePack(r: zap.Request, ctx: *Context) !void {
-    const cache = try PermissionCache.init(ctx.allocator);
-    defer cache.deinit();
-    
-    const user_id = try getGitAuthUser(r);
-    const repo_id = try getRepoFromPath(r.path);
-    
-    // Check write permission
-    const perm = try cache.getOrCompute(ctx.dao, user_id, repo_id);
-    
-    if (!perm.canWrite(.Code)) {
-        r.setStatus(.forbidden);
-        try r.sendBody("Permission denied");
-        return;
-    }
-    
-    // Check repository state
-    const repo = try ctx.dao.getRepository(ctx.allocator, repo_id);
-    defer ctx.allocator.free(repo.name);
-    
-    if (repo.is_archived) {
-        r.setStatus(.forbidden);
-        try r.sendBody("Cannot push to archived repository");
-        return;
-    }
-    
-    if (repo.is_mirror) {
-        r.setStatus(.forbidden);
-        try r.sendBody("Cannot push to mirror repository");
-        return;
-    }
-    
-    // Process git push...
-}
-```
-
-## Migration Notes
-
-1. **Initial Deployment**: 
-   - Start with basic permissions (no teams/units)
-   - Add `visibility` columns with default 'public'
-   - Populate `access` table for existing collaborations
-
-2. **Organization Migration**:
-   - Create organizations from existing user groups
-   - Migrate repository ownership
-   - Create default teams (Owners, Members)
-
-3. **Unit Permission Migration**:
-   - Start with all units having same access as repository
-   - Gradually enable unit-specific permissions
-
-4. **Performance Optimization**:
-   - Run background job to populate `access` table
-   - Add database indexes incrementally
-   - Monitor query performance
-
-## Future Enhancements
-
-1. **Deploy Key Support**: Separate permission system for deploy keys
-2. **OAuth Scopes**: Integration with OAuth token scopes
-3. **Branch Protection**: Per-branch permission rules
-4. **IP Restrictions**: Geographic or network-based access control
-5. **Time-Based Access**: Temporary elevated permissions
-6. **Audit Log Integration**: Comprehensive permission check logging
-7. **WebAuthn Support**: Hardware key authentication
-8. **External Group Sync**: LDAP/SAML group synchronization
+</expected_output>
+
+<implementation_steps>
+
+**CRITICAL**: Follow TDD approach. Use real database for all tests. Run `zig build && zig build test` after EVERY change.
+
+**CRITICAL**: Zero tolerance for test failures. Any failing tests indicate YOU caused a regression.
+
+<phase_1>
+<title>Phase 1: 🆕 Enterprise Permission Foundation with Unit-Level Access (TDD)</title>
+
+1. **Create enhanced permission module structure**
+   ```bash
+   mkdir -p src/auth
+   touch src/auth/permissions.zig
+   touch src/auth/teams.zig
+   touch src/auth/units.zig
+   touch src/auth/organizations.zig
+   ```
+
+2. **🆕 Write tests for multi-tier permission architecture**
+   ```zig
+   test "RepositoryPermission hierarchy with unit-level access" {
+       try testing.expect(RepositoryPermission.read.canRead());
+       try testing.expect(!RepositoryPermission.read.canWrite());
+       try testing.expect(!RepositoryPermission.read.canAdmin());
+       
+       try testing.expect(RepositoryPermission.write.canRead());
+       try testing.expect(RepositoryPermission.write.canWrite());
+       try testing.expect(!RepositoryPermission.write.canAdmin());
+       
+       try testing.expect(RepositoryPermission.admin.canRead());
+       try testing.expect(RepositoryPermission.admin.canWrite());
+       try testing.expect(RepositoryPermission.admin.canAdmin());
+   }
+   
+   test "UnitPermission validates access modes correctly" {
+       const issues_write = UnitPermission{
+           .unit_type = .issues,
+           .access_mode = .write,
+       };
+       
+       try testing.expect(issues_write.canRead());
+       try testing.expect(issues_write.canWrite());
+       try testing.expect(!issues_write.canAdmin());
+       
+       const releases_admin = UnitPermission{
+           .unit_type = .releases,
+           .access_mode = .admin,
+       };
+       
+       try testing.expect(releases_admin.canRead());
+       try testing.expect(releases_admin.canWrite());
+       try testing.expect(releases_admin.canAdmin());
+   }
+   
+   test "OrganizationRole inheritance patterns" {
+       try testing.expect(OrganizationRole.owner.inheritsFrom(.admin));
+       try testing.expect(OrganizationRole.admin.inheritsFrom(.member));
+       try testing.expect(!OrganizationRole.member.inheritsFrom(.admin));
+   }
+   
+   test "TeamPermission with inheritance validation" {
+       const parent_team_permission = TeamPermission.admin;
+       const child_team_permission = TeamPermission.write;
+       
+       const effective_permission = TeamPermission.resolve(parent_team_permission, child_team_permission);
+       try testing.expectEqual(TeamPermission.admin, effective_permission); // Parent wins
+   }
+   ```
+
+3. **🆕 Implement multi-tier permission enums with unit awareness**
+4. **🆕 Add team permission inheritance logic**
+5. **🆕 Create organization role hierarchy system**
+
+</phase_1>
+
+<phase_2>
+<title>Phase 2: Database Permission Queries (TDD)</title>
+
+1. **Write tests for repository permission queries**
+   ```zig
+   test "gets user repository permission from database" {
+       const allocator = testing.allocator;
+       
+       var db = try DatabaseConnection.init(allocator, test_db_config);
+       defer db.deinit(allocator);
+       
+       // Create test user and repository
+       const user_id = try createTestUser(&db, allocator, .{});
+       defer _ = db.deleteUser(allocator, user_id) catch {};
+       
+       const repo_id = try createTestRepository(&db, allocator, .{ .owner_id = user_id });
+       defer _ = db.deleteRepository(allocator, repo_id) catch {};
+       
+       var permission_checker = PermissionChecker.init(&db);
+       
+       // Owner should have owner permission
+       const permission = try permission_checker.getUserRepoPermission(allocator, user_id, repo_id);
+       try testing.expectEqual(PermissionLevel.owner, permission);
+   }
+   
+   test "gets collaborator permission from database" {
+       const allocator = testing.allocator;
+       
+       var db = try DatabaseConnection.init(allocator, test_db_config);
+       defer db.deinit(allocator);
+       
+       // Create test users and repository
+       const owner_id = try createTestUser(&db, allocator, .{});
+       defer _ = db.deleteUser(allocator, owner_id) catch {};
+       
+       const collaborator_id = try createTestUser(&db, allocator, .{});
+       defer _ = db.deleteUser(allocator, collaborator_id) catch {};
+       
+       const repo_id = try createTestRepository(&db, allocator, .{ .owner_id = owner_id });
+       defer _ = db.deleteRepository(allocator, repo_id) catch {};
+       
+       // Grant write permission to collaborator
+       try db.addRepositoryCollaborator(allocator, repo_id, collaborator_id, .write);
+       defer _ = db.removeRepositoryCollaborator(allocator, repo_id, collaborator_id) catch {};
+       
+       var permission_checker = PermissionChecker.init(&db);
+       
+       const permission = try permission_checker.getUserRepoPermission(allocator, collaborator_id, repo_id);
+       try testing.expectEqual(PermissionLevel.write, permission);
+   }
+   ```
+
+2. **Implement database permission queries**
+3. **Add repository ownership detection**
+4. **Test collaborator permission resolution**
+
+</phase_2>
+
+<phase_3>
+<title>Phase 3: Repository Visibility and Public Access (TDD)</title>
+
+1. **Write tests for repository visibility**
+   ```zig
+   test "public repository allows read access to any user" {
+       const allocator = testing.allocator;
+       
+       var db = try DatabaseConnection.init(allocator, test_db_config);
+       defer db.deinit(allocator);
+       
+       // Create public repository
+       const owner_id = try createTestUser(&db, allocator, .{});
+       defer _ = db.deleteUser(allocator, owner_id) catch {};
+       
+       const repo_id = try createTestRepository(&db, allocator, .{ 
+           .owner_id = owner_id, 
+           .visibility = .public 
+       });
+       defer _ = db.deleteRepository(allocator, repo_id) catch {};
+       
+       // Create random user
+       const random_user_id = try createTestUser(&db, allocator, .{});
+       defer _ = db.deleteUser(allocator, random_user_id) catch {};
+       
+       var permission_checker = PermissionChecker.init(&db);
+       
+       // Random user should have read access to public repo
+       const can_read = try permission_checker.canUserAccessRepo(allocator, random_user_id, "owner/repo", .clone);
+       try testing.expect(can_read);
+       
+       // But not write access
+       const can_write = try permission_checker.canUserAccessRepo(allocator, random_user_id, "owner/repo", .push);
+       try testing.expect(!can_write);
+   }
+   
+   test "private repository denies access to unauthorized users" {
+       // Test private repository access control
+   }
+   ```
+
+2. **Implement repository visibility handling**
+3. **Add public repository read access**
+4. **Test private repository access control**
+
+</phase_3>
+
+<phase_4>
+<title>Phase 4: Organization and Team Permissions (TDD)</title>
+
+1. **Write tests for organization permissions**
+   ```zig
+   test "organization member has access to internal repositories" {
+       const allocator = testing.allocator;
+       
+       var db = try DatabaseConnection.init(allocator, test_db_config);
+       defer db.deinit(allocator);
+       
+       // Create organization and user
+       const org_id = try createTestOrganization(&db, allocator, .{});
+       defer _ = db.deleteOrganization(allocator, org_id) catch {};
+       
+       const user_id = try createTestUser(&db, allocator, .{});
+       defer _ = db.deleteUser(allocator, user_id) catch {};
+       
+       // Add user to organization
+       try db.addOrganizationMember(allocator, org_id, user_id, .member);
+       defer _ = db.removeOrganizationMember(allocator, org_id, user_id) catch {};
+       
+       // Create internal repository in organization
+       const repo_id = try createTestRepository(&db, allocator, .{ 
+           .owner_id = org_id, 
+           .visibility = .internal 
+       });
+       defer _ = db.deleteRepository(allocator, repo_id) catch {};
+       
+       var permission_checker = PermissionChecker.init(&db);
+       
+       // Organization member should have read access
+       const can_read = try permission_checker.canUserAccessRepo(allocator, user_id, "org/repo", .clone);
+       try testing.expect(can_read);
+   }
+   ```
+
+2. **Implement organization membership checking**
+3. **Add team-based permissions**
+4. **Test organization admin permissions**
+
+</phase_4>
+
+<phase_5>
+<title>Phase 5: Permission Caching and Performance (TDD)</title>
+
+1. **Write tests for permission caching**
+   ```zig
+   test "permission cache improves lookup performance" {
+       const allocator = testing.allocator;
+       
+       var db = try DatabaseConnection.init(allocator, test_db_config);
+       defer db.deinit(allocator);
+       
+       var permission_checker = try PermissionChecker.initWithCache(allocator, &db, .{
+           .ttl_seconds = 300,
+           .max_entries = 1000,
+       });
+       defer permission_checker.deinit(allocator);
+       
+       // First lookup should hit database
+       const start1 = std.time.nanoTimestamp();
+       const permission1 = try permission_checker.getUserRepoPermission(allocator, user_id, repo_id);
+       const duration1 = std.time.nanoTimestamp() - start1;
+       
+       // Second lookup should hit cache (much faster)
+       const start2 = std.time.nanoTimestamp();
+       const permission2 = try permission_checker.getUserRepoPermission(allocator, user_id, repo_id);
+       const duration2 = std.time.nanoTimestamp() - start2;
+       
+       try testing.expectEqual(permission1, permission2);
+       try testing.expect(duration2 < duration1 / 2); // Cache should be much faster
+   }
+   
+   test "permission cache invalidation on permission changes" {
+       // Test cache invalidation when permissions are modified
+   }
+   ```
+
+2. **Implement permission caching system**
+3. **Add cache invalidation logic**
+4. **Test cache performance and correctness**
+
+</phase_5>
+
+<phase_6>
+<title>Phase 6: Git Protocol Integration and Authorization (TDD)</title>
+
+1. **Write tests for Git protocol authorization**
+   ```zig
+   test "authorizes SSH Git operations" {
+       const allocator = testing.allocator;
+       
+       var permission_checker = try PermissionChecker.init(allocator, &db);
+       defer permission_checker.deinit(allocator);
+       
+       const git_context = GitAuthContext{
+           .user_id = user_id,
+           .repository_path = "owner/repo.git",
+           .operation = .push,
+           .protocol = .ssh,
+           .client_ip = "192.168.1.100",
+       };
+       
+       const auth_result = try permission_checker.authorizeGitOperation(allocator, git_context);
+       
+       if (auth_result.authorized) {
+           try testing.expect(auth_result.permission_level.canWrite());
+       } else {
+           log.info("Authorization denied: {s}", .{auth_result.denial_reason});
+       }
+   }
+   ```
+
+2. **Implement Git protocol authorization**
+3. **Add comprehensive authorization context**
+4. **Test SSH and HTTP Git operation authorization**
+
+</phase_6>
+
+<phase_7>
+<title>Phase 7: Audit Logging and Permission Management (TDD)</title>
+
+1. **Write tests for audit logging**
+   ```zig
+   test "logs permission changes for audit" {
+       // Test permission grant/revoke logging
+   }
+   ```
+
+2. **Implement permission management APIs**
+3. **Add comprehensive audit logging**
+4. **Test permission change workflows**
+
+</phase_7>
+
+</implementation_steps>
+
+</detailed_specifications>
+
+<quality_assurance>
+
+<testing_requirements>
+
+- **Database Integration**: All tests use real PostgreSQL database
+- **Performance Testing**: Permission lookup performance with large datasets
+- **Caching Testing**: Cache hit rates, invalidation, and consistency
+- **Security Testing**: Access control bypass attempts and edge cases
+- **Concurrency Testing**: Concurrent permission checks and modifications
+- **Memory Safety**: Zero memory leaks in permission operations
+
+</testing_requirements>
+
+<success_criteria>
+
+1. **All tests pass**: Complete test coverage with zero failures
+2. **🆕 Enterprise Features**: Organization/team support, unit-level permissions, visibility patterns
+3. **🆕 Performance**: Sub-millisecond permission checks with request-level caching
+4. **🆕 Team Management**: Full team hierarchy support with permission inheritance
+5. **🆕 Unit-Level Control**: Fine-grained access control for all repository features
+6. **Security**: Comprehensive access control with no bypass vulnerabilities
+7. **Integration**: Seamless integration with SSH, HTTP Git servers, and API endpoints
+8. **Scalability**: Support for thousands of organizations, teams, and repositories
+9. **🆕 Advanced Caching**: Request-level caching with cascade invalidation
+10. **🆕 Audit Compliance**: Multi-tier audit trails with organization-level reporting
+11. **Memory safety**: Zero memory leaks in all operations
+12. **🆕 Production Ready**: Battle-tested patterns from Gitea's production environment
+
+</success_criteria>
+
+</quality_assurance>
+
+<reference_implementations>
+
+**🆕 Enhanced with Gitea Production Patterns:**
+- [🆕 Gitea Organization Management](https://github.com/go-gitea/gitea/blob/main/models/organization/org.go)
+- [🆕 Gitea Team Permissions](https://github.com/go-gitea/gitea/blob/main/models/organization/team.go)
+- [🆕 Gitea Unit-Level Access Control](https://github.com/go-gitea/gitea/blob/main/models/unit/unit.go)
+- [🆕 Gitea Permission Resolution](https://github.com/go-gitea/gitea/blob/main/models/perm/access.go)
+- [🆕 Gitea Repository Visibility](https://github.com/go-gitea/gitea/blob/main/models/repo/repo.go)
+- [🆕 Gitea Permission Caching](https://github.com/go-gitea/gitea/blob/main/modules/cache/)
+- **GitHub permissions**: Repository collaborators and organization teams
+- **GitLab permissions**: Project members and group access levels
+- **Enterprise RBAC patterns**: Multi-tier access control implementations
+
+**🆕 Key Gitea Patterns Implemented:**
+- Organization/team hierarchies with permission inheritance
+- Unit-level permissions for fine-grained feature control
+- Complex visibility patterns with organization-specific rules
+- Request-level permission caching with cascade invalidation
+- Team-based repository access with bulk operations
+- Comprehensive audit trails with organization-level reporting
+
+</reference_implementations>
