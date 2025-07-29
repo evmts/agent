@@ -678,6 +678,27 @@ pub const PermissionChecker = struct {
             .reason = "Repository not found",
         };
     }
+    
+    pub fn invalidateUserPermissions(self: *PermissionChecker, user_id: i64) void {
+        self.cache.invalidateUser(user_id);
+    }
+    
+    pub fn invalidateRepositoryPermissions(self: *PermissionChecker, repo_id: i64) void {
+        // Invalidate all cached permissions for this repository
+        var iterator = self.cache.cache.iterator();
+        var keys_to_remove = std.ArrayList(PermissionCacheKey).init(self.cache.allocator);
+        defer keys_to_remove.deinit();
+        
+        while (iterator.next()) |entry| {
+            if (entry.key_ptr.repo_id == repo_id) {
+                keys_to_remove.append(entry.key_ptr.*) catch continue;
+            }
+        }
+        
+        for (keys_to_remove.items) |key| {
+            _ = self.cache.cache.remove(key);
+        }
+    }
 };
 
 fn setupTestDatabase(allocator: std.mem.Allocator) !MockDAO {
@@ -1059,4 +1080,106 @@ test "authorizeGitOperation for repository access" {
     const push_result = try permission_checker.authorizeGitOperation(allocator, push_context);
     try testing.expect(!push_result.authorized);
     try testing.expect(push_result.reason != null);
+}
+
+// Tests for Phase 4: Request-Level Permission Caching
+test "cache invalidation by user removes all user permissions" {
+    const allocator = testing.allocator;
+    
+    var dao = try setupTestDatabase(allocator);
+    defer dao.deinit();
+    
+    const user_id = try dao.createUser(.{
+        .name = "cached-user",
+        .email = "cached@example.com",
+    });
+    
+    const repo1_id = try dao.createRepository(.{
+        .name = "repo1",
+        .owner_id = user_id,
+        .owner_type = .User,
+        .visibility = .Private,
+    });
+    
+    const repo2_id = try dao.createRepository(.{
+        .name = "repo2",
+        .owner_id = user_id,
+        .owner_type = .User,
+        .visibility = .Private,
+    });
+    
+    var permission_checker = PermissionChecker.init(allocator, &dao);
+    defer permission_checker.deinit();
+    
+    // Load permissions into cache
+    _ = try permission_checker.checkUserRepoPermission(allocator, user_id, repo1_id);
+    _ = try permission_checker.checkUserRepoPermission(allocator, user_id, repo2_id);
+    
+    // Verify they're cached
+    const key1 = PermissionCacheKey{ .user_id = user_id, .repo_id = repo1_id };
+    const key2 = PermissionCacheKey{ .user_id = user_id, .repo_id = repo2_id };
+    try testing.expect(permission_checker.cache.get(key1) != null);
+    try testing.expect(permission_checker.cache.get(key2) != null);
+    
+    // Invalidate user permissions
+    permission_checker.invalidateUserPermissions(user_id);
+    
+    // Verify they're removed from cache
+    try testing.expect(permission_checker.cache.get(key1) == null);
+    try testing.expect(permission_checker.cache.get(key2) == null);
+}
+
+test "cache invalidation by repository removes repo permissions" {
+    const allocator = testing.allocator;
+    
+    var dao = try setupTestDatabase(allocator);
+    defer dao.deinit();
+    
+    const user1_id = try dao.createUser(.{
+        .name = "user1",
+        .email = "user1@example.com",
+    });
+    
+    const user2_id = try dao.createUser(.{
+        .name = "user2",
+        .email = "user2@example.com",
+    });
+    
+    const repo_id = try dao.createRepository(.{
+        .name = "shared-repo",
+        .owner_id = user1_id,
+        .owner_type = .User,
+        .visibility = .Public,
+    });
+    
+    const other_repo_id = try dao.createRepository(.{
+        .name = "other-repo",
+        .owner_id = user1_id,
+        .owner_type = .User,
+        .visibility = .Public,
+    });
+    
+    var permission_checker = PermissionChecker.init(allocator, &dao);
+    defer permission_checker.deinit();
+    
+    // Load permissions into cache
+    _ = try permission_checker.checkUserRepoPermission(allocator, user1_id, repo_id);
+    _ = try permission_checker.checkUserRepoPermission(allocator, user2_id, repo_id);
+    _ = try permission_checker.checkUserRepoPermission(allocator, user1_id, other_repo_id);
+    
+    // Verify they're cached
+    const key1 = PermissionCacheKey{ .user_id = user1_id, .repo_id = repo_id };
+    const key2 = PermissionCacheKey{ .user_id = user2_id, .repo_id = repo_id };
+    const key3 = PermissionCacheKey{ .user_id = user1_id, .repo_id = other_repo_id };
+    try testing.expect(permission_checker.cache.get(key1) != null);
+    try testing.expect(permission_checker.cache.get(key2) != null);
+    try testing.expect(permission_checker.cache.get(key3) != null);
+    
+    // Invalidate specific repository permissions
+    permission_checker.invalidateRepositoryPermissions(repo_id);
+    
+    // Verify only the repo permissions are removed
+    try testing.expect(permission_checker.cache.get(key1) == null);
+    try testing.expect(permission_checker.cache.get(key2) == null);
+    try testing.expect(permission_checker.cache.get(key3) != null); // Other repo should remain
 }
