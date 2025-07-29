@@ -523,6 +523,165 @@ test "clearSensitiveData defeats compiler dead store elimination" {
     }
 }
 
+// Tests for Phase 5: Complete configuration loading with comprehensive validation
+test "complete configuration loading with all validation stages" {
+    const allocator = testing.allocator;
+    
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Create fake secret file for URI loading first
+    try tmp_dir.dir.makeDir("var");
+    try tmp_dir.dir.makeDir("var/secrets");
+    try tmp_dir.dir.writeFile(.{ .sub_path = "var/secrets/db_password", .data = "secure-database-password" });
+    const file_handle = try tmp_dir.dir.openFile("var/secrets/db_password", .{});
+    try file_handle.chmod(0o600);
+    file_handle.close();
+    
+    // Get the real path for the secret file
+    const secret_path = try tmp_dir.dir.realpathAlloc(allocator, "var/secrets/db_password");
+    defer allocator.free(secret_path);
+    
+    // Create a comprehensive configuration file
+    const complete_ini = try std.fmt.allocPrint(allocator, 
+        \\[server]
+        \\host = 0.0.0.0
+        \\port = 8080
+        \\worker_threads = 8
+        \\read_timeout = 60
+        \\write_timeout = 60
+        \\
+        \\[database]
+        \\connection_url = postgresql://localhost:5432/plue
+        \\password = file://{s}
+        \\max_connections = 50
+        \\connection_timeout = 30
+        \\migration_auto = true
+        \\
+        \\[repository]
+        \\base_path = /var/lib/plue/repos
+        \\max_repo_size = 2147483648
+        \\git_timeout = 600
+        \\
+        \\[security]
+        \\secret_key = production-secret-key-with-sufficient-entropy-12345
+        \\jwt_secret = jwt-secret-with-good-entropy-67890
+        \\token_expiration_hours = 72
+        \\enable_registration = false
+        \\min_password_length = 12
+        \\
+        \\[ssh]
+        \\host = 0.0.0.0
+        \\port = 2222
+        \\host_key_path = /etc/plue/ssh_host_key
+        \\max_connections = 200
+        \\connection_timeout = 1200
+    , .{secret_path});
+    defer allocator.free(complete_ini);
+    
+    try tmp_dir.dir.writeFile(.{ .sub_path = "complete.ini", .data = complete_ini });
+    const config_path = try tmp_dir.dir.realpathAlloc(allocator, "complete.ini");
+    defer allocator.free(config_path);
+    
+    var config = try Config.load(allocator, config_path);
+    defer config.deinit();
+    
+    // Verify all sections loaded correctly
+    try testing.expectEqualStrings("0.0.0.0", config.server.host);
+    try testing.expectEqual(@as(u16, 8080), config.server.port);
+    try testing.expectEqual(@as(u32, 8), config.server.worker_threads);
+    try testing.expectEqual(@as(u32, 60), config.server.read_timeout);
+    try testing.expectEqual(@as(u32, 60), config.server.write_timeout);
+    
+    try testing.expectEqualStrings("postgresql://localhost:5432/plue", config.database.connection_url);
+    try testing.expectEqualStrings("secure-database-password", config.database.password);
+    try testing.expectEqual(@as(u32, 50), config.database.max_connections);
+    try testing.expectEqual(@as(u32, 30), config.database.connection_timeout);
+    try testing.expectEqual(true, config.database.migration_auto);
+    
+    try testing.expectEqualStrings("/var/lib/plue/repos", config.repository.base_path);
+    try testing.expectEqual(@as(u64, 2147483648), config.repository.max_repo_size);
+    try testing.expectEqual(@as(u32, 600), config.repository.git_timeout);
+    
+    try testing.expectEqualStrings("production-secret-key-with-sufficient-entropy-12345", config.security.secret_key);
+    try testing.expectEqualStrings("jwt-secret-with-good-entropy-67890", config.security.jwt_secret);
+    try testing.expectEqual(@as(u32, 72), config.security.token_expiration_hours);
+    try testing.expectEqual(false, config.security.enable_registration);
+    try testing.expectEqual(@as(u32, 12), config.security.min_password_length);
+    
+    try testing.expectEqualStrings("0.0.0.0", config.ssh.host);
+    try testing.expectEqual(@as(u16, 2222), config.ssh.port);
+    try testing.expectEqualStrings("/etc/plue/ssh_host_key", config.ssh.host_key_path);
+    try testing.expectEqual(@as(u32, 200), config.ssh.max_connections);
+    try testing.expectEqual(@as(u32, 1200), config.ssh.connection_timeout);
+}
+
+test "configuration validation catches all invalid states" {
+    const allocator = testing.allocator;
+    
+    // Test 1: Port conflict detection
+    var config1 = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    defer config1.deinit();
+    config1.server.port = 8080;
+    config1.ssh.port = 8080; // Same port!
+    try testing.expectError(ConfigError.PortConflict, config1.validate());
+    
+    // Test 2: Invalid server configuration
+    var config2 = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    defer config2.deinit();
+    config2.server.port = 0; // Invalid port
+    try testing.expectError(ConfigError.InvalidValue, config2.validate());
+    
+    // Test 3: Invalid database configuration
+    var config3 = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    defer config3.deinit();
+    config3.database.max_connections = 0; // Invalid
+    try testing.expectError(ConfigError.InvalidValue, config3.validate());
+    
+    // Test 4: Path validation
+    var config4 = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    defer config4.deinit();
+    config4.repository.base_path = "relative/path"; // Must be absolute
+    try testing.expectError(ConfigError.PathNotAbsolute, config4.validate());
+    
+    // Test 5: Security validation
+    var config5 = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    defer config5.deinit();
+    config5.security.secret_key = "CHANGE_ME_IN_PRODUCTION"; // Weak secret
+    try testing.expectError(ConfigError.WeakSecret, config5.validate());
+}
+
+test "configuration precedence: CLI > ENV > INI > defaults" {
+    const allocator = testing.allocator;
+    
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    // Create INI file with some values
+    const ini_content = 
+        \\[server]
+        \\port = 9090
+        \\
+        \\[security]
+        \\secret_key = ini-file-secret-key-with-enough-length
+    ;
+    
+    try tmp_dir.dir.writeFile(.{ .sub_path = "precedence.ini", .data = ini_content });
+    const config_path = try tmp_dir.dir.realpathAlloc(allocator, "precedence.ini");
+    defer allocator.free(config_path);
+    
+    var config = try Config.load(allocator, config_path);
+    defer config.deinit();
+    
+    // Verify INI values loaded
+    try testing.expectEqual(@as(u16, 9090), config.server.port);
+    try testing.expectEqualStrings("ini-file-secret-key-with-enough-length", config.security.secret_key);
+    
+    // Verify defaults were applied where INI didn't specify
+    try testing.expectEqualStrings("0.0.0.0", config.server.host);
+    try testing.expectEqual(@as(u32, 4), config.server.worker_threads);
+}
+
 // Tests for Phase 4: Secure memory clearing and production logging
 test "secure logging redacts credentials automatically" {
     const allocator = testing.allocator;
