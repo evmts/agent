@@ -3,6 +3,10 @@ const zap = @import("zap");
 pub const DataAccessObject = @import("../database/dao.zig");
 const router = @import("router.zig");
 
+// Import utilities
+const json = @import("utils/json.zig");
+const auth = @import("utils/auth.zig");
+
 // Import handlers
 const health = @import("handlers/health.zig");
 const users = @import("handlers/users.zig");
@@ -318,9 +322,53 @@ pub fn listen(self: *Server) !void {
 // These will be removed as we extract more handler files
 
 fn listBranchesHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/branches
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in listBranchesHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get branches from database
+    const branches = ctx.dao.getBranches(allocator, repo.id) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting branches: {}", .{err});
+        return;
+    };
+    defer {
+        for (branches) |branch| {
+            allocator.free(branch.name);
+            if (branch.commit_id) |c| allocator.free(c);
+        }
+        allocator.free(branches);
+    }
+    
+    try json.writeJson(r, allocator, branches);
 }
 
 fn getBranchHandler(r: zap.Request, ctx: *Context) !void {
