@@ -774,27 +774,328 @@ fn createIssueHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn getIssueHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Extract owner/repo/issue_number from path: /repos/{owner}/{repo}/issues/{number}
+    const path_info = parseIssuePath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in getIssueHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get specific issue
+    const issue = ctx.dao.getIssue(allocator, repo.id, path_info.issue_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting issue: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Issue not found");
+        return;
+    };
+    defer {
+        allocator.free(issue.title);
+        if (issue.content) |c| allocator.free(c);
+    }
+    
+    try json.writeJson(r, allocator, issue);
 }
 
 fn updateIssueHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse request body
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const UpdateIssueRequest = struct {
+        title: ?[]const u8 = null,
+        body: ?[]const u8 = null,
+        state: ?[]const u8 = null, // "open" or "closed"
+        assignee: ?[]const u8 = null,
+    };
+    
+    var update_request = std.json.parseFromSlice(UpdateIssueRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer update_request.deinit();
+    
+    // Extract owner/repo/issue_number from path
+    const path_info = parseIssuePath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in updateIssueHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get existing issue to validate it exists
+    const existing_issue = ctx.dao.getIssue(allocator, repo.id, path_info.issue_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting existing issue: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Issue not found");
+        return;
+    };
+    defer {
+        allocator.free(existing_issue.title);
+        if (existing_issue.content) |c| allocator.free(c);
+    }
+    
+    // Build update struct
+    var updates = DataAccessObject.IssueUpdate{};
+    if (update_request.value.title) |title| updates.title = title;
+    if (update_request.value.body) |body_text| updates.content = body_text;
+    if (update_request.value.state) |state| {
+        if (std.mem.eql(u8, state, "closed")) {
+            updates.is_closed = true;
+        } else if (std.mem.eql(u8, state, "open")) {
+            updates.is_closed = false;
+        }
+    }
+    
+    // Handle assignee updates
+    if (update_request.value.assignee) |assignee_name| {
+        const assignee = ctx.dao.getUserByName(allocator, assignee_name) catch |err| {
+            try json.writeError(r, allocator, .internal_server_error, "Database error");
+            std.log.err("Database error getting assignee: {}", .{err});
+            return;
+        };
+        if (assignee) |a| {
+            updates.assignee_id = a.id;
+            allocator.free(a.name);
+            if (a.email) |e| allocator.free(e);
+            if (a.avatar) |av| allocator.free(av);
+        }
+    }
+    
+    // Update the issue
+    ctx.dao.updateIssue(allocator, existing_issue.id, updates) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to update issue");
+        std.log.err("Database error updating issue: {}", .{err});
+        return;
+    };
+    
+    // Return updated issue
+    const updated_issue = ctx.dao.getIssue(allocator, repo.id, path_info.issue_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error retrieving updated issue: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .internal_server_error, "Issue update failed");
+        return;
+    };
+    defer {
+        allocator.free(updated_issue.title);
+        if (updated_issue.content) |c| allocator.free(c);
+    }
+    
+    try json.writeJson(r, allocator, updated_issue);
 }
 
 fn getCommentsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Extract owner/repo/issue_number from path: /repos/{owner}/{repo}/issues/{number}/comments
+    const path_info = parseIssuePath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in getCommentsHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get issue to validate it exists
+    const issue = ctx.dao.getIssue(allocator, repo.id, path_info.issue_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting issue: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Issue not found");
+        return;
+    };
+    defer {
+        allocator.free(issue.title);
+        if (issue.content) |c| allocator.free(c);
+    }
+    
+    // Get comments for this issue
+    const comments = ctx.dao.getComments(allocator, issue.id) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting comments: {}", .{err});
+        return;
+    };
+    defer {
+        for (comments) |comment| {
+            allocator.free(comment.content);
+            if (comment.commit_id) |c| allocator.free(c);
+        }
+        allocator.free(comments);
+    }
+    
+    try json.writeJson(r, allocator, comments);
 }
 
 fn createCommentHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse request body
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const CreateCommentRequest = struct {
+        body: []const u8,
+    };
+    
+    var comment_request = std.json.parseFromSlice(CreateCommentRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer comment_request.deinit();
+    
+    if (comment_request.value.body.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Comment body is required");
+        return;
+    }
+    
+    // Extract owner/repo/issue_number from path: /repos/{owner}/{repo}/issues/{number}/comments
+    const path_info = parseIssuePath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in createCommentHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get issue to validate it exists
+    const issue = ctx.dao.getIssue(allocator, repo.id, path_info.issue_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting issue: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Issue not found");
+        return;
+    };
+    defer {
+        allocator.free(issue.title);
+        if (issue.content) |c| allocator.free(c);
+    }
+    
+    // Create new comment
+    const new_comment = DataAccessObject.Comment{
+        .id = 0,
+        .poster_id = user_id,
+        .issue_id = issue.id,
+        .review_id = null,
+        .content = comment_request.value.body,
+        .commit_id = null,
+        .line = null,
+        .created_unix = 0, // Will be set by DAO
+    };
+    
+    const comment_id = ctx.dao.createComment(allocator, new_comment) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to create comment");
+        std.log.err("Database error creating comment: {}", .{err});
+        return;
+    };
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, .{
+        .id = comment_id,
+        .body = comment_request.value.body,
+        .created = true,
+    });
 }
 
 fn listLabelsHandler(r: zap.Request, ctx: *Context) !void {
@@ -1221,4 +1522,58 @@ test "createIssueHandler validates JSON request body" {
     try std.testing.expectEqualStrings("Description here", json_data.value.body.?);
     try std.testing.expectEqualStrings("john", json_data.value.assignee.?);
     try std.testing.expect(json_data.value.title.len > 0); // Validates non-empty title
+}
+
+test "getIssueHandler correctly uses parseIssuePath" {
+    const allocator = std.testing.allocator;
+    
+    // Test that getIssueHandler can parse issue path correctly  
+    const path = "/repos/testowner/testrepo/issues/456";
+    const parsed = try parseIssuePath(allocator, path);
+    defer parsed.deinit(allocator);
+    
+    try std.testing.expectEqualStrings("testowner", parsed.owner);
+    try std.testing.expectEqualStrings("testrepo", parsed.repo);
+    try std.testing.expectEqual(@as(i64, 456), parsed.issue_number);
+}
+
+test "updateIssueHandler validates JSON request body" {
+    const allocator = std.testing.allocator;
+    
+    // Test that we can parse valid issue update JSON
+    const valid_json = "{\"title\": \"Updated title\", \"state\": \"closed\", \"assignee\": \"jane\"}";
+    const UpdateIssueRequest = struct {
+        title: ?[]const u8 = null,
+        body: ?[]const u8 = null,
+        state: ?[]const u8 = null,
+        assignee: ?[]const u8 = null,
+    };
+    
+    var json_data = std.json.parseFromSlice(UpdateIssueRequest, allocator, valid_json, .{}) catch unreachable;
+    defer json_data.deinit();
+    
+    try std.testing.expectEqualStrings("Updated title", json_data.value.title.?);
+    try std.testing.expectEqualStrings("closed", json_data.value.state.?);
+    try std.testing.expectEqualStrings("jane", json_data.value.assignee.?);
+    
+    // Test state parsing logic
+    const is_closed = if (json_data.value.state) |state| 
+        std.mem.eql(u8, state, "closed") else false;
+    try std.testing.expectEqual(true, is_closed);
+}
+
+test "createCommentHandler validates JSON request body" {
+    const allocator = std.testing.allocator;
+    
+    // Test that we can parse valid comment creation JSON
+    const valid_json = "{\"body\": \"This is a comment\"}";
+    const CreateCommentRequest = struct {
+        body: []const u8,
+    };
+    
+    var json_data = std.json.parseFromSlice(CreateCommentRequest, allocator, valid_json, .{}) catch unreachable;
+    defer json_data.deinit();
+    
+    try std.testing.expectEqualStrings("This is a comment", json_data.value.body);
+    try std.testing.expect(json_data.value.body.len > 0); // Validates non-empty body
 }
