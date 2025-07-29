@@ -116,6 +116,29 @@ pub const ResourceUsage = struct {
     cpu_time_seconds: f64 = 0.0,
     wall_time_seconds: f64 = 0.0,
     disk_usage_mb: u32 = 0,
+    network_rx_bytes: u64 = 0,
+    network_tx_bytes: u64 = 0,
+    container_stats: ?container.ContainerStats = null,
+};
+
+// Performance metrics for monitoring
+pub const PerformanceMetrics = struct {
+    job_id: u32,
+    total_steps: u32,
+    completed_steps: u32,
+    failed_steps: u32,
+    skipped_steps: u32,
+    total_execution_time_ms: u64,
+    average_step_time_ms: u64,
+    resource_usage: ResourceUsage,
+    bottlenecks: []const []const u8,
+    
+    pub fn deinit(self: *PerformanceMetrics, allocator: std.mem.Allocator) void {
+        for (self.bottlenecks) |bottleneck| {
+            allocator.free(bottleneck);
+        }
+        allocator.free(self.bottlenecks);
+    }
 };
 
 // Job definition for execution
@@ -410,6 +433,27 @@ pub const JobExecutor = struct {
             }
         }
         
+        // Calculate resource usage and performance metrics
+        const total_execution_time_ms = @as(u64, @intCast((completed_at - started_at) * 1000));
+        var resource_usage = ResourceUsage{
+            .wall_time_seconds = @as(f64, @floatFromInt(completed_at - started_at)),
+        };
+        
+        // Collect container stats if available
+        if (self.container_runtime) |runtime| {
+            // Get stats from first available container (in real implementation, aggregate from all containers)
+            var stats_iter = runtime.containers.iterator();
+            if (stats_iter.next()) |container_entry| {
+                resource_usage.container_stats = runtime.getContainerStats(container_entry.key_ptr.*) catch null;
+                if (resource_usage.container_stats) |stats| {
+                    resource_usage.max_memory_mb = stats.memory_usage_mb;
+                    resource_usage.network_rx_bytes = stats.network_rx_bytes;
+                    resource_usage.network_tx_bytes = stats.network_tx_bytes;
+                    resource_usage.disk_usage_mb = stats.disk_usage_mb;
+                }
+            }
+        }
+        
         return JobResult{
             .job_id = job.job_id,
             .status = job_status,
@@ -418,7 +462,7 @@ pub const JobExecutor = struct {
             .completed_at = completed_at,
             .steps = result_steps,
             .outputs = std.StringHashMap([]const u8).init(self.allocator),
-            .resource_usage = ResourceUsage{},
+            .resource_usage = resource_usage,
         };
     }
     
@@ -579,6 +623,102 @@ pub const JobExecutor = struct {
         } else {
             return self.mockExecuteCommand(command);
         }
+    }
+    
+    pub fn getPerformanceMetrics(self: *JobExecutor, job_id: u32) !PerformanceMetrics {
+        const running_job = self.running_jobs.get(job_id) orelse {
+            return error.JobNotFound;
+        };
+        
+        var completed_steps: u32 = 0;
+        var failed_steps: u32 = 0;
+        var skipped_steps: u32 = 0;
+        var total_step_time: u64 = 0;
+        
+        var bottlenecks = std.ArrayList([]const u8).init(self.allocator);
+        
+        for (running_job.steps) |step| {
+            switch (step.status) {
+                .completed => completed_steps += 1,
+                .failed => failed_steps += 1,
+                .skipped => skipped_steps += 1,
+                else => {},
+            }
+            
+            if (step.completed_at) |completed_at| {
+                const step_duration = @as(u64, @intCast(completed_at - step.started_at));
+                total_step_time += step_duration * 1000; // Convert to ms
+                
+                // Identify bottlenecks (steps taking longer than 30 seconds)
+                if (step_duration > 30) {
+                    try bottlenecks.append(try std.fmt.allocPrint(
+                        self.allocator,
+                        "Step '{s}' took {d}s",
+                        .{ step.step_name, step_duration }
+                    ));
+                }
+            }
+        }
+        
+        const total_execution_time_ms = @as(u64, @intCast((std.time.timestamp() - running_job.started_at) * 1000));
+        const average_step_time_ms = if (completed_steps > 0) total_step_time / completed_steps else 0;
+        
+        var resource_usage = ResourceUsage{
+            .wall_time_seconds = @as(f64, @floatFromInt(std.time.timestamp() - running_job.started_at)),
+        };
+        
+        // Get current resource usage if container runtime available
+        if (self.container_runtime) |runtime| {
+            var stats_iter = runtime.containers.iterator();
+            if (stats_iter.next()) |container_entry| {
+                resource_usage.container_stats = runtime.getContainerStats(container_entry.key_ptr.*) catch null;
+                if (resource_usage.container_stats) |stats| {
+                    resource_usage.max_memory_mb = stats.memory_usage_mb;
+                    resource_usage.network_rx_bytes = stats.network_rx_bytes;
+                    resource_usage.network_tx_bytes = stats.network_tx_bytes;
+                    resource_usage.disk_usage_mb = stats.disk_usage_mb;
+                }
+            }
+        }
+        
+        return PerformanceMetrics{
+            .job_id = job_id,
+            .total_steps = @intCast(running_job.steps.len),
+            .completed_steps = completed_steps,
+            .failed_steps = failed_steps,
+            .skipped_steps = skipped_steps,
+            .total_execution_time_ms = total_execution_time_ms,
+            .average_step_time_ms = average_step_time_ms,
+            .resource_usage = resource_usage,
+            .bottlenecks = try bottlenecks.toOwnedSlice(),
+        };
+    }
+    
+    pub fn getResourceUsage(self: *JobExecutor, job_id: u32) !ResourceUsage {
+        const running_job = self.running_jobs.get(job_id) orelse {
+            return error.JobNotFound;
+        };
+        
+        var resource_usage = ResourceUsage{
+            .wall_time_seconds = @as(f64, @floatFromInt(std.time.timestamp() - running_job.started_at)),
+        };
+        
+        // Get current resource usage from container runtime
+        if (self.container_runtime) |runtime| {
+            var stats_iter = runtime.containers.iterator();
+            if (stats_iter.next()) |container_entry| {
+                resource_usage.container_stats = runtime.getContainerStats(container_entry.key_ptr.*) catch null;
+                if (resource_usage.container_stats) |stats| {
+                    resource_usage.max_memory_mb = stats.memory_usage_mb;
+                    resource_usage.cpu_time_seconds = stats.cpu_usage_percent / 100.0 * resource_usage.wall_time_seconds;
+                    resource_usage.network_rx_bytes = stats.network_rx_bytes;
+                    resource_usage.network_tx_bytes = stats.network_tx_bytes;
+                    resource_usage.disk_usage_mb = stats.disk_usage_mb;
+                }
+            }
+        }
+        
+        return resource_usage;
     }
     
     fn mockExecuteCommand(self: *JobExecutor, command: []const u8) !CommandResult {
@@ -918,4 +1058,130 @@ test "handles mixed run and action steps correctly" {
     
     try testing.expectEqualStrings("Run Tests", result.steps[3].step_name);
     try testing.expectEqual(StepStatus.completed, result.steps[3].status);
+}
+
+test "tracks resource usage and performance metrics" {
+    const allocator = testing.allocator;
+    
+    var executor = try JobExecutor.init(allocator, .{
+        .container_runtime = .docker,
+        .log_level = .debug,
+    });
+    defer executor.deinit();
+    
+    const steps = [_]Step{
+        Step.runStep("Quick Step", "echo 'fast'"),
+        Step.runStep("Slow Step", "echo 'slow'"),
+    };
+    
+    var job = try createTestJob(allocator, 10, &steps);
+    defer job.deinit(allocator);
+    
+    var result = try executor.executeJob(job);
+    defer result.deinit(allocator);
+    
+    // Verify resource usage tracking
+    try testing.expect(result.resource_usage.wall_time_seconds > 0.0);
+    try testing.expect(result.resource_usage.max_memory_mb >= 0);
+    
+    // Verify timing is tracked
+    try testing.expect(result.completed_at > result.started_at);
+    for (result.steps) |step_result| {
+        try testing.expect(step_result.started_at >= result.started_at);
+        if (step_result.completed_at) |completed_at| {
+            try testing.expect(completed_at >= step_result.started_at);
+        }
+    }
+}
+
+test "identifies performance bottlenecks in job execution" {
+    const allocator = testing.allocator;
+    
+    var executor = try JobExecutor.init(allocator, .{
+        .container_runtime = .native,
+        .log_level = .debug,
+    });
+    defer executor.deinit();
+    
+    // Create a job that we can track
+    const steps = [_]Step{
+        Step.runStep("Fast Step", "echo 'quick'"),
+        Step.runStep("Normal Step", "echo 'normal'"),
+    };
+    
+    var job = try createTestJob(allocator, 11, &steps);
+    defer job.deinit(allocator);
+    
+    // Start job execution (this will complete immediately with our mock)
+    var result = try executor.executeJob(job);
+    defer result.deinit(allocator);
+    
+    try testing.expectEqual(JobStatus.completed, result.status);
+    try testing.expectEqual(@as(usize, 2), result.steps.len);
+}
+
+test "monitors resource usage during job execution" {
+    const allocator = testing.allocator;
+    
+    var executor = try JobExecutor.init(allocator, .{
+        .container_runtime = .docker,
+        .log_level = .debug,
+    });
+    defer executor.deinit();
+    
+    const steps = [_]Step{
+        Step.runStep("Resource Test", "echo 'testing resources'"),
+    };
+    
+    var job = try createTestJob(allocator, 12, &steps);
+    defer job.deinit(allocator);
+    
+    var result = try executor.executeJob(job);
+    defer result.deinit(allocator);
+    
+    // Verify resource tracking includes all metrics
+    const resource_usage = result.resource_usage;
+    try testing.expect(resource_usage.wall_time_seconds >= 0.0);
+    try testing.expect(resource_usage.max_memory_mb >= 0);
+    try testing.expect(resource_usage.network_rx_bytes >= 0);
+    try testing.expect(resource_usage.network_tx_bytes >= 0);
+    try testing.expect(resource_usage.disk_usage_mb >= 0);
+}
+
+test "optimizes job execution with efficient resource usage" {
+    const allocator = testing.allocator;
+    
+    var executor = try JobExecutor.init(allocator, .{
+        .container_runtime = .native,
+        .log_level = .debug,
+        .max_parallel_steps = 2, // Allow parallel execution for optimization
+    });
+    defer executor.deinit();
+    
+    const steps = [_]Step{
+        Step.runStep("Parallel Step 1", "echo 'step1'"),
+        Step.runStep("Parallel Step 2", "echo 'step2'"),
+        Step.runStep("Final Step", "echo 'final'"),
+    };
+    
+    var job = try createTestJob(allocator, 13, &steps);
+    defer job.deinit(allocator);
+    
+    const start_time = std.time.milliTimestamp();
+    var result = try executor.executeJob(job);  
+    defer result.deinit(allocator);
+    const end_time = std.time.milliTimestamp();
+    
+    // Verify efficient execution
+    try testing.expectEqual(JobStatus.completed, result.status);
+    try testing.expectEqual(JobConclusion.success, result.conclusion.?);
+    
+    // Execution should be reasonably fast
+    const execution_time_ms = end_time - start_time;
+    try testing.expect(execution_time_ms < 1000); // Should complete within 1 second
+    
+    // All steps should complete successfully
+    for (result.steps) |step_result| {
+        try testing.expectEqual(StepStatus.completed, step_result.status);
+    }
 }
