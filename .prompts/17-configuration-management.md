@@ -1,7 +1,7 @@
-# Implement Advanced Configuration Management Module
+# Implement Secure Configuration Management Module (ENHANCED WITH GITEA PRODUCTION PATTERNS)
 
 <task_definition>
-Enhance the configuration management system with advanced features including configuration validation, hot reloading, environment-specific configurations, and integration with the existing SSH server and database systems. This builds upon the basic configuration module to provide enterprise-grade configuration management with comprehensive security and operational features.
+Implement a comprehensive configuration management system for the Plue application that handles INI-style configuration files, environment variable overrides, file-based secrets, and advanced security patterns. This system provides type-safe access to all application settings with secure defaults, validation, memory management, and production-grade security features following Gitea's battle-tested patterns.
 </task_definition>
 
 <context_and_constraints>
@@ -9,27 +9,28 @@ Enhance the configuration management system with advanced features including con
 <technical_requirements>
 
 - **Language/Framework**: Zig - https://ziglang.org/documentation/master/
-- **Dependencies**: Builds on basic configuration module from issue #15
-- **Location**: Extensions to `src/config/config.zig` and new `src/config/` modules
-- **Features**: Hot reloading, validation schemas, environment profiles
-- **Security**: Configuration encryption, audit logging, change detection
-- **Memory**: Efficient change detection, minimal allocation overhead
-- **Integration**: SSH server config, database config, HTTP server config
+- **Dependencies**: None (uses only Zig standard library)
+- **File Format**: INI-style configuration files with section support
+- **Location**: `src/config/config.zig`
+- **Security**: File-based secrets, conflict detection, memory clearing, URI loading
+- **Memory**: Zero allocator storage in structs, explicit defer patterns
+- **Testing**: Real file I/O tests, no mocking, comprehensive validation
 
 </technical_requirements>
 
 <business_context>
 
-Advanced configuration management is required for production deployments:
+Plue requires centralized configuration management with enterprise-grade security to handle:
 
-- **Hot Reloading**: Update configuration without service restart
-- **Environment Profiles**: Development, staging, production configurations
-- **Configuration Validation**: Schema validation with detailed error reporting
-- **Change Auditing**: Track configuration changes for compliance
-- **Secret Management**: Encrypted configuration values and secure key rotation
-- **Service Integration**: Seamless integration with all Plue services
+- **Server Configuration**: Host, port, worker threads, timeouts
+- **Database Settings**: PostgreSQL URLs, connection pools, migration settings
+- **Repository Management**: Base paths, size limits, Git configuration
+- **Security Settings**: Secret keys, token expiration, authentication
+- **SSH Server Settings**: Host keys, port, connection limits
+- **File-based Secrets**: `__FILE` suffix pattern for loading secrets from files
+- **Environment Overrides**: Development vs production configurations with conflict detection
 
-This enables zero-downtime configuration updates and ensures configuration consistency across environments.
+The system must prevent common security vulnerabilities like exposed secrets, weak defaults, configuration injection attacks, and memory leakage of sensitive data.
 
 </business_context>
 
@@ -39,284 +40,354 @@ This enables zero-downtime configuration updates and ensures configuration consi
 
 <input>
 
-Extended configuration features:
+Configuration sources with precedence order (highest to lowest):
+1. **Command-line arguments** (--config-file path)
+2. **Environment variables** (PLUE_* prefixed)
+3. **Configuration file** (INI format)
+4. **Hardcoded defaults** (secure fallbacks)
 
-1. **Environment Profiles**:
-   ```ini
-   # config/development.ini
-   [server]
-   host = 127.0.0.1
-   port = 8080
-   debug = true
-   
-   # config/production.ini
-   [server]
-   host = 0.0.0.0
-   port = 80
-   debug = false
-   ```
+Expected INI configuration structure:
+```ini
+[server]
+host = 0.0.0.0
+port = 8080
+worker_threads = 4
+read_timeout = 30
+write_timeout = 30
 
-2. **Configuration Schema**:
-   ```zig
-   const ConfigSchema = struct {
-       server: ServerSchema,
-       database: DatabaseSchema,
-       ssh: SshSchema,
-       
-       const ServerSchema = struct {
-           host: SchemaField(.string, .{ .required = true }),
-           port: SchemaField(.integer, .{ .min = 1, .max = 65535 }),
-           debug: SchemaField(.boolean, .{ .default = false }),
-       };
-   };
-   ```
+[database]
+connection_url = postgresql://user:pass@localhost:5432/plue
+max_connections = 25
+connection_timeout = 30
+migration_auto = false
 
-3. **Hot Reload Triggers**:
-   - File system change detection
-   - Signal-based reload (SIGHUP)
-   - Admin API configuration endpoint
-   - Automatic validation before applying changes
+[repository]
+base_path = /var/lib/plue/repositories
+max_repo_size = 1073741824
+git_timeout = 300
 
-4. **Secret Management**:
-   ```ini
-   [security]
-   secret_key = ${PLUE_SECRET_KEY}
-   database_password = ${PLUE_DB_PASSWORD}
-   jwt_secret = ${PLUE_JWT_SECRET}
-   ```
+[security]
+secret_key = CHANGE_ME_IN_PRODUCTION
+token_expiration_hours = 24
+enable_registration = true
+min_password_length = 8
+
+[ssh]
+host = 0.0.0.0
+port = 22
+host_key_path = /etc/plue/ssh_host_key
+max_connections = 100
+connection_timeout = 600
+```
+
+🆕 **File-based Secret Loading (Gitea Pattern)**:
+```bash
+# Environment variables with __FILE suffix
+export PLUE_DATABASE_PASSWORD__FILE="/etc/plue/secrets/db_password"
+export PLUE_SECRET_KEY__FILE="/etc/plue/secrets/app_key"
+
+# URI-based secret loading
+export PLUE_JWT_SECRET="file:///etc/plue/secrets/jwt_key"
+```
+
+🆕 **Conflict Detection**:
+- Detect conflicting direct env vars and `__FILE` variants
+- Warn about configuration source conflicts
+- Validate secret file permissions and sizes
+
+Environment variable mapping:
+- `PLUE_SERVER_HOST` → `[server] host`
+- `PLUE_DATABASE_URL` → `[database] connection_url`
+- `PLUE_SECRET_KEY` → `[security] secret_key`
+- `PLUE_SECRET_KEY__FILE` → Load from file path
 
 </input>
 
 <expected_output>
 
-Advanced configuration system providing:
+A complete configuration system providing:
 
-1. **Hot Reload Manager**: Monitor and apply configuration changes
-2. **Environment Profiles**: Development, staging, production configurations
-3. **Schema Validation**: Comprehensive validation with detailed error reporting
-4. **Change Auditing**: Log all configuration changes with timestamps
-5. **Secret Management**: Encrypted values and environment variable substitution
-6. **Service Integration**: Automatic service reconfiguration on changes
-7. **Configuration API**: REST endpoints for configuration management
-8. **Backup and Rollback**: Configuration versioning and rollback capability
+1. **Type-safe configuration structure** with all application settings
+2. **Multi-source loading** with proper precedence handling
+3. **🆕 File-based Secret Loading** with `__FILE` suffix pattern and URI support
+4. **🆕 Configuration Conflict Detection** preventing runtime issues
+5. **🆕 Memory Security** with sensitive data clearing using `@volatileStore`
+6. **Comprehensive validation** with detailed error messages
+7. **Security features** including secret sanitization and permission checks
+8. **🆕 Advanced Error Handling** with multiple severity levels
+9. **Environment detection** for development vs production settings
+10. **Logging integration** with secure value masking
 
-Example advanced API:
+Example API usage:
 ```zig
-// Configuration manager with hot reloading
-var config_manager = try ConfigManager.init(allocator, .{
-    .config_dir = "/etc/plue/",
-    .environment = .production,
-    .hot_reload = true,
-    .audit_enabled = true,
-});
-defer config_manager.deinit(allocator);
+// Load configuration with all Gitea patterns
+var config = try Config.load(allocator, config_file_path, clap_args);
+defer config.deinit(allocator);
 
-// Register change callback
-try config_manager.onConfigChange(allocator, onServerConfigChanged);
+// Type-safe access
+const server_port = config.server.port;
+const db_url = config.database.connection_url;
+const secret = config.security.secret_key;
 
-// Get current configuration
-const config = config_manager.getCurrentConfig();
-
-// Validate new configuration
-const validation_result = try config_manager.validateConfig(allocator, new_config_content);
-if (!validation_result.isValid()) {
-    for (validation_result.errors) |error_msg| {
-        log.err("Validation error: {s}", .{error_msg});
+// Validation results with enhanced error types
+if (!config.isValid()) {
+    for (config.getValidationErrors()) |error_msg| {
+        log.err("Config error: {s}", .{error_msg});
     }
 }
 
-// Apply configuration with rollback support
-try config_manager.applyConfig(allocator, new_config_content, .{ .backup = true });
+// Environment detection
+if (config.isDevelopment()) {
+    log.info("Running in development mode");
+}
+
+// 🆕 Secure memory clearing for sensitive data
+defer config.clearSensitiveMemory();
+```
+
+🆕 **Enhanced Configuration Loading (Gitea Pattern)**:
+```zig
+const Config = struct {
+    // Enhanced error types matching production reality
+    pub const ConfigError = error{
+        FileNotFound,
+        ParseError,
+        InvalidValue,
+        MissingRequired,
+        SecurityError,
+        PermissionError,
+        ConflictingConfiguration,     // NEW: Direct and __FILE env var conflict
+        FileSizeTooLarge,            // NEW: Secret file too large
+        EmptySecretFile,             // NEW: Secret file is empty
+        PathNotAbsolute,             // NEW: Required path is not absolute
+        PortConflict,                // NEW: Port conflicts detected
+        WeakSecret,                  // NEW: Secret doesn't meet strength requirements
+        OutOfMemory,
+    };
+
+    // Enhanced loading with conflict detection
+    pub fn load(allocator: std.mem.Allocator, path: []const u8, clap_args: anytype) !Config {
+        var config = Config.init(allocator);
+        errdefer config.deinit(allocator);
+        
+        // 1. Parse INI file with absolute path validation
+        try config.loadFromIniFile(allocator, path);
+        
+        // 2. Load environment variable overrides with conflict detection
+        try config.loadEnvironmentOverrides(allocator);
+        
+        // 3. Override with CLI arguments
+        try config.applyCliOverrides(clap_args);
+        
+        // 4. Load file-based secrets with validation
+        try config.loadFileSecrets(allocator);
+        
+        // 5. Validate complete configuration
+        try config.validateConfiguration();
+        
+        // 6. Log sanitized configuration (for debugging)
+        try config.logConfiguration();
+        
+        return config;
+    }
+    
+    // 🆕 Memory clearing for sensitive data (Gitea security pattern)
+    pub fn clearSensitiveMemory(self: *Config) void {
+        clearSensitiveData(self.security.secret_key);
+        clearSensitiveData(self.database.password);
+        clearSensitiveData(self.security.jwt_secret);
+    }
+};
+
+// 🆕 Memory clearing helper (prevents compiler optimization)
+fn clearSensitiveData(data: []u8) void {
+    for (data) |*byte| {
+        @volatileStore(u8, byte, 0);
+    }
+}
 ```
 
 </expected_output>
 
 <implementation_steps>
 
-**CRITICAL**: Follow TDD approach. Build on existing configuration module. Run `zig build && zig build test` after EVERY change.
+**CRITICAL**: Follow TDD approach - write tests first, then implementation. Run `zig build && zig build test` after EVERY change. Tests must be in the same file as source code.
 
-**CRITICAL**: Zero tolerance for regressions. All existing configuration tests must continue passing.
+**CRITICAL**: Zero tolerance for compilation or test failures. Any failing tests after your changes indicate YOU caused a regression.
 
 <phase_1>
-<title>Phase 1: Configuration Schema and Validation Framework (TDD)</title>
+<title>Phase 1: Core Configuration Types and Enhanced Error Handling (TDD)</title>
 
-1. **Write tests for configuration schema**
+1. **Create module and test data structures**
+   ```bash
+   mkdir -p src/config
+   touch src/config/config.zig
+   ```
+
+2. **Write tests for configuration sections with enhanced validation**
    ```zig
-   test "configuration schema validates server section" {
-       const schema = ConfigSchema{};
-       const config_data = .{
-           .server = .{
-               .host = "127.0.0.1",
-               .port = 8080,
-               .debug = true,
-           },
+   test "ServerConfig validates host and port with conflict detection" {
+       const config = ServerConfig{
+           .host = "127.0.0.1",
+           .http_port = 8080,
+           .ssh_port = 2222,
        };
-       
-       const validation_result = try schema.validate(allocator, config_data);
-       try testing.expect(validation_result.isValid());
+       try testing.expect(config.isValid());
+   }
+
+   test "ServerConfig detects port conflicts" {
+       const config = ServerConfig{
+           .host = "127.0.0.1", 
+           .http_port = 3000,
+           .ssh_port = 3000, // Same port - should conflict
+       };
+       try testing.expectError(ConfigError.PortConflict, config.validate());
    }
    
-   test "schema validation reports detailed errors" {
-       const schema = ConfigSchema{};
-       const invalid_config = .{
-           .server = .{
-               .host = "", // Invalid empty host
-               .port = 99999, // Invalid port range
-           },
+   test "SecurityConfig detects weak secrets" {
+       const config = SecurityConfig{
+           .secret_key = "changeme", // Weak secret
        };
-       
-       const validation_result = try schema.validate(allocator, invalid_config);
-       try testing.expect(!validation_result.isValid());
-       try testing.expect(validation_result.errors.len >= 2);
+       try testing.expectError(ConfigError.WeakSecret, config.validate());
    }
    ```
 
-2. **Implement configuration schema framework**
-3. **Add detailed validation error reporting**
-4. **Test complex validation rules**
+3. **Implement configuration section types with enhanced validation**
+4. **Add enhanced error types matching production reality**
 
 </phase_1>
 
 <phase_2>
-<title>Phase 2: Environment Profile Management (TDD)</title>
+<title>Phase 2: INI File Parsing and Validation (TDD)</title>
 
-1. **Write tests for environment profiles**
+1. **Write tests for INI parsing with real files**
    ```zig
-   test "loads development environment configuration" {
+   test "parses valid INI configuration file" {
        const allocator = testing.allocator;
+       const ini_content = 
+           \\[server]
+           \\host = 127.0.0.1
+           \\port = 8080
+           \\
+           \\[database]
+           \\connection_url = postgresql://localhost/test
+       ;
        
-       // Create temporary config files
-       const dev_config = try createTempConfig(allocator, "development", dev_config_content);
-       defer dev_config.cleanup();
+       // Create temporary file
+       const config = try Config.parseIni(allocator, ini_content);
+       defer config.deinit(allocator);
        
-       var manager = try ConfigManager.init(allocator, .{
-           .config_dir = dev_config.dir_path,
-           .environment = .development,
-       });
-       defer manager.deinit(allocator);
-       
-       const config = manager.getCurrentConfig();
-       try testing.expect(config.server.debug);
        try testing.expectEqualStrings("127.0.0.1", config.server.host);
+       try testing.expectEqual(@as(u16, 8080), config.server.port);
    }
    ```
 
-2. **Implement environment profile loading**
-3. **Add profile inheritance and overrides**
-4. **Test profile validation and merging**
+2. **Implement robust INI parser with comment/whitespace handling**
+3. **Add configuration file validation**
+4. **Test malformed INI handling with detailed error reporting**
 
 </phase_2>
 
 <phase_3>
-<title>Phase 3: Hot Reload and Change Detection (TDD)</title>
+<title>Phase 3: File-based Secret Loading with Conflict Detection (TDD)</title>
 
-1. **Write tests for file change detection**
+1. **Write tests for file-based secret loading**
    ```zig
-   test "detects configuration file changes" {
+   test "loads secrets from files with __FILE suffix" {
        const allocator = testing.allocator;
        
-       var manager = try ConfigManager.init(allocator, .{
-           .hot_reload = true,
-           .poll_interval_ms = 100,
-       });
-       defer manager.deinit(allocator);
+       // Create temporary secret file
+       const secret_content = "super-secret-password";
+       const secret_file = "test_secret.txt";
+       try std.fs.cwd().writeFile(secret_file, secret_content);
+       defer std.fs.cwd().deleteFile(secret_file) catch {};
        
-       var change_detected = false;
-       try manager.onConfigChange(allocator, struct {
-           fn callback(old_config: *const Config, new_config: *const Config, ctx: *anyopaque) void {
-               _ = old_config;
-               _ = new_config;
-               const flag = @as(*bool, @ptrCast(@alignCast(ctx)));
-               flag.* = true;
-           }
-       }.callback, &change_detected);
+       // Set permissions to 0600
+       try std.fs.cwd().chmod(secret_file, 0o600);
        
-       // Modify configuration file
-       try modifyConfigFile(manager.config_file_path, "port = 9090");
+       // Set environment variable with __FILE suffix
+       try std.os.setenv("PLUE_DATABASE_PASSWORD__FILE", secret_file);
+       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD__FILE") catch {};
        
-       // Wait for change detection
-       std.time.sleep(200 * std.time.ns_per_ms);
-       try testing.expect(change_detected);
+       var config = Config.init(allocator);
+       defer config.deinit(allocator);
+       
+       try config.loadEnvironmentOverrides(allocator);
+       
+       try testing.expectEqualStrings(secret_content, config.database.password);
+   }
+   
+   test "detects conflicting direct and __FILE environment variables" {
+       // Set both direct and __FILE environment variables
+       try std.os.setenv("PLUE_DATABASE_PASSWORD", "direct-password");
+       try std.os.setenv("PLUE_DATABASE_PASSWORD__FILE", "/path/to/file");
+       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD") catch {};
+       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD__FILE") catch {};
+       
+       const env_map = try std.process.getEnvMap(testing.allocator);
+       defer env_map.deinit();
+       
+       // Should detect conflict
+       try testing.expectError(ConfigError.ConflictingConfiguration, 
+           checkForConflictingConfigurations(&env_map));
    }
    ```
 
-2. **Implement file system change monitoring**
-3. **Add configuration change callbacks**
-4. **Test hot reload error handling**
+2. **Implement `__FILE` suffix environment variable loading**
+3. **Add URI-based secret loading (file:// scheme)**
+4. **Implement conflict detection between direct and file-based secrets**
+5. **Add secret file permission and size validation**
 
 </phase_3>
 
 <phase_4>
-<title>Phase 4: Secret Management and Security (TDD)</title>
+<title>Phase 4: Memory Security and Sensitive Data Handling (TDD)</title>
 
-1. **Write tests for secret substitution**
+1. **Write tests for memory security**
    ```zig
-   test "substitutes environment variables in configuration" {
+   test "clears sensitive data from memory" {
+       var sensitive_data = [_]u8{ 'p', 'a', 's', 's', 'w', 'o', 'r', 'd' };
+       
+       clearSensitiveMemory(&sensitive_data);
+       
+       // Verify all bytes are cleared
+       for (sensitive_data) |byte| {
+           try testing.expect(byte == 0);
+       }
+   }
+   
+   test "redacts sensitive values in logging" {
        const allocator = testing.allocator;
        
-       // Set test environment variable
-       try std.process.putEnv(allocator, "TEST_SECRET", "super_secret_value");
-       defer std.process.delEnv("TEST_SECRET");
-       
-       const config_content = 
-           \\[security]
-           \\secret_key = ${TEST_SECRET}
-       ;
-       
-       const config = try Config.parseWithSubstitution(allocator, config_content);
+       var config = Config.init(allocator);
        defer config.deinit(allocator);
        
-       try testing.expectEqualStrings("super_secret_value", config.security.secret_key);
+       config.security.secret_key = "actual-secret-key";
+       config.database.password = "actual-password";
+       
+       const sanitized = sanitizeForLogging(&config);
+       
+       try testing.expectEqualStrings("[REDACTED]", sanitized.security.secret_key);
+       try testing.expectEqualStrings("[REDACTED]", sanitized.database.password);
    }
    ```
 
-2. **Implement environment variable substitution**
-3. **Add configuration encryption support**
-4. **Test secret sanitization for logging**
+2. **Implement memory clearing with `@volatileStore`**
+3. **Add automatic redaction for logging**
+4. **Test secure file permission validation**
 
 </phase_4>
 
 <phase_5>
-<title>Phase 5: Service Integration and Change Management (TDD)</title>
+<title>Phase 5: Complete Configuration Loading and Integration (TDD)</title>
 
-1. **Write tests for service integration**
-   ```zig
-   test "notifies SSH server of configuration changes" {
-       const allocator = testing.allocator;
-       
-       var ssh_server = try SshServer.init(allocator, initial_config.ssh);
-       defer ssh_server.deinit();
-       
-       var config_manager = try ConfigManager.init(allocator, .{});
-       defer config_manager.deinit(allocator);
-       
-       // Register SSH server for config updates
-       try config_manager.registerService(allocator, &ssh_server);
-       
-       // Update SSH configuration
-       const new_ssh_config = SshConfig{ .port = 2222, .max_connections = 200 };
-       try config_manager.updateSshConfig(allocator, new_ssh_config);
-       
-       // Verify SSH server was updated
-       try testing.expectEqual(@as(u16, 2222), ssh_server.config.port);
-   }
-   ```
-
-2. **Implement service registration and notification**
-3. **Add configuration change management**
-4. **Test rollback and backup functionality**
+1. **Write tests for complete configuration loading**
+2. **Implement main Config struct with all enhanced features**
+3. **Add comprehensive validation with detailed error reporting**
+4. **Test memory management and cleanup**
+5. **Add production-grade path validation and security checks**
 
 </phase_5>
-
-<phase_6>
-<title>Phase 6: Configuration API and Audit Logging (TDD)</title>
-
-1. **Write tests for configuration API**
-2. **Implement REST endpoints for configuration management**
-3. **Add comprehensive audit logging**
-4. **Test configuration versioning and history**
-
-</phase_6>
 
 </implementation_steps>
 
@@ -326,24 +397,30 @@ try config_manager.applyConfig(allocator, new_config_content, .{ .backup = true 
 
 <testing_requirements>
 
-- **File System Testing**: Real file operations with temporary directories
-- **Concurrency Testing**: Hot reload with concurrent access
-- **Integration Testing**: Test with actual SSH and HTTP servers
-- **Security Testing**: Secret handling and permission validation
-- **Performance Testing**: Large configuration files and frequent changes
-- **Error Recovery**: Test recovery from invalid configurations
+- **File I/O Testing**: Use real files, no mocking
+- **🆕 File-based Secret Testing**: Test `__FILE` suffix loading and URI schemes
+- **🆕 Conflict Detection Testing**: Test detection of conflicting configuration sources
+- **🆕 Memory Security Testing**: Verify sensitive data clearing and redaction
+- **Error Handling**: Test all failure scenarios (missing files, malformed content, permission errors)
+- **Memory Safety**: Verify no leaks with comprehensive allocation tracking
+- **Security**: Test file permission validation and secret sanitization
+- **Integration**: Test with actual environment variables and command-line args
+- **Performance**: Validate parsing performance with large configuration files
 
 </testing_requirements>
 
 <success_criteria>
 
-1. **All tests pass**: Including existing configuration module tests
-2. **Hot reload functionality**: Configuration changes without service restart
-3. **Schema validation**: Comprehensive validation with detailed error reporting
-4. **Security compliance**: Secret management and audit logging
-5. **Service integration**: SSH and HTTP servers respond to configuration changes
-6. **Performance**: Minimal overhead for configuration monitoring
-7. **Documentation**: Complete API documentation with examples
+1. **All tests pass**: `zig build test` shows 100% success rate
+2. **🆕 File-based Secret Loading**: `__FILE` suffix and URI schemes work correctly
+3. **🆕 Conflict Detection**: Prevents runtime issues from conflicting configurations
+4. **🆕 Memory Security**: Sensitive data clearing verified with `@volatileStore`
+5. **Memory safety**: Zero memory leaks detected
+6. **Security compliance**: File permissions and secret handling validated
+7. **Type safety**: All configuration access is compile-time validated
+8. **Error handling**: Comprehensive error messages for all failure cases
+9. **Documentation**: All public APIs documented with examples
+10. **Integration ready**: Ready for use by SSH server, HTTP server, and database modules
 
 </success_criteria>
 
@@ -351,9 +428,20 @@ try config_manager.applyConfig(allocator, new_config_content, .{ .backup = true 
 
 <reference_implementations>
 
-- **Hot reload patterns**: File system monitoring and signal handling
-- **Configuration validation**: JSON Schema and similar validation frameworks
-- **Secret management**: HashiCorp Vault and Kubernetes secrets patterns
-- **Service integration**: Observer pattern and event-driven architecture
+**🆕 Enhanced with Gitea Production Patterns:**
+- [🆕 Gitea Configuration Loading](https://github.com/go-gitea/gitea/blob/main/modules/setting/setting.go)
+- [🆕 Gitea Environment Variable Handling](https://github.com/go-gitea/gitea/blob/main/modules/setting/config_env.go)
+- [🆕 Gitea Security Configuration](https://github.com/go-gitea/gitea/blob/main/modules/setting/security.go)
+- [🆕 Gitea Configuration Provider Interface](https://github.com/go-gitea/gitea/blob/main/modules/setting/config_provider.go)
+- [🆕 Gitea Path Validation](https://github.com/go-gitea/gitea/blob/main/modules/setting/path.go)
+- [INI Parsing](https://github.com/go-ini/ini) (Gitea uses this library, we'll need a Zig equivalent)
+
+**🆕 Key Gitea Patterns Implemented:**
+- File-based secret loading with `__FILE` suffix
+- URI-based secret loading (`file://` scheme)
+- Configuration conflict detection
+- Sensitive data memory clearing with `@volatileStore`
+- Advanced validation with multiple severity levels
+- Comprehensive error types matching real-world scenarios
 
 </reference_implementations>

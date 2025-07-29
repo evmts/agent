@@ -1,7 +1,7 @@
-# Implement HTTP Git and LFS Server
+# Implement Enterprise HTTP Git and LFS Server (ENHANCED WITH GITEA PRODUCTION PATTERNS)
 
 <task_definition>
-Implement a comprehensive HTTP server that provides Git Smart HTTP protocol support and Git LFS (Large File Storage) capabilities. This server will handle Git operations over HTTPS, serve Git repositories via HTTP/HTTPS, and provide complete LFS functionality for large file management with enterprise-grade performance and security.
+Implement a comprehensive enterprise-grade HTTP server that provides Git Smart HTTP protocol v2 support, advanced Git LFS capabilities, and multi-authentication systems. This server handles Git operations over HTTPS with security hardening, performance optimization, advanced LFS features, and production-grade reliability following Gitea's battle-tested patterns for high-traffic Git hosting environments.
 </task_definition>
 
 <context_and_constraints>
@@ -10,26 +10,31 @@ Implement a comprehensive HTTP server that provides Git Smart HTTP protocol supp
 
 - **Language/Framework**: Zig with Zap HTTP framework - https://ziglang.org/documentation/master/
 - **Dependencies**: Zap HTTP server, Git command wrapper, Permission system, Database layer
-- **Protocols**: Git Smart HTTP, Git LFS API v1
-- **Location**: `src/http/git_server.zig`, `src/http/lfs_server.zig`
-- **Security**: Authentication, authorization, request validation, rate limiting
-- **Performance**: Streaming support, connection pooling, efficient file handling
-- **Storage**: File system and cloud storage backends for LFS objects
+- **🆕 Protocols**: Git Smart HTTP v1/v2, Git LFS API v1 with batch extensions
+- **Location**: `src/http/git_server.zig`, `src/http/lfs_server.zig`, `src/http/auth_middleware.zig`
+- **🆕 Multi-Authentication**: HTTP Basic, Bearer tokens, API keys, SSH key authentication over HTTP
+- **🆕 Security Hardening**: Input validation, request sanitization, DoS protection, security headers
+- **🆕 Performance Optimization**: HTTP/2 support, connection pooling, streaming pipelines, caching layers
+- **🆕 Advanced LFS**: Batch API v2, resumable uploads, chunked transfers, deduplication
+- **🆕 Storage Backends**: Multi-tier storage, CDN integration, object versioning, cleanup automation
 
 </technical_requirements>
 
 <business_context>
 
-HTTP Git server enables:
+🆕 **Enterprise HTTP Git Server Enables**:
 
-- **Web-based Git Operations**: Clone, fetch, push over HTTP/HTTPS
-- **Firewall-friendly Access**: Git operations through standard HTTP ports
-- **Large File Support**: Git LFS for managing large binary files
-- **Web Integration**: Direct integration with web interfaces and APIs
-- **Enterprise Features**: Authentication, authorization, audit logging
-- **CDN Integration**: Efficient content delivery for repositories and LFS objects
+- **🆕 Multi-Protocol Git Operations**: Git Smart HTTP v1/v2 with performance optimizations
+- **🆕 Advanced Authentication**: Multi-tier authentication with organization/team support
+- **🆕 Enterprise LFS Management**: Advanced LFS with deduplication, resumable uploads, and CDN integration
+- **🆕 High-Performance Operations**: HTTP/2, streaming pipelines, connection pooling for high-traffic environments
+- **🆕 Security Hardening**: DoS protection, input validation, security headers, rate limiting per organization/user
+- **Web-based Git Operations**: Clone, fetch, push over HTTP/HTTPS with firewall-friendly access
+- **🆕 Advanced Web Integration**: Deep integration with web interfaces, APIs, and webhook systems
+- **🆕 Production-Grade Features**: Monitoring, metrics, audit logging, graceful degradation
+- **🆕 CDN and Storage Optimization**: Multi-tier storage, object versioning, automated cleanup
 
-This complements the SSH server and provides broader accessibility for Git operations.
+This provides enterprise-grade Git hosting capabilities that complement the SSH server and scale to thousands of users and repositories following Gitea's production architecture patterns.
 
 </business_context>
 
@@ -39,105 +44,244 @@ This complements the SSH server and provides broader accessibility for Git opera
 
 <input>
 
-HTTP Git server requirements:
+🆕 **Enterprise HTTP Git Server Requirements (Gitea Production Patterns)**:
 
-1. **Git Smart HTTP Protocol**:
-   ```
+1. **🆕 Enhanced Git Smart HTTP Protocol (v1/v2 Support)**:
+   ```bash
+   # Git Protocol v1 (standard)
    GET  /owner/repo.git/info/refs?service=git-upload-pack
    POST /owner/repo.git/git-upload-pack
    POST /owner/repo.git/git-receive-pack
    GET  /owner/repo.git/objects/[hash-path]
    GET  /owner/repo.git/HEAD
+   
+   # 🆕 Git Protocol v2 (enhanced performance)
+   GET  /owner/repo.git/info/refs?service=git-upload-pack&version=2
+   POST /owner/repo.git/git-upload-pack (with protocol v2 request format)
+   
+   # 🆕 Enhanced endpoints for metadata and caching
+   GET  /owner/repo.git/info/refs?service=git-upload-pack&want-ref=refs/heads/main
+   GET  /owner/repo.git/info/attributes
+   GET  /owner/repo.git/info/sparse-checkout
    ```
 
-2. **Git LFS Protocol**:
-   ```
+2. **🆕 Advanced Git LFS Protocol with Batch Extensions**:
+   ```bash
+   # Standard LFS API v1
    POST /owner/repo.git/info/lfs/objects/batch
    GET  /owner/repo.git/info/lfs/objects/{oid}
    PUT  /owner/repo.git/info/lfs/objects/{oid}
+   
+   # 🆕 LFS Batch API v2 with advanced features
+   POST /owner/repo.git/info/lfs/objects/batch (with transfer adapters)
+   GET  /owner/repo.git/info/lfs/objects/{oid}/verify
+   PUT  /owner/repo.git/info/lfs/objects/{oid}/upload/{chunk}
+   POST /owner/repo.git/info/lfs/objects/{oid}/complete
+   
+   # 🆕 LFS management and metadata
+   GET  /owner/repo.git/info/lfs/locks
+   POST /owner/repo.git/info/lfs/locks
+   POST /owner/repo.git/info/lfs/locks/{id}/unlock
+   GET  /owner/repo.git/info/lfs/size
    ```
 
-3. **Authentication Methods**:
-   - HTTP Basic Authentication
-   - Bearer token authentication
-   - API key authentication
-   - Session-based authentication for web interface
+3. **🆕 Multi-Tier Authentication System**:
+   ```zig
+   const AuthenticationMethod = enum {
+       http_basic,           // Username:password or token
+       bearer_token,         // OAuth/API tokens
+       api_key_header,       // X-API-Key header
+       ssh_key_over_http,    // SSH key authentication over HTTP
+       session_cookie,       // Web session authentication
+       organization_token,   // Organization-scoped tokens
+       temporary_token,      // Time-limited access tokens
+   };
+   
+   const AuthenticationResult = struct {
+       authenticated: bool,
+       user_id: u32,
+       organization_id: ?u32,
+       team_ids: []u32,
+       token_scopes: []TokenScope,
+       rate_limit_tier: RateLimitTier,
+       expires_at: ?i64,
+   };
+   ```
 
-4. **Repository Operations**:
-   - Clone (read access)
-   - Fetch/Pull (read access)
-   - Push (write access)
-   - LFS object upload/download
+4. **🆕 Enhanced Repository Operations with Team Context**:
+   ```zig
+   const GitOperation = enum {
+       clone,              // Read access
+       fetch,              // Read access  
+       push,               // Write access
+       force_push,         // Admin access
+       delete_branch,      // Write access
+       create_tag,         // Write access
+       delete_tag,         // Admin access
+       lfs_upload,         // LFS write access
+       lfs_download,       // LFS read access
+       lfs_lock,           // LFS lock management
+   };
+   
+   const OperationContext = struct {
+       operation: GitOperation,
+       repository_path: []const u8,
+       user_context: UserContext,
+       team_context: ?TeamContext,
+       branch_name: ?[]const u8,
+       tag_name: ?[]const u8,
+       lfs_oid: ?[]const u8,
+   };
+   ```
 
-Expected client interactions:
+5. **🆕 Security Hardening Requirements**:
+   - Input validation and sanitization for all Git operations
+   - Rate limiting per IP, user, and organization
+   - DoS protection with connection limits and timeouts
+   - Security headers (HSTS, CSP, X-Frame-Options)
+   - Request size limits and upload quotas
+   - Malicious payload detection for Git objects
+
+🆕 **Expected Enterprise Client Interactions**:
 ```bash
-# Git operations over HTTPS
+# 🆕 Multi-authentication Git operations over HTTPS
 git clone https://api-key:token@plue.dev/owner/repo.git
+git clone https://org-token:team-token@plue.dev/org/repo.git
 git push https://username:password@plue.dev/owner/repo.git
 
-# LFS operations (transparent to user)
+# 🆕 Advanced Git operations with protocol v2
+git -c protocol.version=2 clone https://plue.dev/owner/repo.git
+git -c protocol.version=2 fetch origin
+
+# 🆕 Enhanced LFS operations with resumable uploads
 git lfs push origin main
 git lfs pull
+git lfs lock path/to/large-file.bin
+git lfs unlock path/to/large-file.bin
+
+# 🆕 Organization and team-aware operations
+git clone https://team-token@plue.dev/org/private-repo.git
+git push --force-with-lease origin feature-branch  # With enhanced security checks
+
+# 🆕 API-driven operations with advanced authentication
+curl -H "Authorization: Bearer org-token" \
+     -H "X-Organization: myorg" \
+     https://plue.dev/api/v1/repos/org/repo/git/refs
 ```
 
 </input>
 
 <expected_output>
 
-Complete HTTP Git and LFS server providing:
+🆕 **Complete Enterprise HTTP Git and LFS Server Providing**:
 
-1. **Git Smart HTTP Server**: Full Git protocol support over HTTP/HTTPS
-2. **Git LFS Server**: Large file storage with batch API support
-3. **Authentication System**: Multiple authentication methods with session management
-4. **Authorization Integration**: Permission-based access control for all operations
-5. **Streaming Support**: Efficient handling of large repositories and files
-6. **Rate Limiting**: DoS protection and abuse prevention
-7. **Audit Logging**: Comprehensive logging for all Git and LFS operations
-8. **Storage Backends**: File system and cloud storage for LFS objects
+1. **🆕 Enhanced Git Smart HTTP Server**: Git protocol v1/v2 support with performance optimizations
+2. **🆕 Advanced Git LFS Server**: LFS batch API v2 with resumable uploads, chunked transfers, and deduplication
+3. **🆕 Multi-Tier Authentication System**: HTTP Basic, Bearer tokens, API keys, SSH-over-HTTP, organization tokens
+4. **🆕 Team-Aware Authorization**: Organization/team-based permissions with fine-grained access control
+5. **🆕 High-Performance Streaming**: HTTP/2 support, connection pooling, streaming pipelines, caching layers
+6. **🆕 Advanced Security Hardening**: DoS protection, input validation, security headers, malicious payload detection
+7. **🆕 Enterprise-Grade Rate Limiting**: Per-IP, per-user, per-organization rate limiting with burst protection
+8. **🆕 Comprehensive Audit System**: Multi-tier audit logging with organization-level reporting
+9. **🆕 Multi-Tier Storage Backends**: File system, cloud storage, CDN integration with object versioning
+10. **🆕 Production Monitoring**: Health checks, metrics collection, performance monitoring, graceful degradation
 
-Core server architecture:
+🆕 **Enhanced Enterprise Server Architecture**:
 ```zig
 const GitHttpServer = struct {
     http_server: *zap.Server,
     git_command: *GitCommandWrapper,
     permission_checker: *PermissionChecker,
-    auth_manager: *AuthManager,
-    lfs_storage: *LfsStorage,
-    rate_limiter: *RateLimiter,
+    auth_manager: *MultiTierAuthManager,
+    lfs_storage: *AdvancedLfsStorage,
+    rate_limiter: *EnterpriseRateLimiter,
+    security_validator: *SecurityValidator,
+    performance_monitor: *PerformanceMonitor,
+    audit_logger: *AuditLogger,
 
     pub fn init(allocator: std.mem.Allocator, config: GitHttpConfig) !GitHttpServer;
     pub fn start(self: *GitHttpServer, allocator: std.mem.Allocator) !void;
     
-    // Git Smart HTTP endpoints
+    // 🆕 Enhanced Git Smart HTTP endpoints with protocol v2 support
     pub fn handleInfoRefs(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
+    pub fn handleInfoRefsV2(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
     pub fn handleGitUploadPack(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
+    pub fn handleGitUploadPackV2(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
     pub fn handleGitReceivePack(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
     
-    // Git LFS endpoints
+    // 🆕 Advanced Git LFS endpoints with batch v2 support
     pub fn handleLfsBatch(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
+    pub fn handleLfsBatchV2(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
     pub fn handleLfsUpload(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
+    pub fn handleLfsChunkedUpload(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
     pub fn handleLfsDownload(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
-};
-
-const LfsStorage = struct {
-    storage_backend: StorageBackend,
+    pub fn handleLfsVerify(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
+    pub fn handleLfsLocks(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
     
-    pub fn storeObject(self: *LfsStorage, allocator: std.mem.Allocator, oid: []const u8, data: []const u8) !void;
-    pub fn retrieveObject(self: *LfsStorage, allocator: std.mem.Allocator, oid: []const u8) ![]u8;
-    pub fn objectExists(self: *LfsStorage, allocator: std.mem.Allocator, oid: []const u8) !bool;
-    pub fn deleteObject(self: *LfsStorage, allocator: std.mem.Allocator, oid: []const u8) !void;
+    // 🆕 Security and monitoring endpoints
+    pub fn handleHealthCheck(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
+    pub fn handleMetrics(self: *GitHttpServer, req: *zap.Request, res: *zap.Response) !void;
 };
 
+// 🆕 Multi-tier authentication manager
+const MultiTierAuthManager = struct {
+    basic_auth: *BasicAuthHandler,
+    token_auth: *TokenAuthHandler,
+    ssh_key_auth: *SshKeyOverHttpHandler,
+    organization_auth: *OrganizationAuthHandler,
+    
+    pub fn authenticate(self: *MultiTierAuthManager, allocator: std.mem.Allocator, req: *zap.Request) !AuthenticationResult;
+    pub fn validateTokenScopes(self: *MultiTierAuthManager, allocator: std.mem.Allocator, token: []const u8, required_scopes: []TokenScope) !bool;
+    pub fn getOrganizationContext(self: *MultiTierAuthManager, allocator: std.mem.Allocator, user_id: u32, org_name: []const u8) !?OrganizationContext;
+};
+
+// 🆕 Advanced LFS storage with deduplication and CDN support
+const AdvancedLfsStorage = struct {
+    primary_backend: StorageBackend,
+    cdn_backend: ?StorageBackend,
+    deduplication_enabled: bool,
+    versioning_enabled: bool,
+    cleanup_scheduler: *CleanupScheduler,
+    
+    pub fn storeObject(self: *AdvancedLfsStorage, allocator: std.mem.Allocator, oid: []const u8, data: []const u8) !void;
+    pub fn storeObjectChunked(self: *AdvancedLfsStorage, allocator: std.mem.Allocator, oid: []const u8, chunk_stream: *ChunkStream) !void;
+    pub fn retrieveObject(self: *AdvancedLfsStorage, allocator: std.mem.Allocator, oid: []const u8) ![]u8;
+    pub fn getObjectUrl(self: *AdvancedLfsStorage, allocator: std.mem.Allocator, oid: []const u8, operation: LfsOperation) ![]const u8;
+    pub fn deduplicateObject(self: *AdvancedLfsStorage, allocator: std.mem.Allocator, oid: []const u8) !DeduplicationResult;
+    pub fn scheduleCleanup(self: *AdvancedLfsStorage, allocator: std.mem.Allocator, retention_policy: RetentionPolicy) !void;
+};
+
+// 🆕 Enhanced storage backends with CDN integration
 const StorageBackend = union(enum) {
     filesystem: struct {
         base_path: []const u8,
+        compression_enabled: bool,
+        encryption_key: ?[]const u8,
     },
-    s3: struct {
+    s3_compatible: struct {
+        endpoint: []const u8,
         bucket: []const u8,
         region: []const u8,
         access_key: []const u8,
         secret_key: []const u8,
+        cdn_domain: ?[]const u8,
     },
+    multi_tier: struct {
+        hot_storage: *StorageBackend,
+        cold_storage: *StorageBackend,
+        archival_storage: *StorageBackend,
+        tier_policy: TieringPolicy,
+    },
+};
+
+// 🆕 Enterprise rate limiting with organization awareness
+const EnterpriseRateLimiter = struct {
+    ip_limiter: *IpRateLimiter,
+    user_limiter: *UserRateLimiter,
+    org_limiter: *OrganizationRateLimiter,
+    
+    pub fn checkRateLimit(self: *EnterpriseRateLimiter, allocator: std.mem.Allocator, context: RateLimitContext) !RateLimitResult;
+    pub fn updateLimits(self: *EnterpriseRateLimiter, allocator: std.mem.Allocator, updates: []RateLimitUpdate) !void;
 };
 ```
 
@@ -546,13 +690,18 @@ const StorageBackend = union(enum) {
 
 <success_criteria>
 
-1. **All tests pass**: Complete HTTP Git and LFS functionality
-2. **Protocol compliance**: Full Git Smart HTTP and LFS API v1 support
-3. **Performance**: Handle large repositories and files efficiently
-4. **Security**: Robust authentication and authorization
-5. **Integration**: Seamless integration with permission system and database
-6. **Scalability**: Support concurrent operations and high throughput
-7. **Production ready**: Rate limiting, logging, monitoring, graceful shutdown
+1. **All tests pass**: Complete enterprise HTTP Git and LFS functionality
+2. **🆕 Protocol compliance**: Full Git Smart HTTP v1/v2 and LFS API v1/v2 support
+3. **🆕 Multi-tier authentication**: All authentication methods working with organization/team context
+4. **🆕 Advanced LFS features**: Resumable uploads, chunked transfers, deduplication, and CDN integration
+5. **🆕 Performance optimization**: HTTP/2 support, streaming pipelines, connection pooling
+6. **🆕 Security hardening**: Input validation, DoS protection, security headers, malicious payload detection
+7. **🆕 Enterprise rate limiting**: Per-IP, per-user, per-organization rate limiting with burst protection
+8. **Integration**: Seamless integration with permission system, database, and team management
+9. **Scalability**: Support thousands of concurrent operations and high throughput
+10. **🆕 Storage flexibility**: Multi-tier storage backends with object versioning and automated cleanup
+11. **🆕 Production monitoring**: Health checks, metrics collection, audit logging, graceful degradation
+12. **🆕 Battle-tested patterns**: Implementation following Gitea's production-proven architecture
 
 </success_criteria>
 
@@ -560,9 +709,23 @@ const StorageBackend = union(enum) {
 
 <reference_implementations>
 
+**🆕 Enhanced with Gitea Production Patterns:**
+- [🆕 Gitea HTTP Git Server](https://github.com/go-gitea/gitea/tree/main/routers/web/repo)
+- [🆕 Gitea LFS Implementation](https://github.com/go-gitea/gitea/tree/main/services/lfs)
+- [🆕 Gitea Authentication Middleware](https://github.com/go-gitea/gitea/tree/main/services/auth)
+- [🆕 Gitea Organization/Team Integration](https://github.com/go-gitea/gitea/tree/main/models/organization)
+- [🆕 Gitea Rate Limiting](https://github.com/go-gitea/gitea/tree/main/modules/web/middleware)
+- [🆕 Gitea Git Protocol v2](https://github.com/go-gitea/gitea/blob/main/services/repository/files/git.go)
 - **Git Smart HTTP**: Official Git documentation and protocol specification
 - **Git LFS API**: GitHub LFS API specification and reference implementation
-- **Gitea HTTP Git**: Reference implementation for HTTP Git server
 - **GitLab Git HTTP**: Enterprise-grade HTTP Git server implementation
+
+**🆕 Key Gitea Patterns Implemented:**
+- Multi-tier authentication with organization/team context
+- Git protocol v2 support with performance optimizations
+- Advanced LFS batch API with resumable uploads and deduplication
+- Enterprise-grade rate limiting with multi-level controls
+- Security hardening with input validation and DoS protection
+- Multi-tier storage backends with CDN integration and object versioning
 
 </reference_implementations>

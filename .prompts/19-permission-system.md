@@ -1,7 +1,7 @@
-# Implement Core Permission Logic for Repository Access
+# Implement Enterprise Permission System with Organization/Team Support (ENHANCED WITH GITEA PRODUCTION PATTERNS)
 
 <task_definition>
-Implement a comprehensive permission system for repository access control that integrates with the database layer and provides fine-grained authorization for Git operations. This system will handle user permissions, organization access, repository visibility, and Git protocol authorization with enterprise-grade security and performance.
+Implement a comprehensive enterprise-grade permission system for repository access control that provides organization/team support, unit-level permissions, visibility patterns, and request-level caching. This system handles complex permission hierarchies, team-based access control, fine-grained repository permissions, and Git protocol authorization with production-grade security and performance following Gitea's battle-tested patterns.
 </task_definition>
 
 <context_and_constraints>
@@ -10,26 +10,33 @@ Implement a comprehensive permission system for repository access control that i
 
 - **Language/Framework**: Zig - https://ziglang.org/documentation/master/
 - **Dependencies**: Database models (issue #18), Configuration system
-- **Location**: `src/auth/permissions.zig`
-- **Database**: PostgreSQL with proper indexing for performance
-- **Security**: Role-based access control (RBAC) with fine-grained permissions
-- **Memory**: Efficient permission caching with TTL and invalidation
-- **Integration**: SSH server, HTTP Git server, API endpoints
+- **Location**: `src/auth/permissions.zig`, `src/auth/teams.zig`, `src/auth/units.zig`
+- **Database**: PostgreSQL with advanced indexing for complex queries
+- **Security**: Multi-tier RBAC with organization/team/unit-level permissions
+- **Memory**: Request-level caching with invalidation cascades
+- **🆕 Organizations**: Full organization support with team hierarchies
+- **🆕 Unit Permissions**: Fine-grained unit-level access control (issues, PRs, wiki, etc.)
+- **🆕 Visibility Patterns**: Complex visibility rules with inheritance
+- **Integration**: SSH server, HTTP Git server, API endpoints, webhook systems
 
 </technical_requirements>
 
 <business_context>
 
-Plue requires a sophisticated permission system to support:
+Plue requires an enterprise-grade permission system to support:
 
-- **Repository Access Control**: Public, private, and internal repositories
-- **Organization Permissions**: Organization-level access and team management
-- **Git Protocol Authorization**: SSH and HTTP Git operations (clone, fetch, push)
-- **Admin Operations**: System administration and user management
-- **API Access Control**: REST API endpoint authorization
-- **Audit Requirements**: Permission changes and access logging
+- **🆕 Organization Management**: Multi-tier organization hierarchies with team structures
+- **🆕 Team-Based Access**: Granular team permissions with inheritance patterns
+- **🆕 Unit-Level Permissions**: Fine-grained control over repository features (issues, PRs, wiki, releases, packages)
+- **🆕 Complex Visibility**: Public, private, internal, and limited visibility with organization-specific rules
+- **Repository Access Control**: Repository-level permissions with collaborative features
+- **Git Protocol Authorization**: SSH and HTTP Git operations with team-aware routing
+- **Admin Operations**: Multi-level administration (system, organization, repository)
+- **API Access Control**: Context-aware API endpoint authorization
+- **🆕 Audit & Compliance**: Comprehensive audit trails with organization-level reporting
+- **🆕 Integration Patterns**: Webhook permissions, external authentication, LDAP/SAML integration
 
-The system must scale to thousands of users and repositories while maintaining sub-millisecond permission checks through intelligent caching.
+The system must scale to thousands of organizations, teams, and repositories while maintaining sub-millisecond permission checks through request-level caching and smart invalidation patterns following Gitea's production architecture.
 
 </business_context>
 
@@ -39,102 +46,245 @@ The system must scale to thousands of users and repositories while maintaining s
 
 <input>
 
-Permission system requirements:
+🆕 **Enterprise Permission System Requirements (Gitea Production Patterns)**:
 
-1. **Permission Levels**:
-   - `None` - No access
-   - `Read` - Clone, fetch, pull operations
-   - `Write` - Push operations, branch management
-   - `Admin` - Repository settings, collaborator management
-   - `Owner` - Full control including deletion
+1. **🆕 Multi-Tier Permission Architecture**:
+   ```zig
+   // Repository-level permissions
+   const RepositoryPermission = enum {
+       none,      // No access
+       read,      // Clone, fetch, pull operations
+       write,     // Push operations, branch management  
+       admin,     // Repository settings, collaborator management
+       owner,     // Full control including deletion
+   };
+   
+   // Organization-level roles
+   const OrganizationRole = enum {
+       none,      // No organization access
+       member,    // Basic organization access
+       admin,     // Organization management
+       owner,     // Full organization control
+   };
+   
+   // Team-level permissions with inheritance
+   const TeamPermission = enum {
+       none,      // No team access
+       read,      // Team visibility, basic access
+       write,     // Team repository write access
+       admin,     // Team management, member administration
+   };
+   ```
 
-2. **Repository Visibility**:
-   - `Public` - Readable by everyone, write access controlled
-   - `Private` - Access controlled by explicit permissions
-   - `Internal` - Readable by authenticated users
+2. **🆕 Unit-Level Permissions (Fine-Grained Control)**:
+   ```zig
+   const UnitType = enum {
+       code,           // Repository code access
+       issues,         // Issue tracking
+       pull_requests,  // Pull request management
+       releases,       // Release management
+       wiki,           // Wiki access
+       packages,       // Package management
+       actions,        // CI/CD actions
+       projects,       // Project management
+   };
+   
+   const UnitPermission = struct {
+       unit_type: UnitType,
+       access_mode: AccessMode,
+       
+       const AccessMode = enum {
+           none,    // Unit disabled
+           read,    // Read-only access
+           write,   // Read-write access
+           admin,   // Administrative access
+       };
+   };
+   ```
 
-3. **Organization Permissions**:
-   - `Member` - Basic organization access
-   - `Admin` - Organization management
-   - `Owner` - Full organization control
+3. **🆕 Complex Visibility Patterns**:
+   ```zig
+   const RepositoryVisibility = enum {
+       public,      // Visible to everyone
+       internal,    // Visible to authenticated users
+       private,     // Visible only to authorized users
+       limited,     // Visible to organization members only
+       
+       pub fn isVisibleTo(self: RepositoryVisibility, user: ?User, org: ?Organization) bool;
+   };
+   ```
 
-4. **Permission Sources**:
-   - Repository collaborators (direct user permissions)
-   - Organization team memberships
+4. **🆕 Team Hierarchy and Inheritance**:
+   - Teams can inherit permissions from parent teams
+   - Team permissions override individual collaborator permissions
+   - Organization-level default permissions
+   - Repository-specific team access controls
+
+5. **🆕 Permission Resolution Priority** (highest to lowest):
+   - Repository owner permissions
+   - Repository admin collaborator permissions
+   - Organization owner permissions
+   - Team-specific permissions (merged)
+   - Organization member base permissions
+   - Repository visibility settings
+   - System-level permissions
+
+6. **🆕 Advanced Permission Sources**:
+   - Direct repository collaborators
+   - Organization team memberships (with inheritance)
+   - Organization base permissions
    - Repository ownership
-   - System admin permissions
+   - System administrator privileges
+   - External authentication provider groups (LDAP/SAML)
+   - Temporary access grants
 
-Expected permission check scenarios:
+🆕 **Expected Enterprise Permission Check Scenarios**:
 ```zig
-// Direct repository access
-const permission = try permission_checker.getUserRepoPermission(allocator, user_id, repo_id);
+// Multi-tier permission resolution
+const context = PermissionContext{
+    .user_id = user_id,
+    .organization_id = org_id,
+    .repository_id = repo_id,
+    .request_id = request_id, // For caching
+};
 
-// Git protocol authorization
-const can_push = try permission_checker.canUserPushToRepo(allocator, user_id, "owner/repo");
-const can_clone = try permission_checker.canUserCloneRepo(allocator, user_id, "owner/repo");
+// Repository-level permissions with team inheritance
+const repo_permission = try permission_checker.getUserRepoPermission(allocator, context);
 
-// Organization permissions
+// Unit-level permission checks
+const can_view_issues = try permission_checker.hasUnitAccess(allocator, context, .issues, .read);
+const can_manage_releases = try permission_checker.hasUnitAccess(allocator, context, .releases, .admin);
+
+// Team-based authorization with inheritance
+const team_permissions = try permission_checker.getUserTeamPermissions(allocator, user_id, org_id);
+
+// Organization role resolution
 const org_role = try permission_checker.getUserOrgRole(allocator, user_id, org_id);
 
-// API endpoint authorization
-const can_admin = try permission_checker.canUserAdminRepo(allocator, user_id, repo_id);
+// Complex visibility checks
+const can_see_repo = try permission_checker.canUserSeeRepository(allocator, user_id, repo_path);
+
+// Git protocol authorization with team context
+const git_auth = GitAuthContext{
+    .user_id = user_id,
+    .repository_path = "org/repo.git",
+    .operation = .push,
+    .branch = "main",
+    .team_context = team_context,
+};
+const can_push = try permission_checker.authorizeGitOperation(allocator, git_auth);
+
+// API endpoint authorization with unit awareness
+const api_context = APIAuthContext{
+    .user_id = user_id,
+    .endpoint = "/api/v1/repos/org/repo/issues",
+    .method = .POST,
+    .required_unit = .issues,
+    .required_access = .write,
+};
+const can_access_api = try permission_checker.authorizeAPIAccess(allocator, api_context);
 ```
 
 </input>
 
 <expected_output>
 
-A complete permission system providing:
+🆕 **Complete Enterprise Permission System Providing**:
 
-1. **Permission Checker**: Core authorization logic with caching
-2. **Role Management**: User roles and organization permissions
-3. **Repository Access Control**: Fine-grained repository permissions
-4. **Git Protocol Authorization**: SSH and HTTP Git operation authorization
-5. **Permission Caching**: High-performance caching with intelligent invalidation
-6. **Audit Logging**: Comprehensive permission change and access logging
-7. **Admin Interface**: Permission management APIs and tools
-8. **Integration Hooks**: Easy integration with SSH, HTTP, and API layers
+1. **🆕 Multi-Tier Permission Checker**: Core authorization with organization/team/unit awareness
+2. **🆕 Team Management System**: Team hierarchies with permission inheritance
+3. **🆕 Unit-Level Access Control**: Fine-grained feature-level permissions
+4. **🆕 Organization Role Management**: Complex organization structures with role inheritance
+5. **🆕 Advanced Visibility Engine**: Complex visibility patterns with organization rules
+6. **Repository Access Control**: Enhanced repository permissions with team integration
+7. **Git Protocol Authorization**: Team-aware SSH and HTTP Git operation authorization
+8. **🆕 Request-Level Caching**: High-performance caching with cascade invalidation
+9. **🆕 Comprehensive Audit System**: Multi-level audit trails with organization reporting
+10. **🆕 Integration Framework**: LDAP/SAML, webhook permissions, external auth providers
+11. **Admin Interface**: Multi-tier administration tools (system/org/repo)
+12. **Performance Optimization**: Sub-millisecond checks with smart caching patterns
 
-Core API structure:
+🆕 **Enhanced Enterprise Permission Architecture**:
 ```zig
 const PermissionChecker = struct {
     db: *DatabaseConnection,
-    cache: *PermissionCache,
+    cache: *RequestLevelCache,
     audit_logger: *AuditLogger,
+    team_manager: *TeamManager,
+    org_manager: *OrganizationManager,
 
-    // Core permission checking
-    pub fn getUserRepoPermission(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, repo_id: u32) !PermissionLevel;
-    pub fn canUserAccessRepo(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, repo_path: []const u8, operation: GitOperation) !bool;
+    // 🆕 Multi-tier permission resolution
+    pub fn getUserRepoPermission(self: *PermissionChecker, allocator: std.mem.Allocator, context: PermissionContext) !ResolvedPermission;
+    pub fn hasUnitAccess(self: *PermissionChecker, allocator: std.mem.Allocator, context: PermissionContext, unit: UnitType, access: AccessMode) !bool;
     
-    // Git protocol authorization
-    pub fn authorizeGitOperation(self: *PermissionChecker, allocator: std.mem.Allocator, context: GitAuthContext) !AuthorizationResult;
+    // 🆕 Team-based authorization
+    pub fn getUserTeamPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, org_id: u32) ![]TeamPermissionSet;
+    pub fn resolveTeamInheritance(self: *PermissionChecker, allocator: std.mem.Allocator, team_id: u32) !ResolvedTeamPermission;
     
-    // Organization permissions
+    // 🆕 Organization management
     pub fn getUserOrgRole(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, org_id: u32) !OrganizationRole;
+    pub fn checkOrgTeamPermission(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, org_id: u32, team_id: u32) !TeamPermission;
     
-    // Permission management
-    pub fn grantRepoPermission(self: *PermissionChecker, allocator: std.mem.Allocator, granter_id: u32, user_id: u32, repo_id: u32, level: PermissionLevel) !void;
-    pub fn revokeRepoPermission(self: *PermissionChecker, allocator: std.mem.Allocator, revoker_id: u32, user_id: u32, repo_id: u32) !void;
+    // 🆕 Advanced visibility and access
+    pub fn canUserSeeRepository(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32, repo_path: []const u8) !bool;
+    pub fn getRepositoryVisibilityLevel(self: *PermissionChecker, allocator: std.mem.Allocator, repo_id: u32, user_context: UserContext) !VisibilityLevel;
+    
+    // 🆕 Enhanced Git protocol authorization
+    pub fn authorizeGitOperation(self: *PermissionChecker, allocator: std.mem.Allocator, context: GitAuthContext) !AuthorizationResult;
+    pub fn authorizeAPIAccess(self: *PermissionChecker, allocator: std.mem.Allocator, context: APIAuthContext) !APIAuthorizationResult;
+    
+    // 🆕 Advanced permission management
+    pub fn grantTeamRepoAccess(self: *PermissionChecker, allocator: std.mem.Allocator, granter_id: u32, team_id: u32, repo_id: u32, units: []UnitPermission) !void;
+    pub fn updateUserOrgRole(self: *PermissionChecker, allocator: std.mem.Allocator, admin_id: u32, user_id: u32, org_id: u32, role: OrganizationRole) !void;
+    pub fn bulkUpdateTeamPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, team_updates: []TeamPermissionUpdate) !BulkUpdateResult;
+    
+    // 🆕 Request-level caching with invalidation
+    pub fn invalidateUserPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, user_id: u32) !void;
+    pub fn invalidateRepositoryPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, repo_id: u32) !void;
+    pub fn invalidateOrganizationPermissions(self: *PermissionChecker, allocator: std.mem.Allocator, org_id: u32) !void;
 };
 
-const PermissionLevel = enum {
-    none,
-    read,
-    write,
-    admin,
-    owner,
+// 🆕 Enhanced permission structures
+const ResolvedPermission = struct {
+    repository_access: RepositoryPermission,
+    unit_permissions: []UnitPermission,
+    source: PermissionSource,
+    team_context: ?TeamContext,
+    expires_at: ?i64,
     
-    pub fn canRead(self: PermissionLevel) bool;
-    pub fn canWrite(self: PermissionLevel) bool;
-    pub fn canAdmin(self: PermissionLevel) bool;
+    const PermissionSource = enum {
+        repository_owner,
+        repository_collaborator,
+        organization_owner,
+        organization_admin,
+        team_permission,
+        organization_member,
+        public_access,
+        system_admin,
+    };
 };
 
-const GitOperation = enum {
-    clone,
-    fetch,
-    push,
-    
-    pub fn requiredPermissionLevel(self: GitOperation) PermissionLevel;
+const PermissionContext = struct {
+    user_id: u32,
+    repository_id: ?u32,
+    organization_id: ?u32,
+    team_id: ?u32,
+    request_id: []const u8, // For request-level caching
+    client_ip: ?[]const u8,
+    user_agent: ?[]const u8,
+};
+
+// 🆕 Team management structures
+const TeamManager = struct {
+    pub fn getTeamHierarchy(self: *TeamManager, allocator: std.mem.Allocator, team_id: u32) !TeamHierarchy;
+    pub fn resolveInheritedPermissions(self: *TeamManager, allocator: std.mem.Allocator, team_path: []u32) ![]UnitPermission;
+    pub fn validateTeamAccess(self: *TeamManager, allocator: std.mem.Allocator, user_id: u32, team_id: u32) !bool;
+};
+
+const OrganizationManager = struct {
+    pub fn getOrgDefaultPermissions(self: *OrganizationManager, allocator: std.mem.Allocator, org_id: u32) ![]UnitPermission;
+    pub fn getUserOrgMembership(self: *OrganizationManager, allocator: std.mem.Allocator, user_id: u32, org_id: u32) !?OrganizationMembership;
+    pub fn checkOrgVisibilityRules(self: *OrganizationManager, allocator: std.mem.Allocator, org_id: u32, user_context: UserContext) !bool;
 };
 ```
 
@@ -147,39 +297,71 @@ const GitOperation = enum {
 **CRITICAL**: Zero tolerance for test failures. Any failing tests indicate YOU caused a regression.
 
 <phase_1>
-<title>Phase 1: Core Permission Types and Enums (TDD)</title>
+<title>Phase 1: 🆕 Enterprise Permission Foundation with Unit-Level Access (TDD)</title>
 
-1. **Create permission module structure**
+1. **Create enhanced permission module structure**
    ```bash
    mkdir -p src/auth
    touch src/auth/permissions.zig
+   touch src/auth/teams.zig
+   touch src/auth/units.zig
+   touch src/auth/organizations.zig
    ```
 
-2. **Write tests for permission levels**
+2. **🆕 Write tests for multi-tier permission architecture**
    ```zig
-   test "PermissionLevel hierarchy and capabilities" {
-       try testing.expect(PermissionLevel.read.canRead());
-       try testing.expect(!PermissionLevel.read.canWrite());
-       try testing.expect(!PermissionLevel.read.canAdmin());
+   test "RepositoryPermission hierarchy with unit-level access" {
+       try testing.expect(RepositoryPermission.read.canRead());
+       try testing.expect(!RepositoryPermission.read.canWrite());
+       try testing.expect(!RepositoryPermission.read.canAdmin());
        
-       try testing.expect(PermissionLevel.write.canRead());
-       try testing.expect(PermissionLevel.write.canWrite());
-       try testing.expect(!PermissionLevel.write.canAdmin());
+       try testing.expect(RepositoryPermission.write.canRead());
+       try testing.expect(RepositoryPermission.write.canWrite());
+       try testing.expect(!RepositoryPermission.write.canAdmin());
        
-       try testing.expect(PermissionLevel.admin.canRead());
-       try testing.expect(PermissionLevel.admin.canWrite());
-       try testing.expect(PermissionLevel.admin.canAdmin());
+       try testing.expect(RepositoryPermission.admin.canRead());
+       try testing.expect(RepositoryPermission.admin.canWrite());
+       try testing.expect(RepositoryPermission.admin.canAdmin());
    }
    
-   test "GitOperation permission requirements" {
-       try testing.expectEqual(PermissionLevel.read, GitOperation.clone.requiredPermissionLevel());
-       try testing.expectEqual(PermissionLevel.read, GitOperation.fetch.requiredPermissionLevel());
-       try testing.expectEqual(PermissionLevel.write, GitOperation.push.requiredPermissionLevel());
+   test "UnitPermission validates access modes correctly" {
+       const issues_write = UnitPermission{
+           .unit_type = .issues,
+           .access_mode = .write,
+       };
+       
+       try testing.expect(issues_write.canRead());
+       try testing.expect(issues_write.canWrite());
+       try testing.expect(!issues_write.canAdmin());
+       
+       const releases_admin = UnitPermission{
+           .unit_type = .releases,
+           .access_mode = .admin,
+       };
+       
+       try testing.expect(releases_admin.canRead());
+       try testing.expect(releases_admin.canWrite());
+       try testing.expect(releases_admin.canAdmin());
+   }
+   
+   test "OrganizationRole inheritance patterns" {
+       try testing.expect(OrganizationRole.owner.inheritsFrom(.admin));
+       try testing.expect(OrganizationRole.admin.inheritsFrom(.member));
+       try testing.expect(!OrganizationRole.member.inheritsFrom(.admin));
+   }
+   
+   test "TeamPermission with inheritance validation" {
+       const parent_team_permission = TeamPermission.admin;
+       const child_team_permission = TeamPermission.write;
+       
+       const effective_permission = TeamPermission.resolve(parent_team_permission, child_team_permission);
+       try testing.expectEqual(TeamPermission.admin, effective_permission); // Parent wins
    }
    ```
 
-3. **Implement permission level enums and capabilities**
-4. **Add Git operation permission mapping**
+3. **🆕 Implement multi-tier permission enums with unit awareness**
+4. **🆕 Add team permission inheritance logic**
+5. **🆕 Create organization role hierarchy system**
 
 </phase_1>
 
@@ -444,12 +626,17 @@ const GitOperation = enum {
 <success_criteria>
 
 1. **All tests pass**: Complete test coverage with zero failures
-2. **Performance**: Sub-millisecond permission checks with caching
-3. **Security**: Comprehensive access control with no bypass vulnerabilities
-4. **Integration**: Seamless integration with SSH and HTTP Git servers
-5. **Scalability**: Support for thousands of users and repositories
-6. **Audit compliance**: Complete audit trail for permission changes
-7. **Memory safety**: Zero memory leaks in all operations
+2. **🆕 Enterprise Features**: Organization/team support, unit-level permissions, visibility patterns
+3. **🆕 Performance**: Sub-millisecond permission checks with request-level caching
+4. **🆕 Team Management**: Full team hierarchy support with permission inheritance
+5. **🆕 Unit-Level Control**: Fine-grained access control for all repository features
+6. **Security**: Comprehensive access control with no bypass vulnerabilities
+7. **Integration**: Seamless integration with SSH, HTTP Git servers, and API endpoints
+8. **Scalability**: Support for thousands of organizations, teams, and repositories
+9. **🆕 Advanced Caching**: Request-level caching with cascade invalidation
+10. **🆕 Audit Compliance**: Multi-tier audit trails with organization-level reporting
+11. **Memory safety**: Zero memory leaks in all operations
+12. **🆕 Production Ready**: Battle-tested patterns from Gitea's production environment
 
 </success_criteria>
 
@@ -457,9 +644,23 @@ const GitOperation = enum {
 
 <reference_implementations>
 
+**🆕 Enhanced with Gitea Production Patterns:**
+- [🆕 Gitea Organization Management](https://github.com/go-gitea/gitea/blob/main/models/organization/org.go)
+- [🆕 Gitea Team Permissions](https://github.com/go-gitea/gitea/blob/main/models/organization/team.go)
+- [🆕 Gitea Unit-Level Access Control](https://github.com/go-gitea/gitea/blob/main/models/unit/unit.go)
+- [🆕 Gitea Permission Resolution](https://github.com/go-gitea/gitea/blob/main/models/perm/access.go)
+- [🆕 Gitea Repository Visibility](https://github.com/go-gitea/gitea/blob/main/models/repo/repo.go)
+- [🆕 Gitea Permission Caching](https://github.com/go-gitea/gitea/blob/main/modules/cache/)
 - **GitHub permissions**: Repository collaborators and organization teams
 - **GitLab permissions**: Project members and group access levels
-- **Gitea permissions**: Repository access control and organization management
-- **RBAC patterns**: Industry-standard role-based access control implementations
+- **Enterprise RBAC patterns**: Multi-tier access control implementations
+
+**🆕 Key Gitea Patterns Implemented:**
+- Organization/team hierarchies with permission inheritance
+- Unit-level permissions for fine-grained feature control
+- Complex visibility patterns with organization-specific rules
+- Request-level permission caching with cascade invalidation
+- Team-based repository access with bulk operations
+- Comprehensive audit trails with organization-level reporting
 
 </reference_implementations>
