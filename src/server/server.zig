@@ -780,6 +780,17 @@ const BranchPath = struct {
     }
 };
 
+const IssuePath = struct {
+    owner: []const u8,
+    repo: []const u8,
+    issue_number: i64,
+    
+    pub fn deinit(self: *const IssuePath, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+    }
+};
+
 fn parseRepoPath(allocator: std.mem.Allocator, path: []const u8) !RepoPath {
     // Parse /repos/{owner}/{repo}/... format
     var path_iterator = std.mem.splitScalar(u8, path, '/');
@@ -827,6 +838,51 @@ fn parseBranchPath(allocator: std.mem.Allocator, path: []const u8) !BranchPath {
         .repo = repo_owned,
         .branch = branch_owned,
     };
+}
+
+fn parseIssuePath(allocator: std.mem.Allocator, path: []const u8) !IssuePath {
+    // Parse /repos/{owner}/{repo}/issues/{number} format
+    var path_iterator = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty first part and "repos"
+    _ = path_iterator.next(); // ""
+    _ = path_iterator.next(); // "repos"
+    
+    const owner = path_iterator.next() orelse return error.InvalidPath;
+    const repo = path_iterator.next() orelse return error.InvalidPath;
+    _ = path_iterator.next(); // "issues"
+    const issue_number_str = path_iterator.next() orelse return error.InvalidPath;
+    
+    const issue_number = std.fmt.parseInt(i64, issue_number_str, 10) catch return error.InvalidPath;
+    
+    const owner_owned = try allocator.dupe(u8, owner);
+    errdefer allocator.free(owner_owned);
+    const repo_owned = try allocator.dupe(u8, repo);
+    errdefer allocator.free(repo_owned);
+    
+    return IssuePath{
+        .owner = owner_owned,
+        .repo = repo_owned,
+        .issue_number = issue_number,
+    };
+}
+
+fn parseQueryParams(allocator: std.mem.Allocator, query: ?[]const u8) !std.StringHashMap([]const u8) {
+    var params = std.StringHashMap([]const u8).init(allocator);
+    
+    const query_string = query orelse return params;
+    if (query_string.len == 0) return params;
+    
+    var param_iterator = std.mem.splitScalar(u8, query_string, '&');
+    while (param_iterator.next()) |param| {
+        if (std.mem.indexOf(u8, param, "=")) |eq_pos| {
+            const key = param[0..eq_pos];
+            const value = param[eq_pos + 1..];
+            try params.put(key, value);
+        }
+    }
+    
+    return params;
 }
 
 test "parseRepoPath correctly parses repository paths" {
@@ -925,4 +981,36 @@ test "deleteBranchHandler prevents deletion of default branch" {
     // Test with different branch that should be allowed
     const feature_branch = "feature-branch";
     try std.testing.expectEqual(false, std.mem.eql(u8, feature_branch, default_branch));
+}
+
+test "parseIssuePath correctly parses issue paths" {
+    const allocator = std.testing.allocator;
+    
+    const path = "/repos/testowner/testrepo/issues/123";
+    const parsed = try parseIssuePath(allocator, path);
+    defer parsed.deinit(allocator);
+    
+    try std.testing.expectEqualStrings("testowner", parsed.owner);
+    try std.testing.expectEqualStrings("testrepo", parsed.repo);
+    try std.testing.expectEqual(@as(i64, 123), parsed.issue_number);
+}
+
+test "parseIssuePath handles invalid paths" {
+    const allocator = std.testing.allocator;
+    
+    // Test various invalid paths
+    try std.testing.expectError(error.InvalidPath, parseIssuePath(allocator, "/repos/owner/repo"));
+    try std.testing.expectError(error.InvalidPath, parseIssuePath(allocator, "/repos/owner/repo/issues"));
+    try std.testing.expectError(error.InvalidPath, parseIssuePath(allocator, "/repos/owner/repo/issues/abc"));
+}
+
+test "parseQueryParams correctly parses query parameters" {
+    const allocator = std.testing.allocator;
+    
+    var params = try parseQueryParams(allocator, "state=closed&assignee=john&type=issue");
+    defer params.deinit();
+    
+    try std.testing.expectEqualStrings("closed", params.get("state").?);
+    try std.testing.expectEqualStrings("john", params.get("assignee").?);
+    try std.testing.expectEqualStrings("issue", params.get("type").?);
 }
