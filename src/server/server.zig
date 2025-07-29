@@ -596,9 +596,69 @@ fn deleteBranchHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn listIssuesHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/issues
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in listIssuesHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Parse query parameters for filtering
+    var query_params = parseQueryParams(allocator, r.query) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid query parameters");
+        return;
+    };
+    defer query_params.deinit();
+    
+    const filters = DataAccessObject.IssueFilters{
+        .is_closed = if (query_params.get("state")) |state| 
+            std.mem.eql(u8, state, "closed") else null,
+        .is_pull = if (query_params.get("type")) |type_str|
+            std.mem.eql(u8, type_str, "pr") else null,
+        .assignee_id = if (query_params.get("assignee")) |assignee_str|
+            std.fmt.parseInt(i64, assignee_str, 10) catch null else null,
+    };
+    
+    // Get issues from database
+    const issues = ctx.dao.listIssues(allocator, repo.id, filters) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting issues: {}", .{err});
+        return;
+    };
+    defer {
+        for (issues) |issue| {
+            allocator.free(issue.title);
+            if (issue.content) |c| allocator.free(c);
+        }
+        allocator.free(issues);
+    }
+    
+    try json.writeJson(r, allocator, issues);
 }
 
 fn createIssueHandler(r: zap.Request, ctx: *Context) !void {
@@ -1013,4 +1073,25 @@ test "parseQueryParams correctly parses query parameters" {
     try std.testing.expectEqualStrings("closed", params.get("state").?);
     try std.testing.expectEqualStrings("john", params.get("assignee").?);
     try std.testing.expectEqualStrings("issue", params.get("type").?);
+}
+
+test "listIssuesHandler filters work correctly" {
+    const allocator = std.testing.allocator;
+    
+    // Test IssueFilters construction
+    var query_params = try parseQueryParams(allocator, "state=closed&assignee=123&type=pr");
+    defer query_params.deinit();
+    
+    const filters = DataAccessObject.IssueFilters{
+        .is_closed = if (query_params.get("state")) |state| 
+            std.mem.eql(u8, state, "closed") else null,
+        .is_pull = if (query_params.get("type")) |type_str|
+            std.mem.eql(u8, type_str, "pr") else null,
+        .assignee_id = if (query_params.get("assignee")) |assignee_str|
+            std.fmt.parseInt(i64, assignee_str, 10) catch null else null,
+    };
+    
+    try std.testing.expectEqual(true, filters.is_closed.?);
+    try std.testing.expectEqual(true, filters.is_pull.?);
+    try std.testing.expectEqual(@as(i64, 123), filters.assignee_id.?);
 }
