@@ -503,6 +503,119 @@ fn addAdminUserKeyHandler(r: zap.Request, ctx: *Context) !void {
     try r.sendBody("Not implemented");
 }
 
+// Helper structures and functions for path parsing
+const RepoPath = struct {
+    owner: []const u8,
+    repo: []const u8,
+    
+    pub fn deinit(self: *const RepoPath, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+    }
+};
+
+const BranchPath = struct {
+    owner: []const u8,
+    repo: []const u8,
+    branch: []const u8,
+    
+    pub fn deinit(self: *const BranchPath, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+        allocator.free(self.branch);
+    }
+};
+
+fn parseRepoPath(allocator: std.mem.Allocator, path: []const u8) !RepoPath {
+    // Parse /repos/{owner}/{repo}/... format
+    var path_iterator = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty first part and "repos"
+    _ = path_iterator.next(); // ""
+    _ = path_iterator.next(); // "repos"
+    
+    const owner = path_iterator.next() orelse return error.InvalidPath;
+    const repo = path_iterator.next() orelse return error.InvalidPath;
+    
+    const owner_owned = try allocator.dupe(u8, owner);
+    errdefer allocator.free(owner_owned);
+    const repo_owned = try allocator.dupe(u8, repo);
+    errdefer allocator.free(repo_owned);
+    
+    return RepoPath{
+        .owner = owner_owned,
+        .repo = repo_owned,
+    };
+}
+
+fn parseBranchPath(allocator: std.mem.Allocator, path: []const u8) !BranchPath {
+    // Parse /repos/{owner}/{repo}/branches/{branch} format
+    var path_iterator = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty first part and "repos"
+    _ = path_iterator.next(); // ""
+    _ = path_iterator.next(); // "repos"
+    
+    const owner = path_iterator.next() orelse return error.InvalidPath;
+    const repo = path_iterator.next() orelse return error.InvalidPath;
+    _ = path_iterator.next(); // "branches"
+    const branch = path_iterator.next() orelse return error.InvalidPath;
+    
+    const owner_owned = try allocator.dupe(u8, owner);
+    errdefer allocator.free(owner_owned);
+    const repo_owned = try allocator.dupe(u8, repo);
+    errdefer allocator.free(repo_owned);
+    const branch_owned = try allocator.dupe(u8, branch);
+    errdefer allocator.free(branch_owned);
+    
+    return BranchPath{
+        .owner = owner_owned,
+        .repo = repo_owned,
+        .branch = branch_owned,
+    };
+}
+
+test "parseRepoPath correctly parses repository paths" {
+    const allocator = std.testing.allocator;
+    
+    const path = "/repos/testowner/testrepo/branches";
+    const parsed = try parseRepoPath(allocator, path);
+    defer parsed.deinit(allocator);
+    
+    try std.testing.expectEqualStrings("testowner", parsed.owner);
+    try std.testing.expectEqualStrings("testrepo", parsed.repo);
+}
+
+test "parseRepoPath handles invalid paths" {
+    const allocator = std.testing.allocator;
+    
+    // Test various invalid paths
+    try std.testing.expectError(error.InvalidPath, parseRepoPath(allocator, "/repos"));
+    try std.testing.expectError(error.InvalidPath, parseRepoPath(allocator, "/repos/owner"));
+    try std.testing.expectError(error.InvalidPath, parseRepoPath(allocator, "/invalid/path"));
+}
+
+test "parseBranchPath correctly parses branch paths" {
+    const allocator = std.testing.allocator;
+    
+    const path = "/repos/testowner/testrepo/branches/testbranch";
+    const parsed = try parseBranchPath(allocator, path);
+    defer parsed.deinit(allocator);
+    
+    try std.testing.expectEqualStrings("testowner", parsed.owner);
+    try std.testing.expectEqualStrings("testrepo", parsed.repo);
+    try std.testing.expectEqualStrings("testbranch", parsed.branch);
+}
+
+test "parseBranchPath handles invalid paths" {
+    const allocator = std.testing.allocator;
+    
+    // Test various invalid paths
+    try std.testing.expectError(error.InvalidPath, parseBranchPath(allocator, "/repos/owner/repo"));
+    try std.testing.expectError(error.InvalidPath, parseBranchPath(allocator, "/repos/owner/repo/branches"));
+    try std.testing.expectError(error.InvalidPath, parseBranchPath(allocator, "/invalid/path"));
+}
+
 test "server initializes correctly" {
     const allocator = std.testing.allocator;
     
