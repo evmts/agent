@@ -40,7 +40,6 @@ pub const LfsActions = struct {
 
 pub const LfsAction = struct {
     href: []const u8,
-    header: ?std.json.ObjectMap = null,
     expires_at: ?[]const u8 = null,
 };
 
