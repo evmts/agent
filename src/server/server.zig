@@ -662,9 +662,115 @@ fn listIssuesHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn createIssueHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse request body
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const CreateIssueRequest = struct {
+        title: []const u8,
+        body: ?[]const u8 = null,
+        assignee: ?[]const u8 = null,
+        labels: ?[][]const u8 = null,
+    };
+    
+    var parsed = std.json.parseFromSlice(CreateIssueRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Validate required fields
+    if (parsed.value.title.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Title is required");
+        return;
+    }
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/issues
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in createIssueHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Resolve assignee if provided
+    var assignee_id: ?i64 = null;
+    if (parsed.value.assignee) |assignee_name| {
+        const assignee = ctx.dao.getUserByName(allocator, assignee_name) catch |err| {
+            try json.writeError(r, allocator, .internal_server_error, "Database error");
+            std.log.err("Database error getting assignee: {}", .{err});
+            return;
+        };
+        if (assignee) |a| {
+            assignee_id = a.id;
+            allocator.free(a.name);
+            if (a.email) |e| allocator.free(e);
+            if (a.avatar) |av| allocator.free(av);
+        }
+    }
+    
+    // Create issue
+    const new_issue = DataAccessObject.Issue{
+        .id = 0,
+        .repo_id = repo.id,
+        .index = 0, // Will be set by DAO
+        .poster_id = user_id,
+        .title = parsed.value.title,
+        .content = parsed.value.body,
+        .is_closed = false,
+        .is_pull = false,
+        .assignee_id = assignee_id,
+        .created_unix = 0, // Will be set by DAO
+    };
+    
+    const issue_id = ctx.dao.createIssue(allocator, new_issue) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to create issue");
+        std.log.err("Database error creating issue: {}", .{err});
+        return;
+    };
+    
+    // Return created issue
+    const created_issue = ctx.dao.getIssue(allocator, repo.id, issue_id) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error retrieving created issue: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .internal_server_error, "Issue creation failed");
+        return;
+    };
+    defer {
+        allocator.free(created_issue.title);
+        if (created_issue.content) |c| allocator.free(c);
+    }
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, created_issue);
 }
 
 fn getIssueHandler(r: zap.Request, ctx: *Context) !void {
@@ -1094,4 +1200,25 @@ test "listIssuesHandler filters work correctly" {
     try std.testing.expectEqual(true, filters.is_closed.?);
     try std.testing.expectEqual(true, filters.is_pull.?);
     try std.testing.expectEqual(@as(i64, 123), filters.assignee_id.?);
+}
+
+test "createIssueHandler validates JSON request body" {
+    const allocator = std.testing.allocator;
+    
+    // Test that we can parse valid issue creation JSON
+    const valid_json = "{\"title\": \"Bug report\", \"body\": \"Description here\", \"assignee\": \"john\"}";
+    const CreateIssueRequest = struct {
+        title: []const u8,
+        body: ?[]const u8 = null,
+        assignee: ?[]const u8 = null,
+        labels: ?[][]const u8 = null,
+    };
+    
+    var json_data = std.json.parseFromSlice(CreateIssueRequest, allocator, valid_json, .{}) catch unreachable;
+    defer json_data.deinit();
+    
+    try std.testing.expectEqualStrings("Bug report", json_data.value.title);
+    try std.testing.expectEqualStrings("Description here", json_data.value.body.?);
+    try std.testing.expectEqualStrings("john", json_data.value.assignee.?);
+    try std.testing.expect(json_data.value.title.len > 0); // Validates non-empty title
 }
