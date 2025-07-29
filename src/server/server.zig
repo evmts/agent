@@ -372,9 +372,53 @@ fn listBranchesHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn getBranchHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Extract owner/repo/branch from path: /repos/{owner}/{repo}/branches/{branch}
+    const path_info = parseBranchPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in getBranchHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get specific branch from database
+    const branch = ctx.dao.getBranchByName(allocator, repo.id, path_info.branch) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting branch: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Branch not found");
+        return;
+    };
+    defer {
+        allocator.free(branch.name);
+        if (branch.commit_id) |c| allocator.free(c);
+    }
+    
+    try json.writeJson(r, allocator, branch);
 }
 
 fn createBranchHandler(r: zap.Request, ctx: *Context) !void {
@@ -679,4 +723,17 @@ test "server initializes correctly" {
     
     // If we get here, server initialized correctly
     try std.testing.expect(server.context.dao == &dao);
+}
+
+test "getBranchHandler correctly parses branch path" {
+    const allocator = std.testing.allocator;
+    
+    // Test that getBranchHandler can parse a branch path correctly
+    const path = "/repos/testowner/testrepo/branches/feature-branch";
+    const parsed = try parseBranchPath(allocator, path);
+    defer parsed.deinit(allocator);
+    
+    try std.testing.expectEqualStrings("testowner", parsed.owner);
+    try std.testing.expectEqualStrings("testrepo", parsed.repo);
+    try std.testing.expectEqualStrings("feature-branch", parsed.branch);
 }
