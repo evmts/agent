@@ -1,7 +1,7 @@
-# Implement Secure Configuration Management Module (ENHANCED WITH GITEA PRODUCTION PATTERNS)
+# Implement Production-Grade Configuration Management Module (ENHANCED WITH GITEA + RESEARCH INSIGHTS)
 
 <task_definition>
-Implement a comprehensive configuration management system for the Plue application that handles INI-style configuration files, environment variable overrides, file-based secrets, and advanced security patterns. This system provides type-safe access to all application settings with secure defaults, validation, memory management, and production-grade security features following Gitea's battle-tested patterns.
+Implement a comprehensive, enterprise-grade configuration management system for the Plue application that handles INI-style configuration files, environment variable overrides, file-based secrets, and advanced security patterns. This system provides type-safe access to all application settings with secure defaults, rigorous validation, memory management, and production-grade security features following Gitea's battle-tested patterns and comprehensive research insights for zero-dependency, performance-optimized implementation.
 </task_definition>
 
 <context_and_constraints>
@@ -9,28 +9,38 @@ Implement a comprehensive configuration management system for the Plue applicati
 <technical_requirements>
 
 - **Language/Framework**: Zig - https://ziglang.org/documentation/master/
-- **Dependencies**: None (uses only Zig standard library)
-- **File Format**: INI-style configuration files with section support
+- **Dependencies**: Zero external dependencies (uses only Zig standard library primitives)
+- **File Format**: INI-style configuration files with robust section support and comment handling
 - **Location**: `src/config/config.zig`
-- **Security**: File-based secrets, conflict detection, memory clearing, URI loading
-- **Memory**: Zero allocator storage in structs, explicit defer patterns
-- **Testing**: Real file I/O tests, no mocking, comprehensive validation
+- **🆕 Architecture**: Single ArenaAllocator ownership model with guaranteed memory safety
+- **🆕 Parsing**: Custom zero-dependency INI parser using buffered I/O and state machine
+- **🆕 Security**: Advanced file-based secrets, proactive conflict detection, secure memory clearing with @volatileStore
+- **🆕 Performance**: Buffered file reading, minimal syscalls, efficient string handling
+- **🆕 Error Handling**: Comprehensive ConfigError set with production-grade error granularity
+- **🆕 Validation**: Multi-layer validation with port conflict detection and weak secret prevention
+- **Memory**: Zero allocator storage in structs, ArenaAllocator ownership, explicit defer/errdefer patterns
+- **Testing**: Real file I/O tests, security feature verification, comprehensive validation scenarios
 
 </technical_requirements>
 
 <business_context>
 
-Plue requires centralized configuration management with enterprise-grade security to handle:
+🆕 **Production-Grade Configuration Management Requirements**:
 
-- **Server Configuration**: Host, port, worker threads, timeouts
-- **Database Settings**: PostgreSQL URLs, connection pools, migration settings
-- **Repository Management**: Base paths, size limits, Git configuration
-- **Security Settings**: Secret keys, token expiration, authentication
-- **SSH Server Settings**: Host keys, port, connection limits
-- **File-based Secrets**: `__FILE` suffix pattern for loading secrets from files
-- **Environment Overrides**: Development vs production configurations with conflict detection
+- **🆕 Enterprise Security**: Zero-dependency system preventing exposed secrets, weak defaults, and memory leakage
+- **🆕 Multi-Source Configuration**: Layered precedence (CLI > ENV > INI > defaults) with conflict detection
+- **🆕 Advanced Secret Management**: File-based secrets (`__FILE` suffix), URI loading (`file://`), secure permission validation
+- **🆕 Performance-Critical Parsing**: Buffered I/O, minimal allocations, efficient string processing for high-frequency reloads
+- **🆕 Memory Safety Guarantees**: ArenaAllocator ownership, secure memory clearing with @volatileStore, guaranteed cleanup
+- **Server Configuration**: Host, port, worker threads, timeouts with validation
+- **Database Settings**: PostgreSQL URLs, connection pools, migration settings with credential protection
+- **Repository Management**: Base paths, size limits, Git configuration with absolute path validation
+- **Security Settings**: Secret keys, token expiration, authentication with weak secret detection
+- **SSH Server Settings**: Host keys, port, connection limits with port conflict prevention
+- **🆕 Production Logging**: Secure logging with automatic credential redaction and sanitization
+- **🆕 Robust Error Handling**: Comprehensive ConfigError set covering all real-world failure scenarios
 
-The system must prevent common security vulnerabilities like exposed secrets, weak defaults, configuration injection attacks, and memory leakage of sensitive data.
+The system must be production-ready with enterprise-grade reliability, security, and performance suitable for high-traffic Git hosting environments.
 
 </business_context>
 
@@ -145,57 +155,113 @@ if (config.isDevelopment()) {
 defer config.clearSensitiveMemory();
 ```
 
-🆕 **Enhanced Configuration Loading (Gitea Pattern)**:
+🆕 **Production-Grade Architecture with Research Insights**:
 ```zig
 const Config = struct {
-    // Enhanced error types matching production reality
+    // 🆕 COMPREHENSIVE ERROR SET: Based on real-world production failures
     pub const ConfigError = error{
+        // Filesystem and I/O Errors (granular for actionable debugging)
         FileNotFound,
+        PermissionError,
+        ReadError,
+        PathNotAbsolute,             // Security: prevent relative path vulnerabilities
+        
+        // Parsing and Validation Errors (precise error location)
         ParseError,
         InvalidValue,
         MissingRequired,
+        PortConflict,                // Operational: prevent service conflicts
+        WeakSecret,                  // Security: enforce strong cryptographic material
+        
+        // Security and Secret-Handling Errors (proactive vulnerability prevention)
         SecurityError,
-        PermissionError,
-        ConflictingConfiguration,     // NEW: Direct and __FILE env var conflict
-        FileSizeTooLarge,            // NEW: Secret file too large
-        EmptySecretFile,             // NEW: Secret file is empty
-        PathNotAbsolute,             // NEW: Required path is not absolute
-        PortConflict,                // NEW: Port conflicts detected
-        WeakSecret,                  // NEW: Secret doesn't meet strength requirements
+        ConflictingConfiguration,    // Critical: FOO and FOO__FILE both set
+        FileSizeTooLarge,           // DoS prevention: secret file size limits
+        EmptySecretFile,            // Validation: ensure secrets contain data
+        
+        // System Errors
         OutOfMemory,
     };
+    
+    // 🆕 ARENA ALLOCATOR OWNERSHIP MODEL: Simplified memory management
+    server: ServerConfig = .{},
+    database: DatabaseConfig = .{},
+    repository: RepositoryConfig = .{},
+    security: SecurityConfig = .{},
+    ssh: SshConfig = .{},
+    
+    // Single owner of all configuration memory
+    arena: std.heap.ArenaAllocator,
 
-    // Enhanced loading with conflict detection
-    pub fn load(allocator: std.mem.Allocator, path: []const u8, clap_args: anytype) !Config {
-        var config = Config.init(allocator);
-        errdefer config.deinit(allocator);
+    // 🆕 ORCHESTRATED LOADING PIPELINE: Multi-source with guaranteed cleanup
+    pub fn load(gpa: std.mem.Allocator, config_file_path: []const u8) !Config {
+        var config = Config{
+            .arena = std.heap.ArenaAllocator.init(gpa),
+        };
+        // 🆕 CRITICAL: Guaranteed cleanup on ANY failure path
+        errdefer config.deinit();
         
-        // 1. Parse INI file with absolute path validation
-        try config.loadFromIniFile(allocator, path);
+        // 🆕 PHASE 1: Buffered INI parsing with state machine
+        try config.loadFromIniFile(config_file_path);
         
-        // 2. Load environment variable overrides with conflict detection
-        try config.loadEnvironmentOverrides(allocator);
+        // 🆕 PHASE 2: Environment variables with __FILE suffix and conflict detection
+        try config.loadEnvironmentOverrides();
         
-        // 3. Override with CLI arguments
-        try config.applyCliOverrides(clap_args);
+        // 🆕 PHASE 3: URI-based secret loading (file:// scheme)
+        try config.loadUriSecrets();
         
-        // 4. Load file-based secrets with validation
-        try config.loadFileSecrets(allocator);
+        // 🆕 PHASE 4: Comprehensive validation (ports, paths, secrets)
+        try config.validate();
         
-        // 5. Validate complete configuration
-        try config.validateConfiguration();
-        
-        // 6. Log sanitized configuration (for debugging)
-        try config.logConfiguration();
+        // 🆕 PHASE 5: Secure logging with credential redaction
+        try config.logConfigurationSecurely();
         
         return config;
     }
     
-    // 🆕 Memory clearing for sensitive data (Gitea security pattern)
+    // 🆕 GUARANTEED CLEANUP: Memory safety and sensitive data clearing
+    pub fn deinit(self: *Config) void {
+        self.clearSensitiveMemory();
+        self.arena.deinit();
+    }
+    
+    // 🆕 SECURE MEMORY CLEARING: Defeats compiler dead store elimination
     pub fn clearSensitiveMemory(self: *Config) void {
         clearSensitiveData(self.security.secret_key);
         clearSensitiveData(self.database.password);
         clearSensitiveData(self.security.jwt_secret);
+    }
+    
+    // 🆕 PRODUCTION VALIDATION: Multi-layer security and operational checks
+    pub fn validate(self: *const Config) ConfigError!void {
+        // Cross-section validation (port conflicts)
+        if (self.server.port == self.ssh.port) {
+            return error.PortConflict;
+        }
+        
+        // Section-specific validation
+        try self.server.validate();
+        try self.database.validate();
+        try self.repository.validate();
+        try self.security.validate();
+        try self.ssh.validate();
+    }
+    
+    // 🆕 SECURE LOGGING: Automatic credential redaction
+    pub fn logConfigurationSecurely(self: *const Config) !void {
+        // Create stack-allocated redacted copy
+        var redacted = self.*;
+        
+        // Overwrite sensitive fields with redaction markers
+        redacted.security.secret_key = "[REDACTED]";
+        redacted.database.password = "[REDACTED]";
+        redacted.security.jwt_secret = "[REDACTED]";
+        
+        // Log the sanitized configuration
+        std.log.info("Configuration loaded: server.port={d}, database.max_connections={d}", .{
+            redacted.server.port,
+            redacted.database.max_connections,
+        });
     }
     
     // 🆕 Minor Enhancement: Environment variable key encoding (Gitea advanced pattern)
@@ -238,11 +304,54 @@ const Config = struct {
     }
 };
 
-// 🆕 Memory clearing helper (prevents compiler optimization)
+// 🆕 SECURE MEMORY CLEARING: Defeats compiler dead store elimination
+/// Securely clears a slice of memory, preventing the compiler from optimizing
+/// away the operation. This should be used on any buffers that have held
+/// sensitive data, such as passwords or secret keys.
 fn clearSensitiveData(data: []u8) void {
     for (data) |*byte| {
+        // @volatileStore ensures this write is not optimized out by the compiler
+        // as a "dead store" even though the memory will be freed later
         @volatileStore(u8, byte, 0);
     }
+}
+
+// 🆕 PRODUCTION-GRADE SECRET FILE LOADING: Comprehensive security validation
+fn loadSecretFromFile(allocator: std.mem.Allocator, path: []const u8) ConfigError![]u8 {
+    // Security: Only absolute paths allowed (prevents path traversal)
+    if (!std.fs.path.isAbsolute(path)) {
+        return error.PathNotAbsolute;
+    }
+    
+    // Open file and get metadata for security checks
+    const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return error.FileNotFound,
+        error.AccessDenied => return error.PermissionError,
+        else => return error.ReadError,
+    };
+    defer file.close();
+    
+    const stat = try file.stat();
+    
+    // Security: Enforce restrictive permissions (owner-only readable)
+    if (stat.mode & 0o077 != 0) {
+        return error.PermissionError;
+    }
+    
+    // Security: Prevent DoS from reading massive files
+    const max_secret_size = 1024 * 1024; // 1MB limit
+    if (stat.size > max_secret_size) {
+        return error.FileSizeTooLarge;
+    }
+    
+    // Security: Reject empty secret files
+    if (stat.size == 0) {
+        return error.EmptySecretFile;
+    }
+    
+    // Read and trim the secret content
+    const content = try file.readToEndAlloc(allocator, max_secret_size);
+    return std.mem.trim(u8, content, " \t\r\n");
 }
 
 // 🆕 Minor Enhancement: Installation lock pattern (Gitea security feature)
@@ -272,165 +381,411 @@ const InstallationLock = struct {
 **CRITICAL**: Zero tolerance for compilation or test failures. Any failing tests after your changes indicate YOU caused a regression.
 
 <phase_1>
-<title>Phase 1: Core Configuration Types and Enhanced Error Handling (TDD)</title>
+<title>Phase 1: Type-Safe Foundations and Memory Architecture (TDD)</title>
 
-1. **Create module and test data structures**
+1. **🆕 Create zero-dependency module architecture**
    ```bash
    mkdir -p src/config
    touch src/config/config.zig
    ```
 
-2. **Write tests for configuration sections with enhanced validation**
+2. **🆕 Write tests for ArenaAllocator ownership model**
    ```zig
-   test "ServerConfig validates host and port with conflict detection" {
-       const config = ServerConfig{
-           .host = "127.0.0.1",
-           .http_port = 8080,
-           .ssh_port = 2222,
-       };
-       try testing.expect(config.isValid());
+   test "Config arena allocator owns all string memory" {
+       const allocator = testing.allocator;
+       
+       var config = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+       defer config.deinit();
+       
+       const arena_allocator = config.arena.allocator();
+       
+       // Test that strings are allocated in arena
+       const test_string = try arena_allocator.dupe(u8, "test-value");
+       config.server.host = test_string;
+       
+       // Verify memory ownership
+       try testing.expect(config.server.host.ptr >= config.arena.state.buffer_list.first.?.data.ptr);
    }
 
-   test "ServerConfig detects port conflicts" {
-       const config = ServerConfig{
-           .host = "127.0.0.1", 
-           .http_port = 3000,
-           .ssh_port = 3000, // Same port - should conflict
+   test "ConfigError set covers all production failure scenarios" {
+       // Test that our error set is comprehensive
+       const test_errors = [_]ConfigError{
+           error.FileNotFound,
+           error.PermissionError,
+           error.PathNotAbsolute,
+           error.ConflictingConfiguration,
+           error.WeakSecret,
+           error.PortConflict,
+           error.FileSizeTooLarge,
+           error.EmptySecretFile,
        };
+       
+       for (test_errors) |err| {
+           try testing.expect(@errorName(err).len > 0);
+       }
+   }
+   
+   test "Config validation detects port conflicts across sections" {
+       var config = Config{ .arena = undefined }; // Arena not needed for validation test
+       config.server.port = 8080;
+       config.ssh.port = 8080; // Conflict!
+       
        try testing.expectError(ConfigError.PortConflict, config.validate());
    }
    
-   test "SecurityConfig detects weak secrets" {
-       const config = SecurityConfig{
-           .secret_key = "changeme", // Weak secret
+   test "SecurityConfig detects weak secrets with production patterns" {
+       const weak_secrets = [_][]const u8{
+           "CHANGE_ME_IN_PRODUCTION",
+           "secret",
+           "password",
+           "changeme",
+           "short", // Too short
        };
-       try testing.expectError(ConfigError.WeakSecret, config.validate());
+       
+       for (weak_secrets) |weak_secret| {
+           const config = SecurityConfig{ .secret_key = weak_secret };
+           try testing.expectError(ConfigError.WeakSecret, config.validate());
+       }
    }
    ```
 
-3. **Implement configuration section types with enhanced validation**
-4. **Add enhanced error types matching production reality**
+3. **🆕 Implement namespaced configuration structs with validation**
+4. **🆕 Add comprehensive ConfigError set based on research insights**
+5. **🆕 Test memory safety guarantees with arena allocator**
 
 </phase_1>
 
 <phase_2>
-<title>Phase 2: INI File Parsing and Validation (TDD)</title>
+<title>Phase 2: Zero-Dependency INI Parser with Buffered I/O (TDD)</title>
 
-1. **Write tests for INI parsing with real files**
+1. **🆕 Write tests for buffered file parsing with state machine**
    ```zig
-   test "parses valid INI configuration file" {
+   test "buffered INI parser handles real files efficiently" {
        const allocator = testing.allocator;
+       
+       // Create temporary INI file
+       var tmp_dir = testing.tmpDir(.{});
+       defer tmp_dir.cleanup();
+       
        const ini_content = 
+           \\# Configuration file for Plue
            \\[server]
            \\host = 127.0.0.1
            \\port = 8080
+           \\worker_threads = 4
            \\
            \\[database]
            \\connection_url = postgresql://localhost/test
+           \\max_connections = 25
+           \\
+           \\[security]
+           \\secret_key = production-secret-key-here
        ;
        
-       // Create temporary file
-       const config = try Config.parseIni(allocator, ini_content);
-       defer config.deinit(allocator);
+       try tmp_dir.dir.writeFile("test.ini", ini_content);
+       const config_path = try tmp_dir.dir.realpathAlloc(allocator, "test.ini");
+       defer allocator.free(config_path);
        
+       var config = try Config.load(allocator, config_path);
+       defer config.deinit();
+       
+       // Verify parsed values
        try testing.expectEqualStrings("127.0.0.1", config.server.host);
        try testing.expectEqual(@as(u16, 8080), config.server.port);
+       try testing.expectEqual(@as(u32, 4), config.server.worker_threads);
+       try testing.expectEqualStrings("postgresql://localhost/test", config.database.connection_url);
+       try testing.expectEqual(@as(u32, 25), config.database.max_connections);
+   }
+   
+   test "INI parser handles comments and whitespace robustly" {
+       const allocator = testing.allocator;
+       
+       const tricky_ini = 
+           \\# This is a comment
+           \\
+           \\[server] # Section comment
+           \\   host   =   127.0.0.1   # Host comment
+           \\port=8080
+           \\
+           \\; Semicolon comment style
+           \\[database]
+           \\connection_url = postgres://user:pass@host/db?param=value=with=equals
+       ;
+       
+       var tmp_dir = testing.tmpDir(.{});
+       defer tmp_dir.cleanup();
+       
+       try tmp_dir.dir.writeFile("tricky.ini", tricky_ini);
+       const config_path = try tmp_dir.dir.realpathAlloc(allocator, "tricky.ini");
+       defer allocator.free(config_path);
+       
+       var config = try Config.load(allocator, config_path);
+       defer config.deinit();
+       
+       try testing.expectEqualStrings("127.0.0.1", config.server.host);
+       try testing.expect(std.mem.indexOf(u8, config.database.connection_url, "param=value=with=equals") != null);
+   }
+   
+   test "INI parser provides detailed error locations for malformed input" {
+       const allocator = testing.allocator;
+       
+       const malformed_ini = 
+           \\[server]
+           \\host = 127.0.0.1
+           \\invalid_line_without_equals
+           \\port = 8080
+       ;
+       
+       var tmp_dir = testing.tmpDir(.{});
+       defer tmp_dir.cleanup();
+       
+       try tmp_dir.dir.writeFile("malformed.ini", malformed_ini);
+       const config_path = try tmp_dir.dir.realpathAlloc(allocator, "malformed.ini");
+       defer allocator.free(config_path);
+       
+       try testing.expectError(ConfigError.ParseError, Config.load(allocator, config_path));
    }
    ```
 
-2. **Implement robust INI parser with comment/whitespace handling**
-3. **Add configuration file validation**
-4. **Test malformed INI handling with detailed error reporting**
+2. **🆕 Implement buffered I/O parser using std.io.bufferedReader for performance**
+3. **🆕 Add state machine for section/key-value parsing with precise error locations**
+4. **🆕 Test robust key-value splitting handling complex values with embedded delimiters**
+5. **🆕 Verify arena allocator integration for string memory management**
 
 </phase_2>
 
 <phase_3>
-<title>Phase 3: File-based Secret Loading with Conflict Detection (TDD)</title>
+<title>Phase 3: Advanced Secret Management with Production Security (TDD)</title>
 
-1. **Write tests for file-based secret loading**
+1. **🆕 Write tests for comprehensive secret file security validation**
    ```zig
-   test "loads secrets from files with __FILE suffix" {
+   test "loadSecretFromFile enforces comprehensive security validations" {
        const allocator = testing.allocator;
        
-       // Create temporary secret file
-       const secret_content = "super-secret-password";
-       const secret_file = "test_secret.txt";
-       try std.fs.cwd().writeFile(secret_file, secret_content);
-       defer std.fs.cwd().deleteFile(secret_file) catch {};
+       var tmp_dir = testing.tmpDir(.{});
+       defer tmp_dir.cleanup();
        
-       // Set permissions to 0600
-       try std.fs.cwd().chmod(secret_file, 0o600);
+       // Test 1: Absolute path requirement
+       try testing.expectError(ConfigError.PathNotAbsolute, 
+           loadSecretFromFile(allocator, "relative/path/secret.txt"));
        
-       // Set environment variable with __FILE suffix
-       try std.os.setenv("PLUE_DATABASE_PASSWORD__FILE", secret_file);
-       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD__FILE") catch {};
+       // Test 2: File permission validation (0600 required)
+       const secret_content = "my-secret-key";
+       try tmp_dir.dir.writeFile("secret.txt", secret_content);
        
-       var config = Config.init(allocator);
-       defer config.deinit(allocator);
+       const secret_path = try tmp_dir.dir.realpathAlloc(allocator, "secret.txt");
+       defer allocator.free(secret_path);
        
-       try config.loadEnvironmentOverrides(allocator);
+       // Set overly permissive permissions (world-readable)
+       try tmp_dir.dir.chmod("secret.txt", 0o644);
+       try testing.expectError(ConfigError.PermissionError, 
+           loadSecretFromFile(allocator, secret_path));
        
-       try testing.expectEqualStrings(secret_content, config.database.password);
+       // Fix permissions and test successful loading
+       try tmp_dir.dir.chmod("secret.txt", 0o600);
+       const loaded_secret = try loadSecretFromFile(allocator, secret_path);
+       defer allocator.free(loaded_secret);
+       try testing.expectEqualStrings(secret_content, loaded_secret);
+       
+       // Test 3: Empty file detection
+       try tmp_dir.dir.writeFile("empty_secret.txt", "");
+       try tmp_dir.dir.chmod("empty_secret.txt", 0o600);
+       const empty_path = try tmp_dir.dir.realpathAlloc(allocator, "empty_secret.txt");
+       defer allocator.free(empty_path);
+       try testing.expectError(ConfigError.EmptySecretFile, 
+           loadSecretFromFile(allocator, empty_path));
+       
+       // Test 4: File size limit (simulate large file)
+       const large_content = "x" ** (1024 * 1024 + 1); // 1MB + 1 byte
+       try tmp_dir.dir.writeFile("large_secret.txt", large_content);
+       try tmp_dir.dir.chmod("large_secret.txt", 0o600);
+       const large_path = try tmp_dir.dir.realpathAlloc(allocator, "large_secret.txt");
+       defer allocator.free(large_path);
+       try testing.expectError(ConfigError.FileSizeTooLarge, 
+           loadSecretFromFile(allocator, large_path));
    }
    
-   test "detects conflicting direct and __FILE environment variables" {
-       // Set both direct and __FILE environment variables
-       try std.os.setenv("PLUE_DATABASE_PASSWORD", "direct-password");
-       try std.os.setenv("PLUE_DATABASE_PASSWORD__FILE", "/path/to/file");
-       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD") catch {};
-       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD__FILE") catch {};
+   test "environment variable conflict detection prevents ambiguous configuration" {
+       const allocator = testing.allocator;
        
-       const env_map = try std.process.getEnvMap(testing.allocator);
-       defer env_map.deinit();
+       // Set up conflicting environment variables
+       try std.os.setenv("PLUE_SECRET_KEY", "direct-secret");
+       try std.os.setenv("PLUE_SECRET_KEY__FILE", "/path/to/secret/file");
+       defer std.os.unsetenv("PLUE_SECRET_KEY") catch {};
+       defer std.os.unsetenv("PLUE_SECRET_KEY__FILE") catch {};
        
-       // Should detect conflict
+       var config = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+       defer config.deinit();
+       
+       // Should fail with conflict detection
        try testing.expectError(ConfigError.ConflictingConfiguration, 
-           checkForConflictingConfigurations(&env_map));
+           config.loadEnvironmentOverrides());
+   }
+   
+   test "__FILE suffix and URI schemes load secrets with identical security validation" {
+       const allocator = testing.allocator;
+       
+       var tmp_dir = testing.tmpDir(.{});
+       defer tmp_dir.cleanup();
+       
+       const secret_content = "uri-loaded-secret";
+       try tmp_dir.dir.writeFile("uri_secret.txt", secret_content);
+       try tmp_dir.dir.chmod("uri_secret.txt", 0o600);
+       
+       const secret_path = try tmp_dir.dir.realpathAlloc(allocator, "uri_secret.txt");
+       defer allocator.free(secret_path);
+       
+       // Test __FILE suffix loading
+       const file_suffix_value = try std.fmt.allocPrint(allocator, "{s}", .{secret_path});
+       defer allocator.free(file_suffix_value);
+       
+       try std.os.setenv("PLUE_JWT_SECRET__FILE", file_suffix_value);
+       defer std.os.unsetenv("PLUE_JWT_SECRET__FILE") catch {};
+       
+       // Test file:// URI loading
+       const uri_value = try std.fmt.allocPrint(allocator, "file://{s}", .{secret_path});
+       defer allocator.free(uri_value);
+       
+       try std.os.setenv("PLUE_DATABASE_PASSWORD", uri_value);
+       defer std.os.unsetenv("PLUE_DATABASE_PASSWORD") catch {};
+       
+       var config = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+       defer config.deinit();
+       
+       try config.loadEnvironmentOverrides();
+       try config.loadUriSecrets();
+       
+       // Both should load the same secret content
+       try testing.expectEqualStrings(secret_content, config.security.jwt_secret);
+       try testing.expectEqualStrings(secret_content, config.database.password);
    }
    ```
 
-2. **Implement `__FILE` suffix environment variable loading**
-3. **Add URI-based secret loading (file:// scheme)**
-4. **Implement conflict detection between direct and file-based secrets**
-5. **Add secret file permission and size validation**
+2. **🆕 Implement production-grade secret file loading with comprehensive security checks**
+3. **🆕 Add proactive conflict detection preventing ambiguous configurations**
+4. **🆕 Implement URI-based secret loading with identical security validation**
+5. **🆕 Test file permission enforcement and DoS prevention**
 
 </phase_3>
 
 <phase_4>
-<title>Phase 4: Memory Security and Sensitive Data Handling (TDD)</title>
+<title>Phase 4: Memory Security and Production Logging (TDD)</title>
 
-1. **Write tests for memory security**
+1. **🆕 Write tests for secure memory clearing defeating compiler optimization**
    ```zig
-   test "clears sensitive data from memory" {
+   test "clearSensitiveData defeats compiler dead store elimination" {
        var sensitive_data = [_]u8{ 'p', 'a', 's', 's', 'w', 'o', 'r', 'd' };
        
-       clearSensitiveMemory(&sensitive_data);
+       // Before clearing
+       try testing.expect(sensitive_data[0] == 'p');
        
-       // Verify all bytes are cleared
+       clearSensitiveData(&sensitive_data);
+       
+       // After clearing - all bytes should be zero
        for (sensitive_data) |byte| {
            try testing.expect(byte == 0);
        }
    }
    
-   test "redacts sensitive values in logging" {
+   test "Config.clearSensitiveMemory clears all sensitive fields" {
        const allocator = testing.allocator;
        
-       var config = Config.init(allocator);
-       defer config.deinit(allocator);
+       var config = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+       defer config.deinit();
        
-       config.security.secret_key = "actual-secret-key";
-       config.database.password = "actual-password";
+       const arena_allocator = config.arena.allocator();
        
-       const sanitized = sanitizeForLogging(&config);
+       // Set sensitive data
+       config.security.secret_key = try arena_allocator.dupe(u8, "secret-key-data");
+       config.database.password = try arena_allocator.dupe(u8, "database-password");
+       config.security.jwt_secret = try arena_allocator.dupe(u8, "jwt-secret-data");
        
-       try testing.expectEqualStrings("[REDACTED]", sanitized.security.secret_key);
-       try testing.expectEqualStrings("[REDACTED]", sanitized.database.password);
+       // Verify data is present
+       try testing.expectEqualStrings("secret-key-data", config.security.secret_key);
+       
+       // Clear sensitive memory
+       config.clearSensitiveMemory();
+       
+       // Verify all sensitive fields are zeroed (check first byte as indicator)
+       try testing.expect(config.security.secret_key[0] == 0);
+       try testing.expect(config.database.password[0] == 0);
+       try testing.expect(config.security.jwt_secret[0] == 0);
+   }
+   
+   test "secure logging redacts credentials automatically" {
+       const allocator = testing.allocator;
+       
+       var config = Config{ .arena = std.heap.ArenaAllocator.init(allocator) };
+       defer config.deinit();
+       
+       const arena_allocator = config.arena.allocator();
+       
+       // Set both sensitive and non-sensitive data
+       config.security.secret_key = try arena_allocator.dupe(u8, "actual-secret-key");
+       config.database.password = try arena_allocator.dupe(u8, "actual-password");
+       config.security.jwt_secret = try arena_allocator.dupe(u8, "jwt-secret");
+       config.server.port = 8080;
+       config.database.max_connections = 25;
+       
+       // Test that logging would be secure (we can't easily test actual log output,
+       // but we can test the redaction logic)
+       
+       // This is a simulation of what logConfigurationSecurely does internally
+       var redacted = config;
+       redacted.security.secret_key = "[REDACTED]";
+       redacted.database.password = "[REDACTED]";
+       redacted.security.jwt_secret = "[REDACTED]";
+       
+       // Verify sensitive data is redacted
+       try testing.expectEqualStrings("[REDACTED]", redacted.security.secret_key);
+       try testing.expectEqualStrings("[REDACTED]", redacted.database.password);
+       try testing.expectEqualStrings("[REDACTED]", redacted.security.jwt_secret);
+       
+       // Verify non-sensitive data is preserved
+       try testing.expectEqual(@as(u16, 8080), redacted.server.port);
+       try testing.expectEqual(@as(u32, 25), redacted.database.max_connections);
+   }
+   
+   test "memory security integrated with full configuration lifecycle" {
+       const allocator = testing.allocator;
+       
+       // Create temporary config with secrets
+       var tmp_dir = testing.tmpDir(.{});
+       defer tmp_dir.cleanup();
+       
+       const ini_content = 
+           \\[security]
+           \\secret_key = production-secret-here
+           \\
+           \\[database]
+           \\connection_url = postgresql://user:pass@localhost/db
+       ;
+       
+       try tmp_dir.dir.writeFile("secure.ini", ini_content);
+       const config_path = try tmp_dir.dir.realpathAlloc(allocator, "secure.ini");
+       defer allocator.free(config_path);
+       
+       // Load configuration
+       var config = try Config.load(allocator, config_path);
+       
+       // Verify secrets are loaded
+       try testing.expectEqualStrings("production-secret-here", config.security.secret_key);
+       
+       // Manually trigger memory clearing (normally happens in deinit)
+       config.clearSensitiveMemory();
+       
+       // Verify secrets are cleared
+       try testing.expect(config.security.secret_key[0] == 0);
+       
+       // Clean up (deinit will clear again, but that's safe)
+       config.deinit();
    }
    ```
 
-2. **Implement memory clearing with `@volatileStore`**
-3. **Add automatic redaction for logging**
-4. **Test secure file permission validation**
+2. **🆕 Implement @volatileStore-based memory clearing preventing compiler optimization**
+3. **🆕 Add stack-allocated secure logging with automatic credential redaction**
+4. **🆕 Test integrated memory security throughout configuration lifecycle**
+5. **🆕 Verify memory clearing works with arena allocator ownership model**
 
 </phase_4>
 
@@ -467,16 +822,18 @@ const InstallationLock = struct {
 
 <success_criteria>
 
-1. **All tests pass**: `zig build test` shows 100% success rate
-2. **🆕 File-based Secret Loading**: `__FILE` suffix and URI schemes work correctly
-3. **🆕 Conflict Detection**: Prevents runtime issues from conflicting configurations
-4. **🆕 Memory Security**: Sensitive data clearing verified with `@volatileStore`
-5. **Memory safety**: Zero memory leaks detected
-6. **Security compliance**: File permissions and secret handling validated
-7. **Type safety**: All configuration access is compile-time validated
-8. **Error handling**: Comprehensive error messages for all failure cases
-9. **Documentation**: All public APIs documented with examples
-10. **Integration ready**: Ready for use by SSH server, HTTP server, and database modules
+1. **🆕 All tests pass**: `zig build && zig build test` shows 100% success rate with comprehensive coverage
+2. **🆕 Zero-Dependency Architecture**: No external dependencies, using only Zig standard library primitives
+3. **🆕 Memory Safety Guarantees**: ArenaAllocator ownership, @volatileStore clearing, guaranteed cleanup with errdefer
+4. **🆕 Production-Grade Security**: File-based secrets, conflict detection, permission validation, DoS prevention
+5. **🆕 Performance Optimization**: Buffered I/O, minimal syscalls, efficient string handling, state machine parsing
+6. **🆕 Comprehensive Error Handling**: Granular ConfigError set covering all real-world failure scenarios
+7. **🆕 Advanced Secret Management**: `__FILE` suffix, URI schemes, comprehensive security validation
+8. **🆕 Secure Logging**: Automatic credential redaction, stack-allocated sanitization
+9. **🆕 Multi-Source Configuration**: Layered precedence with proactive conflict detection
+10. **🆕 Type Safety**: Compile-time validated configuration access with namespaced sections
+11. **🆕 Production Ready**: Enterprise-grade reliability, security, and performance patterns from Gitea
+12. **🆕 Integration Ready**: Clean API suitable for SSH server, HTTP server, and database modules
 
 </success_criteria>
 
