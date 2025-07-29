@@ -1,0 +1,6 @@
+[submodule "deps/zig-libssh2"]
+	path = deps/zig-libssh2
+	url = https://github.com/mattnite/zig-libssh2.git
+[submodule "deps/zig-mbedtls"]
+	path = deps/zig-mbedtls
+	url = https://github.com/mattnite/zig-mbedtls.git
