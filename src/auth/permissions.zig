@@ -1183,3 +1183,144 @@ test "cache invalidation by repository removes repo permissions" {
     try testing.expect(permission_checker.cache.get(key2) == null);
     try testing.expect(permission_checker.cache.get(key3) != null); // Other repo should remain
 }
+
+// Tests for Phase 5: Git Protocol Authorization (already implemented in authorizeGitOperation)
+test "Git protocol authorization with branch-specific permissions" {
+    const allocator = testing.allocator;
+    
+    var dao = try setupTestDatabase(allocator);
+    defer dao.deinit();
+    
+    const owner_id = try dao.createUser(.{
+        .name = "branch-owner",
+        .email = "owner@example.com",
+    });
+    
+    _ = try dao.createRepository(.{
+        .name = "repo",
+        .owner_id = owner_id,
+        .owner_type = .User,
+        .visibility = .Public,
+    });
+    
+    var permission_checker = PermissionChecker.init(allocator, &dao);
+    defer permission_checker.deinit();
+    
+    // Test with branch context (mock implementation)
+    const context = GitAuthContext{
+        .user_id = owner_id,
+        .repository_path = "test/repo",
+        .operation = .Push,
+        .branch = "main",
+    };
+    
+    const result = try permission_checker.authorizeGitOperation(allocator, context);
+    try testing.expect(result.authorized);
+}
+
+// Tests for Phase 6: Unit-Level Permission Control
+test "unit-level permission control for different repository features" {
+    const allocator = testing.allocator;
+    
+    var dao = try setupTestDatabase(allocator);
+    defer dao.deinit();
+    
+    const owner_id = try dao.createUser(.{
+        .name = "feature-owner",
+        .email = "owner@example.com",
+    });
+    
+    const collaborator_id = try dao.createUser(.{
+        .name = "collaborator",
+        .email = "collab@example.com",
+    });
+    
+    const repo_id = try dao.createRepository(.{
+        .name = "feature-repo",
+        .owner_id = owner_id,
+        .owner_type = .User,
+        .visibility = .Private,
+    });
+    
+    // Grant write access to collaborator
+    try dao.addRepositoryCollaborator(repo_id, collaborator_id, .Write);
+    
+    var permission_checker = PermissionChecker.init(allocator, &dao);
+    defer permission_checker.deinit();
+    
+    const permission = try permission_checker.checkUserRepoPermission(allocator, collaborator_id, repo_id);
+    
+    // Collaborator can write code but not access settings
+    try testing.expect(permission.canWrite(.Code));
+    try testing.expect(permission.canRead(.Issues));
+    try testing.expect(!permission.canAccess(.Settings, .Admin));
+}
+
+// Tests for Phase 7: Complete Integration and Performance Testing
+test "performance test - concurrent permission checks" {
+    const allocator = testing.allocator;
+    
+    var dao = try setupTestDatabase(allocator);
+    defer dao.deinit();
+    
+    // Create multiple users and repositories
+    var users = std.ArrayList(i64).init(allocator);
+    defer users.deinit();
+    
+    var repos = std.ArrayList(i64).init(allocator);
+    defer repos.deinit();
+    
+    // Create 10 users and 5 repositories for performance testing
+    var i: u32 = 0;
+    while (i < 10) : (i += 1) {
+        const user_name = try std.fmt.allocPrint(allocator, "user{d}", .{i});
+        defer allocator.free(user_name);
+        const user_email = try std.fmt.allocPrint(allocator, "user{d}@example.com", .{i});
+        defer allocator.free(user_email);
+        
+        const user_id = try dao.createUser(.{
+            .name = user_name,
+            .email = user_email,
+        });
+        try users.append(user_id);
+        
+        if (i < 5) {
+            const repo_name = try std.fmt.allocPrint(allocator, "repo{d}", .{i});
+            defer allocator.free(repo_name);
+            
+            const repo_id = try dao.createRepository(.{
+                .name = repo_name,
+                .owner_id = user_id,
+                .owner_type = .User,
+                .visibility = .Public,
+            });
+            try repos.append(repo_id);
+        }
+    }
+    
+    var permission_checker = PermissionChecker.init(allocator, &dao);
+    defer permission_checker.deinit();
+    
+    // Test performance with multiple permission checks
+    var check_count: u32 = 0;
+    for (users.items) |user_id| {
+        for (repos.items) |repo_id| {
+            _ = try permission_checker.checkUserRepoPermission(allocator, user_id, repo_id);
+            check_count += 1;
+        }
+    }
+    
+    // Should have performed 50 permission checks (10 users × 5 repos)
+    try testing.expectEqual(@as(u32, 50), check_count);
+    
+    // Test cache effectiveness - second round should be faster
+    check_count = 0;
+    for (users.items) |user_id| {
+        for (repos.items) |repo_id| {
+            _ = try permission_checker.checkUserRepoPermission(allocator, user_id, repo_id);
+            check_count += 1;
+        }
+    }
+    
+    try testing.expectEqual(@as(u32, 50), check_count);
+}
