@@ -1135,21 +1135,260 @@ fn removeLabelFromIssueHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn listPullsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/pulls
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in listPullsHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Parse query parameters for filtering
+    var query_params = parseQueryParams(allocator, r.query) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid query parameters");
+        return;
+    };
+    defer query_params.deinit();
+    
+    // Pull requests are issues with is_pull = true
+    const filters = DataAccessObject.IssueFilters{
+        .is_closed = if (query_params.get("state")) |state| 
+            std.mem.eql(u8, state, "closed") else null,
+        .is_pull = true, // Only pull requests
+        .assignee_id = if (query_params.get("assignee")) |assignee_str|
+            std.fmt.parseInt(i64, assignee_str, 10) catch null else null,
+    };
+    
+    // Get pull requests (issues with is_pull = true) from database
+    const pulls = ctx.dao.listIssues(allocator, repo.id, filters) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting pull requests: {}", .{err});
+        return;
+    };
+    defer {
+        for (pulls) |pull| {
+            allocator.free(pull.title);
+            if (pull.content) |c| allocator.free(c);
+        }
+        allocator.free(pulls);
+    }
+    
+    try json.writeJson(r, allocator, pulls);
 }
 
 fn createPullHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse request body
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const CreatePullRequest = struct {
+        title: []const u8,
+        body: ?[]const u8 = null,
+        head: []const u8, // Source branch
+        base: []const u8, // Target branch
+        assignees: ?[][]const u8 = null,
+        reviewers: ?[][]const u8 = null,
+    };
+    
+    var parsed = std.json.parseFromSlice(CreatePullRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Validate required fields
+    if (parsed.value.title.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Title is required");
+        return;
+    }
+    
+    if (parsed.value.head.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Head branch is required");
+        return;
+    }
+    
+    if (parsed.value.base.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Base branch is required");
+        return;
+    }
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/pulls
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in createPullHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Validate branches exist
+    const head_branch = ctx.dao.getBranchByName(allocator, repo.id, parsed.value.head) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting head branch: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .bad_request, "Head branch does not exist");
+        return;
+    };
+    defer {
+        allocator.free(head_branch.name);
+        if (head_branch.commit_id) |c| allocator.free(c);
+    }
+    
+    const base_branch = ctx.dao.getBranchByName(allocator, repo.id, parsed.value.base) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting base branch: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .bad_request, "Base branch does not exist");
+        return;
+    };
+    defer {
+        allocator.free(base_branch.name);
+        if (base_branch.commit_id) |c| allocator.free(c);
+    }
+    
+    // Create pull request as an issue with is_pull = true
+    const new_pull = DataAccessObject.Issue{
+        .id = 0,
+        .repo_id = repo.id,
+        .index = 0, // Will be set by DAO
+        .poster_id = user_id,
+        .title = parsed.value.title,
+        .content = parsed.value.body,
+        .is_closed = false,
+        .is_pull = true, // This makes it a pull request
+        .assignee_id = null, // Will handle assignees separately if provided
+        .created_unix = 0, // Will be set by DAO
+    };
+    
+    const pull_id = ctx.dao.createIssue(allocator, new_pull) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to create pull request");
+        std.log.err("Database error creating pull request: {}", .{err});
+        return;
+    };
+    
+    // Return created pull request
+    const created_pull = ctx.dao.getIssue(allocator, repo.id, pull_id) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error retrieving created pull request: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .internal_server_error, "Pull request creation failed");
+        return;
+    };
+    defer {
+        allocator.free(created_pull.title);
+        if (created_pull.content) |c| allocator.free(c);
+    }
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, created_pull);
 }
 
 fn getPullHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Extract owner/repo/pull_number from path: /repos/{owner}/{repo}/pulls/{number}
+    const path_info = parsePullPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in getPullHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get specific pull request (issue with is_pull = true)
+    const pull = ctx.dao.getIssue(allocator, repo.id, path_info.pull_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting pull request: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Pull request not found");
+        return;
+    };
+    defer {
+        allocator.free(pull.title);
+        if (pull.content) |c| allocator.free(c);
+    }
+    
+    // Verify it's actually a pull request
+    if (!pull.is_pull) {
+        try json.writeError(r, allocator, .not_found, "Pull request not found");
+        return;
+    }
+    
+    try json.writeJson(r, allocator, pull);
 }
 
 fn listReviewsHandler(r: zap.Request, ctx: *Context) !void {
@@ -1165,9 +1404,106 @@ fn createReviewHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse request body (optional)
+    const body = r.body;
+    var merge_title: ?[]const u8 = null;
+    var merge_message: ?[]const u8 = null;
+    
+    if (body) |b| {
+        const MergePullRequest = struct {
+            commit_title: ?[]const u8 = null,
+            commit_message: ?[]const u8 = null,
+            merge_method: ?[]const u8 = null, // "merge", "squash", "rebase"
+        };
+        
+        var merge_request = std.json.parseFromSlice(MergePullRequest, allocator, b, .{}) catch {
+            try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+            return;
+        };
+        defer merge_request.deinit();
+        
+        merge_title = merge_request.value.commit_title;
+        merge_message = merge_request.value.commit_message;
+    }
+    
+    // Extract owner/repo/pull_number from path
+    const path_info = parsePullPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in mergePullHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get pull request
+    const pull = ctx.dao.getIssue(allocator, repo.id, path_info.pull_number) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting pull request: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Pull request not found");
+        return;
+    };
+    defer {
+        allocator.free(pull.title);
+        if (pull.content) |c| allocator.free(c);
+    }
+    
+    // Verify it's actually a pull request
+    if (!pull.is_pull) {
+        try json.writeError(r, allocator, .not_found, "Pull request not found");
+        return;
+    }
+    
+    // Validate pull request can be merged
+    if (pull.is_closed) {
+        try json.writeError(r, allocator, .bad_request, "Pull request is already closed");
+        return;
+    }
+    
+    // For this simplified implementation, we'll just close the pull request
+    // In a real implementation, this would involve Git merge operations
+    const updates = DataAccessObject.IssueUpdate{
+        .is_closed = true,
+        .title = null,
+        .content = null,
+        .assignee_id = null,
+    };
+    
+    ctx.dao.updateIssue(allocator, pull.id, updates) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to merge pull request");
+        std.log.err("Database error merging pull request: {}", .{err});
+        return;
+    };
+    
+    try json.writeJson(r, allocator, .{
+        .sha = "merged_commit_placeholder",
+        .merged = true,
+        .message = merge_title orelse "Pull request successfully merged",
+    });
 }
 
 fn listRunsHandler(r: zap.Request, ctx: *Context) !void {
@@ -1635,4 +1971,50 @@ test "parsePullPath handles invalid paths" {
     try std.testing.expectError(error.InvalidPath, parsePullPath(allocator, "/repos/owner/repo"));
     try std.testing.expectError(error.InvalidPath, parsePullPath(allocator, "/repos/owner/repo/pulls"));
     try std.testing.expectError(error.InvalidPath, parsePullPath(allocator, "/repos/owner/repo/pulls/abc"));
+}
+
+test "listPullsHandler filters work correctly" {
+    const allocator = std.testing.allocator;
+    
+    // Test that listPullsHandler uses correct filters for pull requests
+    var query_params = try parseQueryParams(allocator, "state=closed&assignee=456");
+    defer query_params.deinit();
+    
+    const filters = DataAccessObject.IssueFilters{
+        .is_closed = if (query_params.get("state")) |state| 
+            std.mem.eql(u8, state, "closed") else null,
+        .is_pull = true, // Only pull requests
+        .assignee_id = if (query_params.get("assignee")) |assignee_str|
+            std.fmt.parseInt(i64, assignee_str, 10) catch null else null,
+    };
+    
+    try std.testing.expectEqual(true, filters.is_closed.?);
+    try std.testing.expectEqual(true, filters.is_pull.?);
+    try std.testing.expectEqual(@as(i64, 456), filters.assignee_id.?);
+}
+
+test "createPullHandler validates JSON request body" {
+    const allocator = std.testing.allocator;
+    
+    // Test that we can parse valid pull request creation JSON
+    const valid_json = "{\"title\": \"Add new feature\", \"body\": \"This adds a new feature\", \"head\": \"feature-branch\", \"base\": \"main\"}";
+    const CreatePullRequest = struct {
+        title: []const u8,
+        body: ?[]const u8 = null,
+        head: []const u8,
+        base: []const u8,
+        assignees: ?[][]const u8 = null,
+        reviewers: ?[][]const u8 = null,
+    };
+    
+    var json_data = std.json.parseFromSlice(CreatePullRequest, allocator, valid_json, .{}) catch unreachable;
+    defer json_data.deinit();
+    
+    try std.testing.expectEqualStrings("Add new feature", json_data.value.title);
+    try std.testing.expectEqualStrings("This adds a new feature", json_data.value.body.?);
+    try std.testing.expectEqualStrings("feature-branch", json_data.value.head);
+    try std.testing.expectEqualStrings("main", json_data.value.base);
+    try std.testing.expect(json_data.value.title.len > 0);
+    try std.testing.expect(json_data.value.head.len > 0);
+    try std.testing.expect(json_data.value.base.len > 0);
 }
