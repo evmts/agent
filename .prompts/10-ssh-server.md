@@ -79,7 +79,40 @@ src/ssh/
 
 ## Implementation Guidelines
 
+### CRITICAL: NO MOCKING ALLOWED
+
+**ABSOLUTE PROHIBITION ON MOCKING**: Under NO circumstances are you allowed to create mock implementations, stub functions, or fake bindings. This includes but is not limited to:
+
+- ❌ **NO MOCK C BINDINGS** - Do not create fake libssh2 bindings or struct definitions
+- ❌ **NO STUB IMPLEMENTATIONS** - Do not create placeholder functions that pretend to work
+- ❌ **NO FAKE DATA** - Do not hardcode test data or return dummy values
+- ❌ **NO SKIPPING TESTS** - Do not use `error.SkipZigTest` to bypass failing tests
+- ❌ **NO FACADE IMPLEMENTATIONS** - Do not create code that looks complete but doesn't actually work
+
+**MANDATORY REQUIREMENTS**:
+1. **STOP IMMEDIATELY** if libssh2 is not available or cannot be linked
+2. **ASK FOR HELP** before attempting any workaround or alternative approach
+3. **ONLY IMPLEMENT** with real, working libssh2 integration
+4. **TEST WITH REAL SSH** - All tests must use actual SSH protocol, not mocks
+
+**IF YOU CANNOT LINK LIBSSH2**: 
+- STOP and report the issue
+- DO NOT proceed with implementation
+- DO NOT create mock bindings
+- DO NOT pretend the implementation works
+
+Creating mock implementations wastes time and creates technical debt. It is better to have no implementation than a fake one.
+
 ## C Library Integration (libssh2)
+
+### Adding as Git Submodule
+
+Add zig-libssh2 as a submodule to your project:
+
+```bash
+git submodule add https://github.com/mattnite/zig-libssh2.git deps/zig-libssh2
+git submodule update --init --recursive
+```
 
 ### Build Configuration
 
@@ -87,14 +120,19 @@ Add libssh2 to your project's build.zig:
 
 ```zig
 const std = @import("std");
-const libssh2 = @import("path/to/libssh2.zig");
+const libssh2 = @import("deps/zig-libssh2/libssh2.zig");
+const mbedtls = @import("deps/zig-libssh2/deps.zig").build_pkgs.mbedtls;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     
+    // Build mbedTLS (required by libssh2)
+    const tls = mbedtls.create(b, target, optimize);
+    
     // Create libssh2 static library
     const ssh2 = libssh2.create(b, target, optimize);
+    tls.link(ssh2.step);
     
     // Your SSH server executable
     const exe = b.addExecutable(.{
