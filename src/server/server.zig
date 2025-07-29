@@ -422,9 +422,114 @@ fn getBranchHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn createBranchHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/branches
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in createBranchHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Parse request body
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Missing request body");
+        return;
+    };
+    
+    var json_data = std.json.parseFromSlice(struct {
+        name: []const u8,
+        from_branch: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer json_data.deinit();
+    
+    const branch_name = json_data.value.name;
+    const from_branch = json_data.value.from_branch orelse repo.default_branch;
+    
+    // Check if branch already exists
+    const existing_branch = ctx.dao.getBranchByName(allocator, repo.id, branch_name) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error checking existing branch: {}", .{err});
+        return;
+    };
+    if (existing_branch) |b| {
+        allocator.free(b.name);
+        if (b.commit_id) |c| allocator.free(c);
+        try json.writeError(r, allocator, .conflict, "Branch already exists");
+        return;
+    }
+    
+    // Get commit ID from source branch
+    const source_branch = ctx.dao.getBranchByName(allocator, repo.id, from_branch) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error getting source branch: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Source branch not found");
+        return;
+    };
+    defer {
+        allocator.free(source_branch.name);
+        if (source_branch.commit_id) |c| allocator.free(c);
+    }
+    
+    // Create new branch
+    const new_branch = DataAccessObject.Branch{
+        .id = 0, // Will be set by database
+        .repo_id = repo.id,
+        .name = branch_name,
+        .commit_id = source_branch.commit_id,
+        .is_protected = false,
+    };
+    
+    ctx.dao.createBranch(allocator, new_branch) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to create branch");
+        std.log.err("Database error creating branch: {}", .{err});
+        return;
+    };
+    
+    // Return the created branch
+    const created_branch = ctx.dao.getBranchByName(allocator, repo.id, branch_name) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error retrieving created branch: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .internal_server_error, "Branch creation failed");
+        return;
+    };
+    defer {
+        allocator.free(created_branch.name);
+        if (created_branch.commit_id) |c| allocator.free(c);
+    }
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, created_branch);
 }
 
 fn deleteBranchHandler(r: zap.Request, ctx: *Context) !void {
@@ -736,4 +841,19 @@ test "getBranchHandler correctly parses branch path" {
     try std.testing.expectEqualStrings("testowner", parsed.owner);
     try std.testing.expectEqualStrings("testrepo", parsed.repo);
     try std.testing.expectEqualStrings("feature-branch", parsed.branch);
+}
+
+test "createBranchHandler validates JSON request body" {
+    const allocator = std.testing.allocator;
+    
+    // Test that we can parse valid branch creation JSON
+    const valid_json = "{\"name\": \"feature-branch\", \"from_branch\": \"main\"}";
+    var json_data = std.json.parseFromSlice(struct {
+        name: []const u8,
+        from_branch: ?[]const u8 = null,
+    }, allocator, valid_json, .{}) catch unreachable;
+    defer json_data.deinit();
+    
+    try std.testing.expectEqualStrings("feature-branch", json_data.value.name);
+    try std.testing.expectEqualStrings("main", json_data.value.from_branch.?);
 }
