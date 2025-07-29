@@ -1,4 +1,6 @@
 const std = @import("std");
+const libssh2 = @import("deps/zig-libssh2/libssh2.zig");
+const mbedtls = @import("deps/zig-mbedtls/mbedtls.zig");
 
 // Asset generation step for GUI
 const GenerateAssetsStep = struct {
@@ -262,6 +264,16 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    // Build mbedTLS first
+    const tls = mbedtls.create(b, target, optimize);
+    
+    // Build libssh2 and link with mbedTLS
+    const ssh2 = libssh2.create(b, target, optimize);
+    tls.link(ssh2.step);
+    
+    // Link libssh2 to main executable
+    ssh2.link(exe);
+
     // GUI asset generation (for main executable)
     // First, check if npm is installed and build the Solid app
     const npm_check = b.addSystemCommand(&[_][]const u8{ "which", "npm" });
@@ -297,6 +309,10 @@ pub fn build(b: *std.Build) void {
     // Link webui library to lib tests (needed for GUI tests)
     lib_unit_tests.linkLibrary(webui.artifact("webui"));
     lib_unit_tests.linkLibC();
+    
+    // Link libssh2 to tests
+    ssh2.link(lib_unit_tests);
+    tls.link(lib_unit_tests);
     if (target.result.os.tag == .macos) {
         lib_unit_tests.linkFramework("WebKit");
     }
@@ -315,6 +331,10 @@ pub fn build(b: *std.Build) void {
     // Link webui library to exe tests (needed for GUI tests)
     exe_unit_tests.linkLibrary(webui.artifact("webui"));
     exe_unit_tests.linkLibC();
+    
+    // Link libssh2 to tests
+    ssh2.link(exe_unit_tests);
+    tls.link(exe_unit_tests);
     if (target.result.os.tag == .macos) {
         exe_unit_tests.linkFramework("WebKit");
     }
