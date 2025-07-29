@@ -139,6 +139,35 @@ zig build && zig build test
 
 **NO EXCEPTIONS. NO SHORTCUTS. NO DELAYS.**
 
+### MANDATORY ATOMIC COMMIT PROTOCOL
+
+**WHENEVER TDD TESTS PASS** you must immediately make atomic emoji commits:
+
+1. **After each successful TDD cycle** (Red → Green → Refactor)
+2. **When a complete feature/phase is implemented and tested**
+3. **After fixing bugs and confirming tests pass**
+
+**Commit Format**:
+- Use appropriate emoji prefix (🔧, 📚, ✨, 🐛, ♻️, ✅, etc.)
+- Write concise commit message describing the change
+- End with Claude Code signature
+- Make commits atomic (single logical change per commit)
+
+**Examples**:
+```bash
+git commit -m "✅ feat: implement LFS filesystem backend with TDD
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+**When NOT to commit**:
+- Tests are failing
+- Code doesn't compile
+- Feature is incomplete
+- Working on experimental changes
+
 ### Why This is NON-NEGOTIABLE
 
 1. **Build and tests are FAST** - Under 10 seconds total
