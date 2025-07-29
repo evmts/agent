@@ -1258,6 +1258,17 @@ const IssuePath = struct {
     }
 };
 
+const PullPath = struct {
+    owner: []const u8,
+    repo: []const u8,
+    pull_number: i64,
+    
+    pub fn deinit(self: *const PullPath, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+    }
+};
+
 fn parseRepoPath(allocator: std.mem.Allocator, path: []const u8) !RepoPath {
     // Parse /repos/{owner}/{repo}/... format
     var path_iterator = std.mem.splitScalar(u8, path, '/');
@@ -1331,6 +1342,33 @@ fn parseIssuePath(allocator: std.mem.Allocator, path: []const u8) !IssuePath {
         .owner = owner_owned,
         .repo = repo_owned,
         .issue_number = issue_number,
+    };
+}
+
+fn parsePullPath(allocator: std.mem.Allocator, path: []const u8) !PullPath {
+    // Parse /repos/{owner}/{repo}/pulls/{number} format
+    var path_iterator = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty first part and "repos"
+    _ = path_iterator.next(); // ""
+    _ = path_iterator.next(); // "repos"
+    
+    const owner = path_iterator.next() orelse return error.InvalidPath;
+    const repo = path_iterator.next() orelse return error.InvalidPath;
+    _ = path_iterator.next(); // "pulls"
+    const pull_number_str = path_iterator.next() orelse return error.InvalidPath;
+    
+    const pull_number = std.fmt.parseInt(i64, pull_number_str, 10) catch return error.InvalidPath;
+    
+    const owner_owned = try allocator.dupe(u8, owner);
+    errdefer allocator.free(owner_owned);
+    const repo_owned = try allocator.dupe(u8, repo);
+    errdefer allocator.free(repo_owned);
+    
+    return PullPath{
+        .owner = owner_owned,
+        .repo = repo_owned,
+        .pull_number = pull_number,
     };
 }
 
@@ -1576,4 +1614,25 @@ test "createCommentHandler validates JSON request body" {
     
     try std.testing.expectEqualStrings("This is a comment", json_data.value.body);
     try std.testing.expect(json_data.value.body.len > 0); // Validates non-empty body
+}
+
+test "parsePullPath correctly parses pull request paths" {
+    const allocator = std.testing.allocator;
+    
+    const path = "/repos/testowner/testrepo/pulls/789";
+    const parsed = try parsePullPath(allocator, path);
+    defer parsed.deinit(allocator);
+    
+    try std.testing.expectEqualStrings("testowner", parsed.owner);
+    try std.testing.expectEqualStrings("testrepo", parsed.repo);
+    try std.testing.expectEqual(@as(i64, 789), parsed.pull_number);
+}
+
+test "parsePullPath handles invalid paths" {
+    const allocator = std.testing.allocator;
+    
+    // Test various invalid paths
+    try std.testing.expectError(error.InvalidPath, parsePullPath(allocator, "/repos/owner/repo"));
+    try std.testing.expectError(error.InvalidPath, parsePullPath(allocator, "/repos/owner/repo/pulls"));
+    try std.testing.expectError(error.InvalidPath, parsePullPath(allocator, "/repos/owner/repo/pulls/abc"));
 }
