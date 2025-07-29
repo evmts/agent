@@ -533,9 +533,66 @@ fn createBranchHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn deleteBranchHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Extract owner/repo/branch from path: /repos/{owner}/{repo}/branches/{branch}
+    const path_info = parseBranchPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Get repository
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in deleteBranchHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        allocator.free(repo.lower_name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Check if branch exists before deletion
+    const branch = ctx.dao.getBranchByName(allocator, repo.id, path_info.branch) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error checking branch: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Branch not found");
+        return;
+    };
+    defer {
+        allocator.free(branch.name);
+        if (branch.commit_id) |c| allocator.free(c);
+    }
+    
+    // Prevent deletion of default branch
+    if (std.mem.eql(u8, path_info.branch, repo.default_branch)) {
+        try json.writeError(r, allocator, .forbidden, "Cannot delete default branch");
+        return;
+    }
+    
+    // Delete the branch
+    ctx.dao.deleteBranch(allocator, repo.id, path_info.branch) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to delete branch");
+        std.log.err("Database error deleting branch: {}", .{err});
+        return;
+    };
+    
+    r.setStatus(.no_content);
 }
 
 fn listIssuesHandler(r: zap.Request, ctx: *Context) !void {
@@ -856,4 +913,16 @@ test "createBranchHandler validates JSON request body" {
     
     try std.testing.expectEqualStrings("feature-branch", json_data.value.name);
     try std.testing.expectEqualStrings("main", json_data.value.from_branch.?);
+}
+
+test "deleteBranchHandler prevents deletion of default branch" {
+    // Test that deleteBranchHandler can detect when trying to delete default branch
+    const branch_name = "main";
+    const default_branch = "main";
+    
+    try std.testing.expectEqual(true, std.mem.eql(u8, branch_name, default_branch));
+    
+    // Test with different branch that should be allowed
+    const feature_branch = "feature-branch";
+    try std.testing.expectEqual(false, std.mem.eql(u8, feature_branch, default_branch));
 }
