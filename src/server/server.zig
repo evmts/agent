@@ -1099,27 +1099,273 @@ fn createCommentHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn listLabelsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/labels
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in listLabelsHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    const labels = try ctx.dao.getLabels(allocator, repo.id);
+    defer {
+        for (labels) |label| {
+            allocator.free(label.name);
+            allocator.free(label.color);
+        }
+        allocator.free(labels);
+    }
+    
+    try json.writeJson(r, allocator, labels);
 }
 
 fn createLabelHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const CreateLabelRequest = struct {
+        name: []const u8,
+        color: []const u8,
+    };
+    
+    var parsed = std.json.parseFromSlice(CreateLabelRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Validate required fields
+    if (parsed.value.name.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Label name is required");
+        return;
+    }
+    
+    // Validate color format (hex color)
+    if (!isValidHexColor(parsed.value.color)) {
+        try json.writeError(r, allocator, .bad_request, "Color must be a valid hex color (e.g., #ff0000)");
+        return;
+    }
+    
+    // Extract owner/repo from path: /repos/{owner}/{repo}/labels
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in createLabelHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    const new_label = DataAccessObject.Label{
+        .id = 0,
+        .repo_id = repo.id,
+        .name = parsed.value.name,
+        .color = parsed.value.color,
+    };
+    
+    const label_id = try ctx.dao.createLabel(allocator, new_label);
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, .{
+        .id = label_id,
+        .name = parsed.value.name,
+        .color = parsed.value.color,
+        .created = true,
+    });
 }
 
 fn updateLabelHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const UpdateLabelRequest = struct {
+        name: ?[]const u8 = null,
+        color: ?[]const u8 = null,
+    };
+    
+    var parsed = std.json.parseFromSlice(UpdateLabelRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Validate color if provided
+    if (parsed.value.color) |color| {
+        if (!isValidHexColor(color)) {
+            try json.writeError(r, allocator, .bad_request, "Color must be a valid hex color");
+            return;
+        }
+    }
+    
+    // Parse label ID from path (/repos/{owner}/{repo}/labels/{id})
+    const path_parts = std.mem.splitScalar(u8, r.path.?, '/');
+    var part_count: u32 = 0;
+    var label_id: i64 = 0;
+    
+    var iterator = path_parts;
+    while (iterator.next()) |part| {
+        part_count += 1;
+        if (part_count == 6) { // /repos/{owner}/{repo}/labels/{id}
+            label_id = std.fmt.parseInt(i64, part, 10) catch {
+                try json.writeError(r, allocator, .bad_request, "Invalid label ID");
+                return;
+            };
+            break;
+        }
+    }
+    
+    if (label_id == 0) {
+        try json.writeError(r, allocator, .bad_request, "Label ID required");
+        return;
+    }
+    
+    // Extract repo info for verification
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in updateLabelHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Update the label
+    try ctx.dao.updateLabel(allocator, label_id, parsed.value.name, parsed.value.color);
+    
+    // Get updated label to return
+    const updated_label = try ctx.dao.getLabelById(allocator, label_id);
+    defer if (updated_label) |label| {
+        allocator.free(label.name);
+        allocator.free(label.color);
+    };
+    
+    if (updated_label) |label| {
+        try json.writeJson(r, allocator, label);
+    } else {
+        try json.writeError(r, allocator, .not_found, "Label not found");
+    }
 }
 
 fn deleteLabelHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse label ID from path (/repos/{owner}/{repo}/labels/{id})
+    const path_parts = std.mem.splitScalar(u8, r.path.?, '/');
+    var part_count: u32 = 0;
+    var label_id: i64 = 0;
+    
+    var iterator = path_parts;
+    while (iterator.next()) |part| {
+        part_count += 1;
+        if (part_count == 6) { // /repos/{owner}/{repo}/labels/{id}
+            label_id = std.fmt.parseInt(i64, part, 10) catch {
+                try json.writeError(r, allocator, .bad_request, "Invalid label ID");
+                return;
+            };
+            break;
+        }
+    }
+    
+    if (label_id == 0) {
+        try json.writeError(r, allocator, .bad_request, "Label ID required");
+        return;
+    }
+    
+    // Extract repo info for verification
+    const path_info = parseRepoPath(allocator, r.path.?) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid path format");
+        return;
+    };
+    defer path_info.deinit(allocator);
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, user_id, path_info.repo) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        std.log.err("Database error in deleteLabelHandler: {}", .{err});
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Delete the label
+    try ctx.dao.deleteLabel(allocator, label_id);
+    
+    r.setStatus(.no_content);
+    try r.sendBody("");
 }
 
 fn addLabelsToIssueHandler(r: zap.Request, ctx: *Context) !void {
@@ -2141,6 +2387,15 @@ test "getBranchHandler correctly parses branch path" {
     try std.testing.expectEqualStrings("testowner", parsed.owner);
     try std.testing.expectEqualStrings("testrepo", parsed.repo);
     try std.testing.expectEqualStrings("feature-branch", parsed.branch);
+}
+
+fn isValidHexColor(color: []const u8) bool {
+    if (color.len != 7 or color[0] != '#') return false;
+    
+    for (color[1..]) |c| {
+        if (!std.ascii.isHex(c)) return false;
+    }
+    return true;
 }
 
 test "createBranchHandler validates JSON request body" {
