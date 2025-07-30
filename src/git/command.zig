@@ -528,6 +528,105 @@ pub const GitCommand = struct {
         allocator.free(self.executable_path);
     }
 
+    // Helper function to validate arguments (Phase 1 refactoring)
+    fn validateArguments(args: []const []const u8) !void {
+        for (args, 0..) |arg, i| {
+            // First argument can be a git command (like "status", "commit")
+            if (i == 0) continue;
+            
+            // If it looks like an option, validate it
+            if (arg.len > 0 and arg[0] == '-') {
+                if (!isValidGitOption(arg) and isBrokenGitArgument(arg)) {
+                    return error.InvalidArgument;
+                }
+            } else {
+                // For non-option arguments, ensure they don't start with dash
+                if (!isSafeArgumentValue(arg)) {
+                    return error.InvalidArgument;
+                }
+            }
+        }
+    }
+
+    // Helper function to prepare environment map (Phase 2 refactoring)
+    fn prepareEnvMap(allocator: std.mem.Allocator, env_vars: ?[]const EnvVar) !?std.process.EnvMap {
+        if (env_vars == null) return null;
+        
+        var env_map = std.process.EnvMap.init(allocator);
+        errdefer env_map.deinit();
+
+        // Start with minimal environment
+        const path_env = std.process.getEnvVarOwned(allocator, "PATH") catch try allocator.dupe(u8, "/usr/local/bin:/usr/bin:/bin");
+        defer allocator.free(path_env);
+        const home_env = std.process.getEnvVarOwned(allocator, "HOME") catch try allocator.dupe(u8, "/tmp");
+        defer allocator.free(home_env);
+
+        try env_map.put("PATH", path_env);
+        try env_map.put("HOME", home_env);
+
+        // Add only allowed environment variables from input
+        if (env_vars) |vars| {
+            for (vars) |env_var| {
+                if (isAllowedEnvVar(env_var.name)) {
+                    try env_map.put(env_var.name, env_var.value);
+                }
+            }
+        }
+
+        return env_map;
+    }
+
+    // Helper structure to return both child process and resources that need cleanup
+    const SpawnResult = struct {
+        child: std.process.Child,
+        argv: std.ArrayList([]const u8),
+        env_map: ?std.process.EnvMap,
+
+        pub fn deinit(self: *SpawnResult) void {
+            self.argv.deinit();
+            if (self.env_map) |*em| em.deinit();
+        }
+    };
+
+    // Helper function to spawn child process with common setup (Phase 3 refactoring)
+    fn spawnChild(
+        self: *const GitCommand,
+        allocator: std.mem.Allocator,
+        args: []const []const u8,
+        cwd: ?[]const u8,
+        env: ?[]const EnvVar,
+        stdin_behavior: std.process.Child.StdIoBehavior,
+    ) !SpawnResult {
+        // Validate arguments using helper
+        try validateArguments(args);
+
+        // Build full argv
+        var argv = std.ArrayList([]const u8).init(allocator);
+        errdefer argv.deinit();
+        try argv.append(self.executable_path);
+        try argv.appendSlice(args);
+
+        // Build environment map using helper
+        var env_map = try prepareEnvMap(allocator, env);
+        errdefer if (env_map) |*em| em.deinit();
+
+        // Create and configure child process
+        var child = std.process.Child.init(argv.items, allocator);
+        child.cwd = cwd;
+        child.env_map = if (env_map) |*em| em else null;
+        child.stdin_behavior = stdin_behavior;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+
+        try child.spawn();
+
+        return SpawnResult{
+            .child = child,
+            .argv = argv,
+            .env_map = env_map,
+        };
+    }
+
     pub fn run(self: *const GitCommand, allocator: std.mem.Allocator, args: []const []const u8) !GitResult {
         // For simple commands without special requirements, use the standard library's safe implementation
         // which handles stdout/stderr reading correctly to avoid deadlocks
@@ -629,23 +728,8 @@ pub const GitCommand = struct {
     }
 
     pub fn runWithOptions(self: *const GitCommand, allocator: std.mem.Allocator, options: RunOptions) !GitResult {
-        // Validate all arguments
-        for (options.args, 0..) |arg, i| {
-            // First argument can be a git command (like "status", "commit")
-            if (i == 0) continue;
-            
-            // If it looks like an option, validate it
-            if (arg.len > 0 and arg[0] == '-') {
-                if (!isValidGitOption(arg) and isBrokenGitArgument(arg)) {
-                    return error.InvalidArgument;
-                }
-            } else {
-                // For non-option arguments, ensure they don't start with dash
-                if (!isSafeArgumentValue(arg)) {
-                    return error.InvalidArgument;
-                }
-            }
-        }
+        // Validate all arguments using helper
+        try validateArguments(options.args);
 
         // Build full argv
         var argv = std.ArrayList([]const u8).init(allocator);
@@ -655,27 +739,9 @@ pub const GitCommand = struct {
 
         // For simpler cases without stdin, use the safer Child.run to avoid deadlocks
         if (options.stdin == null) {
-            // Build environment map if needed
-            var env_map = if (options.env != null) std.process.EnvMap.init(allocator) else null;
+            // Build environment map using helper
+            var env_map = try prepareEnvMap(allocator, options.env);
             defer if (env_map) |*em| em.deinit();
-
-            if (options.env) |env_vars| {
-                // Start with minimal environment
-                const path_env = std.process.getEnvVarOwned(allocator, "PATH") catch try allocator.dupe(u8, "/usr/local/bin:/usr/bin:/bin");
-                defer allocator.free(path_env);
-                const home_env = std.process.getEnvVarOwned(allocator, "HOME") catch try allocator.dupe(u8, "/tmp");
-                defer allocator.free(home_env);
-                
-                try env_map.?.put("PATH", path_env);
-                try env_map.?.put("HOME", home_env);
-                
-                // Add only allowed environment variables
-                for (env_vars) |env_var| {
-                    if (isAllowedEnvVar(env_var.name)) {
-                        try env_map.?.put(env_var.name, env_var.value);
-                    }
-                }
-            }
             
             const result = try std.process.Child.run(.{
                 .allocator = allocator,
@@ -714,57 +780,17 @@ pub const GitCommand = struct {
     };
 
     pub fn runStreaming(self: *const GitCommand, allocator: std.mem.Allocator, options: StreamingOptions) !u8 {
-        // Validate arguments (same as runWithOptions)
-        for (options.args, 0..) |arg, i| {
-            if (i == 0) continue;
-            if (arg.len > 0 and arg[0] == '-') {
-                if (!isValidGitOption(arg) and isBrokenGitArgument(arg)) {
-                    return error.InvalidArgument;
-                }
-            } else {
-                if (!isSafeArgumentValue(arg)) {
-                    return error.InvalidArgument;
-                }
-            }
-        }
+        // Spawn child process using central helper
+        var spawn_result = try self.spawnChild(
+            allocator,
+            options.args,
+            options.cwd,
+            options.env,
+            if (options.stdin != null) .Pipe else .Ignore,
+        );
+        defer spawn_result.deinit();
 
-        // Build full argv
-        var argv = std.ArrayList([]const u8).init(allocator);
-        defer argv.deinit();
-        try argv.append(self.executable_path);
-        try argv.appendSlice(options.args);
-
-        // Build environment map if needed
-        var env_map = if (options.env != null) std.process.EnvMap.init(allocator) else null;
-        defer if (env_map) |*em| em.deinit();
-
-        if (options.env) |env_vars| {
-            // Start with minimal environment
-            const path_env = std.process.getEnvVarOwned(allocator, "PATH") catch try allocator.dupe(u8, "/usr/local/bin:/usr/bin:/bin");
-            defer allocator.free(path_env);
-            const home_env = std.process.getEnvVarOwned(allocator, "HOME") catch try allocator.dupe(u8, "/tmp");
-            defer allocator.free(home_env);
-            
-            try env_map.?.put("PATH", path_env);
-            try env_map.?.put("HOME", home_env);
-            
-            // Add only allowed environment variables
-            for (env_vars) |env_var| {
-                if (isAllowedEnvVar(env_var.name)) {
-                    try env_map.?.put(env_var.name, env_var.value);
-                }
-            }
-        }
-
-        // Create child process
-        var child = std.process.Child.init(argv.items, allocator);
-        child.cwd = options.cwd;
-        child.env_map = if (env_map) |*em| em else null;
-        child.stdin_behavior = if (options.stdin != null) .Pipe else .Ignore;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-
-        try child.spawn();
+        var child = spawn_result.child;
 
         // Set up timeout monitoring for streaming
         var timeout_state = TimeoutState{
