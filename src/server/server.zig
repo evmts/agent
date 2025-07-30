@@ -1638,15 +1638,232 @@ fn getPullHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn listReviewsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    _ = user_id; // Authentication required but user_id not used for listing reviews
+    
+    // Parse URL to get repo and pull request number
+    const path = r.path orelse return error.BadRequest;
+    
+    // Extract owner, repo, and pull_number from path like /repos/owner/repo/pulls/123/reviews
+    var path_parts = std.mem.splitSequence(u8, path, "/");
+    _ = path_parts.next(); // skip empty
+    _ = path_parts.next(); // skip "repos"
+    const owner = path_parts.next() orelse return error.BadRequest;
+    const repo = path_parts.next() orelse return error.BadRequest;
+    _ = path_parts.next(); // skip "pulls"
+    const pull_number_str = path_parts.next() orelse return error.BadRequest;
+    
+    const pull_number = std.fmt.parseInt(i64, pull_number_str, 10) catch return error.BadRequest;
+    
+    // Get repository owner user
+    const owner_user = try ctx.dao.getUserByName(allocator, owner) orelse {
+        r.setStatus(.not_found);
+        try r.sendBody("Repository owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner_user.name);
+        if (owner_user.email) |e| allocator.free(e);
+        if (owner_user.passwd) |p| allocator.free(p);
+        if (owner_user.avatar) |a| allocator.free(a);
+    }
+    
+    // Get repository by owner and name
+    const repository = try ctx.dao.getRepositoryByName(allocator, owner_user.id, repo) orelse {
+        r.setStatus(.not_found);
+        try r.sendBody("Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repository.lower_name);
+        allocator.free(repository.name);
+        if (repository.description) |d| allocator.free(d);
+        allocator.free(repository.default_branch);
+    }
+    
+    // Get the pull request (issue)
+    const pull_request = try ctx.dao.getIssue(allocator, repository.id, pull_number) orelse {
+        r.setStatus(.not_found);
+        try r.sendBody("Pull request not found");
+        return;
+    };
+    defer {
+        allocator.free(pull_request.title);
+        if (pull_request.content) |c| allocator.free(c);
+    }
+    
+    // Verify it's actually a pull request
+    if (!pull_request.is_pull) {
+        r.setStatus(.bad_request);
+        try r.sendBody("Not a pull request");
+        return;
+    }
+    
+    // Get reviews for this pull request
+    const reviews = try ctx.dao.getReviews(allocator, pull_request.id);
+    defer {
+        for (reviews) |review| {
+            if (review.commit_id) |c| allocator.free(c);
+        }
+        allocator.free(reviews);
+    }
+    
+    // Format response
+    r.setStatus(.ok);
+    r.setHeader("Content-Type", "application/json") catch {};
+    
+    try json.writeJson(r, allocator, .{
+        .reviews = reviews,
+        .count = reviews.len,
+    });
 }
 
 fn createReviewHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Get user from auth
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Parse URL to get repo and pull request number
+    const path = r.path orelse return error.BadRequest;
+    
+    // Extract owner, repo, and pull_number from path like /repos/owner/repo/pulls/123/reviews
+    var path_parts = std.mem.splitSequence(u8, path, "/");
+    _ = path_parts.next(); // skip empty
+    _ = path_parts.next(); // skip "repos"
+    const owner = path_parts.next() orelse return error.BadRequest;
+    const repo = path_parts.next() orelse return error.BadRequest;
+    _ = path_parts.next(); // skip "pulls"
+    const pull_number_str = path_parts.next() orelse return error.BadRequest;
+    
+    const pull_number = std.fmt.parseInt(i64, pull_number_str, 10) catch return error.BadRequest;
+    
+    // Get repository owner user
+    const owner_user = try ctx.dao.getUserByName(allocator, owner) orelse {
+        r.setStatus(.not_found);
+        try r.sendBody("Repository owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner_user.name);
+        if (owner_user.email) |e| allocator.free(e);
+        if (owner_user.passwd) |p| allocator.free(p);
+        if (owner_user.avatar) |a| allocator.free(a);
+    }
+    
+    // Get repository by owner and name
+    const repository = try ctx.dao.getRepositoryByName(allocator, owner_user.id, repo) orelse {
+        r.setStatus(.not_found);
+        try r.sendBody("Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repository.lower_name);
+        allocator.free(repository.name);
+        if (repository.description) |d| allocator.free(d);
+        allocator.free(repository.default_branch);
+    }
+    
+    // Get the pull request (issue)
+    const pull_request = try ctx.dao.getIssue(allocator, repository.id, pull_number) orelse {
+        r.setStatus(.not_found);
+        try r.sendBody("Pull request not found");
+        return;
+    };
+    defer {
+        allocator.free(pull_request.title);
+        if (pull_request.content) |c| allocator.free(c);
+    }
+    
+    // Verify it's actually a pull request
+    if (!pull_request.is_pull) {
+        r.setStatus(.bad_request);
+        try r.sendBody("Not a pull request");
+        return;
+    }
+    
+    // Parse request body
+    const body = r.body orelse {
+        r.setStatus(.bad_request);
+        try r.sendBody("Request body required");
+        return;
+    };
+    
+    const ReviewRequest = struct {
+        event: []const u8, // "approve", "reject", "comment"
+        body: ?[]const u8 = null,
+        commit_id: ?[]const u8 = null,
+    };
+    
+    var parsed = std.json.parseFromSlice(ReviewRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Convert event string to ReviewType
+    const review_type: DataAccessObject.ReviewType = if (std.mem.eql(u8, parsed.value.event, "approve"))
+        .approve
+    else if (std.mem.eql(u8, parsed.value.event, "reject"))
+        .reject
+    else if (std.mem.eql(u8, parsed.value.event, "comment"))
+        .comment
+    else {
+        r.setStatus(.bad_request);
+        try r.sendBody("Invalid review event. Must be 'approve', 'reject', or 'comment'");
+        return;
+    };
+    
+    // Create review
+    const review = DataAccessObject.Review{
+        .id = 0, // Will be assigned by database
+        .type = review_type,
+        .reviewer_id = user_id,
+        .issue_id = pull_request.id,
+        .commit_id = parsed.value.commit_id,
+    };
+    
+    const review_id = try ctx.dao.createReview(allocator, review);
+    
+    // If there's a body comment, create a comment associated with this review
+    if (parsed.value.body) |body_text| {
+        if (body_text.len > 0) {
+            const comment = DataAccessObject.Comment{
+                .id = 0, // Will be assigned by database
+                .poster_id = user_id,
+                .issue_id = pull_request.id,
+                .review_id = review_id,
+                .content = body_text,
+                .commit_id = parsed.value.commit_id,
+                .line = null, // General comment, not line-specific
+                .created_unix = std.time.timestamp(),
+            };
+            
+            _ = try ctx.dao.createComment(allocator, comment);
+        }
+    }
+    
+    // Return success response
+    r.setStatus(.created);
+    r.setHeader("Content-Type", "application/json") catch {};
+    
+    try json.writeJson(r, allocator, .{
+        .review_id = review_id,
+        .event = parsed.value.event,
+        .reviewer_id = user_id,
+        .pull_request_id = pull_request.id,
+    });
 }
 
 fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
