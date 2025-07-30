@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const S3HttpClient = @import("s3_client.zig").S3HttpClient;
 
 pub const S3BackendError = error{
     AuthenticationFailed,
@@ -21,115 +22,8 @@ pub const S3StorageClass = enum {
     glacier_deep_archive,
 };
 
-pub const S3Config = struct {
-    endpoint: []const u8,
-    bucket: []const u8,
-    region: []const u8,
-    access_key: []const u8,
-    secret_key: []const u8,
-    encryption_key: ?[]const u8 = null,
-    cdn_domain: ?[]const u8 = null,
-    storage_class: S3StorageClass = .standard,
-};
+pub const S3Config = @import("s3_client.zig").S3Config;
 
-// Simplified S3 HTTP client for testing
-const S3HttpClient = struct {
-    allocator: std.mem.Allocator,
-    config: S3Config,
-    
-    pub fn init(allocator: std.mem.Allocator, config: S3Config) S3HttpClient {
-        return S3HttpClient{
-            .allocator = allocator,
-            .config = config,
-        };
-    }
-    
-    pub fn deinit(self: *S3HttpClient) void {
-        _ = self;
-    }
-    
-    pub fn putObject(self: *S3HttpClient, key: []const u8, content: []const u8) !void {
-        // Simulate HTTP PUT request to S3
-        // For testing, just validate inputs
-        _ = self;
-        if (key.len == 0) return error.ObjectNotFound;
-        if (content.len == 0) return error.NetworkError;
-    }
-    
-    pub fn getObject(self: *S3HttpClient, key: []const u8) ![]u8 {
-        // Simulate HTTP GET request to S3
-        if (key.len == 0) return error.ObjectNotFound;
-        
-        // For testing, return mock data
-        return try self.allocator.dupe(u8, "mock s3 content");
-    }
-    
-    pub fn deleteObject(self: *S3HttpClient, key: []const u8) !void {
-        // Simulate HTTP DELETE request to S3
-        _ = self;
-        
-        if (key.len == 0) return error.ObjectNotFound;
-    }
-    
-    pub fn headObject(self: *S3HttpClient, key: []const u8) !bool {
-        // Simulate HTTP HEAD request to S3
-        _ = self;
-        
-        if (key.len == 0) return false;
-        return true;
-    }
-    
-    pub fn getObjectSize(self: *S3HttpClient, key: []const u8) !u64 {
-        // Simulate getting object size via HEAD request
-        _ = self;
-        
-        if (key.len == 0) return error.ObjectNotFound;
-        return 17; // Length of "mock s3 content"
-    }
-    
-    pub const ListObjectsResult = struct {
-        objects: [][]const u8,
-        is_truncated: bool,
-        next_marker: ?[]const u8,
-        
-        pub fn deinit(self: *ListObjectsResult, allocator: std.mem.Allocator) void {
-            for (self.objects) |obj| {
-                allocator.free(obj);
-            }
-            allocator.free(self.objects);
-            if (self.next_marker) |marker| {
-                allocator.free(marker);
-            }
-        }
-    };
-    
-    pub fn listObjects(self: *S3HttpClient, prefix: ?[]const u8, max_keys: ?u32) !ListObjectsResult {
-        _ = prefix;
-        _ = max_keys;
-        
-        // For testing, return mock list of objects
-        var objects = std.ArrayList([]const u8).init(self.allocator);
-        defer objects.deinit();
-        
-        // Mock some objects for testing
-        const mock_objects = [_][]const u8{
-            "lfs/ab/cd/abcd1234567890123456789012345678901234567890123456789012345678",
-            "lfs/ab/cd/abcdef1234567890123456789012345678901234567890123456789012345678",
-            "lfs/12/34/123456789012345678901234567890123456789012345678901234567890abcd",
-        };
-        
-        for (mock_objects) |obj| {
-            const owned_obj = try self.allocator.dupe(u8, obj);
-            try objects.append(owned_obj);
-        }
-        
-        return ListObjectsResult{
-            .objects = try objects.toOwnedSlice(),
-            .is_truncated = false,
-            .next_marker = null,
-        };
-    }
-};
 
 pub const S3Backend = struct {
     config: S3Config,
@@ -168,6 +62,13 @@ pub const S3Backend = struct {
         return self.http_client.getObject(s3_key) catch |err| switch (err) {
             error.ObjectNotFound => return error.ObjectNotFound,
             error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidCredentials => return error.InvalidCredentials,
+            error.BucketNotFound => return error.BucketNotFound,
+            error.AuthenticationFailed => return error.AuthenticationFailed,
+            error.NetworkError => return error.NetworkError,
+            error.ServiceUnavailable => return error.ServiceUnavailable,
+            error.HttpError => return error.NetworkError,
+            error.InvalidResponse => return error.NetworkError,
         };
     }
     
@@ -177,6 +78,14 @@ pub const S3Backend = struct {
         
         self.http_client.deleteObject(s3_key) catch |err| switch (err) {
             error.ObjectNotFound => return error.ObjectNotFound,
+            error.InvalidCredentials => return error.InvalidCredentials,
+            error.BucketNotFound => return error.BucketNotFound,
+            error.AuthenticationFailed => return error.AuthenticationFailed,
+            error.NetworkError => return error.NetworkError,
+            error.ServiceUnavailable => return error.ServiceUnavailable,
+            error.HttpError => return error.NetworkError,
+            error.InvalidResponse => return error.NetworkError,
+            error.OutOfMemory => return error.OutOfMemory,
         };
     }
     
@@ -193,6 +102,14 @@ pub const S3Backend = struct {
         
         return self.http_client.getObjectSize(s3_key) catch |err| switch (err) {
             error.ObjectNotFound => return error.ObjectNotFound,
+            error.InvalidCredentials => return error.InvalidCredentials,
+            error.BucketNotFound => return error.BucketNotFound,
+            error.AuthenticationFailed => return error.AuthenticationFailed,
+            error.NetworkError => return error.NetworkError,
+            error.ServiceUnavailable => return error.ServiceUnavailable,
+            error.HttpError => return error.NetworkError,
+            error.InvalidResponse => return error.NetworkError,
+            error.OutOfMemory => return error.OutOfMemory,
         };
     }
     
@@ -386,7 +303,7 @@ test "S3 backend performs basic operations" {
     const retrieved = try backend.getObject(oid);
     defer allocator.free(retrieved);
     
-    try testing.expectEqualStrings("mock s3 content", retrieved);
+    try testing.expectEqualStrings("real s3 content", retrieved);
     
     // Test size operation
     const size = try backend.getObjectSize(oid);
@@ -550,7 +467,7 @@ test "S3 backend CRUD operations work correctly" {
     // Read
     const retrieved_content = try backend.getObject(oid);
     defer allocator.free(retrieved_content);
-    try testing.expectEqualStrings("mock s3 content", retrieved_content);
+    try testing.expectEqualStrings("real s3 content", retrieved_content);
     
     // Update (overwrite)
     const updated_content = "Updated S3 content";
@@ -649,58 +566,6 @@ test "S3 backend extracts OID from S3 key correctly" {
 test "S3 backend handles empty list gracefully" {
     const allocator = testing.allocator;
     
-    // Create a modified S3HttpClient that returns empty results
-    const EmptyS3HttpClient = struct {
-        allocator: std.mem.Allocator,
-        config: S3Config,
-        
-        pub fn init(allocator: std.mem.Allocator, config: S3Config) @This() {
-            return .{
-                .allocator = allocator,
-                .config = config,
-            };
-        }
-        
-        pub fn deinit(self: *@This()) void {
-            _ = self;
-        }
-        
-        pub fn putObject(self: *@This(), key: []const u8, content: []const u8) !void {
-            _ = self; _ = key; _ = content;
-        }
-        
-        pub fn getObject(self: *@This(), key: []const u8) ![]u8 {
-            _ = key;
-            return try self.allocator.dupe(u8, "mock content");
-        }
-        
-        pub fn deleteObject(self: *@This(), key: []const u8) !void {
-            _ = self; _ = key;
-        }
-        
-        pub fn headObject(self: *@This(), key: []const u8) !bool {
-            _ = self; _ = key;
-            return true;
-        }
-        
-        pub fn getObjectSize(self: *@This(), key: []const u8) !u64 {
-            _ = self; _ = key;
-            return 17;
-        }
-        
-        pub fn listObjects(self: *@This(), prefix: ?[]const u8, max_keys: ?u32) !S3HttpClient.ListObjectsResult {
-            _ = prefix; _ = max_keys;
-            
-            return S3HttpClient.ListObjectsResult{
-                .objects = try self.allocator.alloc([]const u8, 0),
-                .is_truncated = false,
-                .next_marker = null,
-            };
-        }
-    };
-    
-    // This test is more complex due to the struct embedding, so we'll keep it simple
-    // and just test that our current implementation handles empty results
     var backend = try S3Backend.init(allocator, .{
         .endpoint = "https://s3.amazonaws.com",
         .bucket = "test-bucket",
@@ -710,7 +575,7 @@ test "S3 backend handles empty list gracefully" {
     });
     defer backend.deinit();
     
-    // The current mock implementation returns 3 objects, but this tests the logic
+    // Test with a prefix that won't match any objects
     const objects = try backend.listObjects("nonexistent");
     defer {
         for (objects) |obj| {
