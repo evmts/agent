@@ -7,6 +7,9 @@ const router = @import("router.zig");
 const json = @import("utils/json.zig");
 const auth = @import("utils/auth.zig");
 
+// Import services
+const MergeService = @import("services/merge_service.zig").MergeService;
+
 // Import handlers
 const health = @import("handlers/health.zig");
 const users = @import("handlers/users.zig");
@@ -1941,14 +1944,32 @@ fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
         return;
     }
     
-    // Validate pull request can be merged
-    if (pull.is_closed) {
-        try json.writeError(r, allocator, .bad_request, "Pull request is already closed");
+    // Initialize merge service
+    var merge_service = MergeService.init(ctx.dao);
+    
+    // Simulate merge conflict detection (would use actual Git in production)
+    const base_sha = "base_branch_sha_placeholder";
+    const head_sha = "head_branch_sha_placeholder";
+    try merge_service.detectMergeConflicts(allocator, repo.id, pull.id, base_sha, head_sha);
+    
+    // Check if the pull request can be merged
+    var mergeability = merge_service.checkMergeability(allocator, repo.id, pull.id, repo.default_branch) catch |err| {
+        try json.writeError(r, allocator, .internal_server_error, "Failed to check merge requirements");
+        std.log.err("Error checking mergeability: {}", .{err});
+        return;
+    };
+    defer mergeability.deinit(allocator);
+    
+    if (!mergeability.can_merge) {
+        r.setStatus(.bad_request);
+        try json.writeJson(r, allocator, .{
+            .message = "Pull request cannot be merged",
+            .blocking_issues = mergeability.blocking_issues,
+        });
         return;
     }
     
-    // For this simplified implementation, we'll just close the pull request
-    // In a real implementation, this would involve Git merge operations
+    // If we get here, the PR can be merged
     const updates = DataAccessObject.IssueUpdate{
         .is_closed = true,
         .title = null,
@@ -1962,10 +1983,15 @@ fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
         return;
     };
     
+    // In a real implementation, this would be the actual commit SHA from Git merge
+    const merge_sha = try std.fmt.allocPrint(allocator, "merged_{d}_{s}", .{ std.time.timestamp(), head_sha[0..8] });
+    defer allocator.free(merge_sha);
+    
     try json.writeJson(r, allocator, .{
-        .sha = "merged_commit_placeholder",
+        .sha = merge_sha,
         .merged = true,
         .message = merge_title orelse "Pull request successfully merged",
+        .merge_commit_sha = merge_sha,
     });
 }
 
