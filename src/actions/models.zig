@@ -230,14 +230,15 @@ pub const Workflow = struct {
         };
         
         // Create a simple push trigger for testing
+        const branches = try allocator.alloc([]const u8, 1);
+        branches[0] = try allocator.dupe(u8, "main");
         workflow.triggers[0] = TriggerEvent{
             .push = .{
-                .branches = try allocator.alloc([]const u8, 1),
+                .branches = branches,
                 .tags = try allocator.alloc([]const u8, 0),
                 .paths = try allocator.alloc([]const u8, 0),
             },
         };
-        workflow.triggers[0].push.branches[0] = try allocator.dupe(u8, "main");
         
         // Create a simple test job
         var test_job = Job{
@@ -865,7 +866,7 @@ pub const ActionsDAO = struct {
         if (maybe_row) |*row| {
             defer row.deinit() catch {};
             
-            const uuid_str = row.get([]const u8, 1);
+            _ = row.get([]const u8, 1); // uuid_str
             const name = row.get([]const u8, 2);
             const token_hash = row.get([]const u8, 5);
             const labels_json = row.get(?[]const u8, 6) orelse "[]";
@@ -1156,14 +1157,15 @@ test "Workflow parses from YAML correctly" {
 test "WorkflowRun tracks execution state correctly" {
     const allocator = testing.allocator;
     
-    var trigger_event = TriggerEvent{
+    const trigger_branches = try allocator.alloc([]const u8, 1);
+    trigger_branches[0] = try allocator.dupe(u8, "main");
+    const trigger_event = TriggerEvent{
         .push = .{
-            .branches = try allocator.alloc([]const u8, 1),
+            .branches = trigger_branches,
             .tags = try allocator.alloc([]const u8, 0),
             .paths = try allocator.alloc([]const u8, 0),
         },
     };
-    trigger_event.push.branches[0] = try allocator.dupe(u8, "main");
     
     var run = WorkflowRun{
         .id = 1,
@@ -1195,11 +1197,13 @@ test "WorkflowRun tracks execution state correctly" {
 test "Job handles dependencies correctly" {
     const allocator = testing.allocator;
     
+    const job_needs = try allocator.alloc([]const u8, 1);
+    job_needs[0] = try allocator.dupe(u8, "build");
     var job = Job{
         .id = try allocator.dupe(u8, "test"),
         .name = try allocator.dupe(u8, "Test Job"),
         .runs_on = try allocator.dupe(u8, "ubuntu-latest"),
-        .needs = try allocator.alloc([]const u8, 1),
+        .needs = job_needs,
         .if_condition = null,
         .strategy = null,
         .steps = try allocator.alloc(JobStep, 0),
@@ -1209,8 +1213,6 @@ test "Job handles dependencies correctly" {
     };
     defer job.deinit(allocator);
     
-    job.needs[0] = try allocator.dupe(u8, "build");
-    
     try testing.expectEqualStrings("test", job.id);
     try testing.expectEqual(@as(usize, 1), job.needs.len);
     try testing.expectEqualStrings("build", job.needs[0]);
@@ -1219,16 +1221,16 @@ test "Job handles dependencies correctly" {
 test "Runner capabilities match job requirements" {
     const allocator = testing.allocator;
     
+    const supported_architectures = try allocator.alloc([]const u8, 1);
+    supported_architectures[0] = try allocator.dupe(u8, "x64");
     var capabilities = RunnerCapabilities{
         .max_parallel_jobs = 2,
-        .supported_architectures = try allocator.alloc([]const u8, 1),
+        .supported_architectures = supported_architectures,
         .docker_enabled = true,
         .kubernetes_enabled = false,
         .custom_capabilities = std.StringHashMap([]const u8).init(allocator),
     };
     defer capabilities.deinit(allocator);
-    
-    capabilities.supported_architectures[0] = try allocator.dupe(u8, "x64");
     
     var runner = Runner{
         .id = 1,
@@ -1261,6 +1263,10 @@ test "Runner capabilities match job requirements" {
 test "JobExecution tracks job state and dependencies" {
     const allocator = testing.allocator;
     
+    const execution_runs_on = try allocator.alloc([]const u8, 1);
+    execution_runs_on[0] = try allocator.dupe(u8, "ubuntu-latest");
+    const execution_needs = try allocator.alloc([]const u8, 1);
+    execution_needs[0] = try allocator.dupe(u8, "build");
     var job_execution = JobExecution{
         .id = 1,
         .workflow_run_id = 123,
@@ -1269,8 +1275,8 @@ test "JobExecution tracks job state and dependencies" {
         .runner_id = null,
         .status = .pending,
         .conclusion = null,
-        .runs_on = try allocator.alloc([]const u8, 1),
-        .needs = try allocator.alloc([]const u8, 1),
+        .runs_on = execution_runs_on,
+        .needs = execution_needs,
         .if_condition = null,
         .strategy = null,
         .timeout_minutes = 360,
@@ -1281,9 +1287,6 @@ test "JobExecution tracks job state and dependencies" {
         .created_at = std.time.timestamp(),
     };
     defer job_execution.deinit(allocator);
-    
-    job_execution.runs_on[0] = try allocator.dupe(u8, "ubuntu-latest");
-    job_execution.needs[0] = try allocator.dupe(u8, "build");
     
     try testing.expectEqual(JobExecution.JobStatus.pending, job_execution.status);
     try testing.expectEqualStrings("test", job_execution.job_id);
@@ -1387,7 +1390,6 @@ test "ActionsDAO can be created and used" {
     
     // We'll skip the actual database operations in this test since it's just for structure
     // The mock doesn't implement the pg.Pool interface properly
-    _ = mock_db;
     
     // Just test that we can create the DAO structure
     // In a real test, we'd use a proper database connection

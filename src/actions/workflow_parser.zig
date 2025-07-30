@@ -317,6 +317,12 @@ pub const WorkflowParser = struct {
         try self.parseJobs(&doc, &workflow.jobs);
         try self.parseEnvironmentVariables(&doc, &workflow.env);
         
+        // Parse workflow defaults
+        workflow.defaults = try self.parseWorkflowDefaults(&doc);
+        
+        // Parse concurrency settings
+        workflow.concurrency = try self.parseConcurrencyConfig(&doc);
+        
         return workflow;
     }
     
@@ -410,6 +416,22 @@ pub const WorkflowParser = struct {
                     },
                 },
             };
+        } else if (std.mem.eql(u8, event_name, "schedule")) {
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .schedule = .{
+                        .cron = try self.allocator.dupe(u8, "0 0 * * *"), // Default: daily at midnight
+                    },
+                },
+            };
+        } else if (std.mem.eql(u8, event_name, "workflow_dispatch")) {
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .workflow_dispatch = .{
+                        .inputs = std.StringHashMap(WorkflowInput).init(self.allocator),
+                    },
+                },
+            };
         }
         
         return WorkflowParserError.InvalidTriggerEvent;
@@ -443,6 +465,87 @@ pub const WorkflowParser = struct {
                         .branches = try branches.toOwnedSlice(),
                         .tags = try self.allocator.alloc([]const u8, 0),
                         .paths = try self.allocator.alloc([]const u8, 0),
+                    },
+                },
+            };
+        } else if (std.mem.eql(u8, event_name, "pull_request")) {
+            var types = std.ArrayList([]const u8).init(self.allocator);
+            defer types.deinit();
+            
+            if (config.get("types")) |types_node| {
+                if (types_node.asSequence()) |type_array| {
+                    for (type_array) |type_node| {
+                        if (type_node.asString()) |type_name| {
+                            try types.append(try self.allocator.dupe(u8, type_name));
+                        }
+                    }
+                } else if (types_node.asString()) |single_type| {
+                    try types.append(try self.allocator.dupe(u8, single_type));
+                }
+            }
+            
+            // Default types if none specified
+            if (types.items.len == 0) {
+                try types.append(try self.allocator.dupe(u8, "opened"));
+                try types.append(try self.allocator.dupe(u8, "synchronize"));
+            }
+            
+            var branches = std.ArrayList([]const u8).init(self.allocator);
+            defer branches.deinit();
+            
+            if (config.get("branches")) |branches_node| {
+                if (branches_node.asSequence()) |branch_array| {
+                    for (branch_array) |branch_node| {
+                        if (branch_node.asString()) |branch_name| {
+                            try branches.append(try self.allocator.dupe(u8, branch_name));
+                        }
+                    }
+                } else if (branches_node.asString()) |single_branch| {
+                    try branches.append(try self.allocator.dupe(u8, single_branch));
+                }
+            }
+            
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .pull_request = .{
+                        .types = try types.toOwnedSlice(),
+                        .branches = try branches.toOwnedSlice(),
+                    },
+                },
+            };
+        } else if (std.mem.eql(u8, event_name, "schedule")) {
+            const cron = if (config.get("cron")) |cron_node|
+                cron_node.asString() orelse "0 0 * * *"
+            else
+                "0 0 * * *";
+            
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .schedule = .{
+                        .cron = try self.allocator.dupe(u8, cron),
+                    },
+                },
+            };
+        } else if (std.mem.eql(u8, event_name, "workflow_dispatch")) {
+            var inputs = std.StringHashMap(WorkflowInput).init(self.allocator);
+            
+            if (config.get("inputs")) |inputs_node| {
+                if (inputs_node.asMapping()) |inputs_map| {
+                    var inputs_iterator = inputs_map.iterator();
+                    while (inputs_iterator.next()) |entry| {
+                        const input_name = entry.key_ptr.*;
+                        const input_config = entry.value_ptr;
+                        
+                        const input = try self.parseWorkflowInput(input_config);
+                        try inputs.put(try self.allocator.dupe(u8, input_name), input);
+                    }
+                }
+            }
+            
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .workflow_dispatch = .{
+                        .inputs = inputs,
                     },
                 },
             };
@@ -559,6 +662,115 @@ pub const WorkflowParser = struct {
         
         // Always add default CI variable
         try env.put(try self.allocator.dupe(u8, "CI"), try self.allocator.dupe(u8, "true"));
+    }
+    
+    fn parseWorkflowInput(self: *WorkflowParser, input_config: *const YamlNode) !WorkflowInput {
+        const input_map = input_config.asMapping() orelse return WorkflowInput{
+            .description = try self.allocator.dupe(u8, ""),
+            .required = false,
+            .default = null,
+            .type = .string,
+        };
+        
+        const description = if (input_map.get("description")) |desc_node|
+            desc_node.asString() orelse ""
+        else
+            "";
+            
+        const required = if (input_map.get("required")) |req_node|
+            if (req_node.asString()) |req_str|
+                std.mem.eql(u8, req_str, "true")
+            else
+                false
+        else
+            false;
+            
+        const default_value = if (input_map.get("default")) |default_node|
+            default_node.asString()
+        else
+            null;
+            
+        const input_type = if (input_map.get("type")) |type_node|
+            if (type_node.asString()) |type_str|
+                if (std.mem.eql(u8, type_str, "boolean"))
+                    WorkflowInput.InputType.boolean
+                else if (std.mem.eql(u8, type_str, "number"))
+                    WorkflowInput.InputType.string
+                else if (std.mem.eql(u8, type_str, "choice"))
+                    WorkflowInput.InputType.choice
+                else
+                    WorkflowInput.InputType.string
+            else
+                WorkflowInput.InputType.string
+        else
+            WorkflowInput.InputType.string;
+            
+        return WorkflowInput{
+            .description = try self.allocator.dupe(u8, description),
+            .required = required,
+            .default = if (default_value) |dv| try self.allocator.dupe(u8, dv) else null,
+            .type = input_type,
+        };
+    }
+    
+    fn parseWorkflowDefaults(self: *WorkflowParser, doc: *const YamlDocument) !?WorkflowDefaults {
+        const defaults_node = doc.getNode("defaults") orelse return null;
+        const defaults_map = defaults_node.asMapping() orelse return null;
+        
+        var defaults = WorkflowDefaults{};
+        
+        if (defaults_map.get("run")) |run_node| {
+            if (run_node.asMapping()) |run_map| {
+                const shell = if (run_map.get("shell")) |shell_node|
+                    shell_node.asString() orelse "bash"
+                else
+                    "bash";
+                    
+                const working_directory = if (run_map.get("working-directory")) |wd_node|
+                    wd_node.asString()
+                else
+                    null;
+                    
+                defaults.run = .{
+                    .shell = try self.allocator.dupe(u8, shell),
+                    .working_directory = if (working_directory) |wd| try self.allocator.dupe(u8, wd) else null,
+                };
+            }
+        }
+        
+        return defaults;
+    }
+    
+    fn parseConcurrencyConfig(self: *WorkflowParser, doc: *const YamlDocument) !?ConcurrencyConfig {
+        const concurrency_node = doc.getNode("concurrency") orelse return null;
+        
+        // Handle both string and object forms
+        if (concurrency_node.asString()) |group_name| {
+            return ConcurrencyConfig{
+                .group = try self.allocator.dupe(u8, group_name),
+                .cancel_in_progress = false,
+            };
+        } else if (concurrency_node.asMapping()) |concurrency_map| {
+            const group = if (concurrency_map.get("group")) |group_node|
+                group_node.asString() orelse return null
+            else
+                return null;
+                
+            const cancel_in_progress = if (concurrency_map.get("cancel-in-progress")) |cancel_node|
+                if (cancel_node.asString()) |cancel_str|
+                    std.mem.eql(u8, cancel_str, "true")
+                else
+                    false
+            else
+                false;
+                
+            return ConcurrencyConfig{
+                .group = try self.allocator.dupe(u8, group),
+                .cancel_in_progress = cancel_in_progress,
+            };
+        }
+        
+        return null;
     }
 };
 
