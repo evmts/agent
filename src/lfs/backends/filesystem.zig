@@ -112,10 +112,66 @@ pub const FilesystemBackend = struct {
     }
     
     pub fn listObjects(self: *FilesystemBackend, prefix: ?[]const u8) ![][]const u8 {
+        var object_list = std.ArrayList([]const u8).init(self.allocator);
+        defer object_list.deinit();
+        
+        // Walk through the directory structure
+        try self.walkDirectory(self.config.base_path, prefix, &object_list);
+        
+        return try object_list.toOwnedSlice();
+    }
+    
+    fn walkDirectory(self: *FilesystemBackend, dir_path: []const u8, prefix: ?[]const u8, object_list: *std.ArrayList([]const u8)) !void {
+        var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => return, // Directory doesn't exist, no objects
+            else => return err,
+        };
+        defer dir.close();
+        
+        var iterator = dir.iterate();
+        while (try iterator.next()) |entry| {
+            const entry_path = try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ dir_path, entry.name });
+            defer self.allocator.free(entry_path);
+            
+            switch (entry.kind) {
+                .directory => {
+                    // Recursively walk subdirectories
+                    try self.walkDirectory(entry_path, prefix, object_list);
+                },
+                .file => {
+                    // Check if this is an object file (not a temp file)
+                    if (std.mem.endsWith(u8, entry.name, ".tmp")) continue;
+                    
+                    // Extract OID from file path - objects are stored as base_path/ab/cd/abcdef...
+                    // The OID is the filename itself
+                    const oid = entry.name;
+                    
+                    // Filter by prefix if provided
+                    if (prefix) |p| {
+                        if (!std.mem.startsWith(u8, oid, p)) continue;
+                    }
+                    
+                    // Validate OID format (should be hex and at least 4 chars)
+                    if (oid.len < 4) continue;
+                    if (!self.isValidOid(oid)) continue;
+                    
+                    // Add to list with owned memory
+                    const owned_oid = try self.allocator.dupe(u8, oid);
+                    try object_list.append(owned_oid);
+                },
+                else => continue,
+            }
+        }
+    }
+    
+    fn isValidOid(self: *FilesystemBackend, oid: []const u8) bool {
         _ = self;
-        _ = prefix;
-        // TODO: Implement directory traversal for listing objects
-        return &[_][]const u8{};
+        
+        // Check if all characters are valid hex
+        for (oid) |c| {
+            if (!std.ascii.isHex(c)) return false;
+        }
+        return true;
     }
     
     pub fn getObjectSize(self: *FilesystemBackend, oid: []const u8) !u64 {
@@ -311,4 +367,147 @@ test "filesystem backend handles CRUD operations correctly" {
     // Delete
     try backend.deleteObject(oid);
     try testing.expect(!try backend.objectExists(oid));
+}
+
+test "filesystem backend lists objects correctly" {
+    const allocator = testing.allocator;
+    
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(base_path);
+    
+    const temp_path = try std.fmt.allocPrint(allocator, "{s}/temp", .{base_path});
+    defer allocator.free(temp_path);
+    
+    var backend = try FilesystemBackend.init(allocator, .{
+        .base_path = base_path,
+        .temp_path = temp_path,
+    });
+    defer backend.deinit();
+    
+    // Store test objects
+    const test_objects = [_][]const u8{
+        "abcdef1234567890123456789012345678901234567890123456789012345678",
+        "abcdef9876543210123456789012345678901234567890123456789012345678",
+        "123456789012345678901234567890123456789012345678901234567890abcd",
+        "fedcba1234567890123456789012345678901234567890123456789012345678",
+    };
+    
+    for (test_objects) |oid| {
+        try backend.putObject(oid, "test content");
+    }
+    
+    // List all objects
+    const all_objects = try backend.listObjects(null);
+    defer {
+        for (all_objects) |obj| {
+            allocator.free(obj);
+        }
+        allocator.free(all_objects);
+    }
+    
+    try testing.expectEqual(@as(usize, 4), all_objects.len);
+    
+    // List objects with prefix "abcdef"
+    const prefixed_objects = try backend.listObjects("abcdef");
+    defer {
+        for (prefixed_objects) |obj| {
+            allocator.free(obj);
+        }
+        allocator.free(prefixed_objects);
+    }
+    
+    try testing.expectEqual(@as(usize, 2), prefixed_objects.len);
+    
+    // Verify prefixed results start with "abcdef"
+    for (prefixed_objects) |obj| {
+        try testing.expect(std.mem.startsWith(u8, obj, "abcdef"));
+    }
+}
+
+test "filesystem backend handles empty directory in listObjects" {
+    const allocator = testing.allocator;
+    
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(base_path);
+    
+    const temp_path = try std.fmt.allocPrint(allocator, "{s}/temp", .{base_path});
+    defer allocator.free(temp_path);
+    
+    var backend = try FilesystemBackend.init(allocator, .{
+        .base_path = base_path,
+        .temp_path = temp_path,
+    });
+    defer backend.deinit();
+    
+    // List objects from empty directory
+    const objects = try backend.listObjects(null);
+    defer {
+        for (objects) |obj| {
+            allocator.free(obj);
+        }
+        allocator.free(objects);
+    }
+    
+    try testing.expectEqual(@as(usize, 0), objects.len);
+}
+
+test "filesystem backend filters invalid OIDs in listObjects" {
+    const allocator = testing.allocator;
+    
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(base_path);
+    
+    const temp_path = try std.fmt.allocPrint(allocator, "{s}/temp", .{base_path});
+    defer allocator.free(temp_path);
+    
+    var backend = try FilesystemBackend.init(allocator, .{
+        .base_path = base_path,
+        .temp_path = temp_path,
+    });
+    defer backend.deinit();
+    
+    // Create a valid object
+    const valid_oid = "abcdef1234567890123456789012345678901234567890123456789012345678";
+    try backend.putObject(valid_oid, "valid content");
+    
+    // Manually create some invalid files that should be filtered out
+    const valid_dir = try std.fmt.allocPrint(allocator, "{s}/ab/cd", .{base_path});
+    defer allocator.free(valid_dir);
+    
+    try std.fs.cwd().makePath(valid_dir);
+    
+    // Create temp file (should be filtered)
+    const temp_file_path = try std.fmt.allocPrint(allocator, "{s}/temp_file.tmp", .{valid_dir});
+    defer allocator.free(temp_file_path);
+    
+    const temp_file = try std.fs.cwd().createFile(temp_file_path, .{});
+    temp_file.close();
+    
+    // Create file with non-hex characters (should be filtered)
+    const invalid_oid_path = try std.fmt.allocPrint(allocator, "{s}/xyz_invalid", .{valid_dir});
+    defer allocator.free(invalid_oid_path);
+    
+    const invalid_file = try std.fs.cwd().createFile(invalid_oid_path, .{});
+    invalid_file.close();
+    
+    // List objects - should only return the valid one
+    const objects = try backend.listObjects(null);
+    defer {
+        for (objects) |obj| {
+            allocator.free(obj);
+        }
+        allocator.free(objects);
+    }
+    
+    try testing.expectEqual(@as(usize, 1), objects.len);
+    try testing.expectEqualStrings(valid_oid, objects[0]);
 }
