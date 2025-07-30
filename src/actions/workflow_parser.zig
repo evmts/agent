@@ -1,11 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 const models = @import("models.zig");
+const yaml_parser = @import("yaml_parser.zig");
 const TriggerEvent = models.TriggerEvent;
 const Job = models.Job;
 const JobStep = models.JobStep;
 const JobStrategy = models.JobStrategy;
 const WorkflowInput = models.WorkflowInput;
+const YamlDocument = yaml_parser.YamlDocument;
+const YamlNode = yaml_parser.YamlNode;
 
 pub const WorkflowParserError = error{
     InvalidYaml,
@@ -98,8 +101,6 @@ pub const ParsedWorkflow = struct {
     }
     
     pub fn validate(self: *const ParsedWorkflow, allocator: std.mem.Allocator) !ValidationResult {
-        _ = allocator;
-        
         var result = ValidationResult{
             .valid = true,
             .errors = std.ArrayList(ValidationError).init(allocator),
@@ -149,7 +150,7 @@ pub const ParsedWorkflow = struct {
                 }
                 
                 for (matrix_combinations) |matrix_context| {
-                    var expanded_job = ExpandedJob{
+                    const expanded_job = ExpandedJob{
                         .id = try std.fmt.allocPrint(allocator, "{s} ({s})", .{ 
                             job_id, 
                             try formatMatrixContext(allocator, &matrix_context) 
@@ -171,7 +172,7 @@ pub const ParsedWorkflow = struct {
                 }
             } else {
                 // No matrix strategy, create single job
-                var expanded_job = ExpandedJob{
+                const expanded_job = ExpandedJob{
                     .id = try allocator.dupe(u8, job_id),
                     .original_id = try allocator.dupe(u8, job_id),
                     .runs_on = try allocator.dupe(u8, job.runs_on),
@@ -291,38 +292,38 @@ pub const WorkflowParser = struct {
     }
     
     pub fn parse(allocator: std.mem.Allocator, yaml_content: []const u8, options: ParseOptions) !ParsedWorkflow {
-        // Simplified YAML parsing for now - in production would use proper YAML parser
         var parser = WorkflowParser.init(allocator, options);
         return parser.parseImpl(yaml_content);
     }
     
     fn parseImpl(self: *WorkflowParser, yaml_content: []const u8) !ParsedWorkflow {
-        // For now, create a basic workflow from simple patterns
-        // In production, this would use a proper YAML parser
+        // Parse YAML document using proper parser
+        var doc = yaml_parser.YamlParser.parse(self.allocator, yaml_content) catch |err| switch (err) {
+            error.InvalidYaml => return WorkflowParserError.InvalidYaml,
+            error.OutOfMemory => return WorkflowParserError.OutOfMemory,
+            else => return WorkflowParserError.InvalidYaml,
+        };
+        defer doc.deinit();
         
         var workflow = ParsedWorkflow{
-            .name = try self.extractWorkflowName(yaml_content),
-            .triggers = try self.parseTriggers(yaml_content),
+            .name = try self.extractWorkflowName(&doc),
+            .triggers = try self.parseTriggers(&doc),
             .env = std.StringHashMap([]const u8).init(self.allocator),
             .jobs = std.StringHashMap(Job).init(self.allocator),
             .defaults = null,
             .concurrency = null,
         };
         
-        try self.parseJobs(yaml_content, &workflow.jobs);
-        try self.parseEnvironmentVariables(yaml_content, &workflow.env);
+        try self.parseJobs(&doc, &workflow.jobs);
+        try self.parseEnvironmentVariables(&doc, &workflow.env);
         
         return workflow;
     }
     
-    fn extractWorkflowName(self: *WorkflowParser, yaml_content: []const u8) ![]const u8 {
-        // Look for "name: " at the beginning of a line
-        var lines = std.mem.split(u8, yaml_content, "\n");
-        while (lines.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t\r");
-            if (std.mem.startsWith(u8, trimmed, "name:")) {
-                const name_part = std.mem.trim(u8, trimmed[5..], " \t");
-                return self.allocator.dupe(u8, name_part);
+    fn extractWorkflowName(self: *WorkflowParser, doc: *const YamlDocument) ![]const u8 {
+        if (doc.getNode("name")) |name_node| {
+            if (name_node.asString()) |name| {
+                return self.allocator.dupe(u8, name);
             }
         }
         
@@ -330,8 +331,7 @@ pub const WorkflowParser = struct {
         return self.allocator.dupe(u8, "Unnamed Workflow");
     }
     
-    fn parseTriggers(self: *WorkflowParser, yaml_content: []const u8) ![]WorkflowTrigger {
-        // Simplified trigger parsing - look for "on:" section
+    fn parseTriggers(self: *WorkflowParser, doc: *const YamlDocument) ![]WorkflowTrigger {
         var triggers = std.ArrayList(WorkflowTrigger).init(self.allocator);
         errdefer {
             for (triggers.items) |*trigger| {
@@ -340,74 +340,224 @@ pub const WorkflowParser = struct {
             triggers.deinit();
         }
         
-        // For now, create a simple push trigger as default
-        var push_trigger = WorkflowTrigger{
-            .event = TriggerEvent{
-                .push = .{
-                    .branches = try self.allocator.alloc([]const u8, 1),
-                    .tags = try self.allocator.alloc([]const u8, 0),
-                    .paths = try self.allocator.alloc([]const u8, 0),
+        if (doc.getNode("on")) |on_node| {
+            // Handle different "on" formats: string, sequence, or mapping
+            switch (on_node.type) {
+                .scalar => {
+                    // Single event like "on: push"
+                    const event_name = on_node.asString() orelse return WorkflowParserError.InvalidTriggerEvent;
+                    const trigger = try self.parseSimpleTrigger(event_name);
+                    try triggers.append(trigger);
                 },
-            },
-        };
-        push_trigger.event.push.branches[0] = try self.allocator.dupe(u8, "main");
-        
-        try triggers.append(push_trigger);
+                .sequence => {
+                    // Array of events like "on: [push, pull_request]"
+                    const events = on_node.asSequence() orelse return WorkflowParserError.InvalidTriggerEvent;
+                    for (events) |event_node| {
+                        if (event_node.asString()) |event_name| {
+                            const trigger = try self.parseSimpleTrigger(event_name);
+                            try triggers.append(trigger);
+                        }
+                    }
+                },
+                .mapping => {
+                    // Complex triggers like "on: { push: { branches: [main] } }"
+                    const event_map = on_node.asMapping() orelse return WorkflowParserError.InvalidTriggerEvent;
+                    var iterator = event_map.iterator();
+                    while (iterator.next()) |entry| {
+                        const event_name = entry.key_ptr.*;
+                        const event_config = entry.value_ptr;
+                        const trigger = try self.parseComplexTrigger(event_name, event_config);
+                        try triggers.append(trigger);
+                    }
+                },
+                else => return WorkflowParserError.InvalidTriggerEvent,
+            }
+        } else {
+            // Default to push trigger on main if no "on" specified
+            const trigger = try self.parseSimpleTrigger("push");
+            try triggers.append(trigger);
+        }
         
         return triggers.toOwnedSlice();
     }
     
-    fn parseJobs(self: *WorkflowParser, yaml_content: []const u8, jobs: *std.StringHashMap(Job)) !void {
-        // Simplified job parsing - look for jobs section
-        // For now, create a simple test job if we find "jobs:" in the YAML
+    fn parseSimpleTrigger(self: *WorkflowParser, event_name: []const u8) !WorkflowTrigger {
+        if (std.mem.eql(u8, event_name, "push")) {
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .push = .{
+                        .branches = blk: {
+                            const branches = try self.allocator.alloc([]const u8, 1);
+                            branches[0] = try self.allocator.dupe(u8, "main");
+                            break :blk branches;
+                        },
+                        .tags = try self.allocator.alloc([]const u8, 0),
+                        .paths = try self.allocator.alloc([]const u8, 0),
+                    },
+                },
+            };
+        } else if (std.mem.eql(u8, event_name, "pull_request")) {
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .pull_request = .{
+                        .types = blk: {
+                            const types = try self.allocator.alloc([]const u8, 2);
+                            types[0] = try self.allocator.dupe(u8, "opened");
+                            types[1] = try self.allocator.dupe(u8, "synchronize");
+                            break :blk types;
+                        },
+                        .branches = try self.allocator.alloc([]const u8, 0),
+                    },
+                },
+            };
+        }
         
-        if (std.mem.indexOf(u8, yaml_content, "jobs:") != null) {
-            var test_job = Job{
-                .id = try self.allocator.dupe(u8, "test"),
-                .name = try self.allocator.dupe(u8, "Test Job"),
-                .runs_on = try self.allocator.dupe(u8, "ubuntu-latest"),
-                .needs = try self.allocator.alloc([]const u8, 0),
-                .if_condition = null,
-                .strategy = null,
-                .steps = try self.allocator.alloc(JobStep, 2),
-                .timeout_minutes = 360,
-                .environment = std.StringHashMap([]const u8).init(self.allocator),
-                .continue_on_error = false,
-            };
+        return WorkflowParserError.InvalidTriggerEvent;
+    }
+    
+    fn parseComplexTrigger(self: *WorkflowParser, event_name: []const u8, config: *const YamlNode) !WorkflowTrigger {
+        if (std.mem.eql(u8, event_name, "push")) {
+            var branches = std.ArrayList([]const u8).init(self.allocator);
+            defer branches.deinit();
             
-            // Add basic steps
-            test_job.steps[0] = JobStep{
-                .name = try self.allocator.dupe(u8, "Checkout"),
-                .uses = try self.allocator.dupe(u8, "actions/checkout@v4"),
-                .run = null,
-                .with = std.StringHashMap([]const u8).init(self.allocator),
-                .env = std.StringHashMap([]const u8).init(self.allocator),
-                .if_condition = null,
-                .continue_on_error = false,
-                .timeout_minutes = 5,
-            };
+            if (config.get("branches")) |branches_node| {
+                if (branches_node.asSequence()) |branch_array| {
+                    for (branch_array) |branch_node| {
+                        if (branch_node.asString()) |branch_name| {
+                            try branches.append(try self.allocator.dupe(u8, branch_name));
+                        }
+                    }
+                } else if (branches_node.asString()) |single_branch| {
+                    try branches.append(try self.allocator.dupe(u8, single_branch));
+                }
+            }
             
-            test_job.steps[1] = JobStep{
-                .name = try self.allocator.dupe(u8, "Test"),
-                .uses = null,
-                .run = try self.allocator.dupe(u8, "echo \"Hello\""),
-                .with = std.StringHashMap([]const u8).init(self.allocator),
-                .env = std.StringHashMap([]const u8).init(self.allocator),
-                .if_condition = null,
-                .continue_on_error = false,
-                .timeout_minutes = 30,
-            };
+            // Default to main if no branches specified
+            if (branches.items.len == 0) {
+                try branches.append(try self.allocator.dupe(u8, "main"));
+            }
             
-            try jobs.put(try self.allocator.dupe(u8, "test"), test_job);
+            return WorkflowTrigger{
+                .event = TriggerEvent{
+                    .push = .{
+                        .branches = try branches.toOwnedSlice(),
+                        .tags = try self.allocator.alloc([]const u8, 0),
+                        .paths = try self.allocator.alloc([]const u8, 0),
+                    },
+                },
+            };
+        }
+        
+        // For other events, use simple trigger for now
+        return self.parseSimpleTrigger(event_name);
+    }
+    
+    fn parseJobs(self: *WorkflowParser, doc: *const YamlDocument, jobs: *std.StringHashMap(Job)) !void {
+        if (doc.getNode("jobs")) |jobs_node| {
+            const jobs_map = jobs_node.asMapping() orelse return WorkflowParserError.InvalidJobDefinition;
+            
+            var iterator = jobs_map.iterator();
+            while (iterator.next()) |entry| {
+                const job_id = entry.key_ptr.*;
+                const job_config = entry.value_ptr;
+                
+                const job = try self.parseJob(job_id, job_config);
+                try jobs.put(try self.allocator.dupe(u8, job_id), job);
+            }
         }
     }
     
-    fn parseEnvironmentVariables(self: *WorkflowParser, yaml_content: []const u8, env: *std.StringHashMap([]const u8)) !void {
-        // Simplified environment variable parsing
-        _ = yaml_content;
-        _ = env;
+    fn parseJob(self: *WorkflowParser, job_id: []const u8, job_config: *const YamlNode) !Job {
+        _ = job_config.asMapping() orelse return WorkflowParserError.InvalidJobDefinition;
         
-        // For now, add a default CI variable
+        // Extract runs-on (required)
+        const runs_on_node = job_config.get("runs-on") orelse return WorkflowParserError.MissingRequiredField;
+        const runs_on = runs_on_node.asString() orelse return WorkflowParserError.InvalidJobDefinition;
+        
+        // Extract job name (optional, defaults to job ID)
+        const name = if (job_config.get("name")) |name_node|
+            name_node.asString() orelse job_id
+        else
+            job_id;
+        
+        // Parse steps
+        var steps = std.ArrayList(JobStep).init(self.allocator);
+        defer steps.deinit();
+        
+        if (job_config.get("steps")) |steps_node| {
+            const steps_array = steps_node.asSequence() orelse return WorkflowParserError.InvalidJobDefinition;
+            for (steps_array) |step_node| {
+                const step = try self.parseStep(&step_node);
+                try steps.append(step);
+            }
+        }
+        
+        return Job{
+            .id = try self.allocator.dupe(u8, job_id),
+            .name = try self.allocator.dupe(u8, name),
+            .runs_on = try self.allocator.dupe(u8, runs_on),
+            .needs = try self.allocator.alloc([]const u8, 0), // TODO: Parse needs
+            .if_condition = null, // TODO: Parse if condition
+            .strategy = null, // TODO: Parse strategy
+            .steps = try steps.toOwnedSlice(),
+            .timeout_minutes = 360, // Default timeout
+            .environment = std.StringHashMap([]const u8).init(self.allocator), // TODO: Parse env
+            .continue_on_error = false,
+        };
+    }
+    
+    fn parseStep(self: *WorkflowParser, step_node: *const YamlNode) !JobStep {
+        _ = step_node.asMapping() orelse return WorkflowParserError.InvalidJobDefinition;
+        
+        // Extract step name (optional)
+        const name = if (step_node.get("name")) |name_node|
+            name_node.asString()
+        else
+            null;
+        
+        // Extract uses or run (one is required)
+        const uses = if (step_node.get("uses")) |uses_node|
+            uses_node.asString()
+        else
+            null;
+            
+        const run = if (step_node.get("run")) |run_node|
+            run_node.asString()
+        else
+            null;
+        
+        if (uses == null and run == null) {
+            return WorkflowParserError.InvalidJobDefinition;
+        }
+        
+        return JobStep{
+            .name = if (name) |n| try self.allocator.dupe(u8, n) else null,
+            .uses = if (uses) |u| try self.allocator.dupe(u8, u) else null,
+            .run = if (run) |r| try self.allocator.dupe(u8, r) else null,
+            .with = std.StringHashMap([]const u8).init(self.allocator), // TODO: Parse with
+            .env = std.StringHashMap([]const u8).init(self.allocator), // TODO: Parse env
+            .if_condition = null, // TODO: Parse if condition
+            .continue_on_error = false,
+            .timeout_minutes = 30, // Default timeout
+        };
+    }
+    
+    fn parseEnvironmentVariables(self: *WorkflowParser, doc: *const YamlDocument, env: *std.StringHashMap([]const u8)) !void {
+        if (doc.getNode("env")) |env_node| {
+            const env_map = env_node.asMapping() orelse return;
+            
+            var iterator = env_map.iterator();
+            while (iterator.next()) |entry| {
+                const key = entry.key_ptr.*;
+                const value_node = entry.value_ptr;
+                
+                if (value_node.asString()) |value| {
+                    try env.put(try self.allocator.dupe(u8, key), try self.allocator.dupe(u8, value));
+                }
+            }
+        }
+        
+        // Always add default CI variable
         try env.put(try self.allocator.dupe(u8, "CI"), try self.allocator.dupe(u8, "true"));
     }
 };
@@ -432,7 +582,7 @@ fn expandMatrix(allocator: std.mem.Allocator, matrix: *const std.StringHashMap([
     }
     
     // Start with empty combination
-    var initial_combo = std.StringHashMap([]const u8).init(allocator);
+    const initial_combo = std.StringHashMap([]const u8).init(allocator);
     try combinations.append(initial_combo);
     
     // Add each matrix dimension
