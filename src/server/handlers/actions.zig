@@ -1,0 +1,648 @@
+const std = @import("std");
+const zap = @import("zap");
+const json_utils = @import("../utils/json.zig");
+const auth_utils = @import("../utils/auth.zig");
+const models = @import("../../actions/models.zig");
+const actions_service = @import("../../actions/actions_service.zig");
+const execution_pipeline = @import("../../actions/execution_pipeline.zig");
+const registry = @import("../../actions/registry.zig");
+
+// Global context for handlers
+pub const Context = struct {
+    allocator: std.mem.Allocator,
+    actions_service: *actions_service.ActionsService,
+    
+    pub fn init(allocator: std.mem.Allocator, service: *actions_service.ActionsService) Context {
+        return Context{
+            .allocator = allocator,
+            .actions_service = service,
+        };
+    }
+};
+
+// Request/Response structures for GitHub API compatibility
+pub const WorkflowRunResponse = struct {
+    id: u32,
+    name: []const u8,
+    node_id: []const u8,
+    head_branch: []const u8,
+    head_sha: []const u8,
+    run_number: u32,
+    event: []const u8,
+    status: []const u8,
+    conclusion: ?[]const u8,
+    workflow_id: u32,
+    check_suite_id: ?u32 = null,
+    check_suite_node_id: ?[]const u8 = null,
+    url: []const u8,
+    html_url: []const u8,
+    pull_requests: []const PullRequestRef = &.{},
+    created_at: []const u8,
+    updated_at: []const u8,
+    actor: UserRef,
+    run_attempt: u32 = 1,
+    referenced_workflows: []const WorkflowRef = &.{},
+    run_started_at: ?[]const u8 = null,
+    triggering_actor: UserRef,
+    jobs_url: []const u8,
+    logs_url: []const u8,
+    check_suite_url: ?[]const u8 = null,
+    artifacts_url: []const u8,
+    cancel_url: []const u8,
+    rerun_url: []const u8,
+    previous_attempt_url: ?[]const u8 = null,
+    workflow_url: []const u8,
+    head_commit: CommitRef,
+    repository: RepositoryRef,
+    head_repository: RepositoryRef,
+};
+
+pub const PullRequestRef = struct {
+    url: []const u8,
+    id: u32,
+    number: u32,
+    head: struct {
+        ref: []const u8,
+        sha: []const u8,
+        repo: RepositoryRef,
+    },
+    base: struct {
+        ref: []const u8,
+        sha: []const u8,
+        repo: RepositoryRef,
+    },
+};
+
+pub const WorkflowRef = struct {
+    path: []const u8,
+    sha: []const u8,
+    ref: []const u8,
+};
+
+pub const UserRef = struct {
+    login: []const u8,
+    id: u32,
+    node_id: []const u8,
+    avatar_url: []const u8,
+    gravatar_id: ?[]const u8 = null,
+    url: []const u8,
+    html_url: []const u8,
+    followers_url: []const u8,
+    following_url: []const u8,
+    gists_url: []const u8,
+    starred_url: []const u8,
+    subscriptions_url: []const u8,
+    organizations_url: []const u8,
+    repos_url: []const u8,
+    events_url: []const u8,
+    received_events_url: []const u8,
+    type: []const u8 = "User",
+    site_admin: bool = false,
+};
+
+pub const CommitRef = struct {
+    id: []const u8,
+    tree_id: []const u8,
+    message: []const u8,
+    timestamp: []const u8,
+    author: struct {
+        name: []const u8,
+        email: []const u8,
+    },
+    committer: struct {
+        name: []const u8,
+        email: []const u8,
+    },
+};
+
+pub const RepositoryRef = struct {
+    id: u32,
+    node_id: []const u8,
+    name: []const u8,
+    full_name: []const u8,
+    private: bool,
+    owner: UserRef,
+    html_url: []const u8,
+    description: ?[]const u8,
+    fork: bool,
+    url: []const u8,
+    created_at: []const u8,
+    updated_at: []const u8,
+    pushed_at: []const u8,
+    git_url: []const u8,
+    ssh_url: []const u8,
+    clone_url: []const u8,
+    svn_url: []const u8,
+    homepage: ?[]const u8,
+    size: u32,
+    stargazers_count: u32,
+    watchers_count: u32,
+    language: ?[]const u8,
+    has_issues: bool,
+    has_projects: bool,
+    has_wiki: bool,
+    has_pages: bool,
+    forks_count: u32,
+    mirror_url: ?[]const u8,
+    archived: bool,
+    disabled: bool,
+    open_issues_count: u32,
+    license: ?struct {
+        key: []const u8,
+        name: []const u8,
+        spdx_id: []const u8,
+        url: ?[]const u8,
+        node_id: []const u8,
+    },
+    allow_forking: bool,
+    is_template: bool,
+    topics: []const []const u8,
+    visibility: []const u8,
+    forks: u32,
+    open_issues: u32,
+    watchers: u32,
+    default_branch: []const u8,
+};
+
+pub const JobResponse = struct {
+    id: u32,
+    run_id: u32,
+    workflow_name: []const u8,
+    head_branch: []const u8,
+    run_url: []const u8,
+    run_attempt: u32,
+    node_id: []const u8,
+    head_sha: []const u8,
+    url: []const u8,
+    html_url: []const u8,
+    status: []const u8,
+    conclusion: ?[]const u8,
+    started_at: []const u8,
+    completed_at: ?[]const u8,
+    name: []const u8,
+    steps: []const StepResponse,
+    check_run_url: []const u8,
+    labels: []const []const u8,
+    runner_id: ?u32,
+    runner_name: ?[]const u8,
+    runner_group_id: ?u32,
+    runner_group_name: ?[]const u8,
+};
+
+pub const StepResponse = struct {
+    name: []const u8,
+    status: []const u8,
+    conclusion: ?[]const u8,
+    number: u32,
+    started_at: ?[]const u8,
+    completed_at: ?[]const u8,
+};
+
+pub const RunnerResponse = struct {
+    id: u32,
+    name: []const u8,
+    os: []const u8,
+    status: []const u8,
+    busy: bool,
+    labels: []const LabelResponse,
+};
+
+pub const LabelResponse = struct {
+    id: u32 = 0,
+    name: []const u8,
+    type: []const u8 = "read-only",
+};
+
+// Error response structure
+pub const ErrorResponse = struct {
+    message: []const u8,
+    documentation_url: ?[]const u8 = null,
+    errors: ?[]const ErrorDetail = null,
+};
+
+pub const ErrorDetail = struct {
+    resource: []const u8,
+    field: []const u8,
+    code: []const u8,
+};
+
+// Handler functions
+
+/// GET /repos/{owner}/{repo}/actions/runs
+pub fn listWorkflowRuns(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRepoPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid repository path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    
+    // Parse query parameters
+    var query_params = parseQueryParams(ctx.allocator, r.query) catch {
+        try sendError(r, 400, "Invalid query parameters");
+        return;
+    };
+    defer query_params.deinit();
+    
+    const actor = query_params.get("actor");
+    const branch = query_params.get("branch");
+    const event = query_params.get("event");
+    const status = query_params.get("status");
+    const workflow_id_str = query_params.get("workflow_id");
+    const page_str = query_params.get("page") orelse "1";
+    const per_page_str = query_params.get("per_page") orelse "30";
+    
+    const page = std.fmt.parseInt(u32, page_str, 10) catch 1;
+    const per_page = std.fmt.parseInt(u32, per_page_str, 10) catch 30;
+    
+    _ = actor; _ = branch; _ = event; _ = status; _ = workflow_id_str; _ = page; _ = per_page;
+    
+    // For now, return empty list - in real implementation would query database
+    try sendJson(r, ctx.allocator, .{
+        .total_count = 0,
+        .workflow_runs = &[_]WorkflowRunResponse{},
+    });
+    
+    std.log.info("Listed workflow runs for {s}/{s}", .{ owner, repo });
+}
+
+/// GET /repos/{owner}/{repo}/actions/runs/{run_id}
+pub fn getWorkflowRun(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    const path_params = parseRunPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid workflow run path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    const run_id = path_params.?.run_id;
+    
+    _ = owner; _ = repo; _ = run_id;
+    
+    // For now, return 404 - in real implementation would query database
+    return sendError(r, 404, "Workflow run not found");
+}
+
+/// POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun
+pub fn rerunWorkflowRun(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRunPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid workflow run path");
+    }
+    
+    const run_id = path_params.?.run_id;
+    
+    // Check authentication
+    var auth_result = auth_utils.authenticateRequest(r, ctx.allocator) catch {
+        return sendError(r, 401, "Authentication required");
+    };
+    defer auth_result.deinit(ctx.allocator);
+    
+    _ = run_id;
+    
+    // For now, return success - in real implementation would rerun workflow
+    r.setStatus(@enumFromInt(201));
+    try sendJson(r, ctx.allocator, .{
+        .message = "Workflow run queued for rerun",
+    });
+}
+
+/// POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel
+pub fn cancelWorkflowRun(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRunPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid workflow run path");
+    }
+    
+    const run_id = path_params.?.run_id;
+    
+    // Check authentication
+    var auth_result = auth_utils.authenticateRequest(r, ctx.allocator) catch {
+        return sendError(r, 401, "Authentication required");
+    };
+    defer auth_result.deinit(ctx.allocator);
+    
+    _ = run_id;
+    
+    // For now, return success - in real implementation would cancel workflow
+    r.setStatus(@enumFromInt(202));
+    try sendJson(r, ctx.allocator, .{});
+}
+
+/// GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs
+pub fn listWorkflowRunJobs(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRunPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid workflow run path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    const run_id = path_params.?.run_id;
+    
+    var query_params = parseQueryParams(ctx.allocator, r.query) catch {
+        try sendError(r, 400, "Invalid query parameters");
+        return;
+    };
+    defer query_params.deinit();
+    
+    const filter = query_params.get("filter") orelse "latest";
+    
+    _ = owner; _ = repo; _ = run_id; _ = filter;
+    
+    // For now, return empty list
+    try sendJson(r, ctx.allocator, .{
+        .total_count = 0,
+        .jobs = &[_]JobResponse{},
+    });
+}
+
+/// GET /repos/{owner}/{repo}/actions/jobs/{job_id}
+pub fn getWorkflowJob(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    const path_params = parseJobPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid job path");
+    }
+    
+    const job_id = path_params.?.job_id;
+    
+    _ = job_id;
+    
+    // For now, return 404
+    return sendError(r, 404, "Job not found");
+}
+
+/// GET /repos/{owner}/{repo}/actions/runs/{run_id}/logs
+pub fn downloadWorkflowRunLogs(r: zap.Request, ctx: *Context) !void {
+    _ = ctx;
+    const path_params = parseRunPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid workflow run path");
+    }
+    
+    const run_id = path_params.?.run_id;
+    
+    _ = run_id;
+    
+    // For now, return empty logs
+    r.setStatus(@enumFromInt(200));
+    r.setHeader("Content-Type", "application/zip");
+    r.setHeader("Content-Disposition", "attachment; filename=\"logs.zip\"");
+    try r.sendBody("");
+}
+
+/// GET /repos/{owner}/{repo}/actions/runners
+pub fn listSelfHostedRunners(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRepoPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid repository path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    
+    _ = owner; _ = repo;
+    
+    // Get runner utilization from the actions service
+    const stats = ctx.actions_service.getServiceStats() catch {
+        return sendError(r, 500, "Failed to get runner statistics");
+    };
+    
+    // For now, return mock runners based on stats
+    var runners = std.ArrayList(RunnerResponse).init(ctx.allocator);
+    defer runners.deinit();
+    
+    // Create mock runners from stats
+    for (0..stats.registered_runners) |i| {
+        const runner_id = @as(u32, @intCast(i + 1));
+        try runners.append(RunnerResponse{
+            .id = runner_id,
+            .name = try std.fmt.allocPrint(ctx.allocator, "runner-{}", .{runner_id}),
+            .os = "linux",
+            .status = "online",
+            .busy = i < stats.running_jobs,
+            .labels = &[_]LabelResponse{
+                LabelResponse{ .name = "self-hosted" },
+                LabelResponse{ .name = "linux" },
+                LabelResponse{ .name = "x64" },
+            },
+        });
+    }
+    
+    const runners_slice = try runners.toOwnedSlice();
+    defer {
+        for (runners_slice) |runner| {
+            ctx.allocator.free(runner.name);
+        }
+        ctx.allocator.free(runners_slice);
+    }
+    
+    try sendJson(r, ctx.allocator, .{
+        .total_count = runners_slice.len,
+        .runners = runners_slice,
+    });
+}
+
+/// GET /repos/{owner}/{repo}/actions/artifacts
+pub fn listArtifacts(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRepoPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid repository path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    var query_params = parseQueryParams(ctx.allocator, r.query) catch {
+        try sendError(r, 400, "Invalid query parameters");
+        return;
+    };
+    defer query_params.deinit();
+    
+    const page_str = query_params.get("page") orelse "1";
+    const per_page_str = query_params.get("per_page") orelse "30";
+    const name = query_params.get("name");
+    
+    const page = std.fmt.parseInt(u32, page_str, 10) catch 1;
+    const per_page = std.fmt.parseInt(u32, per_page_str, 10) catch 30;
+    
+    _ = owner; _ = repo; _ = page; _ = per_page; _ = name;
+    
+    // For now, return empty list
+    try sendJson(r, ctx.allocator, .{
+        .total_count = 0,
+        .artifacts = &[_]struct {}{},
+    });
+}
+
+/// GET /repos/{owner}/{repo}/actions
+pub fn getActionsStatus(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseRepoPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid repository path");
+    }
+    
+    const stats = ctx.actions_service.getServiceStats() catch {
+        return sendError(r, 500, "Failed to get service statistics");
+    };
+    
+    const health = ctx.actions_service.getHealthStatus() catch {
+        return sendError(r, 500, "Failed to get health status");
+    };
+    
+    // Return comprehensive Actions status
+    try sendJson(r, ctx.allocator, .{
+        .enabled = true,
+        .status = switch (stats.status) {
+            .running => "active",
+            .stopped => "disabled",
+            .starting => "starting",
+            .stopping => "stopping",
+            .error_state => "error",
+        },
+        .healthy = health.healthy,
+        .message = health.message,
+        .statistics = .{
+            .registered_runners = stats.registered_runners,
+            .active_workflows = stats.active_workflows,
+            .queued_jobs = stats.queued_jobs,
+            .running_jobs = stats.running_jobs,
+            .completed_jobs = stats.completed_jobs,
+            .failed_jobs = stats.failed_jobs,
+            .avg_job_duration_ms = stats.avg_job_duration_ms,
+            .runner_utilization_percent = stats.runner_utilization_percent,
+            .uptime_seconds = stats.uptime_seconds,
+        },
+    });
+}
+
+// Helper functions
+
+const RepoPathParams = struct {
+    owner: []const u8,
+    repo: []const u8,
+};
+
+const RunPathParams = struct {
+    owner: []const u8,
+    repo: []const u8,
+    run_id: u32,
+};
+
+const JobPathParams = struct {
+    owner: []const u8,
+    repo: []const u8,
+    job_id: u32,
+};
+
+fn parseRepoPath(path: []const u8) ?RepoPathParams {
+    // Parse /repos/{owner}/{repo}/actions/...
+    var parts = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty first part
+    _ = parts.next();
+    
+    // Check "repos"
+    if (!std.mem.eql(u8, parts.next() orelse "", "repos")) return null;
+    
+    const owner = parts.next() orelse return null;
+    const repo = parts.next() orelse return null;
+    
+    return RepoPathParams{
+        .owner = owner,
+        .repo = repo,
+    };
+}
+
+fn parseRunPath(path: []const u8) ?RunPathParams {
+    const repo_params = parseRepoPath(path) orelse return null;
+    
+    // Continue parsing for run_id
+    var parts = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip to the runs part
+    var found_runs = false;
+    while (parts.next()) |part| {
+        if (std.mem.eql(u8, part, "runs")) {
+            found_runs = true;
+            break;
+        }
+    }
+    
+    if (!found_runs) return null;
+    
+    const run_id_str = parts.next() orelse return null;
+    const run_id = std.fmt.parseInt(u32, run_id_str, 10) catch return null;
+    
+    return RunPathParams{
+        .owner = repo_params.owner,
+        .repo = repo_params.repo,
+        .run_id = run_id,
+    };
+}
+
+fn parseJobPath(path: []const u8) ?JobPathParams {
+    const repo_params = parseRepoPath(path) orelse return null;
+    
+    // Parse for job_id in /repos/{owner}/{repo}/actions/jobs/{job_id}
+    var parts = std.mem.splitScalar(u8, path, '/');
+    
+    var found_jobs = false;
+    while (parts.next()) |part| {
+        if (std.mem.eql(u8, part, "jobs")) {
+            found_jobs = true;
+            break;
+        }
+    }
+    
+    if (!found_jobs) return null;
+    
+    const job_id_str = parts.next() orelse return null;
+    const job_id = std.fmt.parseInt(u32, job_id_str, 10) catch return null;
+    
+    return JobPathParams{
+        .owner = repo_params.owner,
+        .repo = repo_params.repo,
+        .job_id = job_id,
+    };
+}
+
+fn sendJson(r: zap.Request, allocator: std.mem.Allocator, value: anytype) !void {
+    try json_utils.writeJson(r, allocator, value);
+}
+
+fn sendError(r: zap.Request, status: u32, message: []const u8) !void {
+    r.setStatus(@enumFromInt(status));
+    r.setHeader("Content-Type", "application/json") catch {};
+    
+    const error_response = ErrorResponse{
+        .message = message,
+        .documentation_url = "https://docs.github.com/rest/reference/actions",
+    };
+    
+    var json_string = std.ArrayList(u8).init(std.heap.page_allocator);
+    defer json_string.deinit();
+    
+    try std.json.stringify(error_response, .{}, json_string.writer());
+    try r.sendBody(json_string.items);
+}
+
+fn parseQueryParams(allocator: std.mem.Allocator, query: ?[]const u8) !std.StringHashMap([]const u8) {
+    var params = std.StringHashMap([]const u8).init(allocator);
+    
+    const query_string = query orelse return params;
+    if (query_string.len == 0) return params;
+    
+    var param_iterator = std.mem.splitScalar(u8, query_string, '&');
+    while (param_iterator.next()) |param| {
+        if (std.mem.indexOf(u8, param, "=")) |eq_pos| {
+            const key = param[0..eq_pos];
+            const value = param[eq_pos + 1..];
+            try params.put(key, value);
+        }
+    }
+    
+    return params;
+}
