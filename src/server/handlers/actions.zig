@@ -407,37 +407,125 @@ pub fn listWorkflowRunJobs(r: zap.Request, ctx: *Context) !void {
 
 /// GET /repos/{owner}/{repo}/actions/jobs/{job_id}
 pub fn getWorkflowJob(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
     const path_params = parseJobPath(r.path orelse "/");
     if (path_params == null) {
         return sendError(r, 400, "Invalid job path");
     }
     
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
     const job_id = path_params.?.job_id;
     
-    _ = job_id;
+    // Get job details from Actions service
+    const job = ctx.actions_service.getJobById(ctx.allocator, job_id) catch |err| {
+        std.log.err("Failed to get job {}: {}", .{ job_id, err });
+        return sendError(r, 500, "Failed to retrieve job");
+    } orelse {
+        return sendError(r, 404, "Job not found");
+    };
+    defer job.deinit(ctx.allocator);
     
-    // For now, return 404
-    return sendError(r, 404, "Job not found");
+    // Convert to API response format
+    const job_response = JobResponse{
+        .id = job.id,
+        .run_id = job.workflow_run_id,
+        .run_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/runs/{}", .{ owner, repo, job.workflow_run_id }),
+        .node_id = try std.fmt.allocPrint(ctx.allocator, "job_{}", .{job.id}),
+        .head_sha = try ctx.allocator.dupe(u8, job.head_sha orelse ""),
+        .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/jobs/{}", .{ owner, repo, job.id }),
+        .html_url = try std.fmt.allocPrint(ctx.allocator, "/{s}/{s}/actions/runs/{}/job/{}", .{ owner, repo, job.workflow_run_id, job.id }),
+        .status = @tagName(job.status),
+        .conclusion = if (job.conclusion) |c| @tagName(c) else null,
+        .created_at = try formatTimestamp(ctx.allocator, job.created_at),
+        .started_at = if (job.started_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+        .completed_at = if (job.completed_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+        .name = try ctx.allocator.dupe(u8, job.name),
+        .steps = try convertJobStepsToResponse(ctx.allocator, job.steps),
+        .check_run_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/check-runs/{}", .{ owner, repo, job.id }),
+        .labels = try ctx.allocator.dupe([]const u8, job.labels),
+        .runner_id = job.runner_id,
+        .runner_name = if (job.runner_name) |n| try ctx.allocator.dupe(u8, n) else null,
+        .runner_group_id = job.runner_group_id,
+        .runner_group_name = if (job.runner_group_name) |n| try ctx.allocator.dupe(u8, n) else null,
+    };
+    
+    try sendJson(r, ctx.allocator, job_response);
 }
 
 /// GET /repos/{owner}/{repo}/actions/runs/{run_id}/logs
 pub fn downloadWorkflowRunLogs(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
     const path_params = parseRunPath(r.path orelse "/");
     if (path_params == null) {
         return sendError(r, 400, "Invalid workflow run path");
     }
     
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
     const run_id = path_params.?.run_id;
     
-    _ = run_id;
+    // Get workflow run and associated jobs
+    const workflow_run = ctx.actions_service.getWorkflowRunById(ctx.allocator, run_id) catch |err| {
+        std.log.err("Failed to get workflow run {}: {}", .{ run_id, err });
+        return sendError(r, 500, "Failed to retrieve workflow run");
+    } orelse {
+        return sendError(r, 404, "Workflow run not found");
+    };
+    defer workflow_run.deinit(ctx.allocator);
     
-    // For now, return empty logs
+    const jobs = ctx.actions_service.getJobsForWorkflowRun(ctx.allocator, run_id) catch |err| {
+        std.log.err("Failed to get jobs for workflow run {}: {}", .{ run_id, err });
+        return sendError(r, 500, "Failed to retrieve job logs");
+    };
+    defer {
+        for (jobs) |*job| {
+            job.deinit(ctx.allocator);
+        }
+        ctx.allocator.free(jobs);
+    }
+    
+    // Collect logs from all jobs
+    var log_content = std.ArrayList(u8).init(ctx.allocator);
+    defer log_content.deinit();
+    
+    for (jobs) |job| {
+        const job_header = try std.fmt.allocPrint(ctx.allocator, "##[section]Starting: {s}\n", .{job.name});
+        defer ctx.allocator.free(job_header);
+        try log_content.appendSlice(job_header);
+        
+        for (job.steps) |step| {
+            const step_header = try std.fmt.allocPrint(ctx.allocator, "##[group]{s}\n", .{step.name});
+            defer ctx.allocator.free(step_header);
+            try log_content.appendSlice(step_header);
+            
+            // Get step logs from execution pipeline
+            const step_logs = ctx.actions_service.getStepLogs(ctx.allocator, job.id, step.id) catch |err| {
+                const error_msg = try std.fmt.allocPrint(ctx.allocator, "Error retrieving logs: {}\n", .{err});
+                defer ctx.allocator.free(error_msg);
+                try log_content.appendSlice(error_msg);
+                continue;
+            };
+            defer ctx.allocator.free(step_logs);
+            
+            try log_content.appendSlice(step_logs);
+            try log_content.appendSlice("##[endgroup]\n");
+        }
+        
+        const job_footer = try std.fmt.allocPrint(ctx.allocator, "##[section]Finishing: {s}\n", .{job.name});
+        defer ctx.allocator.free(job_footer);
+        try log_content.appendSlice(job_footer);
+    }
+    
+    // Return logs as downloadable content
     r.setStatus(@enumFromInt(200));
-    r.setHeader("Content-Type", "application/zip");
-    r.setHeader("Content-Disposition", "attachment; filename=\"logs.zip\"");
-    try r.sendBody("");
+    r.setHeader("Content-Type", "text/plain") catch {};
+    const filename = try std.fmt.allocPrint(ctx.allocator, "attachment; filename=\"{s}-{s}-run-{}.log\"", .{ owner, repo, run_id });
+    defer ctx.allocator.free(filename);
+    r.setHeader("Content-Disposition", filename) catch {};
+    const content_length = try std.fmt.allocPrint(ctx.allocator, "{}", .{log_content.items.len});
+    defer ctx.allocator.free(content_length);
+    r.setHeader("Content-Length", content_length) catch {};
+    
+    try r.sendBody(log_content.items);
 }
 
 /// GET /repos/{owner}/{repo}/actions/runners
