@@ -6,6 +6,7 @@ const issue_models = @import("models/issue.zig");
 const milestone_models = @import("models/milestone.zig");
 const action_models = @import("models/action.zig");
 const permission_models = @import("models/permission.zig");
+const branch_protection_models = @import("models/branch_protection.zig");
 
 const DataAccessObject = @This();
 
@@ -48,6 +49,12 @@ pub const Access = permission_models.Access;
 pub const OrgUsers = permission_models.OrgUsers;
 pub const RepositoryExt = permission_models.RepositoryExt;
 pub const UserExt = permission_models.UserExt;
+
+// Branch protection models
+pub const BranchProtectionRule = branch_protection_models.BranchProtectionRule;
+pub const StatusCheck = branch_protection_models.StatusCheck;
+pub const StatusState = branch_protection_models.StatusState;
+pub const MergeConflict = branch_protection_models.MergeConflict;
 
 pub fn init(connection_url: []const u8) !DataAccessObject {
     const uri = try std.Uri.parse(connection_url);
@@ -1891,4 +1898,176 @@ pub fn getUserRepoTeams(self: *DataAccessObject, allocator: std.mem.Allocator, o
     }
     
     return teams;
+}
+
+// Branch protection methods
+pub fn createBranchProtectionRule(self: *DataAccessObject, allocator: std.mem.Allocator, rule: BranchProtectionRule) !i64 {
+    _ = allocator;
+    var row = try self.pool.row(
+        \\INSERT INTO branch_protection_rules (
+        \\    repo_id, branch_name, require_reviews, required_review_count,
+        \\    dismiss_stale_reviews, require_code_owner_reviews, require_status_checks,
+        \\    required_status_checks, enforce_admins, allow_force_pushes, allow_deletions,
+        \\    created_unix, updated_unix
+        \\) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        \\RETURNING id
+    , .{
+        rule.repo_id,
+        rule.branch_name,
+        rule.require_reviews,
+        rule.required_review_count,
+        rule.dismiss_stale_reviews,
+        rule.require_code_owner_reviews,
+        rule.require_status_checks,
+        rule.required_status_checks,
+        rule.enforce_admins,
+        rule.allow_force_pushes,
+        rule.allow_deletions,
+        rule.created_unix,
+        rule.updated_unix,
+    }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return @intCast(row.get(i32, 0));
+}
+
+pub fn getBranchProtectionRule(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, branch_name: []const u8) !?BranchProtectionRule {
+    var row = try self.pool.row(
+        \\SELECT id, repo_id, branch_name, require_reviews, required_review_count,
+        \\       dismiss_stale_reviews, require_code_owner_reviews, require_status_checks,
+        \\       required_status_checks, enforce_admins, allow_force_pushes, allow_deletions,
+        \\       created_unix, updated_unix
+        \\FROM branch_protection_rules WHERE repo_id = $1 AND branch_name = $2
+    , .{ repo_id, branch_name }) orelse return null;
+    defer row.deinit() catch {};
+    
+    const branch_name_str = row.get([]const u8, 2);
+    const required_checks = row.get(?[]const u8, 8);
+    
+    return BranchProtectionRule{
+        .id = row.get(i64, 0),
+        .repo_id = row.get(i64, 1),
+        .branch_name = try allocator.dupe(u8, branch_name_str),
+        .require_reviews = row.get(bool, 3),
+        .required_review_count = row.get(i32, 4),
+        .dismiss_stale_reviews = row.get(bool, 5),
+        .require_code_owner_reviews = row.get(bool, 6),
+        .require_status_checks = row.get(bool, 7),
+        .required_status_checks = if (required_checks) |rc| try allocator.dupe(u8, rc) else null,
+        .enforce_admins = row.get(bool, 9),
+        .allow_force_pushes = row.get(bool, 10),
+        .allow_deletions = row.get(bool, 11),
+        .created_unix = row.get(i64, 12),
+        .updated_unix = row.get(i64, 13),
+    };
+}
+
+pub fn createStatusCheck(self: *DataAccessObject, allocator: std.mem.Allocator, check: StatusCheck) !i64 {
+    _ = allocator;
+    var row = try self.pool.row(
+        \\INSERT INTO status_checks (
+        \\    repo_id, pull_request_id, context, state, target_url, description,
+        \\    created_unix, updated_unix
+        \\) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        \\ON CONFLICT (repo_id, pull_request_id, context) 
+        \\DO UPDATE SET state = $4, target_url = $5, description = $6, updated_unix = $8
+        \\RETURNING id
+    , .{
+        check.repo_id,
+        check.pull_request_id,
+        check.context,
+        @intFromEnum(check.state),
+        check.target_url,
+        check.description,
+        check.created_unix,
+        check.updated_unix,
+    }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return @intCast(row.get(i32, 0));
+}
+
+pub fn getStatusChecks(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, pull_request_id: i64) ![]StatusCheck {
+    var result = try self.pool.query(
+        \\SELECT id, repo_id, pull_request_id, context, state, target_url, description,
+        \\       created_unix, updated_unix
+        \\FROM status_checks WHERE repo_id = $1 AND pull_request_id = $2
+        \\ORDER BY created_unix DESC
+    , .{ repo_id, pull_request_id });
+    defer result.deinit();
+    
+    var checks = std.ArrayList(StatusCheck).init(allocator);
+    errdefer {
+        for (checks.items) |check| {
+            allocator.free(check.context);
+            if (check.target_url) |url| allocator.free(url);
+            if (check.description) |desc| allocator.free(desc);
+        }
+        checks.deinit();
+    }
+    
+    while (try result.next()) |row| {
+        const context = row.get([]const u8, 3);
+        const target_url = row.get(?[]const u8, 5);
+        const description = row.get(?[]const u8, 6);
+        
+        try checks.append(StatusCheck{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .pull_request_id = row.get(i64, 2),
+            .context = try allocator.dupe(u8, context),
+            .state = @enumFromInt(row.get(i16, 4)),
+            .target_url = if (target_url) |url| try allocator.dupe(u8, url) else null,
+            .description = if (description) |desc| try allocator.dupe(u8, desc) else null,
+            .created_unix = row.get(i64, 7),
+            .updated_unix = row.get(i64, 8),
+        });
+    }
+    
+    return checks.toOwnedSlice();
+}
+
+pub fn updateMergeConflictStatus(self: *DataAccessObject, allocator: std.mem.Allocator, conflict: MergeConflict) !void {
+    _ = allocator;
+    _ = try self.pool.exec(
+        \\INSERT INTO merge_conflicts (
+        \\    repo_id, pull_request_id, base_sha, head_sha, conflicted_files,
+        \\    conflict_detected, last_checked_unix
+        \\) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        \\ON CONFLICT (repo_id, pull_request_id)
+        \\DO UPDATE SET base_sha = $3, head_sha = $4, conflicted_files = $5,
+        \\              conflict_detected = $6, last_checked_unix = $7
+    , .{
+        conflict.repo_id,
+        conflict.pull_request_id,
+        conflict.base_sha,
+        conflict.head_sha,
+        conflict.conflicted_files,
+        conflict.conflict_detected,
+        conflict.last_checked_unix,
+    });
+}
+
+pub fn getMergeConflictStatus(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, pull_request_id: i64) !?MergeConflict {
+    var row = try self.pool.row(
+        \\SELECT id, repo_id, pull_request_id, base_sha, head_sha, conflicted_files,
+        \\       conflict_detected, last_checked_unix
+        \\FROM merge_conflicts WHERE repo_id = $1 AND pull_request_id = $2
+    , .{ repo_id, pull_request_id }) orelse return null;
+    defer row.deinit() catch {};
+    
+    const base_sha = row.get([]const u8, 3);
+    const head_sha = row.get([]const u8, 4);
+    const conflicted_files = row.get([]const u8, 5);
+    
+    return MergeConflict{
+        .id = row.get(i64, 0),
+        .repo_id = row.get(i64, 1),
+        .pull_request_id = row.get(i64, 2),
+        .base_sha = try allocator.dupe(u8, base_sha),
+        .head_sha = try allocator.dupe(u8, head_sha),
+        .conflicted_files = try allocator.dupe(u8, conflicted_files),
+        .conflict_detected = row.get(bool, 6),
+        .last_checked_unix = row.get(i64, 7),
+    };
 }
