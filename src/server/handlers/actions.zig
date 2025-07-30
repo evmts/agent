@@ -350,12 +350,58 @@ pub fn listWorkflowRunJobs(r: zap.Request, ctx: *Context) !void {
     
     const filter = query_params.get("filter") orelse "latest";
     
-    _ = owner; _ = repo; _ = run_id; _ = filter;
+    // Get jobs from Actions service
+    const jobs = ctx.actions_service.getJobsForWorkflowRun(ctx.allocator, run_id) catch |err| {
+        std.log.err("Failed to get jobs for workflow run {}: {}", .{ run_id, err });
+        return sendError(r, 500, "Failed to retrieve jobs");
+    };
+    defer {
+        for (jobs) |*job| {
+            job.deinit(ctx.allocator);
+        }
+        ctx.allocator.free(jobs);
+    }
     
-    // For now, return empty list
+    // Convert to API response format
+    var job_responses = try ctx.allocator.alloc(JobResponse, jobs.len);
+    defer ctx.allocator.free(job_responses);
+    
+    for (jobs, 0..) |job, i| {
+        job_responses[i] = JobResponse{
+            .id = job.id,
+            .run_id = job.workflow_run_id,
+            .run_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/runs/{}", .{ owner, repo, job.workflow_run_id }),
+            .node_id = try std.fmt.allocPrint(ctx.allocator, "job_{}", .{job.id}),
+            .head_sha = try ctx.allocator.dupe(u8, job.head_sha orelse ""),
+            .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/jobs/{}", .{ owner, repo, job.id }),
+            .html_url = try std.fmt.allocPrint(ctx.allocator, "/{s}/{s}/actions/runs/{}/job/{}", .{ owner, repo, job.workflow_run_id, job.id }),
+            .status = @tagName(job.status),
+            .conclusion = if (job.conclusion) |c| @tagName(c) else null,
+            .created_at = try formatTimestamp(ctx.allocator, job.created_at),
+            .started_at = if (job.started_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+            .completed_at = if (job.completed_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+            .name = try ctx.allocator.dupe(u8, job.name),
+            .steps = try convertJobStepsToResponse(ctx.allocator, job.steps),
+            .check_run_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/check-runs/{}", .{ owner, repo, job.id }),
+            .labels = try ctx.allocator.dupe([]const u8, job.labels),
+            .runner_id = job.runner_id,
+            .runner_name = if (job.runner_name) |n| try ctx.allocator.dupe(u8, n) else null,
+            .runner_group_id = job.runner_group_id,
+            .runner_group_name = if (job.runner_group_name) |n| try ctx.allocator.dupe(u8, n) else null,
+        };
+    }
+    
+    // Apply filter if specified
+    const filtered_jobs = if (std.mem.eql(u8, filter, "latest"))
+        job_responses[0..std.math.min(job_responses.len, 1)]
+    else if (std.mem.eql(u8, filter, "all"))
+        job_responses
+    else
+        job_responses; // Default to all
+    
     try sendJson(r, ctx.allocator, .{
-        .total_count = 0,
-        .jobs = &[_]JobResponse{},
+        .total_count = filtered_jobs.len,
+        .jobs = filtered_jobs,
     });
 }
 
