@@ -3,6 +3,7 @@ const pg = @import("pg");
 const user_models = @import("models/user.zig");
 const repo_models = @import("models/repository.zig");
 const issue_models = @import("models/issue.zig");
+const milestone_models = @import("models/milestone.zig");
 const action_models = @import("models/action.zig");
 const permission_models = @import("models/permission.zig");
 
@@ -25,6 +26,9 @@ pub const IssueLabel = issue_models.IssueLabel;
 pub const Review = issue_models.Review;
 pub const ReviewType = issue_models.ReviewType;
 pub const Comment = issue_models.Comment;
+pub const Milestone = milestone_models.Milestone;
+pub const MilestoneState = milestone_models.MilestoneState;
+pub const IssueMilestone = milestone_models.IssueMilestone;
 pub const ActionRun = action_models.ActionRun;
 pub const ActionJob = action_models.ActionJob;
 pub const ActionStatus = action_models.ActionStatus;
@@ -1131,6 +1135,225 @@ test "database CRUD operations" {
     // Clean up
     dao.deleteUser(allocator, "test_user1") catch {};
     dao.deleteUser(allocator, "test_user2") catch {};
+}
+
+// Milestone methods
+pub fn createMilestone(self: *DataAccessObject, allocator: std.mem.Allocator, milestone: Milestone) !i64 {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    
+    var row = try self.pool.row(
+        \\INSERT INTO milestone (repo_id, name, description, state, due_date, created_unix, updated_unix, closed_unix, open_issues, closed_issues)
+        \\VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        \\RETURNING id
+    , .{
+        milestone.repo_id,
+        milestone.name,
+        milestone.description,
+        @intFromEnum(milestone.state),
+        milestone.due_date,
+        unix_time,
+        unix_time,
+        milestone.closed_unix,
+        milestone.open_issues,
+        milestone.closed_issues,
+    }) orelse return error.DatabaseError;
+    defer row.deinit() catch {};
+    
+    return row.get(i64, 0);
+}
+
+pub fn getMilestone(self: *DataAccessObject, allocator: std.mem.Allocator, milestone_id: i64) !?Milestone {
+    var maybe_row = try self.pool.row(
+        \\SELECT id, repo_id, name, description, state, due_date, created_unix, updated_unix, closed_unix, open_issues, closed_issues
+        \\FROM milestone WHERE id = $1
+    , .{milestone_id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const name = row.get([]const u8, 2);
+        const description = row.get(?[]const u8, 3);
+        
+        return Milestone{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .description = if (description) |d| try allocator.dupe(u8, d) else null,
+            .state = @enumFromInt(row.get(i16, 4)),
+            .due_date = row.get(?i64, 5),
+            .created_unix = row.get(i64, 6),
+            .updated_unix = row.get(i64, 7),
+            .closed_unix = row.get(?i64, 8),
+            .open_issues = row.get(i32, 9),
+            .closed_issues = row.get(i32, 10),
+        };
+    }
+    return null;
+}
+
+pub fn updateMilestone(self: *DataAccessObject, allocator: std.mem.Allocator, milestone: Milestone) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    
+    const affected = try self.pool.exec(
+        \\UPDATE milestone SET 
+        \\  name = $2, description = $3, state = $4, due_date = $5, 
+        \\  updated_unix = $6, closed_unix = $7, open_issues = $8, closed_issues = $9
+        \\WHERE id = $1
+    , .{
+        milestone.id,
+        milestone.name,
+        milestone.description,
+        @intFromEnum(milestone.state),
+        milestone.due_date,
+        unix_time,
+        milestone.closed_unix,
+        milestone.open_issues,
+        milestone.closed_issues,
+    });
+    
+    if (affected == 0) {
+        return error.MilestoneNotFound;
+    }
+}
+
+pub fn deleteMilestone(self: *DataAccessObject, allocator: std.mem.Allocator, milestone_id: i64) !void {
+    _ = allocator;
+    
+    const affected = try self.pool.exec(
+        \\DELETE FROM milestone WHERE id = $1
+    , .{milestone_id});
+    
+    if (affected == 0) {
+        return error.MilestoneNotFound;
+    }
+}
+
+pub fn getMilestones(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64) ![]Milestone {
+    var result = try self.pool.query(
+        \\SELECT id, repo_id, name, description, state, due_date, created_unix, updated_unix, closed_unix, open_issues, closed_issues
+        \\FROM milestone WHERE repo_id = $1 ORDER BY created_unix ASC
+    , .{repo_id});
+    defer result.deinit();
+    
+    var milestones = std.ArrayList(Milestone).init(allocator);
+    defer milestones.deinit();
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const description = row.get(?[]const u8, 3);
+        
+        try milestones.append(Milestone{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .description = if (description) |d| try allocator.dupe(u8, d) else null,
+            .state = @enumFromInt(row.get(i16, 4)),
+            .due_date = row.get(?i64, 5),
+            .created_unix = row.get(i64, 6),
+            .updated_unix = row.get(i64, 7),
+            .closed_unix = row.get(?i64, 8),
+            .open_issues = row.get(i32, 9),
+            .closed_issues = row.get(i32, 10),
+        });
+    }
+    
+    return try milestones.toOwnedSlice();
+}
+
+pub fn getMilestonesByState(self: *DataAccessObject, allocator: std.mem.Allocator, repo_id: i64, state: MilestoneState) ![]Milestone {
+    var result = try self.pool.query(
+        \\SELECT id, repo_id, name, description, state, due_date, created_unix, updated_unix, closed_unix, open_issues, closed_issues
+        \\FROM milestone WHERE repo_id = $1 AND state = $2 ORDER BY created_unix ASC
+    , .{ repo_id, @intFromEnum(state) });
+    defer result.deinit();
+    
+    var milestones = std.ArrayList(Milestone).init(allocator);
+    defer milestones.deinit();
+    
+    while (try result.next()) |row| {
+        const name = row.get([]const u8, 2);
+        const description = row.get(?[]const u8, 3);
+        
+        try milestones.append(Milestone{
+            .id = row.get(i64, 0),
+            .repo_id = row.get(i64, 1),
+            .name = try allocator.dupe(u8, name),
+            .description = if (description) |d| try allocator.dupe(u8, d) else null,
+            .state = @enumFromInt(row.get(i16, 4)),
+            .due_date = row.get(?i64, 5),
+            .created_unix = row.get(i64, 6),
+            .updated_unix = row.get(i64, 7),
+            .closed_unix = row.get(?i64, 8),
+            .open_issues = row.get(i32, 9),
+            .closed_issues = row.get(i32, 10),
+        });
+    }
+    
+    return try milestones.toOwnedSlice();
+}
+
+pub fn assignIssueToMilestone(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64, milestone_id: i64) !void {
+    // First, update the issue to reference the milestone
+    const affected = try self.pool.exec(
+        \\UPDATE issue SET milestone_id = $1 WHERE id = $2
+    , .{ milestone_id, issue_id });
+    
+    if (affected == 0) {
+        return error.IssueNotFound;
+    }
+    
+    // Update milestone issue counts
+    try self.updateMilestoneIssueCounts(allocator, milestone_id);
+}
+
+pub fn removeIssueFromMilestone(self: *DataAccessObject, allocator: std.mem.Allocator, issue_id: i64) !void {
+    // Get the current milestone_id before removing
+    var maybe_row = try self.pool.row(
+        \\SELECT milestone_id FROM issue WHERE id = $1 AND milestone_id IS NOT NULL
+    , .{issue_id});
+    
+    const milestone_id = if (maybe_row) |*row| blk: {
+        defer row.deinit() catch {};
+        break :blk row.get(i64, 0);
+    } else return error.IssueNotFound;
+    
+    // Remove milestone assignment
+    const affected = try self.pool.exec(
+        \\UPDATE issue SET milestone_id = NULL WHERE id = $1
+    , .{issue_id});
+    
+    if (affected == 0) {
+        return error.IssueNotFound;
+    }
+    
+    // Update milestone issue counts
+    try self.updateMilestoneIssueCounts(allocator, milestone_id);
+}
+
+fn updateMilestoneIssueCounts(self: *DataAccessObject, allocator: std.mem.Allocator, milestone_id: i64) !void {
+    _ = allocator;
+    
+    // Count open and closed issues for this milestone
+    var maybe_row = try self.pool.row(
+        \\SELECT 
+        \\  COUNT(CASE WHEN is_closed = false THEN 1 END) as open_count,
+        \\  COUNT(CASE WHEN is_closed = true THEN 1 END) as closed_count
+        \\FROM issue WHERE milestone_id = $1
+    , .{milestone_id});
+    
+    if (maybe_row) |*row| {
+        defer row.deinit() catch {};
+        
+        const open_count = @as(i32, @intCast(row.get(i64, 0)));
+        const closed_count = @as(i32, @intCast(row.get(i64, 1)));
+        
+        // Update milestone counts
+        _ = try self.pool.exec(
+            \\UPDATE milestone SET open_issues = $1, closed_issues = $2, updated_unix = $3 WHERE id = $4
+        , .{ open_count, closed_count, std.time.timestamp(), milestone_id });
+    }
 }
 
 // Actions/CI operations
