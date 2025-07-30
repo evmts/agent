@@ -67,6 +67,81 @@ const LsTreeEntry = struct {
     }
 };
 
+// Request/Response types for file operations
+const UpdateFileRequest = struct {
+    message: []const u8,
+    content: []const u8,
+    sha: ?[]const u8 = null, // Required for updates
+    branch: []const u8 = "main",
+    encoding: ?[]const u8 = null, // "utf-8" or "base64"
+    committer: struct {
+        name: []const u8,
+        email: []const u8,
+    },
+    author: ?struct {
+        name: []const u8,
+        email: []const u8,
+    } = null,
+};
+
+const DeleteFileRequest = struct {
+    message: []const u8,
+    sha: []const u8, // Required for deletes
+    branch: []const u8 = "main",
+    committer: struct {
+        name: []const u8,
+        email: []const u8,
+    },
+    author: ?struct {
+        name: []const u8,
+        email: []const u8,
+    } = null,
+};
+
+const CreateFileResponse = struct {
+    content: struct {
+        name: []const u8,
+        path: []const u8,
+        sha: []const u8,
+        size: u64,
+        url: []const u8,
+        html_url: []const u8,
+        git_url: []const u8,
+        download_url: []const u8,
+        type: []const u8,
+    },
+    commit: struct {
+        sha: []const u8,
+        author: struct {
+            name: []const u8,
+            email: []const u8,
+        },
+        committer: struct {
+            name: []const u8,
+            email: []const u8,
+        },
+        message: []const u8,
+        url: []const u8,
+    },
+};
+
+const DeleteFileResponse = struct {
+    content: ?struct {} = null,
+    commit: struct {
+        sha: []const u8,
+        author: struct {
+            name: []const u8,
+            email: []const u8,
+        },
+        committer: struct {
+            name: []const u8,
+            email: []const u8,
+        },
+        message: []const u8,
+        url: []const u8,
+    },
+};
+
 // GET /repos/{owner}/{repo}/contents/{path}
 pub fn getContentsHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
@@ -216,6 +291,380 @@ pub fn getRawContentHandler(r: zap.Request, ctx: *Context) !void {
     r.setHeader("Cache-Control", "max-age=300") catch {};
     
     try r.sendBody(result.stdout);
+}
+
+// PUT /repos/{owner}/{repo}/contents/{path}
+pub fn createOrUpdateFileHandler(r: zap.Request, ctx: *Context) !void {
+    const allocator = ctx.allocator;
+    
+    // Parse path parameters
+    const path = r.path orelse return error.NoPath;
+    var parts = try parseContentsPath(allocator, path);
+    defer parts.deinit(allocator);
+    
+    const owner_name = parts.owner;
+    const repo_name = parts.repo;
+    const file_path = parts.file_path;
+    
+    // Parse request body
+    const body_text = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    var parsed = std.json.parseFromSlice(UpdateFileRequest, allocator, body_text, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+    const body = parsed.value;
+    
+    // Get repository and check write access
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // TODO: Check write access based on authentication
+    // For now, assume access is allowed for basic functionality
+    
+    // Get repository path
+    const repo_path = try getRepositoryPath(allocator, &repo);
+    defer allocator.free(repo_path);
+    
+    // Initialize git command
+    const git_exe_path = ctx.config.repository.git_executable_path;
+    var git_cmd = try GitCommand.init(allocator, git_exe_path);
+    defer git_cmd.deinit(allocator);
+    
+    // Decode content if base64
+    const content = if (body.encoding) |enc| blk: {
+        if (std.mem.eql(u8, enc, "base64")) {
+            break :blk try base64Decode(allocator, body.content);
+        } else {
+            break :blk try allocator.dupe(u8, body.content);
+        }
+    } else try allocator.dupe(u8, body.content);
+    defer allocator.free(content);
+    
+    // If updating, verify SHA matches current file
+    const is_update = body.sha != null;
+    if (is_update) {
+        const current_exists = try fileExists(&git_cmd, repo_path, body.branch, file_path);
+        if (!current_exists) {
+            try json.writeError(r, allocator, .not_found, "File not found for update");
+            return;
+        }
+        
+        const current_content = try getFileContent(&git_cmd, repo_path, body.branch, file_path);
+        defer allocator.free(current_content);
+        
+        const current_sha = try calculateGitBlobSha(allocator, current_content);
+        defer allocator.free(current_sha);
+        
+        if (!std.mem.eql(u8, current_sha, body.sha.?)) {
+            try json.writeError(r, allocator, .conflict, "SHA mismatch - file was modified");
+            return;
+        }
+    }
+    
+    // Create temporary working directory
+    const temp_dir = try std.fmt.allocPrint(allocator, "/tmp/plue_edit_{}", .{std.time.timestamp()});
+    defer allocator.free(temp_dir);
+    defer std.fs.cwd().deleteTree(temp_dir) catch {};
+    
+    // Clone repository to temp directory
+    try cloneRepositoryForEdit(&git_cmd, repo_path, temp_dir, body.branch);
+    
+    // Write new content to file
+    const full_file_path = try std.fs.path.join(allocator, &.{ temp_dir, file_path });
+    defer allocator.free(full_file_path);
+    
+    // Ensure parent directories exist
+    if (std.fs.path.dirname(full_file_path)) |parent_dir| {
+        try std.fs.cwd().makePath(parent_dir);
+    }
+    
+    const file = try std.fs.cwd().createFile(full_file_path, .{});
+    defer file.close();
+    try file.writeAll(content);
+    
+    // Stage the file
+    var stage_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "add", file_path },
+        .cwd = temp_dir,
+    });
+    defer stage_result.deinit(allocator);
+    
+    if (stage_result.exit_code != 0) {
+        std.log.err("Failed to stage file: {s}", .{stage_result.stderr});
+        try json.writeError(r, allocator, .internal_server_error, "Failed to stage file");
+        return;
+    }
+    
+    // Create commit
+    const commit_message = body.message;
+    const author_name = body.author.?.name;
+    const author_email = body.author.?.email;
+    const committer_name = body.committer.name;
+    const committer_email = body.committer.email;
+    
+    var commit_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{
+            "commit",
+            "-m", commit_message,
+            "--author", try std.fmt.allocPrint(allocator, "{s} <{s}>", .{ author_name, author_email }),
+        },
+        .cwd = temp_dir,
+        .env = &.{
+            .{ .name = "GIT_COMMITTER_NAME", .value = committer_name },
+            .{ .name = "GIT_COMMITTER_EMAIL", .value = committer_email },
+        },
+    });
+    defer commit_result.deinit(allocator);
+    
+    if (commit_result.exit_code != 0) {
+        std.log.err("Failed to create commit: {s}", .{commit_result.stderr});
+        try json.writeError(r, allocator, .internal_server_error, "Failed to create commit");
+        return;
+    }
+    
+    // Push changes back to main repository
+    var push_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "push", "origin", body.branch },
+        .cwd = temp_dir,
+    });
+    defer push_result.deinit(allocator);
+    
+    if (push_result.exit_code != 0) {
+        std.log.err("Failed to push changes: {s}", .{push_result.stderr});
+        try json.writeError(r, allocator, .internal_server_error, "Failed to push changes");
+        return;
+    }
+    
+    // Get new file info
+    const new_sha = try calculateGitBlobSha(allocator, content);
+    defer allocator.free(new_sha);
+    
+    const commit_sha = try getLastCommitSha(&git_cmd, temp_dir);
+    defer allocator.free(commit_sha);
+    
+    // Build response
+    const response = CreateFileResponse{
+        .content = .{
+            .name = std.fs.path.basename(file_path),
+            .path = file_path,
+            .sha = new_sha,
+            .size = content.len,
+            .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/contents/{s}", .{ owner_name, repo_name, file_path }),
+            .html_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/blob/{s}/{s}", .{ owner_name, repo_name, body.branch, file_path }),
+            .git_url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/blobs/{s}", .{ owner_name, repo_name, new_sha }),
+            .download_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/raw/{s}/{s}", .{ owner_name, repo_name, body.branch, file_path }),
+            .type = "file",
+        },
+        .commit = .{
+            .sha = commit_sha,
+            .author = .{
+                .name = author_name,
+                .email = author_email,
+            },
+            .committer = .{
+                .name = committer_name,
+                .email = committer_email,
+            },
+            .message = commit_message,
+            .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, commit_sha }),
+        },
+    };
+    
+    const status_code: u16 = if (is_update) 200 else 201;
+    r.setStatus(@enumFromInt(status_code));
+    try json.writeJson(r, allocator, response);
+}
+
+// DELETE /repos/{owner}/{repo}/contents/{path}
+pub fn deleteFileHandler(r: zap.Request, ctx: *Context) !void {
+    const allocator = ctx.allocator;
+    
+    // Parse path parameters
+    const path = r.path orelse return error.NoPath;
+    var parts = try parseContentsPath(allocator, path);
+    defer parts.deinit(allocator);
+    
+    const owner_name = parts.owner;
+    const repo_name = parts.repo;
+    const file_path = parts.file_path;
+    
+    // Parse request body
+    const body_text = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    var parsed = std.json.parseFromSlice(DeleteFileRequest, allocator, body_text, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+    const body = parsed.value;
+    
+    // Get repository (similar access control as create/update)
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get repository path
+    const repo_path = try getRepositoryPath(allocator, &repo);
+    defer allocator.free(repo_path);
+    
+    // Initialize git command
+    const git_exe_path = ctx.config.repository.git_executable_path;
+    var git_cmd = try GitCommand.init(allocator, git_exe_path);
+    defer git_cmd.deinit(allocator);
+    
+    // Verify file exists and SHA matches
+    const current_content = try getFileContent(&git_cmd, repo_path, body.branch, file_path);
+    defer allocator.free(current_content);
+    
+    const current_sha = try calculateGitBlobSha(allocator, current_content);
+    defer allocator.free(current_sha);
+    
+    if (!std.mem.eql(u8, current_sha, body.sha)) {
+        try json.writeError(r, allocator, .conflict, "SHA mismatch - file was modified");
+        return;
+    }
+    
+    // Create temporary working directory
+    const temp_dir = try std.fmt.allocPrint(allocator, "/tmp/plue_delete_{}", .{std.time.timestamp()});
+    defer allocator.free(temp_dir);
+    defer std.fs.cwd().deleteTree(temp_dir) catch {};
+    
+    // Clone repository to temp directory
+    try cloneRepositoryForEdit(&git_cmd, repo_path, temp_dir, body.branch);
+    
+    // Remove file and stage deletion
+    var rm_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "rm", file_path },
+        .cwd = temp_dir,
+    });
+    defer rm_result.deinit(allocator);
+    
+    if (rm_result.exit_code != 0) {
+        std.log.err("Failed to remove file: {s}", .{rm_result.stderr});
+        try json.writeError(r, allocator, .internal_server_error, "Failed to remove file");
+        return;
+    }
+    
+    // Create commit
+    const commit_message = body.message;
+    const author_name = body.author.?.name;
+    const author_email = body.author.?.email;
+    const committer_name = body.committer.name;
+    const committer_email = body.committer.email;
+    
+    var commit_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{
+            "commit",
+            "-m", commit_message,
+            "--author", try std.fmt.allocPrint(allocator, "{s} <{s}>", .{ author_name, author_email }),
+        },
+        .cwd = temp_dir,
+        .env = &.{
+            .{ .name = "GIT_COMMITTER_NAME", .value = committer_name },
+            .{ .name = "GIT_COMMITTER_EMAIL", .value = committer_email },
+        },
+    });
+    defer commit_result.deinit(allocator);
+    
+    if (commit_result.exit_code != 0) {
+        std.log.err("Failed to create commit: {s}", .{commit_result.stderr});
+        try json.writeError(r, allocator, .internal_server_error, "Failed to create commit");
+        return;
+    }
+    
+    // Push changes
+    var push_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "push", "origin", body.branch },
+        .cwd = temp_dir,
+    });
+    defer push_result.deinit(allocator);
+    
+    if (push_result.exit_code != 0) {
+        std.log.err("Failed to push changes: {s}", .{push_result.stderr});
+        try json.writeError(r, allocator, .internal_server_error, "Failed to push changes");
+        return;
+    }
+    
+    // Get commit SHA
+    const commit_sha = try getLastCommitSha(&git_cmd, temp_dir);
+    defer allocator.free(commit_sha);
+    
+    // Return delete response
+    const response = DeleteFileResponse{
+        .content = null,
+        .commit = .{
+            .sha = commit_sha,
+            .author = .{
+                .name = author_name,
+                .email = author_email,
+            },
+            .committer = .{
+                .name = committer_name,
+                .email = committer_email,
+            },
+            .message = commit_message,
+            .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, commit_sha }),
+        },
+    };
+    
+    try json.writeJson(r, allocator, response);
 }
 
 // Helper functions
@@ -585,6 +1034,78 @@ fn base64Encode(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
     const encoded = try allocator.alloc(u8, encoded_len);
     _ = std.base64.standard.Encoder.encode(encoded, data);
     return encoded;
+}
+
+fn base64Decode(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+    const decoded_len = try std.base64.standard.Decoder.calcSizeForSlice(data);
+    const decoded = try allocator.alloc(u8, decoded_len);
+    try std.base64.standard.Decoder.decode(decoded, data);
+    return decoded;
+}
+
+fn fileExists(git_cmd: *GitCommand, repo_path: []const u8, ref: []const u8, path: []const u8) !bool {
+    const allocator = std.heap.page_allocator; // Use page allocator for temp operations
+    const git_ref_path = try std.fmt.allocPrint(allocator, "{s}:{s}", .{ ref, path });
+    defer allocator.free(git_ref_path);
+    
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "cat-file", "-e", git_ref_path },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    return result.exit_code == 0;
+}
+
+fn getFileContent(git_cmd: *GitCommand, repo_path: []const u8, ref: []const u8, path: []const u8) ![]u8 {
+    const allocator = std.heap.page_allocator; // Use page allocator for temp operations
+    const git_ref_path = try std.fmt.allocPrint(allocator, "{s}:{s}", .{ ref, path });
+    defer allocator.free(git_ref_path);
+    
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "show", git_ref_path },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    if (result.exit_code != 0) {
+        return error.FileNotFound;
+    }
+    
+    return try allocator.dupe(u8, result.stdout);
+}
+
+fn cloneRepositoryForEdit(git_cmd: *GitCommand, repo_path: []const u8, temp_dir: []const u8, branch: []const u8) !void {
+    const allocator = std.heap.page_allocator; // Use page allocator for temp operations
+    
+    // Clone the repository
+    var clone_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "clone", "--branch", branch, repo_path, temp_dir },
+        .cwd = null,
+    });
+    defer clone_result.deinit(allocator);
+    
+    if (clone_result.exit_code != 0) {
+        std.log.err("Failed to clone repository: {s}", .{clone_result.stderr});
+        return error.FailedToClone;
+    }
+}
+
+fn getLastCommitSha(git_cmd: *GitCommand, repo_path: []const u8) ![]u8 {
+    const allocator = std.heap.page_allocator; // Use page allocator for temp operations
+    
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "rev-parse", "HEAD" },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    if (result.exit_code != 0) {
+        return error.FailedToGetCommitSha;
+    }
+    
+    const trimmed = std.mem.trim(u8, result.stdout, " \n\r\t");
+    return try allocator.dupe(u8, trimmed);
 }
 
 fn calculateGitBlobSha(allocator: std.mem.Allocator, content: []const u8) ![]u8 {

@@ -235,6 +235,9 @@ fn on_request(r: zap.Request) void {
         if (std.mem.startsWith(u8, path, "/users/")) {
             router.callHandler(r, users.updateUserHandler, global_context);
             return;
+        } else if (std.mem.startsWith(u8, path, "/repos/") and std.mem.indexOf(u8, path, "/contents/") != null) {
+            router.callHandler(r, contents.createOrUpdateFileHandler, global_context);
+            return;
         } else if (std.mem.startsWith(u8, path, "/orgs/") and std.mem.indexOf(u8, path, "/actions/secrets/") != null) {
             router.callHandler(r, orgs.createOrgSecretHandler, global_context);
             return;
@@ -283,7 +286,10 @@ fn on_request(r: zap.Request) void {
                 return;
             }
         } else if (std.mem.startsWith(u8, path, "/repos/")) {
-            if (std.mem.indexOf(u8, path, "/branches/") != null) {
+            if (std.mem.indexOf(u8, path, "/contents/") != null) {
+                router.callHandler(r, contents.deleteFileHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/branches/") != null) {
                 router.callHandler(r, deleteBranchHandler, global_context);
                 return;
             } else if (std.mem.indexOf(u8, path, "/labels/") != null) {
