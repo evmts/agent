@@ -183,6 +183,12 @@ pub fn updateUserPassword(self: *DataAccessObject, allocator: std.mem.Allocator,
     _ = try self.pool.exec("UPDATE users SET passwd = $1, updated_unix = $2 WHERE id = $3", .{ password, unix_time, id });
 }
 
+pub fn updateUserAdminStatus(self: *DataAccessObject, allocator: std.mem.Allocator, id: i64, is_admin: bool) !void {
+    _ = allocator;
+    const unix_time = std.time.timestamp();
+    _ = try self.pool.exec("UPDATE users SET is_admin = $1, updated_unix = $2 WHERE id = $3", .{ is_admin, unix_time, id });
+}
+
 pub fn listUsers(self: *DataAccessObject, allocator: std.mem.Allocator) ![]User {
     var result = try self.pool.query(
         \\SELECT id, name, email, passwd, type, is_admin, avatar, created_unix, updated_unix
@@ -1086,6 +1092,21 @@ test "database CRUD operations" {
     
     try std.testing.expect(updated_user != null);
     try std.testing.expectEqualStrings("test_alice_updated", updated_user.?.name);
+    
+    // Test admin status update
+    try std.testing.expectEqual(false, updated_user.?.is_admin);
+    try dao.updateUserAdminStatus(allocator, updated_user.?.id, true);
+    
+    const admin_user = try dao.getUserByName(allocator, "test_alice_updated");
+    defer if (admin_user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    try std.testing.expect(admin_user != null);
+    try std.testing.expectEqual(true, admin_user.?.is_admin);
     
     // Test delete
     try dao.deleteUser(allocator, "test_alice_updated");

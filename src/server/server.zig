@@ -1960,9 +1960,7 @@ fn updateAdminUserHandler(r: zap.Request, ctx: *Context) !void {
     
     // Update admin status if requested (admin operations)
     if (parsed.value.is_admin) |is_admin| {
-        // For now, we don't have updateUserAdminStatus, so we'll skip this
-        // TODO: Add updateUserAdminStatus to DAO
-        _ = is_admin;
+        try ctx.dao.updateUserAdminStatus(allocator, target_user_id, is_admin);
     }
     
     // Return success response
