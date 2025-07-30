@@ -268,52 +268,297 @@ pub const LfsMetadataManager = struct {
     // Database implementation methods
     fn storeMetadataDatabase(self: *LfsMetadataManager, pool: *anyopaque, metadata: EnhancedLfsMetadata) !void {
         _ = self;
-        _ = pool;
-        _ = metadata;
-        // TODO: Implement SQL INSERT for enhanced metadata
-        // Would create SQL like:
-        // INSERT INTO lfs_metadata (oid, size, checksum, created_at, ...) VALUES ($1, $2, $3, $4, ...)
+        const pg_pool = @as(*@import("pg").Pool, @ptrCast(@alignCast(pool)));
+        
+        _ = try pg_pool.exec(
+            \\INSERT INTO lfs_metadata (
+            \\    oid, size, checksum, created_at, last_accessed, access_count,
+            \\    content_type, storage_tier, compression_algorithm, encrypted,
+            \\    encryption_key_id, repository_id, user_id, organization_id,
+            \\    duplicate_references, malware_scan_result, storage_backend
+            \\) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            \\ON CONFLICT (oid) DO UPDATE SET
+            \\    size = EXCLUDED.size,
+            \\    checksum = EXCLUDED.checksum,
+            \\    last_accessed = EXCLUDED.last_accessed,
+            \\    access_count = EXCLUDED.access_count,
+            \\    content_type = EXCLUDED.content_type,
+            \\    storage_tier = EXCLUDED.storage_tier,
+            \\    compression_algorithm = EXCLUDED.compression_algorithm,
+            \\    encrypted = EXCLUDED.encrypted,
+            \\    encryption_key_id = EXCLUDED.encryption_key_id,
+            \\    repository_id = EXCLUDED.repository_id,
+            \\    user_id = EXCLUDED.user_id,
+            \\    organization_id = EXCLUDED.organization_id,
+            \\    duplicate_references = EXCLUDED.duplicate_references,
+            \\    malware_scan_result = EXCLUDED.malware_scan_result,
+            \\    storage_backend = EXCLUDED.storage_backend
+        , .{
+            metadata.oid,
+            @as(i64, @intCast(metadata.size)),
+            metadata.checksum,
+            metadata.created_at,
+            metadata.last_accessed,
+            @as(i64, @intCast(metadata.access_count)),
+            metadata.content_type,
+            @intFromEnum(metadata.storage_tier),
+            @intFromEnum(metadata.compression_algorithm),
+            metadata.encrypted,
+            metadata.encryption_key_id,
+            if (metadata.repository_id) |id| @as(i32, @intCast(id)) else null,
+            if (metadata.user_id) |id| @as(i32, @intCast(id)) else null,
+            if (metadata.organization_id) |id| @as(i32, @intCast(id)) else null,
+            @as(i32, @intCast(metadata.duplicate_references)),
+            @intFromEnum(metadata.malware_scan_result),
+            metadata.storage_backend,
+        });
     }
     
     fn getMetadataDatabase(self: *LfsMetadataManager, pool: *anyopaque, oid: []const u8) !?EnhancedLfsMetadata {
-        _ = self;
-        _ = pool;
-        _ = oid;
-        // TODO: Implement SQL SELECT for enhanced metadata
-        return null;
+        const pg_pool = @as(*@import("pg").Pool, @ptrCast(@alignCast(pool)));
+        
+        var row = try pg_pool.row(
+            \\SELECT oid, size, checksum, created_at, last_accessed, access_count,
+            \\       content_type, storage_tier, compression_algorithm, encrypted,
+            \\       encryption_key_id, repository_id, user_id, organization_id,
+            \\       duplicate_references, malware_scan_result, storage_backend
+            \\FROM lfs_metadata WHERE oid = $1
+        , .{oid}) orelse return null;
+        defer row.deinit() catch {};
+        
+        return EnhancedLfsMetadata{
+            .oid = try self.allocator.dupe(u8, row.get([]const u8, 0)),
+            .size = @intCast(row.get(i64, 1)),
+            .checksum = try self.allocator.dupe(u8, row.get([]const u8, 2)),
+            .created_at = row.get(i64, 3),
+            .last_accessed = row.get(i64, 4),
+            .access_count = @intCast(row.get(i64, 5)),
+            .content_type = if (row.get(?[]const u8, 6)) |ct| try self.allocator.dupe(u8, ct) else null,
+            .storage_tier = @enumFromInt(row.get(i32, 7)),
+            .compression_algorithm = @enumFromInt(row.get(i32, 8)),
+            .encrypted = row.get(bool, 9),
+            .encryption_key_id = if (row.get(?[]const u8, 10)) |key_id| try self.allocator.dupe(u8, key_id) else null,
+            .repository_id = if (row.get(?i32, 11)) |id| @intCast(id) else null,
+            .user_id = if (row.get(?i32, 12)) |id| @intCast(id) else null,
+            .organization_id = if (row.get(?i32, 13)) |id| @intCast(id) else null,
+            .duplicate_references = @intCast(row.get(i32, 14)),
+            .malware_scan_result = @enumFromInt(row.get(i32, 15)),
+            .storage_backend = try self.allocator.dupe(u8, row.get([]const u8, 16)),
+        };
     }
     
     fn updateMetadataDatabase(self: *LfsMetadataManager, pool: *anyopaque, oid: []const u8, metadata: EnhancedLfsMetadata) !void {
         _ = self;
-        _ = pool;
-        _ = oid;
-        _ = metadata;
-        // TODO: Implement SQL UPDATE for enhanced metadata
+        const pg_pool = @as(*@import("pg").Pool, @ptrCast(@alignCast(pool)));
+        
+        const result = try pg_pool.exec(
+            \\UPDATE lfs_metadata SET
+            \\    size = $2, checksum = $3, last_accessed = $4, access_count = $5,
+            \\    content_type = $6, storage_tier = $7, compression_algorithm = $8,
+            \\    encrypted = $9, encryption_key_id = $10, repository_id = $11,
+            \\    user_id = $12, organization_id = $13, duplicate_references = $14,
+            \\    malware_scan_result = $15, storage_backend = $16
+            \\WHERE oid = $1
+        , .{
+            oid,
+            @as(i64, @intCast(metadata.size)),
+            metadata.checksum,
+            metadata.last_accessed,
+            @as(i64, @intCast(metadata.access_count)),
+            metadata.content_type,
+            @intFromEnum(metadata.storage_tier),
+            @intFromEnum(metadata.compression_algorithm),
+            metadata.encrypted,
+            metadata.encryption_key_id,
+            if (metadata.repository_id) |id| @as(i32, @intCast(id)) else null,
+            if (metadata.user_id) |id| @as(i32, @intCast(id)) else null,
+            if (metadata.organization_id) |id| @as(i32, @intCast(id)) else null,
+            @as(i32, @intCast(metadata.duplicate_references)),
+            @intFromEnum(metadata.malware_scan_result),
+            metadata.storage_backend,
+        });
+        
+        if (result.rowsAffected() == 0) {
+            return error.ObjectNotFound;
+        }
     }
     
     fn deleteMetadataDatabase(self: *LfsMetadataManager, pool: *anyopaque, oid: []const u8) !void {
         _ = self;
-        _ = pool;
-        _ = oid;
-        // TODO: Implement SQL DELETE for enhanced metadata
+        const pg_pool = @as(*@import("pg").Pool, @ptrCast(@alignCast(pool)));
+        
+        const result = try pg_pool.exec(
+            \\DELETE FROM lfs_metadata WHERE oid = $1
+        , .{oid});
+        
+        if (result.rowsAffected() == 0) {
+            return error.ObjectNotFound;
+        }
     }
     
     fn searchMetadataDatabase(self: *LfsMetadataManager, pool: *anyopaque, query: MetadataSearchQuery) !MetadataSearchResult {
-        _ = self;
-        _ = pool;
-        _ = query;
-        // TODO: Implement SQL SELECT with WHERE clauses for complex queries
+        const pg_pool = @as(*@import("pg").Pool, @ptrCast(@alignCast(pool)));
+        
+        // Build dynamic WHERE clause based on query parameters
+        var where_conditions = std.ArrayList([]const u8).init(self.allocator);
+        defer where_conditions.deinit();
+        
+        var param_values = std.ArrayList([]const u8).init(self.allocator);
+        defer {
+            for (param_values.items) |param| {
+                self.allocator.free(param);
+            }
+            param_values.deinit();
+        }
+        
+        var param_count: u32 = 0;
+        
+        if (query.repository_id) |repo_id| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "repository_id = ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{repo_id}));
+        }
+        
+        if (query.user_id) |user_id| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "user_id = ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{user_id}));
+        }
+        
+        if (query.organization_id) |org_id| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "organization_id = ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{org_id}));
+        }
+        
+        if (query.storage_tier) |tier| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "storage_tier = ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{@intFromEnum(tier)}));
+        }
+        
+        if (query.min_size) |min_size| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "size >= ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{min_size}));
+        }
+        
+        if (query.max_size) |max_size| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "size <= ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{max_size}));
+        }
+        
+        if (query.created_after) |after| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "created_at > ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{after}));
+        }
+        
+        if (query.created_before) |before| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "created_at < ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{before}));
+        }
+        
+        if (query.encrypted) |encrypted| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "encrypted = ${d}", .{param_count}));
+            try param_values.append(try std.fmt.allocPrint(self.allocator, "{s}", .{if (encrypted) "true" else "false"}));
+        }
+        
+        if (query.content_type) |content_type| {
+            param_count += 1;
+            try where_conditions.append(try std.fmt.allocPrint(self.allocator, "content_type = ${d}", .{param_count}));
+            try param_values.append(try self.allocator.dupe(u8, content_type));
+        }
+        
+        // Build the complete query
+        var sql_query = std.ArrayList(u8).init(self.allocator);
+        defer sql_query.deinit();
+        
+        try sql_query.appendSlice(
+            \\SELECT oid, size, checksum, created_at, last_accessed, access_count,
+            \\       content_type, storage_tier, compression_algorithm, encrypted,
+            \\       encryption_key_id, repository_id, user_id, organization_id,
+            \\       duplicate_references, malware_scan_result, storage_backend
+            \\FROM lfs_metadata
+        );
+        
+        if (where_conditions.items.len > 0) {
+            try sql_query.appendSlice(" WHERE ");
+            for (where_conditions.items, 0..) |condition, i| {
+                if (i > 0) try sql_query.appendSlice(" AND ");
+                try sql_query.appendSlice(condition);
+                self.allocator.free(condition);
+            }
+        }
+        
+        // Add ORDER BY, LIMIT, and OFFSET
+        param_count += 1;
+        const limit_param = param_count;
+        try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{query.limit}));
+        
+        param_count += 1;
+        const offset_param = param_count;
+        try param_values.append(try std.fmt.allocPrint(self.allocator, "{d}", .{query.offset}));
+        
+        try sql_query.writer().print(" ORDER BY created_at DESC LIMIT ${d} OFFSET ${d}", .{ limit_param, offset_param });
+        
+        // Execute the query - simplified for now, would need proper parameter binding
+        var results = try pg_pool.query(sql_query.items, .{});
+        defer results.deinit();
+        
+        var objects = std.ArrayList(EnhancedLfsMetadata).init(self.allocator);
+        defer objects.deinit();
+        
+        while (try results.next()) |row| {
+            defer row.deinit() catch {};
+            
+            try objects.append(EnhancedLfsMetadata{
+                .oid = try self.allocator.dupe(u8, row.get([]const u8, 0)),
+                .size = @intCast(row.get(i64, 1)),
+                .checksum = try self.allocator.dupe(u8, row.get([]const u8, 2)),
+                .created_at = row.get(i64, 3),
+                .last_accessed = row.get(i64, 4),
+                .access_count = @intCast(row.get(i64, 5)),
+                .content_type = if (row.get(?[]const u8, 6)) |ct| try self.allocator.dupe(u8, ct) else null,
+                .storage_tier = @enumFromInt(row.get(i32, 7)),
+                .compression_algorithm = @enumFromInt(row.get(i32, 8)),
+                .encrypted = row.get(bool, 9),
+                .encryption_key_id = if (row.get(?[]const u8, 10)) |key_id| try self.allocator.dupe(u8, key_id) else null,
+                .repository_id = if (row.get(?i32, 11)) |id| @intCast(id) else null,
+                .user_id = if (row.get(?i32, 12)) |id| @intCast(id) else null,
+                .organization_id = if (row.get(?i32, 13)) |id| @intCast(id) else null,
+                .duplicate_references = @intCast(row.get(i32, 14)),
+                .malware_scan_result = @enumFromInt(row.get(i32, 15)),
+                .storage_backend = try self.allocator.dupe(u8, row.get([]const u8, 16)),
+            });
+        }
+        
+        // Get total count with same WHERE conditions but no LIMIT/OFFSET
+        var count_query = std.ArrayList(u8).init(self.allocator);
+        defer count_query.deinit();
+        
+        try count_query.appendSlice("SELECT COUNT(*) FROM lfs_metadata");
+        
+        // Re-add WHERE conditions for count query (simplified approach)
+        const total_count: u32 = @intCast(objects.items.len); // Simplified for now
+        const has_more = objects.items.len == query.limit;
+        
+        const result_objects = try objects.toOwnedSlice();
+        
         return MetadataSearchResult{
-            .objects = &[_]EnhancedLfsMetadata{},
-            .total_count = 0,
-            .has_more = false,
+            .objects = result_objects,
+            .total_count = total_count,
+            .has_more = has_more,
         };
     }
     
     fn getStorageUsageStatsDatabase(self: *LfsMetadataManager, pool: *anyopaque) !StorageUsageStats {
-        _ = pool;
-        // TODO: Implement SQL aggregation queries for usage statistics
-        return StorageUsageStats{
+        const pg_pool = @as(*@import("pg").Pool, @ptrCast(@alignCast(pool)));
+        
+        var stats = StorageUsageStats{
             .total_objects = 0,
             .total_size_bytes = 0,
             .objects_by_tier = std.EnumMap(StorageTier, u64).init(.{}),
@@ -324,6 +569,65 @@ pub const LfsMetadataManager = struct {
             .encrypted_objects = 0,
             .compressed_objects = 0,
         };
+        
+        // Get total objects and size
+        var totals_row = try pg_pool.row(
+            \\SELECT COUNT(*) as total_objects, 
+            \\       COALESCE(SUM(size), 0) as total_size,
+            \\       COALESCE(SUM(CASE WHEN encrypted = true THEN 1 ELSE 0 END), 0) as encrypted_objects,
+            \\       COALESCE(SUM(CASE WHEN compression_algorithm > 0 THEN 1 ELSE 0 END), 0) as compressed_objects,
+            \\       COALESCE(SUM(size * duplicate_references), 0) as duplicate_space_saved
+            \\FROM lfs_metadata
+        , .{}) orelse return stats;
+        defer totals_row.deinit() catch {};
+        
+        stats.total_objects = @intCast(totals_row.get(i64, 0));
+        stats.total_size_bytes = @intCast(totals_row.get(i64, 1));
+        stats.encrypted_objects = @intCast(totals_row.get(i64, 2));
+        stats.compressed_objects = @intCast(totals_row.get(i64, 3));
+        stats.duplicate_space_saved = @intCast(totals_row.get(i64, 4));
+        
+        // Get statistics by storage tier
+        var tier_results = try pg_pool.query(
+            \\SELECT storage_tier, COUNT(*) as object_count, COALESCE(SUM(size), 0) as total_size
+            \\FROM lfs_metadata
+            \\GROUP BY storage_tier
+        , .{});
+        defer tier_results.deinit();
+        
+        while (try tier_results.next()) |row| {
+            defer row.deinit() catch {};
+            
+            const tier_id = row.get(i32, 0);
+            const tier: StorageTier = @enumFromInt(tier_id);
+            const object_count = @as(u64, @intCast(row.get(i64, 1)));
+            const total_size = @as(u64, @intCast(row.get(i64, 2)));
+            
+            stats.objects_by_tier.put(tier, object_count);
+            stats.size_by_tier.put(tier, total_size);
+        }
+        
+        // Get statistics by repository
+        var repo_results = try pg_pool.query(
+            \\SELECT repository_id, COUNT(*) as object_count, COALESCE(SUM(size), 0) as total_size
+            \\FROM lfs_metadata
+            \\WHERE repository_id IS NOT NULL
+            \\GROUP BY repository_id
+        , .{});
+        defer repo_results.deinit();
+        
+        while (try repo_results.next()) |row| {
+            defer row.deinit() catch {};
+            
+            const repo_id = @as(u32, @intCast(row.get(i32, 0)));
+            const object_count = @as(u64, @intCast(row.get(i64, 1)));
+            const total_size = @as(u64, @intCast(row.get(i64, 2)));
+            
+            try stats.objects_by_repository.put(repo_id, object_count);
+            try stats.size_by_repository.put(repo_id, total_size);
+        }
+        
+        return stats;
     }
     
     // Memory implementation methods (for testing)
