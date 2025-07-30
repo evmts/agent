@@ -8,6 +8,302 @@ const GitCommand = @import("../../git/command.zig").GitCommand;
 const Context = server.Context;
 const Repository = server.DataAccessObject.Repository;
 
+// Phase 4: Performance and Security Features
+
+// File operation rate limiting
+const RateLimiter = struct {
+    requests: std.HashMap(u32, RequestCounter, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage),
+    mutex: std.Thread.Mutex,
+    
+    const RequestCounter = struct {
+        count: u32,
+        window_start: i64,
+        last_request: i64,
+    };
+    
+    pub fn init(allocator: std.mem.Allocator) RateLimiter {
+        return .{
+            .requests = std.HashMap(u32, RequestCounter, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
+            .mutex = std.Thread.Mutex{},
+        };
+    }
+    
+    pub fn deinit(self: *RateLimiter) void {
+        self.requests.deinit();
+    }
+    
+    pub fn checkRateLimit(self: *RateLimiter, user_id: u32, operation: Operation) !bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        
+        const now = std.time.timestamp();
+        const limits = getOperationLimits(operation);
+        
+        const result = self.requests.getOrPut(user_id) catch return false;
+        if (!result.found_existing) {
+            result.value_ptr.* = RequestCounter{
+                .count = 1,
+                .window_start = now,
+                .last_request = now,
+            };
+            return true;
+        }
+        
+        var counter = result.value_ptr;
+        
+        // Reset window if expired
+        if (now - counter.window_start >= limits.window_seconds) {
+            counter.count = 1;
+            counter.window_start = now;
+            counter.last_request = now;
+            return true;
+        }
+        
+        // Check burst limit
+        if (now - counter.last_request < limits.burst_seconds) {
+            return false; // Too fast
+        }
+        
+        // Check request count limit
+        if (counter.count >= limits.max_requests) {
+            return false; // Too many requests
+        }
+        
+        counter.count += 1;
+        counter.last_request = now;
+        return true;
+    }
+    
+    const Operation = enum {
+        read,
+        write,
+        list,
+        compare,
+    };
+    
+    const Limits = struct {
+        max_requests: u32,
+        window_seconds: i64,
+        burst_seconds: i64,
+    };
+    
+    fn getOperationLimits(operation: Operation) Limits {
+        return switch (operation) {
+            .read => .{ .max_requests = 1000, .window_seconds = 3600, .burst_seconds = 1 }, // 1000/hour, 1s burst
+            .write => .{ .max_requests = 100, .window_seconds = 3600, .burst_seconds = 5 }, // 100/hour, 5s burst
+            .list => .{ .max_requests = 500, .window_seconds = 3600, .burst_seconds = 2 }, // 500/hour, 2s burst
+            .compare => .{ .max_requests = 200, .window_seconds = 3600, .burst_seconds = 3 }, // 200/hour, 3s burst
+        };
+    }
+};
+
+// Content caching system
+const ContentCache = struct {
+    cache: std.HashMap(u64, CachedContent, std.hash_map.AutoContext(u64), std.hash_map.default_max_load_percentage),
+    mutex: std.Thread.Mutex,
+    allocator: std.mem.Allocator,
+    
+    const CachedContent = struct {
+        content: []u8,
+        content_type: []u8,
+        etag: []u8,
+        size: u64,
+        created_at: i64,
+        access_count: u32,
+        
+        pub fn deinit(self: *CachedContent, allocator: std.mem.Allocator) void {
+            allocator.free(self.content);
+            allocator.free(self.content_type);
+            allocator.free(self.etag);
+        }
+    };
+    
+    pub fn init(allocator: std.mem.Allocator) ContentCache {
+        return .{
+            .cache = std.HashMap(u64, CachedContent, std.hash_map.AutoContext(u64), std.hash_map.default_max_load_percentage).init(allocator),
+            .mutex = std.Thread.Mutex{},
+            .allocator = allocator,
+        };
+    }
+    
+    pub fn deinit(self: *ContentCache) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        
+        var iterator = self.cache.iterator();
+        while (iterator.next()) |entry| {
+            entry.value_ptr.deinit(self.allocator);
+        }
+        self.cache.deinit();
+    }
+    
+    pub fn get(self: *ContentCache, key: u64) ?CachedContent {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        
+        if (self.cache.getPtr(key)) |cached| {
+            const now = std.time.timestamp();
+            // Cache expires after 5 minutes
+            if (now - cached.created_at > 300) {
+                cached.deinit(self.allocator);
+                _ = self.cache.remove(key);
+                return null;
+            }
+            
+            cached.access_count += 1;
+            return cached.*;
+        }
+        return null;
+    }
+    
+    pub fn put(self: *ContentCache, key: u64, content: []const u8, content_type: []const u8, etag: []const u8) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        
+        // Don't cache large files (>1MB)
+        if (content.len > 1024 * 1024) {
+            return;
+        }
+        
+        // Evict old entries if cache is getting large
+        if (self.cache.count() > 1000) {
+            try self.evictOldEntries();
+        }
+        
+        const cached = CachedContent{
+            .content = try self.allocator.dupe(u8, content),
+            .content_type = try self.allocator.dupe(u8, content_type),
+            .etag = try self.allocator.dupe(u8, etag),
+            .size = content.len,
+            .created_at = std.time.timestamp(),
+            .access_count = 1,
+        };
+        
+        try self.cache.put(key, cached);
+    }
+    
+    fn evictOldEntries(self: *ContentCache) !void {
+        // Simple LRU-like eviction - remove entries older than 1 minute with low access count
+        const now = std.time.timestamp();
+        var to_remove = std.ArrayList(u64).init(self.allocator);
+        defer to_remove.deinit();
+        
+        var iterator = self.cache.iterator();
+        while (iterator.next()) |entry| {
+            const cached = entry.value_ptr;
+            if (now - cached.created_at > 60 and cached.access_count < 5) {
+                try to_remove.append(entry.key_ptr.*);
+            }
+        }
+        
+        for (to_remove.items) |key| {
+            if (self.cache.getPtr(key)) |cached| {
+                cached.deinit(self.allocator);
+                _ = self.cache.remove(key);
+            }
+        }
+    }
+};
+
+// Security validation functions
+fn validateFileContent(content: []const u8, filename: []const u8) !void {
+    // Check file size limits
+    if (content.len > 100 * 1024 * 1024) { // 100MB limit
+        return error.FileTooLarge;
+    }
+    
+    // Basic malware detection patterns
+    const suspicious_patterns = [_][]const u8{
+        "eval(",
+        "exec(",
+        "system(",
+        "shell_exec(",
+        "passthru(",
+        "file_get_contents(",
+        "file_put_contents(",
+        "fopen(",
+        "fwrite(",
+        "include(",
+        "require(",
+        "<script",
+        "javascript:",
+        "vbscript:",
+        "onload=",
+        "onerror=",
+        "onclick=",
+    };
+    
+    // Convert content to lowercase for case-insensitive matching
+    var lowercase_content = std.ArrayList(u8).init(std.heap.page_allocator);
+    defer lowercase_content.deinit();
+    
+    try lowercase_content.appendSlice(content);
+    for (lowercase_content.items) |*char| {
+        char.* = std.ascii.toLower(char.*);
+    }
+    
+    // Check for suspicious patterns
+    for (suspicious_patterns) |pattern| {
+        if (std.mem.indexOf(u8, lowercase_content.items, pattern) != null) {
+            std.log.warn("Suspicious pattern '{s}' found in file: {s}", .{ pattern, filename });
+            // For now, just log - in production might want to reject
+        }
+    }
+    
+    // Check for binary executable patterns
+    if (content.len > 4) {
+        // Check for common executable headers
+        const header = content[0..4];
+        if (std.mem.eql(u8, header, "\x7fELF") or // ELF
+            std.mem.eql(u8, header[0..2], "MZ") or // PE/DOS
+            std.mem.eql(u8, header[0..4], "\xfe\xed\xfa\xce") or // Mach-O 32-bit
+            std.mem.eql(u8, header[0..4], "\xfe\xed\xfa\xcf")) // Mach-O 64-bit
+        {
+            return error.ExecutableNotAllowed;
+        }
+    }
+}
+
+fn generateETag(content: []const u8) ![]u8 {
+    // Generate ETag based on content hash
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(content);
+    
+    var hash: [32]u8 = undefined;
+    hasher.final(&hash);
+    
+    return try std.fmt.allocPrint(std.heap.page_allocator, "\"{x}\"", .{std.fmt.fmtSliceHexLower(hash[0..8])});
+}
+
+fn generateCacheKey(repo_path: []const u8, ref: []const u8, file_path: []const u8) u64 {
+    // Generate cache key from path components
+    var hasher = std.hash.Wyhash.init(0);
+    hasher.update(repo_path);
+    hasher.update(ref);
+    hasher.update(file_path);
+    return hasher.final();
+}
+
+// Global instances (should be initialized in server context)
+var global_rate_limiter: ?RateLimiter = null;
+var global_content_cache: ?ContentCache = null;
+
+pub fn initializePerformanceFeatures(allocator: std.mem.Allocator) !void {
+    global_rate_limiter = RateLimiter.init(allocator);
+    global_content_cache = ContentCache.init(allocator);
+}
+
+pub fn deinitializePerformanceFeatures() void {
+    if (global_rate_limiter) |*limiter| {
+        limiter.deinit();
+        global_rate_limiter = null;
+    }
+    if (global_content_cache) |*cache| {
+        cache.deinit();
+        global_content_cache = null;
+    }
+}
+
 // Content entry structure for directory listings
 const ContentEntry = struct {
     type: []const u8, // "file", "dir", "submodule"
@@ -142,7 +438,7 @@ const DeleteFileResponse = struct {
     },
 };
 
-// GET /repos/{owner}/{repo}/contents/{path}
+// GET /repos/{owner}/{repo}/contents/{path} (Enhanced with Phase 4 features)
 pub fn getContentsHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
     
@@ -155,6 +451,16 @@ pub fn getContentsHandler(r: zap.Request, ctx: *Context) !void {
     const repo_name = parts.repo;
     const file_path = parts.file_path;
     const ref = "main"; // TODO: Parse query parameters properly
+    
+    // Phase 4: Apply rate limiting
+    const user_id_i64 = auth.authMiddleware(r, ctx, allocator) catch 0 orelse 0;
+    const user_id = @as(u32, @intCast(user_id_i64));
+    if (global_rate_limiter) |*limiter| {
+        if (!try limiter.checkRateLimit(user_id, .read)) {
+            try json.writeError(r, allocator, .too_many_requests, "Rate limit exceeded");
+            return;
+        }
+    }
     
     // Get repository
     const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
@@ -210,7 +516,7 @@ pub fn getContentsHandler(r: zap.Request, ctx: *Context) !void {
     }
 }
 
-// GET /repos/{owner}/{repo}/raw/{ref}/{path}
+// GET /repos/{owner}/{repo}/raw/{ref}/{path} (Enhanced with caching)
 pub fn getRawContentHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
     
@@ -223,6 +529,17 @@ pub fn getRawContentHandler(r: zap.Request, ctx: *Context) !void {
     const repo_name = parts.repo;
     const ref = parts.ref;
     const file_path = parts.file_path;
+    
+    // Phase 4: Apply rate limiting
+    const user_id_i64 = auth.authMiddleware(r, ctx, allocator) catch 0 orelse 0;
+    const user_id = @as(u32, @intCast(user_id_i64));
+    if (global_rate_limiter) |*limiter| {
+        if (!try limiter.checkRateLimit(user_id, .read)) {
+            r.setStatus(.too_many_requests);
+            try r.sendBody("Rate limit exceeded");
+            return;
+        }
+    }
     
     // Get repository (similar access control as above)
     const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
@@ -266,7 +583,29 @@ pub fn getRawContentHandler(r: zap.Request, ctx: *Context) !void {
     var git_cmd = try GitCommand.init(allocator, git_exe_path);
     defer git_cmd.deinit(allocator);
     
-    // Get file content
+    // Phase 4: Check cache first
+    const cache_key = generateCacheKey(repo_path, ref, file_path);
+    if (global_content_cache) |*cache| {
+        if (cache.get(cache_key)) |cached| {
+            // Check If-None-Match header for 304 response
+            const if_none_match = r.getHeader("If-None-Match");
+            if (if_none_match != null and std.mem.eql(u8, if_none_match.?, cached.etag)) {
+                r.setStatus(.not_modified);
+                return;
+            }
+            
+            // Return cached content
+            r.setStatus(.ok);
+            r.setHeader("Content-Type", cached.content_type) catch {};
+            r.setHeader("Content-Length", try std.fmt.allocPrint(allocator, "{}", .{cached.content.len})) catch {};  
+            r.setHeader("ETag", cached.etag) catch {};
+            r.setHeader("Cache-Control", "max-age=300") catch {};
+            try r.sendBody(cached.content);
+            return;
+        }
+    }
+    
+    // Get file content from Git
     const git_ref_path = try std.fmt.allocPrint(allocator, "{s}:{s}", .{ ref, file_path });
     defer allocator.free(git_ref_path);
     
@@ -282,13 +621,23 @@ pub fn getRawContentHandler(r: zap.Request, ctx: *Context) !void {
         return;
     }
     
-    // Detect content type
+    // Detect content type and generate ETag
     const content_type = detectContentType(file_path, result.stdout);
+    const etag = try generateETag(result.stdout);
+    defer std.heap.page_allocator.free(etag);
     
+    // Phase 4: Cache the content (for files under 1MB)
+    if (global_content_cache) |*cache| {
+        cache.put(cache_key, result.stdout, content_type, etag) catch {}; // Ignore cache errors
+    }
+    
+    // Return content with enhanced headers
     r.setStatus(.ok);
     r.setHeader("Content-Type", content_type) catch {};
     r.setHeader("Content-Length", try std.fmt.allocPrint(allocator, "{}", .{result.stdout.len})) catch {};
+    r.setHeader("ETag", etag) catch {};
     r.setHeader("Cache-Control", "max-age=300") catch {};
+    r.setHeader("X-Content-Type-Options", "nosniff") catch {};
     
     try r.sendBody(result.stdout);
 }
@@ -296,6 +645,16 @@ pub fn getRawContentHandler(r: zap.Request, ctx: *Context) !void {
 // PUT /repos/{owner}/{repo}/contents/{path}
 pub fn createOrUpdateFileHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
+    
+    // Phase 4: Apply rate limiting
+    const user_id_i64 = auth.authMiddleware(r, ctx, allocator) catch 0 orelse 0;
+    const user_id = @as(u32, @intCast(user_id_i64));
+    if (global_rate_limiter) |*limiter| {
+        if (!try limiter.checkRateLimit(user_id, .write)) {
+            try json.writeError(r, allocator, .too_many_requests, "Rate limit exceeded");
+            return;
+        }
+    }
     
     // Parse path parameters
     const path = r.path orelse return error.NoPath;
@@ -318,6 +677,16 @@ pub fn createOrUpdateFileHandler(r: zap.Request, ctx: *Context) !void {
     };
     defer parsed.deinit();
     const body = parsed.value;
+    
+    // Phase 4: Decode and validate file content for security
+    const content = if (std.mem.eql(u8, body.encoding orelse "utf-8", "base64"))
+        try base64Decode(allocator, body.content)
+    else
+        body.content;
+    defer if (body.encoding != null and std.mem.eql(u8, body.encoding.?, "base64")) allocator.free(content);
+    
+    // Phase 4: Validate file content for security
+    try validateFileContent(content, file_path);
     
     // Get repository and check write access
     const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
@@ -359,16 +728,6 @@ pub fn createOrUpdateFileHandler(r: zap.Request, ctx: *Context) !void {
     const git_exe_path = ctx.config.repository.git_executable_path;
     var git_cmd = try GitCommand.init(allocator, git_exe_path);
     defer git_cmd.deinit(allocator);
-    
-    // Decode content if base64
-    const content = if (body.encoding) |enc| blk: {
-        if (std.mem.eql(u8, enc, "base64")) {
-            break :blk try base64Decode(allocator, body.content);
-        } else {
-            break :blk try allocator.dupe(u8, body.content);
-        }
-    } else try allocator.dupe(u8, body.content);
-    defer allocator.free(content);
     
     // If updating, verify SHA matches current file
     const is_update = body.sha != null;
@@ -508,6 +867,16 @@ pub fn createOrUpdateFileHandler(r: zap.Request, ctx: *Context) !void {
 // DELETE /repos/{owner}/{repo}/contents/{path}
 pub fn deleteFileHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
+    
+    // Phase 4: Apply rate limiting
+    const user_id_i64 = auth.authMiddleware(r, ctx, allocator) catch 0 orelse 0;
+    const user_id = @as(u32, @intCast(user_id_i64));
+    if (global_rate_limiter) |*limiter| {
+        if (!try limiter.checkRateLimit(user_id, .write)) {
+            try json.writeError(r, allocator, .too_many_requests, "Rate limit exceeded");
+            return;
+        }
+    }
     
     // Parse path parameters
     const path = r.path orelse return error.NoPath;
@@ -1178,6 +1547,16 @@ const TagRef = struct {
 pub fn listBranchesHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
     
+    // Phase 4: Apply rate limiting
+    const user_id_i64 = auth.authMiddleware(r, ctx, allocator) catch 0 orelse 0;
+    const user_id = @as(u32, @intCast(user_id_i64));
+    if (global_rate_limiter) |*limiter| {
+        if (!try limiter.checkRateLimit(user_id, .list)) {
+            try json.writeError(r, allocator, .too_many_requests, "Rate limit exceeded");
+            return;
+        }
+    }
+    
     // Parse path parameters
     const path = r.path orelse return error.NoPath;
     var parts = try parseRepositoryPath(allocator, path);
@@ -1307,6 +1686,16 @@ pub fn listTagsHandler(r: zap.Request, ctx: *Context) !void {
 // GET /repos/{owner}/{repo}/compare/{base}...{head}
 pub fn compareCommitsHandler(r: zap.Request, ctx: *Context) !void {
     const allocator = ctx.allocator;
+    
+    // Phase 4: Apply rate limiting
+    const user_id_i64 = auth.authMiddleware(r, ctx, allocator) catch 0 orelse 0;
+    const user_id = @as(u32, @intCast(user_id_i64));
+    if (global_rate_limiter) |*limiter| {
+        if (!try limiter.checkRateLimit(user_id, .compare)) {
+            try json.writeError(r, allocator, .too_many_requests, "Rate limit exceeded");
+            return;
+        }
+    }
     
     // Parse path parameters
     const path = r.path orelse return error.NoPath;
