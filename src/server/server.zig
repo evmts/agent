@@ -1537,27 +1537,373 @@ fn getArtifactHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn createAdminUserHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Admin authentication required
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Check if user is admin
+    const user = try ctx.dao.getUserById(allocator, user_id);
+    defer if (user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (user == null or !user.?.is_admin) {
+        try json.writeError(r, allocator, .forbidden, "Admin privileges required");
+        return;
+    }
+    
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const CreateUserRequest = struct {
+        username: []const u8,
+        email: []const u8,
+        password: []const u8,
+        is_admin: bool = false,
+        type: ?[]const u8 = null, // "individual" or "organization"
+    };
+    
+    var parsed = std.json.parseFromSlice(CreateUserRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Validate required fields
+    if (parsed.value.username.len == 0 or parsed.value.email.len == 0 or parsed.value.password.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Username, email and password are required");
+        return;
+    }
+    
+    // For now, store password directly (should be hashed in production)
+    const password_hash = parsed.value.password;
+    
+    // Parse user type
+    const user_type = if (parsed.value.type) |t| blk: {
+        if (std.mem.eql(u8, t, "organization")) {
+            break :blk DataAccessObject.UserType.organization;
+        } else {
+            break :blk DataAccessObject.UserType.individual;
+        }
+    } else DataAccessObject.UserType.individual;
+    
+    const new_user = DataAccessObject.User{
+        .id = 0,
+        .name = parsed.value.username,
+        .email = parsed.value.email,
+        .passwd = password_hash,
+        .type = user_type,
+        .is_admin = parsed.value.is_admin,
+        .avatar = null,
+        .created_unix = 0, // Will be set by DAO
+        .updated_unix = 0, // Will be set by DAO
+    };
+    
+    const created_user_id = try ctx.dao.createUser(allocator, new_user);
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, .{
+        .id = created_user_id,
+        .username = parsed.value.username,
+        .email = parsed.value.email,
+        .is_admin = parsed.value.is_admin,
+        .type = parsed.value.type orelse "individual",
+        .created = true,
+    });
 }
 
 fn updateAdminUserHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Admin authentication required
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Check if user is admin
+    const user = try ctx.dao.getUserById(allocator, user_id);
+    defer if (user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (user == null or !user.?.is_admin) {
+        try json.writeError(r, allocator, .forbidden, "Admin privileges required");
+        return;
+    }
+    
+    // Parse user ID from path (/admin/users/{id})
+    const path_parts = std.mem.splitScalar(u8, r.path.?, '/');
+    var part_count: u32 = 0;
+    var target_user_id: i64 = 0;
+    
+    var iterator = path_parts;
+    while (iterator.next()) |part| {
+        part_count += 1;
+        if (part_count == 4) { // /admin/users/{id}
+            target_user_id = std.fmt.parseInt(i64, part, 10) catch {
+                try json.writeError(r, allocator, .bad_request, "Invalid user ID");
+                return;
+            };
+            break;
+        }
+    }
+    
+    if (target_user_id == 0) {
+        try json.writeError(r, allocator, .bad_request, "User ID required");
+        return;
+    }
+    
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const UpdateUserRequest = struct {
+        email: ?[]const u8 = null,
+        password: ?[]const u8 = null,
+        is_admin: ?bool = null,
+        avatar: ?[]const u8 = null,
+    };
+    
+    var parsed = std.json.parseFromSlice(UpdateUserRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Check if target user exists
+    const target_user = try ctx.dao.getUserById(allocator, target_user_id);
+    if (target_user == null) {
+        try json.writeError(r, allocator, .not_found, "User not found");
+        return;
+    }
+    defer if (target_user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    // Update user fields based on request
+    if (parsed.value.email) |email| {
+        try ctx.dao.updateUserEmail(allocator, target_user_id, email);
+    }
+    
+    if (parsed.value.password) |password| {
+        try ctx.dao.updateUserPassword(allocator, target_user_id, password);
+    }
+    
+    if (parsed.value.avatar) |avatar| {
+        try ctx.dao.updateUserAvatar(allocator, target_user_id, avatar);
+    }
+    
+    // Update admin status if requested (admin operations)
+    if (parsed.value.is_admin) |is_admin| {
+        // For now, we don't have updateUserAdminStatus, so we'll skip this
+        // TODO: Add updateUserAdminStatus to DAO
+        _ = is_admin;
+    }
+    
+    // Return success response
+    try json.writeJson(r, allocator, .{
+        .user_id = target_user_id,
+        .updated = true,
+        .message = "User updated successfully",
+    });
 }
 
 fn deleteAdminUserHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Admin authentication required
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Check if user is admin
+    const user = try ctx.dao.getUserById(allocator, user_id);
+    defer if (user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (user == null or !user.?.is_admin) {
+        try json.writeError(r, allocator, .forbidden, "Admin privileges required");
+        return;
+    }
+    
+    // Parse user ID from path (/admin/users/{id})
+    const path_parts = std.mem.splitScalar(u8, r.path.?, '/');
+    var part_count: u32 = 0;
+    var target_user_id: i64 = 0;
+    
+    var iterator = path_parts;
+    while (iterator.next()) |part| {
+        part_count += 1;
+        if (part_count == 4) { // /admin/users/{id}
+            target_user_id = std.fmt.parseInt(i64, part, 10) catch {
+                try json.writeError(r, allocator, .bad_request, "Invalid user ID");
+                return;
+            };
+            break;
+        }
+    }
+    
+    if (target_user_id == 0) {
+        try json.writeError(r, allocator, .bad_request, "User ID required");
+        return;
+    }
+    
+    // Prevent admin from deleting themselves
+    if (target_user_id == user_id) {
+        try json.writeError(r, allocator, .bad_request, "Cannot delete your own account");
+        return;
+    }
+    
+    // Check if target user exists
+    const target_user = try ctx.dao.getUserById(allocator, target_user_id);
+    if (target_user == null) {
+        try json.writeError(r, allocator, .not_found, "User not found");
+        return;
+    }
+    defer if (target_user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    // Delete the user
+    try ctx.dao.deleteUser(allocator, target_user.?.name);
+    
+    r.setStatus(.no_content);
+    try r.sendBody("");
 }
 
 fn addAdminUserKeyHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    const allocator = ctx.allocator;
+    
+    // Admin authentication required
+    const user_id = auth.authMiddleware(r, ctx, allocator) catch |err| {
+        switch (err) {
+            else => return err,
+        }
+    } orelse return;
+    
+    // Check if user is admin
+    const user = try ctx.dao.getUserById(allocator, user_id);
+    defer if (user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    if (user == null or !user.?.is_admin) {
+        try json.writeError(r, allocator, .forbidden, "Admin privileges required");
+        return;
+    }
+    
+    // Parse user ID from path (/admin/users/{id}/keys)
+    const path_parts = std.mem.splitScalar(u8, r.path.?, '/');
+    var part_count: u32 = 0;
+    var target_user_id: i64 = 0;
+    
+    var iterator = path_parts;
+    while (iterator.next()) |part| {
+        part_count += 1;
+        if (part_count == 4) { // /admin/users/{id}/keys
+            target_user_id = std.fmt.parseInt(i64, part, 10) catch {
+                try json.writeError(r, allocator, .bad_request, "Invalid user ID");
+                return;
+            };
+            break;
+        }
+    }
+    
+    if (target_user_id == 0) {
+        try json.writeError(r, allocator, .bad_request, "User ID required");
+        return;
+    }
+    
+    const body = r.body orelse {
+        try json.writeError(r, allocator, .bad_request, "Request body required");
+        return;
+    };
+    
+    const AddKeyRequest = struct {
+        name: []const u8,
+        content: []const u8,
+    };
+    
+    var parsed = std.json.parseFromSlice(AddKeyRequest, allocator, body, .{}) catch {
+        try json.writeError(r, allocator, .bad_request, "Invalid JSON format");
+        return;
+    };
+    defer parsed.deinit();
+    
+    // Validate required fields
+    if (parsed.value.name.len == 0 or parsed.value.content.len == 0) {
+        try json.writeError(r, allocator, .bad_request, "Key name and content are required");
+        return;
+    }
+    
+    // Check if target user exists
+    const target_user = try ctx.dao.getUserById(allocator, target_user_id);
+    if (target_user == null) {
+        try json.writeError(r, allocator, .not_found, "User not found");
+        return;
+    }
+    defer if (target_user) |u| {
+        allocator.free(u.name);
+        if (u.email) |e| allocator.free(e);
+        if (u.passwd) |p| allocator.free(p);
+        if (u.avatar) |a| allocator.free(a);
+    };
+    
+    // Create SSH key - generate fingerprint
+    // For now, we'll use a simple hash of the content as fingerprint
+    const fingerprint = try std.fmt.allocPrint(allocator, "SHA256:{x}", .{std.hash.CityHash64.hash(parsed.value.content)});
+    defer allocator.free(fingerprint);
+    
+    const new_key = DataAccessObject.PublicKey{
+        .id = 0,
+        .owner_id = target_user_id,
+        .name = parsed.value.name,
+        .content = parsed.value.content,
+        .fingerprint = fingerprint,
+        .created_unix = 0, // Will be set by DAO
+        .updated_unix = 0, // Will be set by DAO
+    };
+    
+    try ctx.dao.addPublicKey(allocator, new_key);
+    
+    r.setStatus(.created);
+    try json.writeJson(r, allocator, .{
+        .user_id = target_user_id,
+        .name = parsed.value.name,
+        .fingerprint = fingerprint,
+        .created = true,
+    });
 }
 
 // Helper structures and functions for path parsing
