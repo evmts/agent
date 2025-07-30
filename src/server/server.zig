@@ -17,6 +17,10 @@ const users = @import("handlers/users.zig");
 const orgs = @import("handlers/orgs.zig");
 const repos = @import("handlers/repos.zig");
 const contents = @import("handlers/contents.zig");
+const actions = @import("handlers/actions.zig");
+
+// Import Actions service
+const ActionsService = @import("../actions/actions_service.zig").ActionsService;
 
 const Server = @This();
 
@@ -24,6 +28,7 @@ pub const Context = struct {
     dao: *DataAccessObject,
     allocator: std.mem.Allocator,
     config: *const Config,
+    actions_service: ?*ActionsService = null,
 };
 
 listener: zap.HttpListener,
@@ -114,7 +119,16 @@ fn on_request(r: zap.Request) void {
                 router.callHandler(r, contents.getRawContentHandler, global_context);
                 return;
             } else if (std.mem.endsWith(u8, path, "/branches")) {
-                router.callHandler(r, listBranchesHandler, global_context);
+                router.callHandler(r, contents.listBranchesHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/tags")) {
+                router.callHandler(r, contents.listTagsHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/compare/") != null) {
+                router.callHandler(r, contents.compareCommitsHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/commits/") != null and std.mem.endsWith(u8, path, "/history")) {
+                router.callHandler(r, contents.getFileHistoryHandler, global_context);
                 return;
             } else if (std.mem.indexOf(u8, path, "/branches/") != null) {
                 router.callHandler(r, getBranchHandler, global_context);
@@ -160,6 +174,12 @@ fn on_request(r: zap.Request) void {
                 }
             } else if (std.mem.indexOf(u8, path, "/actions/artifacts/") != null) {
                 router.callHandler(r, getArtifactHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/actions/jobs/") != null) {
+                router.callHandler(r, getWorkflowJobHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/actions")) {
+                router.callHandler(r, getActionsStatusHandler, global_context);
                 return;
             } else if (std.mem.endsWith(u8, path, "/actions/secrets")) {
                 router.callHandler(r, repos.listRepoSecretsHandler, global_context);
@@ -219,6 +239,14 @@ fn on_request(r: zap.Request) void {
                 return;
                 } else if (std.mem.endsWith(u8, path, "/merge")) {
                     router.callHandler(r, mergePullHandler, global_context);
+                return;
+                }
+            } else if (std.mem.indexOf(u8, path, "/actions/runs/") != null) {
+                if (std.mem.endsWith(u8, path, "/rerun")) {
+                    router.callHandler(r, rerunWorkflowRunHandler, global_context);
+                return;
+                } else if (std.mem.endsWith(u8, path, "/cancel")) {
+                    router.callHandler(r, cancelWorkflowRunHandler, global_context);
                 return;
                 }
             }
@@ -2012,33 +2040,94 @@ fn mergePullHandler(r: zap.Request, ctx: *Context) !void {
 }
 
 fn listRunsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.listWorkflowRuns(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
 }
 
 fn getRunHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.getWorkflowRun(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
 }
 
 fn listJobsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.listWorkflowRunJobs(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
 }
 
 fn listArtifactsHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.listArtifacts(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
 }
 
 fn getArtifactHandler(r: zap.Request, ctx: *Context) !void {
-    _ = ctx;
-    r.setStatus(.not_implemented);
-    try r.sendBody("Not implemented");
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        // Artifact endpoints would be implemented here
+        try actions.listArtifacts(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
+}
+
+fn rerunWorkflowRunHandler(r: zap.Request, ctx: *Context) !void {
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.rerunWorkflowRun(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
+}
+
+fn cancelWorkflowRunHandler(r: zap.Request, ctx: *Context) !void {
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.cancelWorkflowRun(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
+}
+
+fn getWorkflowJobHandler(r: zap.Request, ctx: *Context) !void {
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.getWorkflowJob(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
+}
+
+fn getActionsStatusHandler(r: zap.Request, ctx: *Context) !void {
+    if (ctx.actions_service) |service| {
+        const actions_ctx = actions.Context.init(ctx.allocator, service);
+        try actions.getActionsStatus(r, @constCast(&actions_ctx));
+    } else {
+        r.setStatus(.service_unavailable);
+        try r.sendBody("Actions service not available");
+    }
 }
 
 fn createAdminUserHandler(r: zap.Request, ctx: *Context) !void {

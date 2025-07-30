@@ -1152,6 +1152,751 @@ fn detectContentType(file_path: []const u8, content: []const u8) []const u8 {
     }
 }
 
+// Phase 3: Advanced Features
+
+// Branch and Tag structures
+const BranchRef = struct {
+    name: []const u8,
+    commit: struct {
+        sha: []const u8,
+        url: []const u8,
+    },
+    protected: bool = false,
+};
+
+const TagRef = struct {
+    name: []const u8,
+    commit: struct {
+        sha: []const u8,
+        url: []const u8,
+    },
+    zipball_url: []const u8,
+    tarball_url: []const u8,
+};
+
+// GET /repos/{owner}/{repo}/branches
+pub fn listBranchesHandler(r: zap.Request, ctx: *Context) !void {
+    const allocator = ctx.allocator;
+    
+    // Parse path parameters
+    const path = r.path orelse return error.NoPath;
+    var parts = try parseRepositoryPath(allocator, path);
+    defer parts.deinit(allocator);
+    
+    const owner_name = parts.owner;
+    const repo_name = parts.repo;
+    
+    // Get repository
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get repository path
+    const repo_path = try getRepositoryPath(allocator, &repo);
+    defer allocator.free(repo_path);
+    
+    // Initialize git command
+    const git_exe_path = ctx.config.repository.git_executable_path;
+    var git_cmd = try GitCommand.init(allocator, git_exe_path);
+    defer git_cmd.deinit(allocator);
+    
+    // List branches
+    const branches = try listBranches(&git_cmd, allocator, repo_path, owner_name, repo_name);
+    defer {
+        for (branches) |*branch| {
+            allocator.free(branch.name);
+            allocator.free(branch.commit.sha);
+            allocator.free(branch.commit.url);
+        }
+        allocator.free(branches);
+    }
+    
+    try json.writeJson(r, allocator, branches);
+}
+
+// GET /repos/{owner}/{repo}/tags
+pub fn listTagsHandler(r: zap.Request, ctx: *Context) !void {
+    const allocator = ctx.allocator;
+    
+    // Parse path parameters
+    const path = r.path orelse return error.NoPath;
+    var parts = try parseRepositoryPath(allocator, path);
+    defer parts.deinit(allocator);
+    
+    const owner_name = parts.owner;
+    const repo_name = parts.repo;
+    
+    // Get repository (similar access control as branches)
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get repository path
+    const repo_path = try getRepositoryPath(allocator, &repo);
+    defer allocator.free(repo_path);
+    
+    // Initialize git command
+    const git_exe_path = ctx.config.repository.git_executable_path;
+    var git_cmd = try GitCommand.init(allocator, git_exe_path);
+    defer git_cmd.deinit(allocator);
+    
+    // List tags
+    const tags = try listTags(&git_cmd, allocator, repo_path, owner_name, repo_name);
+    defer {
+        for (tags) |*tag| {
+            allocator.free(tag.name);
+            allocator.free(tag.commit.sha);
+            allocator.free(tag.commit.url);
+            allocator.free(tag.zipball_url);
+            allocator.free(tag.tarball_url);
+        }
+        allocator.free(tags);
+    }
+    
+    try json.writeJson(r, allocator, tags);
+}
+
+// GET /repos/{owner}/{repo}/compare/{base}...{head}
+pub fn compareCommitsHandler(r: zap.Request, ctx: *Context) !void {
+    const allocator = ctx.allocator;
+    
+    // Parse path parameters
+    const path = r.path orelse return error.NoPath;
+    var parts = try parseComparePath(allocator, path);
+    defer parts.deinit(allocator);
+    
+    const owner_name = parts.owner;
+    const repo_name = parts.repo;
+    const base_ref = parts.base;
+    const head_ref = parts.head;
+    
+    // Get repository (similar access control)
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get repository path
+    const repo_path = try getRepositoryPath(allocator, &repo);
+    defer allocator.free(repo_path);
+    
+    // Initialize git command
+    const git_exe_path = ctx.config.repository.git_executable_path;
+    var git_cmd = try GitCommand.init(allocator, git_exe_path);
+    defer git_cmd.deinit(allocator);
+    
+    // Generate comparison
+    var comparison = try generateComparison(&git_cmd, allocator, repo_path, base_ref, head_ref, owner_name, repo_name);
+    defer comparison.deinit(allocator);
+    
+    try json.writeJson(r, allocator, comparison);
+}
+
+// GET /repos/{owner}/{repo}/commits/{path}/history
+pub fn getFileHistoryHandler(r: zap.Request, ctx: *Context) !void {
+    const allocator = ctx.allocator;
+    
+    // Parse path parameters
+    const path = r.path orelse return error.NoPath;
+    var parts = try parseFileHistoryPath(allocator, path);
+    defer parts.deinit(allocator);
+    
+    const owner_name = parts.owner;
+    const repo_name = parts.repo;
+    const file_path = parts.file_path;
+    
+    // Get repository (similar access control)
+    const owner = ctx.dao.getUserByName(allocator, owner_name) catch |err| {
+        std.log.err("Failed to get user: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Owner not found");
+        return;
+    };
+    defer {
+        allocator.free(owner.name);
+        if (owner.email) |e| allocator.free(e);
+        if (owner.avatar) |a| allocator.free(a);
+    }
+    
+    const repo = ctx.dao.getRepositoryByName(allocator, owner.id, repo_name) catch |err| {
+        std.log.err("Failed to get repository: {}", .{err});
+        try json.writeError(r, allocator, .internal_server_error, "Database error");
+        return;
+    } orelse {
+        try json.writeError(r, allocator, .not_found, "Repository not found");
+        return;
+    };
+    defer {
+        allocator.free(repo.name);
+        if (repo.description) |d| allocator.free(d);
+        allocator.free(repo.default_branch);
+    }
+    
+    // Get repository path
+    const repo_path = try getRepositoryPath(allocator, &repo);
+    defer allocator.free(repo_path);
+    
+    // Initialize git command
+    const git_exe_path = ctx.config.repository.git_executable_path;
+    var git_cmd = try GitCommand.init(allocator, git_exe_path);
+    defer git_cmd.deinit(allocator);
+    
+    // Get file history
+    const history = try getFileHistory(&git_cmd, allocator, repo_path, file_path, owner_name, repo_name);
+    defer {
+        for (history) |*commit| {
+            commit.deinit(allocator);
+        }
+        allocator.free(history);
+    }
+    
+    try json.writeJson(r, allocator, history);
+}
+
+// Helper structures for advanced features
+const CompareResult = struct {
+    url: []const u8,
+    html_url: []const u8,
+    permalink_url: []const u8,
+    diff_url: []const u8,
+    patch_url: []const u8,
+    base_commit: CommitInfo,
+    merge_base_commit: CommitInfo,
+    status: []const u8, // "identical", "ahead", "behind", "diverged"
+    ahead_by: u32,
+    behind_by: u32,
+    total_commits: u32,
+    commits: []CommitInfo,
+    files: []FileChange,
+    
+    pub fn deinit(self: *CompareResult, allocator: std.mem.Allocator) void {
+        allocator.free(self.url);
+        allocator.free(self.html_url);
+        allocator.free(self.permalink_url);
+        allocator.free(self.diff_url);
+        allocator.free(self.patch_url);
+        self.base_commit.deinit(allocator);
+        self.merge_base_commit.deinit(allocator);
+        allocator.free(self.status);
+        for (self.commits) |*commit| {
+            commit.deinit(allocator);
+        }
+        allocator.free(self.commits);
+        for (self.files) |*file| {
+            file.deinit(allocator);
+        }
+        allocator.free(self.files);
+    }
+};
+
+const CommitInfo = struct {
+    sha: []const u8,
+    url: []const u8,
+    html_url: []const u8,
+    author: struct {
+        name: []const u8,
+        email: []const u8,
+        date: []const u8,
+    },
+    committer: struct {
+        name: []const u8,
+        email: []const u8,
+        date: []const u8,
+    },
+    message: []const u8,
+    
+    pub fn deinit(self: *CommitInfo, allocator: std.mem.Allocator) void {
+        allocator.free(self.sha);
+        allocator.free(self.url);
+        allocator.free(self.html_url);
+        allocator.free(self.author.name);
+        allocator.free(self.author.email);
+        allocator.free(self.author.date);
+        allocator.free(self.committer.name);
+        allocator.free(self.committer.email);
+        allocator.free(self.committer.date);
+        allocator.free(self.message);
+    }
+};
+
+const FileChange = struct {
+    sha: []const u8,
+    filename: []const u8,
+    status: []const u8, // "added", "removed", "modified", "renamed"
+    additions: u32,
+    deletions: u32,
+    changes: u32,
+    blob_url: []const u8,
+    raw_url: []const u8,
+    contents_url: []const u8,
+    patch: []const u8,
+    
+    pub fn deinit(self: *FileChange, allocator: std.mem.Allocator) void {
+        allocator.free(self.sha);
+        allocator.free(self.filename);
+        allocator.free(self.status);
+        allocator.free(self.blob_url);
+        allocator.free(self.raw_url);
+        allocator.free(self.contents_url);
+        allocator.free(self.patch);
+    }
+};
+
+// Helper functions for Phase 3
+
+const RepoPathParts = struct {
+    owner: []const u8,
+    repo: []const u8,
+    
+    pub fn deinit(self: *RepoPathParts, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+    }
+};
+
+const ComparePathParts = struct {
+    owner: []const u8,
+    repo: []const u8,
+    base: []const u8,
+    head: []const u8,
+    
+    pub fn deinit(self: *ComparePathParts, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+        allocator.free(self.base);
+        allocator.free(self.head);
+    }
+};
+
+const FileHistoryPathParts = struct {
+    owner: []const u8,
+    repo: []const u8,
+    file_path: []const u8,
+    
+    pub fn deinit(self: *FileHistoryPathParts, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+        allocator.free(self.file_path);
+    }
+};
+
+fn parseRepositoryPath(allocator: std.mem.Allocator, path: []const u8) !RepoPathParts {
+    // Parse "/repos/{owner}/{repo}/*"
+    const prefix = "/repos/";
+    if (!std.mem.startsWith(u8, path, prefix)) {
+        return error.InvalidPath;
+    }
+    
+    const remaining = path[prefix.len..];
+    var parts = std.mem.splitScalar(u8, remaining, '/');
+    
+    const owner = parts.next() orelse return error.InvalidPath;
+    const repo = parts.next() orelse return error.InvalidPath;
+    
+    return RepoPathParts{
+        .owner = try allocator.dupe(u8, owner),
+        .repo = try allocator.dupe(u8, repo),
+    };
+}
+
+fn parseComparePath(allocator: std.mem.Allocator, path: []const u8) !ComparePathParts {
+    // Parse "/repos/{owner}/{repo}/compare/{base}...{head}"
+    const prefix = "/repos/";
+    if (!std.mem.startsWith(u8, path, prefix)) {
+        return error.InvalidPath;
+    }
+    
+    const remaining = path[prefix.len..];
+    var parts = std.mem.splitScalar(u8, remaining, '/');
+    
+    const owner = parts.next() orelse return error.InvalidPath;
+    const repo = parts.next() orelse return error.InvalidPath;
+    const compare_part = parts.next() orelse return error.InvalidPath;
+    
+    if (!std.mem.eql(u8, compare_part, "compare")) {
+        return error.InvalidPath;
+    }
+    
+    const range = parts.next() orelse return error.InvalidPath;
+    
+    // Split on "..."
+    if (std.mem.indexOf(u8, range, "...")) |dots_index| {
+        const base = range[0..dots_index];
+        const head = range[dots_index + 3..];
+        
+        return ComparePathParts{
+            .owner = try allocator.dupe(u8, owner),
+            .repo = try allocator.dupe(u8, repo),
+            .base = try allocator.dupe(u8, base),
+            .head = try allocator.dupe(u8, head),
+        };
+    } else {
+        return error.InvalidPath;
+    }
+}
+
+fn parseFileHistoryPath(allocator: std.mem.Allocator, path: []const u8) !FileHistoryPathParts {
+    // Parse "/repos/{owner}/{repo}/commits/{path}/history"
+    const prefix = "/repos/";
+    if (!std.mem.startsWith(u8, path, prefix)) {
+        return error.InvalidPath;
+    }
+    
+    const remaining = path[prefix.len..];
+    var parts = std.mem.splitScalar(u8, remaining, '/');
+    
+    const owner = parts.next() orelse return error.InvalidPath;
+    const repo = parts.next() orelse return error.InvalidPath;
+    const commits_part = parts.next() orelse return error.InvalidPath;
+    
+    if (!std.mem.eql(u8, commits_part, "commits")) {
+        return error.InvalidPath;
+    }
+    
+    // Collect file path parts until "history"
+    var file_path = std.ArrayList(u8).init(allocator);
+    defer file_path.deinit();
+    
+    var found_history = false;
+    while (parts.next()) |part| {
+        if (std.mem.eql(u8, part, "history")) {
+            found_history = true;
+            break;
+        }
+        if (file_path.items.len > 0) {
+            try file_path.append('/');
+        }
+        try file_path.appendSlice(part);
+    }
+    
+    if (!found_history) {
+        return error.InvalidPath;
+    }
+    
+    return FileHistoryPathParts{
+        .owner = try allocator.dupe(u8, owner),
+        .repo = try allocator.dupe(u8, repo),
+        .file_path = try file_path.toOwnedSlice(),
+    };
+}
+
+fn listBranches(git_cmd: *GitCommand, allocator: std.mem.Allocator, repo_path: []const u8, owner_name: []const u8, repo_name: []const u8) ![]BranchRef {
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/" },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    if (result.exit_code != 0) {
+        return error.FailedToListBranches;
+    }
+    
+    var branches = std.ArrayList(BranchRef).init(allocator);
+    defer branches.deinit();
+    
+    var lines = std.mem.tokenizeAny(u8, result.stdout, "\n");
+    while (lines.next()) |line| {
+        var parts = std.mem.tokenizeAny(u8, line, " ");
+        const name = parts.next() orelse continue;
+        const sha = parts.next() orelse continue;
+        
+        try branches.append(BranchRef{
+            .name = try allocator.dupe(u8, name),
+            .commit = .{
+                .sha = try allocator.dupe(u8, sha),
+                .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, sha }),
+            },
+            .protected = false, // TODO: Implement branch protection
+        });
+    }
+    
+    return branches.toOwnedSlice();
+}
+
+fn listTags(git_cmd: *GitCommand, allocator: std.mem.Allocator, repo_path: []const u8, owner_name: []const u8, repo_name: []const u8) ![]TagRef {
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/tags/" },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    if (result.exit_code != 0) {
+        return error.FailedToListTags;
+    }
+    
+    var tags = std.ArrayList(TagRef).init(allocator);
+    defer tags.deinit();
+    
+    var lines = std.mem.tokenizeAny(u8, result.stdout, "\n");
+    while (lines.next()) |line| {
+        var parts = std.mem.tokenizeAny(u8, line, " ");
+        const name = parts.next() orelse continue;
+        const sha = parts.next() orelse continue;
+        
+        try tags.append(TagRef{
+            .name = try allocator.dupe(u8, name),
+            .commit = .{
+                .sha = try allocator.dupe(u8, sha),
+                .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, sha }),
+            },
+            .zipball_url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/zipball/{s}", .{ owner_name, repo_name, name }),
+            .tarball_url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/tarball/{s}", .{ owner_name, repo_name, name }),
+        });
+    }
+    
+    return tags.toOwnedSlice();
+}
+
+fn generateComparison(git_cmd: *GitCommand, allocator: std.mem.Allocator, repo_path: []const u8, base_ref: []const u8, head_ref: []const u8, owner_name: []const u8, repo_name: []const u8) !CompareResult {
+    // Get commit count
+    var ahead_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "rev-list", "--count", try std.fmt.allocPrint(allocator, "{s}..{s}", .{ base_ref, head_ref }) },
+        .cwd = repo_path,
+    });
+    defer ahead_result.deinit(allocator);
+    
+    var behind_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "rev-list", "--count", try std.fmt.allocPrint(allocator, "{s}..{s}", .{ head_ref, base_ref }) },
+        .cwd = repo_path,
+    });
+    defer behind_result.deinit(allocator);
+    
+    const ahead_by = std.fmt.parseInt(u32, std.mem.trim(u8, ahead_result.stdout, " \n\r\t"), 10) catch 0;
+    const behind_by = std.fmt.parseInt(u32, std.mem.trim(u8, behind_result.stdout, " \n\r\t"), 10) catch 0;
+    
+    // Determine status
+    const status = if (ahead_by == 0 and behind_by == 0)
+        "identical"
+    else if (behind_by == 0)
+        "ahead"
+    else if (ahead_by == 0)
+        "behind"
+    else
+        "diverged";
+    
+    // Get commits
+    var log_result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "log", "--pretty=format:%H|%an|%ae|%ad|%cn|%ce|%cd|%s", "--date=iso", try std.fmt.allocPrint(allocator, "{s}..{s}", .{ base_ref, head_ref }) },
+        .cwd = repo_path,
+    });
+    defer log_result.deinit(allocator);
+    
+    var commits = std.ArrayList(CommitInfo).init(allocator);
+    defer commits.deinit();
+    
+    var lines = std.mem.tokenizeAny(u8, log_result.stdout, "\n");
+    while (lines.next()) |line| {
+        var parts = std.mem.splitScalar(u8, line, '|');
+        const sha = parts.next() orelse continue;
+        const author_name = parts.next() orelse continue;
+        const author_email = parts.next() orelse continue;
+        const author_date = parts.next() orelse continue;
+        const committer_name = parts.next() orelse continue;
+        const committer_email = parts.next() orelse continue;
+        const committer_date = parts.next() orelse continue;
+        const message = parts.rest();
+        
+        try commits.append(CommitInfo{
+            .sha = try allocator.dupe(u8, sha),
+            .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, sha }),
+            .html_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/commit/{s}", .{ owner_name, repo_name, sha }),
+            .author = .{
+                .name = try allocator.dupe(u8, author_name),
+                .email = try allocator.dupe(u8, author_email),
+                .date = try allocator.dupe(u8, author_date),
+            },
+            .committer = .{
+                .name = try allocator.dupe(u8, committer_name),
+                .email = try allocator.dupe(u8, committer_email),
+                .date = try allocator.dupe(u8, committer_date),
+            },
+            .message = try allocator.dupe(u8, message),
+        });
+    }
+    
+    // Get file changes (simplified)
+    var files = std.ArrayList(FileChange).init(allocator);
+    defer files.deinit();
+    
+    // For now, return empty files array - full diff implementation would be more complex
+    
+    return CompareResult{
+        .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/compare/{s}...{s}", .{ owner_name, repo_name, base_ref, head_ref }),
+        .html_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/compare/{s}...{s}", .{ owner_name, repo_name, base_ref, head_ref }),
+        .permalink_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/compare/{s}...{s}", .{ owner_name, repo_name, base_ref, head_ref }),
+        .diff_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/compare/{s}...{s}.diff", .{ owner_name, repo_name, base_ref, head_ref }),
+        .patch_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/compare/{s}...{s}.patch", .{ owner_name, repo_name, base_ref, head_ref }),
+        .base_commit = try getCommitInfo(git_cmd, allocator, repo_path, base_ref, owner_name, repo_name),
+        .merge_base_commit = try getCommitInfo(git_cmd, allocator, repo_path, base_ref, owner_name, repo_name), // Simplified - should get merge base
+        .status = try allocator.dupe(u8, status),
+        .ahead_by = ahead_by,
+        .behind_by = behind_by,
+        .total_commits = ahead_by,
+        .commits = try commits.toOwnedSlice(),
+        .files = try files.toOwnedSlice(),
+    };
+}
+
+fn getFileHistory(git_cmd: *GitCommand, allocator: std.mem.Allocator, repo_path: []const u8, file_path: []const u8, owner_name: []const u8, repo_name: []const u8) ![]CommitInfo {
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "log", "--pretty=format:%H|%an|%ae|%ad|%cn|%ce|%cd|%s", "--date=iso", "--", file_path },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    if (result.exit_code != 0) {
+        return error.FailedToGetFileHistory;
+    }
+    
+    var commits = std.ArrayList(CommitInfo).init(allocator);
+    defer commits.deinit();
+    
+    var lines = std.mem.tokenizeAny(u8, result.stdout, "\n");
+    while (lines.next()) |line| {
+        var parts = std.mem.splitScalar(u8, line, '|');
+        const sha = parts.next() orelse continue;
+        const author_name = parts.next() orelse continue;
+        const author_email = parts.next() orelse continue;
+        const author_date = parts.next() orelse continue;
+        const committer_name = parts.next() orelse continue;
+        const committer_email = parts.next() orelse continue;
+        const committer_date = parts.next() orelse continue;
+        const message = parts.rest();
+        
+        try commits.append(CommitInfo{
+            .sha = try allocator.dupe(u8, sha),
+            .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, sha }),
+            .html_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/commit/{s}", .{ owner_name, repo_name, sha }),
+            .author = .{
+                .name = try allocator.dupe(u8, author_name),
+                .email = try allocator.dupe(u8, author_email),
+                .date = try allocator.dupe(u8, author_date),
+            },
+            .committer = .{
+                .name = try allocator.dupe(u8, committer_name),
+                .email = try allocator.dupe(u8, committer_email),
+                .date = try allocator.dupe(u8, committer_date),
+            },
+            .message = try allocator.dupe(u8, message),
+        });
+    }
+    
+    return commits.toOwnedSlice();
+}
+
+fn getCommitInfo(git_cmd: *GitCommand, allocator: std.mem.Allocator, repo_path: []const u8, ref: []const u8, owner_name: []const u8, repo_name: []const u8) !CommitInfo {
+    var result = try git_cmd.runWithOptions(allocator, .{
+        .args = &.{ "show", "--pretty=format:%H|%an|%ae|%ad|%cn|%ce|%cd|%s", "--no-patch", "--date=iso", ref },
+        .cwd = repo_path,
+    });
+    defer result.deinit(allocator);
+    
+    if (result.exit_code != 0) {
+        return error.FailedToGetCommitInfo;
+    }
+    
+    const line = std.mem.trim(u8, result.stdout, " \n\r\t");
+    var parts = std.mem.splitScalar(u8, line, '|');
+    const sha = parts.next() orelse return error.InvalidCommitFormat;
+    const author_name = parts.next() orelse return error.InvalidCommitFormat;
+    const author_email = parts.next() orelse return error.InvalidCommitFormat;
+    const author_date = parts.next() orelse return error.InvalidCommitFormat;
+    const committer_name = parts.next() orelse return error.InvalidCommitFormat;
+    const committer_email = parts.next() orelse return error.InvalidCommitFormat;
+    const committer_date = parts.next() orelse return error.InvalidCommitFormat;
+    const message = parts.rest();
+    
+    return CommitInfo{
+        .sha = try allocator.dupe(u8, sha),
+        .url = try std.fmt.allocPrint(allocator, "/api/v1/repos/{s}/{s}/git/commits/{s}", .{ owner_name, repo_name, sha }),
+        .html_url = try std.fmt.allocPrint(allocator, "/{s}/{s}/commit/{s}", .{ owner_name, repo_name, sha }),
+        .author = .{
+            .name = try allocator.dupe(u8, author_name),
+            .email = try allocator.dupe(u8, author_email),
+            .date = try allocator.dupe(u8, author_date),
+        },
+        .committer = .{
+            .name = try allocator.dupe(u8, committer_name),
+            .email = try allocator.dupe(u8, committer_email),
+            .date = try allocator.dupe(u8, committer_date),
+        },
+        .message = try allocator.dupe(u8, message),
+    };
+}
+
 // Tests
 test "parses contents path correctly" {
     const allocator = std.testing.allocator;
