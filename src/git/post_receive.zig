@@ -154,6 +154,7 @@ pub const GitClient = struct {
 // Hook configuration
 pub const HookConfig = struct {
     git_client: ?*GitClient = null,
+    workflow_manager: ?*@import("../actions/workflow_manager.zig").WorkflowManager = null,
     performance_monitoring: bool = false,
     error_recovery: bool = true,
     max_commits_per_push: u32 = 1000,
@@ -184,12 +185,14 @@ pub const PostReceiveHook = struct {
     allocator: std.mem.Allocator,
     config: HookConfig,
     git_client: ?*GitClient,
+    workflow_manager: ?*@import("../actions/workflow_manager.zig").WorkflowManager,
     
     pub fn init(allocator: std.mem.Allocator, config: HookConfig) !PostReceiveHook {
         return PostReceiveHook{
             .allocator = allocator,
             .config = config,
             .git_client = config.git_client,
+            .workflow_manager = config.workflow_manager,
         };
     }
     
@@ -276,6 +279,78 @@ pub const PostReceiveHook = struct {
             .modified = try self.allocator.dupe([]const u8, &[_][]const u8{}),
             .removed = try self.allocator.dupe([]const u8, &[_][]const u8{}),
         };
+    }
+    
+    pub fn processPushEvent(self: *PostReceiveHook, repository_id: u32, repository_path: []const u8, ref_updates: []const RefUpdate) !?@import("../actions/workflow_manager.zig").HookResult {
+        if (self.workflow_manager == null) {
+            std.log.warn("No workflow manager configured, skipping workflow processing", .{});
+            return null;
+        }
+        
+        const workflow_manager = self.workflow_manager.?;
+        
+        // Process each ref update (typically one per push)
+        for (ref_updates) |ref_update| {
+            // Only process branch pushes (ignore tag updates for now)
+            if (ref_update.ref_type != .branch) continue;
+            
+            // Skip branch deletions
+            if (ref_update.isDeletion()) continue;
+            
+            // Extract commits from the push
+            const commits = try self.extractCommits(ref_update.old_sha, ref_update.new_sha);
+            defer {
+                for (commits) |*commit| {
+                    commit.deinit(self.allocator);
+                }
+                self.allocator.free(commits);
+            }
+            
+            // Create commit SHA list
+            var commit_shas = try self.allocator.alloc([]const u8, commits.len);
+            defer {
+                for (commit_shas) |sha| {
+                    self.allocator.free(sha);
+                }
+                self.allocator.free(commit_shas);
+            }
+            
+            for (commits, 0..) |commit, i| {
+                commit_shas[i] = try self.allocator.dupe(u8, commit.id);
+            }
+            
+            // Create push event for workflow manager
+            var push_event = @import("../actions/workflow_manager.zig").PushEvent{
+                .repository_id = repository_id,
+                .repository_path = try self.allocator.dupe(u8, repository_path),
+                .ref = try self.allocator.dupe(u8, ref_update.ref_name),
+                .before = try self.allocator.dupe(u8, ref_update.old_sha),
+                .after = try self.allocator.dupe(u8, ref_update.new_sha),
+                .commits = commit_shas,
+                .pusher_id = 1, // TODO: Get actual pusher ID from context
+            };
+            defer push_event.deinit(self.allocator);
+            
+            // Transfer ownership of commit_shas to push_event
+            const owned_commit_shas = try self.allocator.alloc([]const u8, commit_shas.len);
+            for (commit_shas, 0..) |sha, i| {
+                owned_commit_shas[i] = try self.allocator.dupe(u8, sha);
+            }
+            push_event.commits = owned_commit_shas;
+            
+            // Process the push event through workflow manager
+            const result = try workflow_manager.processPushEvent(push_event);
+            
+            std.log.info("Post-receive hook processed push to {s}: {} workflows triggered, {} errors", .{
+                ref_update.ref_name,
+                result.triggered_workflows.len,
+                result.errors.len,
+            });
+            
+            return result;
+        }
+        
+        return null;
     }
     
     fn isValidSha(sha: []const u8) bool {
@@ -520,4 +595,26 @@ test "file changes detection works correctly" {
     }
     
     try testing.expect(all_files.len >= 0);
+}
+
+test "post-receive hook processes push events without workflow manager" {
+    const allocator = testing.allocator;
+    
+    var hook_handler = try PostReceiveHook.init(allocator, .{});
+    defer hook_handler.deinit();
+    
+    // Create test ref update
+    var ref_update = hooks.RefUpdate{
+        .old_sha = try allocator.dupe(u8, "abc123def456789012345678901234567890abcd"),
+        .new_sha = try allocator.dupe(u8, "def456789012345678901234567890abcdef123456"),
+        .ref_name = try allocator.dupe(u8, "refs/heads/main"),
+        .ref_type = .branch,
+    };
+    defer ref_update.deinit(allocator);
+    
+    const ref_updates = [_]hooks.RefUpdate{ref_update};
+    
+    // Process without workflow manager should return null
+    const result = try hook_handler.processPushEvent(1, "/tmp/test-repo", &ref_updates);
+    try testing.expect(result == null);
 }
