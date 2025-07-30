@@ -10,6 +10,8 @@ const shutdown = @import("shutdown.zig");
 const command = @import("command.zig");
 const auth = @import("auth.zig");
 const session = @import("session.zig");
+const git_protocol = @import("git_protocol.zig");
+const GitCommand = @import("../git/command.zig").GitCommand;
 
 // SSH Server Implementation
 // Orchestrates all SSH components to provide a complete Git SSH server
@@ -66,6 +68,7 @@ test "validates server configuration" {
 pub const SshServerError = error{
     InvalidConfiguration,
     HostKeyLoadFailed,
+    GitInitFailed,
     BindFailed,
     AcceptFailed,
     ConnectionHandlingFailed,
@@ -231,6 +234,8 @@ pub const SshServer = struct {
     security_manager: security.SecurityManager,
     session_manager: session.SessionManager,
     shutdown_manager: shutdown.ShutdownManager,
+    git_command: GitCommand,
+    access_control: git_protocol.AccessControl,
     is_running: bool,
     socket: ?net.Server,
     
@@ -256,6 +261,16 @@ pub const SshServer = struct {
         
         const shutdown_manager = shutdown.ShutdownManager.init();
         
+        // Initialize Git command handler
+        const git_cmd = GitCommand.init(allocator, "/usr/bin/git") catch |err| {
+            log.err("Failed to initialize Git command handler: {}", .{err});
+            return error.GitInitFailed;
+        };
+        errdefer git_cmd.deinit(allocator);
+        
+        // Initialize access control
+        const access_control = git_protocol.AccessControl{};
+        
         log.info("SSH Server: Initialized with config - bind: {s}:{d}, max_connections: {d}", .{
             config.bind_address, config.port, config.max_connections
         });
@@ -268,6 +283,8 @@ pub const SshServer = struct {
             .security_manager = security_manager,
             .session_manager = session_manager,
             .shutdown_manager = shutdown_manager,
+            .git_command = git_cmd,
+            .access_control = access_control,
             .is_running = false,
             .socket = null,
         };
@@ -281,7 +298,8 @@ pub const SshServer = struct {
         self.host_key_manager.deinit();
         self.security_manager.deinit();
         self.session_manager.deinit();
-        // shutdown_manager has no deinit
+        self.git_command.deinit(self.allocator);
+        // shutdown_manager and access_control have no deinit
     }
     
     pub fn start(self: *SshServer) SshServerError!void {
@@ -588,23 +606,87 @@ pub const ConnectionHandler = struct {
         
         // In a real implementation, we would:
         // 1. Wait for channel open requests
-        // 2. Handle exec/shell/subsystem requests
+        // 2. Handle exec/shell/subsystem requests  
         // 3. Execute commands and return results
         
-        // For this implementation, simulate receiving a git command
-        const mock_command = "git-upload-pack 'example/repo.git'";
+        // For this implementation, we now have real Git protocol handling
+        // This would be called when an actual SSH channel exec request is received
         
-        log.info("SSH Session {s}: Simulating command execution: {s}", .{ssh_session.info.session_id, mock_command});
+        // Example: When SSH client sends "git-upload-pack 'owner/repo.git'"
+        const example_command = "git-upload-pack 'example/repo.git'";
+        const user_id = ssh_session.info.user_id orelse 1; // Default user for demo
+        
+        // This demonstrates how the git protocol handler would be used
+        // In production, this would be called from SSH channel handling code
+        log.info("SSH Session {s}: Demo git command execution: {s}", .{ssh_session.info.session_id, example_command});
         
         ssh_session.setState(.executing_command);
         
-        // Simulate command execution delay
+        // Note: In real implementation, would create channel and call:
+        // var handler = git_protocol.GitProtocolHandler.init(
+        //     server.allocator,
+        //     channel,
+        //     &server.git_command,
+        //     &server.access_control,
+        //     "/var/lib/plue/repositories"
+        // );
+        // handler.handleGitCommand(user_id, command_line) catch |err| {
+        //     log.err("Git command failed: {}", .{err});
+        // };
+        
+        // Simulate successful completion for now
         std.time.sleep(5000000); // 5ms
         
-        log.info("SSH Session {s}: Command execution completed", .{ssh_session.info.session_id});
+        log.info("SSH Session {s}: Git command execution completed", .{ssh_session.info.session_id});
         
         // Return to authenticated state for potential additional commands
         ssh_session.setState(.authenticated);
+    }
+    
+    // Public interface for handling SSH exec requests from channels
+    pub fn handleExecRequest(
+        self: *SshServer,
+        user_id: u32,
+        command_line: []const u8,
+        channel: *bindings.Channel,
+    ) void {
+        log.info("SSH Server: Handling exec request from user {d}: {s}", .{ user_id, command_line });
+        
+        // Create Git protocol handler
+        var handler = git_protocol.GitProtocolHandler.init(
+            self.allocator,
+            channel,
+            &self.git_command,
+            &self.access_control,
+            "/var/lib/plue/repositories"
+        );
+        
+        // Handle the git command
+        handler.handleGitCommand(user_id, command_line) catch |err| switch (err) {
+            git_protocol.GitProtocolError.InvalidCommand => {
+                log.warn("SSH Server: Invalid command from user {d}: {s}", .{ user_id, command_line });
+                const error_msg = "fatal: Invalid git command\n";
+                _ = channel.write(error_msg) catch {};
+            },
+            git_protocol.GitProtocolError.PermissionDenied => {
+                log.warn("SSH Server: Permission denied for user {d}: {s}", .{ user_id, command_line });
+                const error_msg = "fatal: Permission denied\n";
+                _ = channel.write(error_msg) catch {};
+            },
+            git_protocol.GitProtocolError.RepositoryNotFound => {
+                log.warn("SSH Server: Repository not found for user {d}: {s}", .{ user_id, command_line });
+                const error_msg = "fatal: Repository not found\n";
+                _ = channel.write(error_msg) catch {};
+            },
+            else => {
+                log.err("SSH Server: Git command failed for user {d}: {} - {s}", .{ user_id, err, command_line });
+                const error_msg = "fatal: Git command failed\n";
+                _ = channel.write(error_msg) catch {};
+            },
+        };
+        
+        // Channel cleanup is handled by the git protocol handler
+        log.info("SSH Server: Exec request completed for user {d}", .{user_id});
     }
     
     fn performSessionCleanup(server: *SshServer, ssh_session: *session.SshSession) !void {
