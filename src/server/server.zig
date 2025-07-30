@@ -16,6 +16,7 @@ const health = @import("handlers/health.zig");
 const users = @import("handlers/users.zig");
 const orgs = @import("handlers/orgs.zig");
 const repos = @import("handlers/repos.zig");
+const contents = @import("handlers/contents.zig");
 
 const Server = @This();
 
@@ -106,7 +107,13 @@ fn on_request(r: zap.Request) void {
         }
         // Repository routes
         else if (std.mem.startsWith(u8, path, "/repos/")) {
-            if (std.mem.endsWith(u8, path, "/branches")) {
+            if (std.mem.indexOf(u8, path, "/contents/") != null) {
+                router.callHandler(r, contents.getContentsHandler, global_context);
+                return;
+            } else if (std.mem.indexOf(u8, path, "/raw/") != null) {
+                router.callHandler(r, contents.getRawContentHandler, global_context);
+                return;
+            } else if (std.mem.endsWith(u8, path, "/branches")) {
                 router.callHandler(r, listBranchesHandler, global_context);
                 return;
             } else if (std.mem.indexOf(u8, path, "/branches/") != null) {
