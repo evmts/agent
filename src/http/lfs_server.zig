@@ -48,6 +48,35 @@ pub const LfsError = struct {
     message: []const u8,
 };
 
+pub const LfsVerifyRequest = struct {
+    oid: []const u8,
+    size: u64,
+    verify_hash: ?bool = null,
+};
+
+pub const LfsLockRequest = struct {
+    path: []const u8,
+    ref: ?struct {
+        name: []const u8,
+    } = null,
+};
+
+pub const LfsUnlockRequest = struct {
+    force: bool = false,
+    ref: ?struct {
+        name: []const u8,
+    } = null,
+};
+
+pub const LfsLock = struct {
+    id: []const u8,
+    path: []const u8,
+    locked_at: []const u8,
+    owner: struct {
+        name: []const u8,
+    },
+};
+
 // Storage backend types
 pub const StorageBackend = union(enum) {
     filesystem: struct {

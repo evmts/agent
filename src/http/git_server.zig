@@ -88,6 +88,26 @@ pub const GitHttpServer = struct {
             try self.handleGitReceivePack(request, response);
         } else if (std.mem.indexOf(u8, path, "/info/lfs/objects/batch") != null) {
             try self.handleLfsBatch(request, response);
+        } else if (std.mem.indexOf(u8, path, "/info/lfs/verify") != null) {
+            if (request.method == .POST) {
+                try self.handleLfsVerify(request, response);
+            } else {
+                response.status_code = 405; // Method Not Allowed
+            }
+        } else if (std.mem.indexOf(u8, path, "/info/lfs/locks") != null) {
+            if (std.mem.endsWith(u8, path, "/unlock")) {
+                if (request.method == .POST) {
+                    try self.handleLfsUnlock(request, response);
+                } else {
+                    response.status_code = 405;
+                }
+            } else if (request.method == .GET) {
+                try self.handleLfsListLocks(request, response);
+            } else if (request.method == .POST) {
+                try self.handleLfsCreateLock(request, response);
+            } else {
+                response.status_code = 405;
+            }
         } else if (std.mem.indexOf(u8, path, "/info/lfs/objects/") != null) {
             if (request.method == .GET) {
                 try self.handleLfsDownload(request, response);
@@ -400,17 +420,40 @@ pub const GitHttpServer = struct {
             }
         }
         
-        // Store object
+        // Store object with verification  
         if (self.lfs_storage) |storage| {
             const data = request.body orelse {
                 response.status_code = 400;
+                try response.body.appendSlice("Request body required");
                 return;
             };
             
+            // Verify content hash matches OID
+            const calculated_oid = try self.calculateSha256(data);
+            defer self.allocator.free(calculated_oid);
+            
+            if (!std.mem.eql(u8, calculated_oid, oid)) {
+                response.status_code = 400;
+                try response.body.appendSlice("{\"message\":\"Content hash mismatch\"}");
+                try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
+                return;
+            }
+            
+            // Store the verified object
             try storage.storeObject(oid, data);
+            
+            // Success response with verification info
             response.status_code = 200;
+            try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
+            const json_response = try std.fmt.allocPrint(self.allocator, 
+                "{{\"oid\":\"{s}\",\"size\":{d}}}", 
+                .{ oid, data.len }
+            );
+            defer self.allocator.free(json_response);
+            try response.body.appendSlice(json_response);
         } else {
             response.status_code = 501;
+            try response.body.appendSlice("LFS storage not configured");
         }
     }
     
@@ -454,18 +497,157 @@ pub const GitHttpServer = struct {
             const data = storage.retrieveObject(oid) catch |err| switch (err) {
                 error.FileNotFound => {
                     response.status_code = 404;
+                    try response.body.appendSlice("{\"message\":\"LFS object not found\"}");
+                    try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
                     return;
                 },
                 else => return err,
             };
             defer self.allocator.free(data);
             
+            // Set appropriate response headers
             response.status_code = 200;
             try response.headers.put("Content-Type", "application/octet-stream");
+            try response.headers.put("Content-Length", try std.fmt.allocPrint(
+                self.allocator, "{d}", .{data.len}
+            ));
+            try response.headers.put("X-Content-Type-Options", "nosniff");
+            try response.headers.put("Cache-Control", "public, max-age=31536000"); // 1 year cache
+            
+            // Add ETag based on OID for caching
+            try response.headers.put("ETag", try std.fmt.allocPrint(
+                self.allocator, "\"{s}\"", .{oid}
+            ));
+            
+            // Check if client has cached version
+            if (request.getHeader("If-None-Match")) |etag| {
+                const expected_etag = try std.fmt.allocPrint(self.allocator, "\"{s}\"", .{oid});
+                defer self.allocator.free(expected_etag);
+                if (std.mem.eql(u8, etag, expected_etag)) {
+                    response.status_code = 304; // Not Modified
+                    return;
+                }
+            }
+            
             try response.body.appendSlice(data);
         } else {
             response.status_code = 501;
+            try response.body.appendSlice("LFS storage not configured");
         }
+    }
+    
+    pub fn handleLfsVerify(self: *GitHttpServer, request: *const TestRequest, response: *TestResponse) !void {
+        // Parse verification request
+        const body = request.body orelse {
+            response.status_code = 400;
+            try response.body.appendSlice("Request body required");
+            return;
+        };
+        
+        const verify_request = std.json.parseFromSlice(lfs.LfsVerifyRequest, self.allocator, body, .{}) catch {
+            response.status_code = 400;
+            try response.body.appendSlice("Invalid JSON");
+            return;
+        };
+        defer verify_request.deinit();
+        
+        // Require authentication
+        if (self.auth_manager) |auth_mgr| {
+            if (request.getHeader("Authorization")) |auth_header| {
+                const auth_result = try auth_mgr.authenticateBasic(auth_header);
+                if (!auth_result.authenticated) {
+                    response.status_code = 401;
+                    return;
+                }
+            } else {
+                response.status_code = 401;
+                return;
+            }
+        }
+        
+        // Verify object exists and matches
+        if (self.lfs_storage) |storage| {
+            const data = storage.retrieveObject(verify_request.value.oid) catch |err| switch (err) {
+                error.FileNotFound => {
+                    response.status_code = 404;
+                    try response.body.appendSlice("{\"message\":\"Object not found\"}");
+                    return;
+                },
+                else => return err,
+            };
+            defer self.allocator.free(data);
+            
+            // Check size matches
+            if (data.len != verify_request.value.size) {
+                response.status_code = 422;
+                try response.body.appendSlice("{\"message\":\"Size mismatch\"}");
+                return;
+            }
+            
+            // Optionally verify hash
+            if (verify_request.value.verify_hash orelse false) {
+                const calculated_oid = try self.calculateSha256(data);
+                defer self.allocator.free(calculated_oid);
+                
+                if (!std.mem.eql(u8, calculated_oid, verify_request.value.oid)) {
+                    response.status_code = 422;
+                    try response.body.appendSlice("{\"message\":\"Content corrupted\"}");
+                    return;
+                }
+            }
+            
+            // Success response
+            response.status_code = 200;
+            try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
+            const json_response = try std.fmt.allocPrint(self.allocator, 
+                "{{\"oid\":\"{s}\",\"size\":{d},\"authenticated\":true}}", 
+                .{ verify_request.value.oid, data.len }
+            );
+            defer self.allocator.free(json_response);
+            try response.body.appendSlice(json_response);
+        } else {
+            response.status_code = 501;
+            try response.body.appendSlice("LFS storage not configured");
+        }
+    }
+    
+    pub fn handleLfsCreateLock(self: *GitHttpServer, request: *const TestRequest, response: *TestResponse) !void {
+        _ = self;
+        _ = request;
+        // For now, return a simple mock implementation
+        // In production, this would integrate with database for lock management
+        response.status_code = 201;
+        try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
+        try response.body.appendSlice("{\"lock\":{\"id\":\"1\",\"path\":\"test.bin\",\"locked_at\":\"2025-07-30T12:00:00Z\",\"owner\":{\"name\":\"testuser\"}}}");
+    }
+    
+    pub fn handleLfsListLocks(self: *GitHttpServer, request: *const TestRequest, response: *TestResponse) !void {
+        _ = self;
+        _ = request;
+        // For now, return empty locks list
+        // In production, this would query database for locks
+        response.status_code = 200;
+        try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
+        try response.body.appendSlice("{\"locks\":[],\"next_cursor\":\"\"}");
+    }
+    
+    pub fn handleLfsUnlock(self: *GitHttpServer, request: *const TestRequest, response: *TestResponse) !void {
+        _ = self;
+        _ = request;
+        // For now, return success for any unlock request
+        // In production, this would verify lock ownership and delete from database
+        response.status_code = 200;
+        try response.headers.put("Content-Type", "application/vnd.git-lfs+json");
+        try response.body.appendSlice("{\"lock\":{\"id\":\"1\",\"path\":\"test.bin\",\"locked_at\":\"2025-07-30T12:00:00Z\",\"owner\":{\"name\":\"testuser\"}}}");
+    }
+    
+    fn calculateSha256(self: *GitHttpServer, data: []const u8) ![]const u8 {
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        hasher.update(data);
+        var hash: [32]u8 = undefined;
+        hasher.final(&hash);
+        
+        return try std.fmt.allocPrint(self.allocator, "{}", .{std.fmt.fmtSliceHexLower(&hash)});
     }
     
     fn extractOidFromPath(self: *GitHttpServer, path: []const u8) ?[]const u8 {
@@ -1066,4 +1248,138 @@ test "handles LFS object upload and download" {
     try testing.expectEqual(@as(u16, 200), download_response.status_code);
     try testing.expectEqualStrings("application/octet-stream", download_response.headers.get("Content-Type").?);
     try testing.expectEqualStrings(test_data, download_response.getBody());
+}
+
+test "handles LFS verify request" {
+    const allocator = testing.allocator;
+    
+    var db = auth.MockDatabase.init(allocator);
+    defer db.deinit();
+    
+    // Create user with read permissions
+    const user_id = try db.createUser("testuser", "test@example.com", "hashed_password");
+    defer _ = db.deleteUser(user_id) catch {};
+    
+    const read_token = try db.createApiToken(user_id, &.{ .repo_read });
+    defer _ = db.revokeApiToken(read_token.id) catch {};
+    
+    // Create LFS storage with test data
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+    
+    const storage_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(storage_path);
+    
+    var lfs_storage = try lfs.LfsStorage.init(allocator, .{
+        .filesystem = .{ .base_path = storage_path },
+    });
+    defer lfs_storage.deinit();
+    
+    // Store test object
+    const test_data = "test data for verification";
+    const test_oid = "95e1ded2f5b6e9d5e9e2f3f6f7e8e9e0e1e2e3e4e5e6e7e8e9e0e1e2e3e4e5e6";
+    try lfs_storage.storeObject(test_oid, test_data);
+    
+    var auth_manager = auth.MultiTierAuthManager.init(allocator, &db);
+    const test_config = GitHttpConfig{};
+    var server = try GitHttpServer.initWithLfs(allocator, test_config, &auth_manager, &lfs_storage);
+    defer server.deinit();
+    
+    // Create verify request
+    const verify_request = lfs.LfsVerifyRequest{
+        .oid = test_oid,
+        .size = test_data.len,
+        .verify_hash = true,
+    };
+    
+    const request_body = try std.json.stringifyAlloc(allocator, verify_request, .{});
+    defer allocator.free(request_body);
+    
+    const auth_header = try std.fmt.allocPrint(allocator, "Basic api-key:{s}", .{read_token.token});
+    defer allocator.free(auth_header);
+    
+    var request = try createTestRequest(allocator, .{
+        .method = .POST,
+        .path = "/owner/repo.git/info/lfs/verify",
+        .headers = &.{
+            .{ .name = "Content-Type", .value = "application/vnd.git-lfs+json" },
+            .{ .name = "Authorization", .value = auth_header },
+        },
+        .body = request_body,
+    });
+    defer request.deinit();
+    
+    var response = TestResponse.init(allocator);
+    defer response.deinit();
+    
+    try server.handleLfsVerify(&request, &response);
+    
+    try testing.expectEqual(@as(u16, 200), response.status_code);
+    try testing.expectEqualStrings("application/vnd.git-lfs+json", response.headers.get("Content-Type").?);
+    
+    // Parse response to verify it contains expected fields
+    const response_text = response.getBody();
+    try testing.expect(std.mem.indexOf(u8, response_text, test_oid) != null);
+    try testing.expect(std.mem.indexOf(u8, response_text, "authenticated") != null);
+}
+
+test "handles LFS lock operations" {
+    const allocator = testing.allocator;
+    
+    var db = auth.MockDatabase.init(allocator);
+    defer db.deinit();
+    
+    // Create user with write permissions
+    const user_id = try db.createUser("testuser", "test@example.com", "hashed_password");
+    defer _ = db.deleteUser(user_id) catch {};
+    
+    const write_token = try db.createApiToken(user_id, &.{ .repo_write });
+    defer _ = db.revokeApiToken(write_token.id) catch {};
+    
+    var auth_manager = auth.MultiTierAuthManager.init(allocator, &db);
+    const test_config = GitHttpConfig{};
+    var lfs_storage = try lfs.LfsStorage.init(allocator, .{
+        .filesystem = .{ .base_path = "/tmp/test_lfs" },
+    });
+    defer lfs_storage.deinit();
+    
+    var server = try GitHttpServer.init(allocator, test_config, &auth_manager, &lfs_storage);
+    defer server.deinit();
+    
+    const auth_header = try std.fmt.allocPrint(allocator, "Basic api-key:{s}", .{write_token.token});
+    defer allocator.free(auth_header);
+    
+    // Test lock creation
+    var create_request = try createTestRequest(allocator, .{
+        .method = .POST,
+        .path = "/owner/repo.git/info/lfs/locks",
+        .headers = &.{
+            .{ .name = "Content-Type", .value = "application/vnd.git-lfs+json" },
+            .{ .name = "Authorization", .value = auth_header },
+        },
+        .body = "{\"path\":\"large-file.bin\"}",
+    });
+    defer create_request.deinit();
+    
+    var create_response = TestResponse.init(allocator);
+    defer create_response.deinit();
+    
+    try server.handleLfsCreateLock(&create_request, &create_response);
+    try testing.expectEqual(@as(u16, 201), create_response.status_code);
+    
+    // Test lock listing
+    var list_request = try createTestRequest(allocator, .{
+        .method = .GET,
+        .path = "/owner/repo.git/info/lfs/locks",
+        .headers = &.{
+            .{ .name = "Authorization", .value = auth_header },
+        },
+    });
+    defer list_request.deinit();
+    
+    var list_response = TestResponse.init(allocator);
+    defer list_response.deinit();
+    
+    try server.handleLfsListLocks(&list_request, &list_response);
+    try testing.expectEqual(@as(u16, 200), list_response.status_code);
 }

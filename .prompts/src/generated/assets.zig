@@ -1,0 +1,38 @@
+// This file is auto-generated. Do not edit manually.
+const std = @import("std");
+
+const Self = @This();
+
+path: []const u8,
+content: []const u8,
+mime_type: []const u8,
+response: [:0]const u8,
+
+pub fn init(
+    comptime path: []const u8,
+    comptime content: []const u8,
+    comptime mime_type: []const u8,
+) Self {
+    var buf: [20]u8 = undefined;
+    const n = std.fmt.bufPrint(&buf, "{d}", .{content.len}) catch unreachable;
+    const content_length = buf[0..n.len];
+    const response = "HTTP/1.1 200 OK\n" ++
+        "Content-Type: " ++ mime_type ++ "\n" ++
+        "Content-Length: " ++ content_length ++ "\n" ++
+        "\n" ++
+        content;
+    return Self{
+        .path = path,
+        .content = content,
+        .mime_type = mime_type,
+        .response = response,
+    };
+}
+
+pub const not_found_asset = Self.init(
+    "/notfound.html",
+    "<div>Page not found</div>",
+    "text/html",
+);
+
+pub const assets = [_]Self{
