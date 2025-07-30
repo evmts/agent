@@ -376,7 +376,7 @@ pub const SshCommandExecutor = struct {
     
     pub fn init(allocator: std.mem.Allocator) !SshCommandExecutor {
         return SshCommandExecutor{
-            .git_cmd = try git_command.GitCommand.init(allocator),
+            .git_cmd = try git_command.GitCommand.init(allocator, "/usr/bin/git"), // Temporary hardcoded path
         };
     }
     

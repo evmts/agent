@@ -2,6 +2,7 @@ const std = @import("std");
 const zap = @import("zap");
 pub const DataAccessObject = @import("../database/dao.zig");
 const router = @import("router.zig");
+const Config = @import("../config/config.zig").Config;
 
 // Import utilities
 const json = @import("utils/json.zig");
@@ -21,6 +22,7 @@ const Server = @This();
 pub const Context = struct {
     dao: *DataAccessObject,
     allocator: std.mem.Allocator,
+    config: *const Config,
 };
 
 listener: zap.HttpListener,
@@ -29,11 +31,12 @@ context: *Context,
 // Global context for handlers to access
 var global_context: *Context = undefined;
 
-pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject) !Server {
+pub fn init(allocator: std.mem.Allocator, dao: *DataAccessObject, config: *const Config) !Server {
     const context = try allocator.create(Context);
     context.* = Context{ 
         .dao = dao,
         .allocator = allocator,
+        .config = config,
     };
     
     // Store context globally for handler access
@@ -2610,7 +2613,13 @@ test "server initializes correctly" {
     };
     defer dao.deinit();
     
-    var server = try Server.init(allocator, &dao);
+    // Create test config
+    var config = Config{
+        .arena = std.heap.ArenaAllocator.init(allocator),
+    };
+    defer config.deinit();
+    
+    var server = try Server.init(allocator, &dao, &config);
     defer server.deinit(allocator);
     
     // If we get here, server initialized correctly

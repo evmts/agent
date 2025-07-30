@@ -57,11 +57,18 @@ const RepositoryConfig = struct {
     base_path: []const u8 = "/var/lib/plue/repositories",
     max_repo_size: u64 = 1073741824, // 1GB
     git_timeout: u32 = 300,
+    git_executable_path: []const u8 = "/usr/bin/git",
     
     pub fn validate(self: *const RepositoryConfig) ConfigError!void {
         if (!std.fs.path.isAbsolute(self.base_path)) return error.PathNotAbsolute;
         if (self.max_repo_size == 0) return error.InvalidValue;
         if (self.git_timeout == 0) return error.InvalidValue;
+        if (!std.fs.path.isAbsolute(self.git_executable_path)) return error.PathNotAbsolute;
+        // Verify git executable exists
+        const stat = std.fs.cwd().statFile(self.git_executable_path) catch {
+            return error.FileNotFound;
+        };
+        if (stat.kind != .file) return error.InvalidValue;
     }
 };
 

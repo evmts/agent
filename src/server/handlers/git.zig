@@ -27,7 +27,7 @@ test "handles git smart HTTP info/refs request" {
     defer std.fs.deleteTreeAbsolute(tmp_dir_name) catch {};
 
     // Initialize git repo
-    var git_cmd = try GitCommand.init(allocator);
+    var git_cmd = try GitCommand.init(allocator, "/usr/bin/git"); // Temporary hardcoded path
     defer git_cmd.deinit(allocator);
 
     var init_result = try git_cmd.runWithOptions(allocator, .{
@@ -200,7 +200,7 @@ fn gitInfoRefsHandler(r: anytype, ctx: *Context) !void {
     }
 
     // Execute git command
-    var git_cmd = try GitCommand.init(allocator);
+    var git_cmd = try GitCommand.init(allocator, "/usr/bin/git"); // Temporary hardcoded path
     defer git_cmd.deinit(allocator);
 
     const cmd_name = if (is_upload) "upload-pack" else "receive-pack";
@@ -252,7 +252,7 @@ fn gitUploadPackHandler(r: zap.Request, ctx: *Context) !void {
     try r.setHeader("Content-Type", "application/x-git-upload-pack-result");
 
     // Execute git command with protocol context
-    var git_cmd = try GitCommand.init(allocator);
+    var git_cmd = try GitCommand.init(allocator, "/usr/bin/git"); // Temporary hardcoded path
     defer git_cmd.deinit(allocator);
 
     var result = try git_cmd.runWithProtocolContext(allocator, .{
@@ -294,7 +294,7 @@ fn gitReceivePackHandler(r: zap.Request, ctx: *Context) !void {
     try r.setHeader("Content-Type", "application/x-git-receive-pack-result");
 
     // Execute git command with protocol context
-    var git_cmd = try GitCommand.init(allocator);
+    var git_cmd = try GitCommand.init(allocator, "/usr/bin/git"); // Temporary hardcoded path
     defer git_cmd.deinit(allocator);
 
     var result = try git_cmd.runWithProtocolContext(allocator, .{

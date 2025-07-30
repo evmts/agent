@@ -2,6 +2,7 @@ const std = @import("std");
 const clap = @import("clap");
 const Server = @import("../server/server.zig");
 const DataAccessObject = @import("../database/dao.zig");
+const Config = @import("../config/config.zig").Config;
 
 pub fn run(allocator: std.mem.Allocator, iter: *std.process.ArgIterator) !void {
     _ = iter;
@@ -20,7 +21,13 @@ pub fn run(allocator: std.mem.Allocator, iter: *std.process.ArgIterator) !void {
     
     std.log.info("Connected to database", .{});
     
-    var server = try Server.init(allocator, &dao);
+    // Load default config for now (TODO: load from file)
+    var config = Config{
+        .arena = std.heap.ArenaAllocator.init(allocator),
+    };
+    defer config.deinit();
+    
+    var server = try Server.init(allocator, &dao, &config);
     defer server.deinit(allocator);
     
     std.log.info("Server listening on http://0.0.0.0:8000", .{});
