@@ -110,7 +110,6 @@ pub const GitClient = struct {
     
     pub fn getCommitRange(self: *GitClient, old_sha: []const u8, new_sha: []const u8) ![]Commit {
         _ = old_sha;
-        _ = new_sha;
         
         // Mock implementation - return a simple commit list
         var commits = std.ArrayList(Commit).init(self.allocator);

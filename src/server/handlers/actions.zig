@@ -942,6 +942,217 @@ fn convertJobStepsToResponse(allocator: std.mem.Allocator, steps: []const models
     return step_responses;
 }
 
+/// GET /repos/{owner}/{repo}/check-runs/{check_run_id}
+pub fn getCheckRun(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseCheckRunPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid check run path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    const check_run_id = path_params.?.check_run_id;
+    
+    // Get job (which corresponds to check run in Actions)
+    const job = ctx.actions_service.getJobById(ctx.allocator, check_run_id) catch |err| {
+        std.log.err("Failed to get job/check run {}: {}", .{ check_run_id, err });
+        return sendError(r, 500, "Failed to retrieve check run");
+    } orelse {
+        return sendError(r, 404, "Check run not found");
+    };
+    defer job.deinit(ctx.allocator);
+    
+    // Convert job to check run format
+    const check_run = CheckRunResponse{
+        .id = job.id,
+        .head_sha = try ctx.allocator.dupe(u8, job.head_sha orelse ""),
+        .node_id = try std.fmt.allocPrint(ctx.allocator, "checkrun_{}", .{job.id}),
+        .external_id = try std.fmt.allocPrint(ctx.allocator, "job_{}", .{job.id}),
+        .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/check-runs/{}", .{ owner, repo, job.id }),
+        .html_url = try std.fmt.allocPrint(ctx.allocator, "/{s}/{s}/actions/runs/{}/job/{}", .{ owner, repo, job.workflow_run_id, job.id }),
+        .details_url = try std.fmt.allocPrint(ctx.allocator, "/{s}/{s}/actions/runs/{}/job/{}", .{ owner, repo, job.workflow_run_id, job.id }),
+        .status = @tagName(job.status),
+        .conclusion = if (job.conclusion) |c| @tagName(c) else null,
+        .started_at = if (job.started_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+        .completed_at = if (job.completed_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+        .output = .{
+            .title = try std.fmt.allocPrint(ctx.allocator, "{s} - {s}", .{ job.name, @tagName(job.status) }),
+            .summary = try std.fmt.allocPrint(ctx.allocator, "Job {s} {s}", .{ job.name, if (job.conclusion) |c| @tagName(c) else "in progress" }),
+            .text = null,
+            .annotations_count = 0,
+            .annotations_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/check-runs/{}/annotations", .{ owner, repo, job.id }),
+        },
+        .name = try ctx.allocator.dupe(u8, job.name),
+        .check_suite = .{
+            .id = job.workflow_run_id,
+        },
+        .app = .{
+            .id = 1,
+            .slug = "plue-actions",
+            .node_id = "app_1",
+            .owner = .{
+                .login = "plue",
+                .id = 1,
+                .node_id = "user_1",
+                .avatar_url = "/static/logo.png",
+                .gravatar_id = "",
+                .url = "/api/v1/users/plue",
+                .html_url = "/plue",
+                .type = "Organization",
+                .site_admin = false,
+            },
+            .name = "Plue Actions",
+            .description = "GitHub Actions compatible CI/CD",
+            .external_url = "/",
+            .html_url = "/apps/plue-actions",
+            .created_at = "2024-01-01T00:00:00Z",
+            .updated_at = "2024-01-01T00:00:00Z",
+        },
+        .pull_requests = &[_]PullRequestRef{},
+    };
+    
+    try sendJson(r, ctx.allocator, check_run);
+}
+
+/// POST /repos/{owner}/{repo}/statuses/{sha}
+pub fn createCommitStatus(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseCommitStatusPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid commit status path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    const sha = path_params.?.sha;
+    
+    // Parse request body
+    const body_text = r.body orelse {
+        try sendError(r, 400, "Request body required");
+        return;
+    };
+    
+    var parsed = std.json.parseFromSlice(CommitStatusRequest, ctx.allocator, body_text, .{}) catch {
+        try sendError(r, 400, "Invalid JSON");
+        return;
+    };
+    defer parsed.deinit();
+    const body = parsed.value;
+    
+    // Create commit status in the Actions service
+    const status = ctx.actions_service.createCommitStatus(ctx.allocator, .{
+        .sha = sha,
+        .state = body.state,
+        .target_url = body.target_url,
+        .description = body.description,
+        .context = body.context orelse "default",
+    }) catch |err| {
+        std.log.err("Failed to create commit status for {s}: {}", .{ sha, err });
+        return sendError(r, 500, "Failed to create commit status");
+    };
+    defer status.deinit(ctx.allocator);
+    
+    // Return created status
+    const status_response = CommitStatusResponse{
+        .id = status.id,
+        .node_id = try std.fmt.allocPrint(ctx.allocator, "status_{}", .{status.id}),
+        .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/statuses/{s}", .{ owner, repo, sha }),
+        .state = status.state,
+        .description = if (status.description) |d| try ctx.allocator.dupe(u8, d) else null,
+        .target_url = if (status.target_url) |u| try ctx.allocator.dupe(u8, u) else null,
+        .context = try ctx.allocator.dupe(u8, status.context),
+        .created_at = try formatTimestamp(ctx.allocator, status.created_at),
+        .updated_at = try formatTimestamp(ctx.allocator, status.updated_at),
+        .creator = .{
+            .login = "plue-actions",
+            .id = 1,
+            .node_id = "user_1",
+            .avatar_url = "/static/logo.png",
+            .gravatar_id = "",
+            .url = "/api/v1/users/plue-actions",
+            .html_url = "/plue-actions",
+            .type = "Bot",
+            .site_admin = false,
+        },
+    };
+    
+    r.setStatus(@enumFromInt(201));
+    try sendJson(r, ctx.allocator, status_response);
+}
+
+const CheckRunPathParams = struct {
+    owner: []const u8,
+    repo: []const u8,
+    check_run_id: u32,
+    
+    pub fn deinit(self: CheckRunPathParams, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+    }
+};
+
+fn parseCheckRunPath(path: []const u8) ?CheckRunPathParams {
+    // Parse path like: /repos/{owner}/{repo}/check-runs/{check_run_id}
+    var parts = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty part before first slash
+    _ = parts.next();
+    
+    const repos_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, repos_part, "repos")) return null;
+    
+    const owner = parts.next() orelse return null;
+    const repo = parts.next() orelse return null;
+    
+    const check_runs_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, check_runs_part, "check-runs")) return null;
+    
+    const check_run_id_str = parts.next() orelse return null;
+    const check_run_id = std.fmt.parseInt(u32, check_run_id_str, 10) catch return null;
+    
+    return CheckRunPathParams{
+        .owner = owner,
+        .repo = repo,
+        .check_run_id = check_run_id,
+    };
+}
+
+const CommitStatusPathParams = struct {
+    owner: []const u8,
+    repo: []const u8,
+    sha: []const u8,
+    
+    pub fn deinit(self: CommitStatusPathParams, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+        allocator.free(self.sha);
+    }
+};
+
+fn parseCommitStatusPath(path: []const u8) ?CommitStatusPathParams {
+    // Parse path like: /repos/{owner}/{repo}/statuses/{sha}
+    var parts = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty part before first slash
+    _ = parts.next();
+    
+    const repos_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, repos_part, "repos")) return null;
+    
+    const owner = parts.next() orelse return null;
+    const repo = parts.next() orelse return null;
+    
+    const statuses_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, statuses_part, "statuses")) return null;
+    
+    const sha = parts.next() orelse return null;
+    
+    return CommitStatusPathParams{
+        .owner = owner,
+        .repo = repo,
+        .sha = sha,
+    };
+}
+
 // Integration test for workflow parsing and job execution
 test "workflow integration: parse YAML and create jobs" {
     const allocator = std.testing.allocator;

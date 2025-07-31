@@ -546,8 +546,8 @@ pub const WorkflowManager = struct {
     
     fn cloneWorkflow(self: *WorkflowManager, original: Workflow) !Workflow {
         var triggers = try self.allocator.alloc(models.TriggerEvent, original.triggers.len);
-        for (original.triggers, 0..) |trigger, i| {
-            triggers[i] = try self.cloneTriggerEvent(trigger);
+        for (original.triggers, 0..) |trigger_evt, i| {
+            triggers[i] = try self.cloneTriggerEvent(trigger_evt);
         }
         
         var jobs = std.StringHashMap(models.Job).init(self.allocator);
@@ -819,7 +819,7 @@ test "workflow caching works correctly" {
     // Add a cache entry manually for testing
     const cache_key = try allocator.dupe(u8, "repo:123");
     
-    var cached_workflow = models.Workflow{
+    const cached_workflow = models.Workflow{
         .id = 1,
         .repository_id = 123,
         .name = try allocator.dupe(u8, "Test Workflow"),

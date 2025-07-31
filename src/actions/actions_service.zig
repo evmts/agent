@@ -101,7 +101,7 @@ pub const ActionsService = struct {
         const job_dispatcher = try allocator.create(JobDispatcher);
         errdefer allocator.destroy(job_dispatcher);
         
-        var mock_db = try allocator.create(dispatcher.DatabaseConnection);
+        const mock_db = try allocator.create(dispatcher.DatabaseConnection);
         errdefer allocator.destroy(mock_db);
         mock_db.* = try dispatcher.DatabaseConnection.init(allocator, .{});
         

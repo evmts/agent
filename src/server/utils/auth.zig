@@ -22,3 +22,28 @@ pub fn authMiddleware(r: zap.Request, ctx: anytype, allocator: std.mem.Allocator
     
     return auth_token.user_id;
 }
+
+pub const AuthResult = struct {
+    user_id: i64,
+    
+    pub fn deinit(self: *AuthResult, allocator: std.mem.Allocator) void {
+        _ = self;
+        _ = allocator;
+    }
+};
+
+pub fn authenticateRequest(r: zap.Request, allocator: std.mem.Allocator) !AuthResult {
+    const auth_header = r.getHeader("authorization") orelse {
+        return error.Unauthorized;
+    };
+    
+    if (!std.mem.startsWith(u8, auth_header, "token ")) {
+        return error.Unauthorized;
+    }
+    
+    // Simple mock authentication - in real implementation would validate token
+    _ = allocator;
+    return AuthResult{
+        .user_id = 1, // Mock user ID
+    };
+}
