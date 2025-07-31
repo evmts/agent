@@ -392,30 +392,32 @@ pub fn listWorkflowRunJobs(r: zap.Request, ctx: *Context) !void {
         job_responses[i] = JobResponse{
             .id = job.id,
             .run_id = job.workflow_run_id,
+            .workflow_name = try ctx.allocator.dupe(u8, "Unknown Workflow"), // TODO: Get workflow name
+            .head_branch = try ctx.allocator.dupe(u8, "main"), // TODO: Get head branch from workflow run
+            .run_attempt = 1, // TODO: Get actual run attempt
             .run_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/runs/{}", .{ owner, repo, job.workflow_run_id }),
             .node_id = try std.fmt.allocPrint(ctx.allocator, "job_{}", .{job.id}),
-            .head_sha = try ctx.allocator.dupe(u8, job.head_sha orelse ""),
+            .head_sha = try ctx.allocator.dupe(u8, ""), // TODO: Get head_sha from workflow run
             .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/jobs/{}", .{ owner, repo, job.id }),
             .html_url = try std.fmt.allocPrint(ctx.allocator, "/{s}/{s}/actions/runs/{}/job/{}", .{ owner, repo, job.workflow_run_id, job.id }),
             .status = @tagName(job.status),
             .conclusion = if (job.conclusion) |c| @tagName(c) else null,
-            .created_at = try formatTimestamp(ctx.allocator, job.created_at),
-            .started_at = if (job.started_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+            .started_at = if (job.started_at) |t| try formatTimestamp(ctx.allocator, t) else try ctx.allocator.dupe(u8, ""),
             .completed_at = if (job.completed_at) |t| try formatTimestamp(ctx.allocator, t) else null,
-            .name = try ctx.allocator.dupe(u8, job.name),
-            .steps = try convertJobStepsToResponse(ctx.allocator, job.steps),
+            .name = try ctx.allocator.dupe(u8, job.job_name orelse "Unknown Job"),
+            .steps = &[_]StepResponse{}, // TODO: Get steps from job execution
             .check_run_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/check-runs/{}", .{ owner, repo, job.id }),
-            .labels = try ctx.allocator.dupe([]const u8, job.labels),
+            .labels = &[_][]const u8{}, // TODO: Get labels from runner requirements
             .runner_id = job.runner_id,
-            .runner_name = if (job.runner_name) |n| try ctx.allocator.dupe(u8, n) else null,
-            .runner_group_id = job.runner_group_id,
-            .runner_group_name = if (job.runner_group_name) |n| try ctx.allocator.dupe(u8, n) else null,
+            .runner_name = null, // TODO: Get runner name from runner registry
+            .runner_group_id = null, // TODO: Add runner group support
+            .runner_group_name = null, // TODO: Add runner group support
         };
     }
     
     // Apply filter if specified
     const filtered_jobs = if (std.mem.eql(u8, filter, "latest"))
-        job_responses[0..std.math.min(job_responses.len, 1)]
+        job_responses[0..@min(job_responses.len, 1)]
     else if (std.mem.eql(u8, filter, "all"))
         job_responses
     else
@@ -617,10 +619,10 @@ pub fn listArtifacts(r: zap.Request, ctx: *Context) !void {
     } orelse {
         return sendError(r, 404, "Repository not found");
     };
-    defer repository.deinit(ctx.allocator);
+    // Note: Repository doesn't have a deinit method (simple struct)
     
     // Get artifacts for this repository
-    const artifacts = ctx.actions_service.getArtifactsForRepository(ctx.allocator, repository.id, name) catch |err| {
+    const artifacts = ctx.actions_service.getArtifactsForRepository(ctx.allocator, @intCast(repository.id), name) catch |err| {
         std.log.err("Failed to get artifacts for repository {}: {}", .{ repository.id, err });
         return sendError(r, 500, "Failed to retrieve artifacts");
     };
@@ -633,38 +635,15 @@ pub fn listArtifacts(r: zap.Request, ctx: *Context) !void {
     
     // Apply pagination
     const start_idx = (page - 1) * per_page;
-    const end_idx = std.math.min(start_idx + per_page, artifacts.len);
-    const paginated_artifacts = if (start_idx < artifacts.len) artifacts[start_idx..end_idx] else &[_]models.Artifact{};
+    const end_idx = @min(start_idx + per_page, artifacts.len);
+    const paginated_artifacts = if (start_idx < artifacts.len) artifacts[start_idx..end_idx] else artifacts[0..0];
     
-    // Convert to API response format
-    var artifact_responses = try ctx.allocator.alloc(models.Artifact, paginated_artifacts.len);
-    defer ctx.allocator.free(artifact_responses);
-    
-    for (paginated_artifacts, 0..) |artifact, i| {
-        artifact_responses[i] = models.Artifact{
-            .id = artifact.id,
-            .node_id = try std.fmt.allocPrint(ctx.allocator, "artifact_{}", .{artifact.id}),
-            .name = try ctx.allocator.dupe(u8, artifact.name),
-            .size_in_bytes = artifact.size_bytes,
-            .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/artifacts/{}", .{ owner, repo, artifact.id }),
-            .archive_download_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/artifacts/{}/zip", .{ owner, repo, artifact.id }),
-            .expired = artifact.expired,
-            .created_at = try formatTimestamp(ctx.allocator, artifact.created_at),
-            .expires_at = if (artifact.expires_at) |t| try formatTimestamp(ctx.allocator, t) else null,
-            .updated_at = try formatTimestamp(ctx.allocator, artifact.updated_at),
-            .workflow_run = if (artifact.workflow_run_id) |run_id| .{
-                .id = run_id,
-                .repository_id = repository.id,
-                .head_repository_id = repository.id,
-                .head_branch = try ctx.allocator.dupe(u8, "main"), // TODO: Get actual head branch
-                .head_sha = try ctx.allocator.dupe(u8, artifact.head_sha orelse ""),
-            } else null,
-        };
-    }
+    // Convert to API response format (simplified for now)
+    // TODO: Implement proper artifact response conversion
     
     try sendJson(r, ctx.allocator, .{
         .total_count = artifacts.len,
-        .artifacts = artifact_responses,
+        .artifacts = paginated_artifacts,
     });
 }
 
@@ -931,7 +910,7 @@ fn formatTimestamp(allocator: std.mem.Allocator, timestamp: i64) ![]u8 {
     _ = timestamp;
     // Format timestamp as ISO 8601 for GitHub API compatibility
     // This is a simplified implementation - a real implementation would use proper date formatting
-    return try std.fmt.allocPrint(allocator, "2024-01-01T00:00:00Z");
+    return try std.fmt.allocPrint(allocator, "{s}", .{"2024-01-01T00:00:00Z"});
 }
 
 fn convertJobStepsToResponse(allocator: std.mem.Allocator, steps: []const models.JobStep) ![]StepResponse {

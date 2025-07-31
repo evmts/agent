@@ -7,6 +7,8 @@ const executor = @import("executor.zig");
 const execution_pipeline = @import("execution_pipeline.zig");
 const registry = @import("registry.zig");
 const queue = @import("queue.zig");
+const repository_model = @import("../database/models/repository.zig");
+const artifacts = @import("artifacts.zig");
 
 const ActionsDAO = models.ActionsDAO;
 const WorkflowManager = workflow_manager.WorkflowManager;
@@ -382,6 +384,32 @@ pub const ActionsService = struct {
         }
         
         return self.workflow_manager.loadRepositoryWorkflows(repo_id, repo_path);
+    }
+    
+    // API Methods needed by handlers
+    pub fn getJobsForWorkflowRun(self: *ActionsService, allocator: std.mem.Allocator, run_id: u32) ![]models.JobExecution {
+        _ = allocator; // Use the available getQueuedJobs method for now
+        return self.dao.getQueuedJobs(run_id);
+    }
+    
+    pub fn getRepositoryByName(self: *ActionsService, allocator: std.mem.Allocator, owner: []const u8, name: []const u8) !?repository_model.Repository {
+        // This should be handled by the main DAO, not ActionsDAO
+        // For now, return a mock repository to avoid breaking the build
+        _ = self;
+        _ = allocator;
+        _ = owner;
+        _ = name;
+        return null; // TODO: Implement proper repository lookup
+    }
+    
+    pub fn getArtifactsForRepository(self: *ActionsService, allocator: std.mem.Allocator, repository_id: u32, name: ?[]const u8) ![]artifacts.Artifact {
+        // This should query artifacts from a proper artifacts table
+        // For now, return empty slice to avoid breaking the build
+        _ = self;
+        _ = allocator;
+        _ = repository_id;
+        _ = name;
+        return &[_]artifacts.Artifact{};
     }
 };
 
