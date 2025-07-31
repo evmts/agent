@@ -1266,7 +1266,10 @@ test "complete Actions workflow lifecycle: push to completion" {
         .commits = &[_][]const u8{try allocator.dupe(u8, "abc123def456789012345678901234567890abcd")},
         .pusher_id = 1,
     };
-    defer push_event.deinit(allocator);
+    defer {
+        var mut_push_event = push_event;
+        mut_push_event.deinit(allocator);
+    }
     
     // Step 4: Process push event through Actions service
     std.log.info("📡 Processing push event: {s} -> {s}", .{push_event.before[0..8], push_event.after[0..8]});
@@ -1284,7 +1287,10 @@ test "complete Actions workflow lifecycle: push to completion" {
         
         return; // Complete mock test successfully
     };
-    defer hook_result.deinit(allocator);
+    defer {
+        var mut_hook_result = hook_result;
+        mut_hook_result.deinit(allocator);
+    }
     
     // Step 5: Verify workflow runs were created
     try std.testing.expect(hook_result.triggered_workflows.len > 0);
@@ -1313,7 +1319,7 @@ test "complete Actions workflow lifecycle: push to completion" {
     std.log.info("  • GET /repos/test/repo/actions/runs - ✅", .{});
     std.log.info("  • GET /repos/test/repo/actions/runs/{}/jobs - ✅", .{workflow_run.id});
     std.log.info("  • GET /repos/test/repo/actions/artifacts - ✅", .{});
-    std.log.info("  • POST /repos/test/repo/statuses/{} - ✅", .{push_event.after[0..8]});
+    std.log.info("  • POST /repos/test/repo/statuses/{s} - ✅", .{push_event.after[0..8]});
     
     std.log.info("🎉 Complete Actions CI/CD integration test PASSED", .{});
     std.log.info("📊 Test Summary:", .{});
@@ -1341,7 +1347,7 @@ test "artifact upload and download workflow integration" {
     
     // Step 2: Simulate artifact upload during job execution
     const test_artifact_data = "This is test build artifact content\nGenerated during CI/CD pipeline\n";
-    const artifact_filename = "build-output.zip";
+    _ = "build-output.zip"; // artifact_filename no longer needed
     const artifact_path = "/tmp/test-build-output.zip";
     
     // Write test artifact file
@@ -1357,32 +1363,27 @@ test "artifact upload and download workflow integration" {
     // Step 3: Test artifact metadata creation
     const artifacts = @import("../../actions/artifacts.zig");
     const artifact_metadata = artifacts.Artifact{
-        .id = 1,
-        .repository_id = 1,
-        .workflow_run_id = 1,
-        .job_id = 1,
+        .id = try allocator.dupe(u8, "artifact-1"),
         .name = try allocator.dupe(u8, "build-files"),
-        .file_name = try allocator.dupe(u8, artifact_filename),
-        .size_bytes = test_artifact_data.len,
-        .storage_path = try allocator.dupe(u8, artifact_path),
+        .path = try allocator.dupe(u8, artifact_path),
+        .size = test_artifact_data.len,
         .content_type = try allocator.dupe(u8, "application/zip"),
+        .checksum = try allocator.dupe(u8, "abc123def456"),
         .created_at = std.time.timestamp(),
-        .expires_at = std.time.timestamp() + (30 * 24 * 60 * 60), // 30 days
-        .created_by_user_id = 1,
+        .job_id = 1,
     };
     defer {
+        allocator.free(artifact_metadata.id);
         allocator.free(artifact_metadata.name);
-        allocator.free(artifact_metadata.file_name);
-        allocator.free(artifact_metadata.storage_path);
+        allocator.free(artifact_metadata.path);
         allocator.free(artifact_metadata.content_type);
+        allocator.free(artifact_metadata.checksum);
     }
     
-    std.log.info("✅ Artifact metadata created: {s} ({} bytes)", .{artifact_metadata.name, artifact_metadata.size_bytes});
+    std.log.info("✅ Artifact metadata created: {s} ({d} bytes)", .{artifact_metadata.name, artifact_metadata.size});
     
     // Step 4: Test artifact storage simulation
-    const storage_key = try std.fmt.allocPrint(allocator, "repo_{}/run_{}/job_{}/{s}", .{
-        artifact_metadata.repository_id,
-        artifact_metadata.workflow_run_id,
+    const storage_key = try std.fmt.allocPrint(allocator, "job_{d}/{s}", .{
         artifact_metadata.job_id,
         artifact_metadata.name
     });
@@ -1391,39 +1392,31 @@ test "artifact upload and download workflow integration" {
     std.log.info("📤 Artifact stored with key: {s}", .{storage_key});
     
     // Step 5: Test artifact listing API compatibility
-    const mock_artifacts_list = [_]models.Artifact{artifact_metadata};
+    const mock_artifacts_list = [_]artifacts.Artifact{artifact_metadata};
     
     std.log.info("📋 Testing artifact listing API:", .{});
-    std.log.info("  • Total artifacts: {}", .{mock_artifacts_list.len});
+    std.log.info("  • Total artifacts: {d}", .{mock_artifacts_list.len});
     std.log.info("  • Artifact name: {s}", .{mock_artifacts_list[0].name});
-    std.log.info("  • Artifact size: {} bytes", .{mock_artifacts_list[0].size_bytes});
+    std.log.info("  • Artifact size: {d} bytes", .{mock_artifacts_list[0].size});
     std.log.info("  • Content type: {s}", .{mock_artifacts_list[0].content_type});
     
     // Step 6: Test artifact download API compatibility
     std.log.info("📥 Testing artifact download API:", .{});
     
     // Simulate reading artifact file for download
-    const downloaded_content = std.fs.cwd().readFileAlloc(allocator, artifact_path, 1024) catch |err| {
+    const downloaded_content = std.fs.cwd().readFileAlloc(allocator, artifact_path, 1024) catch |err| blk: {
         std.log.warn("Could not read test artifact ({}), using mock content", .{err});
-        try allocator.dupe(u8, test_artifact_data);
+        break :blk try allocator.dupe(u8, test_artifact_data);
     };
     defer allocator.free(downloaded_content);
     
     // Verify download content matches original
     const content_matches = std.mem.eql(u8, downloaded_content, test_artifact_data);
     std.log.info("  • Content verification: {s}", .{if (content_matches) "✅ PASS" else "❌ FAIL"});
-    std.log.info("  • Downloaded size: {} bytes", .{downloaded_content.len});
-    std.log.info("  • Expected size: {} bytes", .{test_artifact_data.len});
+    std.log.info("  • Downloaded size: {d} bytes", .{downloaded_content.len});
+    std.log.info("  • Expected size: {d} bytes", .{test_artifact_data.len});
     
-    // Step 7: Test artifact expiration handling
-    const current_time = std.time.timestamp();
-    const is_expired = artifact_metadata.expires_at < current_time;
-    std.log.info("  • Expiration check: {s} (expires in {} days)", .{
-        if (is_expired) "❌ EXPIRED" else "✅ VALID",
-        @divTrunc(artifact_metadata.expires_at - current_time, 24 * 60 * 60)
-    });
-    
-    // Step 8: Test artifact cleanup simulation
+    // Step 7: Test artifact cleanup simulation
     std.log.info("🧹 Testing artifact cleanup:", .{});
     std.log.info("  • Artifact retention: 30 days", .{});
     std.log.info("  • Cleanup policy: automatic", .{});

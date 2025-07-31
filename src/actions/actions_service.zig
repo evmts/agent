@@ -237,7 +237,7 @@ pub const ActionsService = struct {
             .name = runner_info.name,
             .capabilities = runner_info.capabilities,
         });
-        std.log.info("Registered runner '{}' with ID {}", .{ runner_info.name, runner_info.id });
+        std.log.info("Registered runner '{s}' with ID {}", .{ runner_info.name, runner_info.id });
     }
     
     pub fn processGitPush(self: *ActionsService, push_event: workflow_manager.PushEvent) !workflow_manager.HookResult {
