@@ -274,8 +274,6 @@ pub const WorkflowTrigger = struct {
     }
     
     pub fn matchBranches(self: *WorkflowTrigger, patterns: []const []const u8, ref: []const u8) bool {
-        _ = self;
-        
         // Extract branch name from ref
         const branch_name = if (std.mem.startsWith(u8, ref, "refs/heads/"))
             ref[11..]
@@ -292,8 +290,6 @@ pub const WorkflowTrigger = struct {
     }
     
     pub fn matchTags(self: *WorkflowTrigger, patterns: []const []const u8, ref: []const u8) bool {
-        _ = self;
-        
         // Extract tag name from ref
         const tag_name = if (std.mem.startsWith(u8, ref, "refs/tags/"))
             ref[10..]

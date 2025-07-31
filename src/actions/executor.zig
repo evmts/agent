@@ -255,7 +255,7 @@ pub const LogLevel = enum {
     debug,
     info,
     warn,
-    error,
+    @"error",
 };
 
 // Mock command execution result
@@ -274,7 +274,7 @@ pub const CommandResult = struct {
 pub const JobExecutor = struct {
     allocator: std.mem.Allocator,
     config: ExecutorConfig,
-    running_jobs: std.HashMap(u32, *RunningJob, std.HashMap.AutoContext(u32), std.hash_map.default_max_load_percentage),
+    running_jobs: std.HashMap(u32, *RunningJob, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage),
     container_runtime: ?*container.DockerRuntime = null,
     action_cache: ?*action_runner.ActionCache = null,
     step_runner: ?*action_runner.StepRunner = null,
@@ -300,7 +300,7 @@ pub const JobExecutor = struct {
         var executor = JobExecutor{
             .allocator = allocator,
             .config = config,
-            .running_jobs = std.HashMap(u32, *RunningJob, std.HashMap.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
+            .running_jobs = std.HashMap(u32, *RunningJob, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
         };
         
         // Initialize container runtime if needed
@@ -434,7 +434,7 @@ pub const JobExecutor = struct {
         }
         
         // Calculate resource usage and performance metrics
-        const total_execution_time_ms = @as(u64, @intCast((completed_at - started_at) * 1000));
+        _ = @as(u64, @intCast((completed_at - started_at) * 1000));
         var resource_usage = ResourceUsage{
             .wall_time_seconds = @as(f64, @floatFromInt(completed_at - started_at)),
         };
@@ -479,8 +479,6 @@ pub const JobExecutor = struct {
     }
     
     fn executeStep(self: *JobExecutor, step: Step, environment: ExecutionEnvironment) !StepResult {
-        _ = environment;
-        
         const started_at = std.time.timestamp();
         
         var step_result = StepResult{

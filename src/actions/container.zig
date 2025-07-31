@@ -103,13 +103,13 @@ pub const ContainerError = error{
 // Docker runtime implementation
 pub const DockerRuntime = struct {
     allocator: std.mem.Allocator,
-    containers: std.HashMap([]const u8, *Container, std.HashMap.StringContext, std.hash_map.default_max_load_percentage),
+    containers: std.HashMap([]const u8, *Container, std.hash_map.StringContext, std.hash_map.default_max_load_percentage),
     next_container_id: u32 = 1,
     
     pub fn init(allocator: std.mem.Allocator) !DockerRuntime {
         return DockerRuntime{
             .allocator = allocator,
-            .containers = std.HashMap([]const u8, *Container, std.HashMap.StringContext, std.hash_map.default_max_load_percentage).init(allocator),
+            .containers = std.HashMap([]const u8, *Container, std.hash_map.StringContext, std.hash_map.default_max_load_percentage).init(allocator),
         };
     }
     
@@ -381,7 +381,7 @@ test "enforces resource limits and timeouts" {
     // Test timeout enforcement
     const start_time = std.time.timestamp();
     
-    const exec_result = container_runtime.executeCommand(container.id, .{
+    _ = container_runtime.executeCommand(container.id, .{
         .command = &.{ "sleep", "10" },
         .timeout_seconds = 2, // Should timeout after 2 seconds
     }) catch |err| switch (err) {

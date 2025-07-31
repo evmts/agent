@@ -96,8 +96,8 @@ pub const ExecutionPipeline = struct {
     job_dispatcher: *JobDispatcher,
     job_executor: *JobExecutor,
     status: PipelineStatus,
-    active_runs: std.HashMap(u32, *ActiveWorkflowRun, std.HashMap.AutoContext(u32), std.hash_map.default_max_load_percentage),
-    runner_assignments: std.HashMap(u32, RunnerAssignment, std.HashMap.AutoContext(u32), std.hash_map.default_max_load_percentage),
+    active_runs: std.HashMap(u32, *ActiveWorkflowRun, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage),
+    runner_assignments: std.HashMap(u32, RunnerAssignment, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage),
     event_listeners: std.ArrayList(*const fn (PipelineEvent) void),
     
     const ActiveWorkflowRun = struct {
@@ -154,19 +154,19 @@ pub const ExecutionPipeline = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         dao: *ActionsDAO,
-        workflow_manager: *WorkflowManager,
+        workflow_mgr: *WorkflowManager,
         job_dispatcher: *JobDispatcher,
         job_executor: *JobExecutor,
     ) ExecutionPipeline {
         return ExecutionPipeline{
             .allocator = allocator,
             .dao = dao,
-            .workflow_manager = workflow_manager,
+            .workflow_manager = workflow_mgr,
             .job_dispatcher = job_dispatcher,
             .job_executor = job_executor,
             .status = .idle,
-            .active_runs = std.HashMap(u32, *ActiveWorkflowRun, std.HashMap.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
-            .runner_assignments = std.HashMap(u32, RunnerAssignment, std.HashMap.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
+            .active_runs = std.HashMap(u32, *ActiveWorkflowRun, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
+            .runner_assignments = std.HashMap(u32, RunnerAssignment, std.hash_map.AutoContext(u32), std.hash_map.default_max_load_percentage).init(allocator),
             .event_listeners = std.ArrayList(*const fn (PipelineEvent) void).init(allocator),
         };
     }
@@ -363,8 +363,8 @@ pub const ExecutionPipeline = struct {
     
     pub fn getExecutionStats(self: *ExecutionPipeline) !ExecutionStats {
         var active_runs: u32 = 0;
-        var completed_runs: u32 = 0;
-        var failed_runs: u32 = 0;
+        const completed_runs: u32 = 0;
+        const failed_runs: u32 = 0;
         var queued_jobs: u32 = 0;
         var running_jobs: u32 = 0;
         
@@ -557,8 +557,8 @@ test "execution pipeline initializes correctly" {
     var job_dispatcher = try dispatcher.JobDispatcher.init(allocator, .{ .db = &mock_db });
     defer job_dispatcher.deinit();
     
-    var workflow_manager = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
-    defer workflow_manager.deinit();
+    var workflow_mgr = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
+    defer workflow_mgr.deinit();
     
     var job_executor = try executor.JobExecutor.init(allocator, .{});
     defer job_executor.deinit();
@@ -567,7 +567,7 @@ test "execution pipeline initializes correctly" {
     var pipeline = ExecutionPipeline.init(
         allocator,
         &mock_dao,
-        &workflow_manager,
+        &workflow_mgr,
         &job_dispatcher,
         &job_executor,
     );
@@ -596,8 +596,8 @@ test "execution pipeline tracks workflow run lifecycle" {
     var job_dispatcher = try dispatcher.JobDispatcher.init(allocator, .{ .db = &mock_db });
     defer job_dispatcher.deinit();
     
-    var workflow_manager = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
-    defer workflow_manager.deinit();
+    var workflow_mgr = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
+    defer workflow_mgr.deinit();
     
     var job_executor = try executor.JobExecutor.init(allocator, .{});
     defer job_executor.deinit();
@@ -605,7 +605,7 @@ test "execution pipeline tracks workflow run lifecycle" {
     var pipeline = ExecutionPipeline.init(
         allocator,
         &mock_dao,
-        &workflow_manager,
+        &workflow_mgr,
         &job_dispatcher,
         &job_executor,
     );
@@ -636,8 +636,8 @@ test "execution pipeline generates execution statistics" {
     var job_dispatcher = try dispatcher.JobDispatcher.init(allocator, .{ .db = &mock_db });
     defer job_dispatcher.deinit();
     
-    var workflow_manager = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
-    defer workflow_manager.deinit();
+    var workflow_mgr = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
+    defer workflow_mgr.deinit();
     
     var job_executor = try executor.JobExecutor.init(allocator, .{});
     defer job_executor.deinit();
@@ -645,7 +645,7 @@ test "execution pipeline generates execution statistics" {
     var pipeline = ExecutionPipeline.init(
         allocator,
         &mock_dao,
-        &workflow_manager,
+        &workflow_mgr,
         &job_dispatcher,
         &job_executor,
     );
@@ -673,8 +673,8 @@ test "execution pipeline handles runner polling" {
     var job_dispatcher = try dispatcher.JobDispatcher.init(allocator, .{ .db = &mock_db });
     defer job_dispatcher.deinit();
     
-    var workflow_manager = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
-    defer workflow_manager.deinit();
+    var workflow_mgr = try workflow_manager.WorkflowManager.init(allocator, &mock_dao, &job_dispatcher);
+    defer workflow_mgr.deinit();
     
     var job_executor = try executor.JobExecutor.init(allocator, .{});
     defer job_executor.deinit();
@@ -682,7 +682,7 @@ test "execution pipeline handles runner polling" {
     var pipeline = ExecutionPipeline.init(
         allocator,
         &mock_dao,
-        &workflow_manager,
+        &workflow_mgr,
         &job_dispatcher,
         &job_executor,
     );
