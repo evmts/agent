@@ -326,12 +326,12 @@ pub const WorkflowManager = struct {
             }
             
             if (self.execution_pipeline != null) {
-                std.log.info("Triggered workflow '{}' run #{} via execution pipeline", .{
+                std.log.info("Triggered workflow '{s}' run #{d} via execution pipeline", .{
                     workflow.name,
                     run.run_number,
                 });
             } else {
-                std.log.info("Triggered workflow '{}' run #{} with direct job queuing", .{
+                std.log.info("Triggered workflow '{s}' run #{d} with direct job queuing", .{
                     workflow.name,
                     run.run_number,
                 });
@@ -404,8 +404,11 @@ pub const WorkflowManager = struct {
         // Update workflow run status based on job states
         if (all_completed) {
             const conclusion: WorkflowRun.RunConclusion = if (has_failures) .failure else .success;
-            // TODO: Update workflow run in database with completed status and conclusion
-            _ = conclusion;
+            try self.dao.updateWorkflowRun(run_id, .{
+                .status = .completed,
+                .conclusion = conclusion,
+                .completed_at = std.time.timestamp(),
+            });
         }
     }
     
@@ -767,15 +770,18 @@ test "push event evaluation works correctly" {
     var manager = try WorkflowManager.init(allocator, &mock_dao, &mock_dispatcher);
     defer manager.deinit();
     
+    // Create branches array first
+    var branches = try allocator.alloc([]const u8, 1);
+    branches[0] = try allocator.dupe(u8, "main");
+    
     // Create a simple push trigger
     var push_trigger = models.TriggerEvent{
         .push = .{
-            .branches = try allocator.alloc([]const u8, 1),
+            .branches = branches,
             .tags = try allocator.alloc([]const u8, 0),
             .paths = try allocator.alloc([]const u8, 0),
         },
     };
-    push_trigger.push.branches[0] = try allocator.dupe(u8, "main");
     defer push_trigger.deinit(allocator);
     
     const triggers = [_]models.TriggerEvent{push_trigger};

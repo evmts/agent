@@ -527,7 +527,7 @@ pub const StepRunner = struct {
         var args = std.ArrayList([]const u8).init(self.allocator);
         defer args.deinit();
         
-        var token_iter = std.mem.tokenize(u8, command, " ");
+        var token_iter = std.mem.tokenizeScalar(u8, command, ' ');
         while (token_iter.next()) |token| {
             try args.append(token);
         }

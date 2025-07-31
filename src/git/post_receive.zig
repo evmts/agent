@@ -340,7 +340,7 @@ pub const PostReceiveHook = struct {
             // Process the push event through workflow manager
             const result = try workflow_manager.processPushEvent(push_event);
             
-            std.log.info("Post-receive hook processed push to {s}: {} workflows triggered, {} errors", .{
+            std.log.info("Post-receive hook processed push to {s}: {d} workflows triggered, {d} errors", .{
                 ref_update.ref_name,
                 result.triggered_workflows.len,
                 result.errors.len,

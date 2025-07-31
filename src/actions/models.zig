@@ -244,22 +244,9 @@ pub const Workflow = struct {
         };
         workflow.triggers = triggers;
         
-        // Create a simple test job
-        var test_job = Job{
-            .id = try allocator.dupe(u8, "test"),
-            .name = try allocator.dupe(u8, "Test Job"),
-            .runs_on = try allocator.dupe(u8, "ubuntu-latest"),
-            .needs = try allocator.alloc([]const u8, 0),
-            .if_condition = null,
-            .strategy = null,
-            .steps = try allocator.alloc(JobStep, 2),
-            .timeout_minutes = 360,
-            .environment = std.StringHashMap([]const u8).init(allocator),
-            .continue_on_error = false,
-        };
-        
-        // Add test steps
-        test_job.steps[0] = JobStep{
+        // Create test steps first
+        var steps = try allocator.alloc(JobStep, 2);
+        steps[0] = JobStep{
             .name = try allocator.dupe(u8, "Checkout"),
             .uses = try allocator.dupe(u8, "actions/checkout@v3"),
             .run = null,
@@ -270,7 +257,7 @@ pub const Workflow = struct {
             .timeout_minutes = 5,
         };
         
-        test_job.steps[1] = JobStep{
+        steps[1] = JobStep{
             .name = try allocator.dupe(u8, "Run tests"),
             .uses = null,
             .run = try allocator.dupe(u8, "npm test"),
@@ -279,6 +266,20 @@ pub const Workflow = struct {
             .if_condition = null,
             .continue_on_error = false,
             .timeout_minutes = 30,
+        };
+        
+        // Create a simple test job
+        const test_job = Job{
+            .id = try allocator.dupe(u8, "test"),
+            .name = try allocator.dupe(u8, "Test Job"),
+            .runs_on = try allocator.dupe(u8, "ubuntu-latest"),
+            .needs = try allocator.alloc([]const u8, 0),
+            .if_condition = null,
+            .strategy = null,
+            .steps = steps,
+            .timeout_minutes = 360,
+            .environment = std.StringHashMap([]const u8).init(allocator),
+            .continue_on_error = false,
         };
         
         try workflow.jobs.put(try allocator.dupe(u8, "test"), test_job);
@@ -713,6 +714,87 @@ pub const ActionsDAO = struct {
         }
         
         return ActionsError.WorkflowNotFound;
+    }
+    
+    pub fn updateWorkflowRun(self: *ActionsDAO, run_id: u32, update_data: struct {
+        status: ?WorkflowRun.RunStatus = null,
+        conclusion: ?WorkflowRun.RunConclusion = null,
+        completed_at: ?i64 = null,
+    }) !void {
+        // Simple approach: build different SQL strings based on what needs updating
+        if (update_data.status != null and update_data.conclusion != null and update_data.completed_at != null) {
+            // Update all three fields
+            const status_str = switch (update_data.status.?) {
+                .queued => "queued",
+                .in_progress => "in_progress", 
+                .completed => "completed",
+                .cancelled => "cancelled",
+            };
+            const conclusion_str = switch (update_data.conclusion.?) {
+                .success => "success",
+                .failure => "failure",
+                .cancelled => "cancelled",
+                .timed_out => "timed_out",
+            };
+            var result = try self.pool.exec(
+                "UPDATE workflow_runs SET status = $1, conclusion = $2, completed_at = to_timestamp($3) AT TIME ZONE 'UTC' WHERE id = $4",
+                .{ status_str, conclusion_str, update_data.completed_at.?, run_id }
+            );
+            defer result.deinit();
+        } else if (update_data.status != null and update_data.conclusion != null) {
+            // Update status and conclusion
+            const status_str = switch (update_data.status.?) {
+                .queued => "queued",
+                .in_progress => "in_progress", 
+                .completed => "completed",
+                .cancelled => "cancelled",
+            };
+            const conclusion_str = switch (update_data.conclusion.?) {
+                .success => "success",
+                .failure => "failure",
+                .cancelled => "cancelled",
+                .timed_out => "timed_out",
+            };
+            var result = try self.pool.exec(
+                "UPDATE workflow_runs SET status = $1, conclusion = $2 WHERE id = $3",
+                .{ status_str, conclusion_str, run_id }
+            );
+            defer result.deinit();
+        } else if (update_data.status != null) {
+            // Update status only
+            const status_str = switch (update_data.status.?) {
+                .queued => "queued",
+                .in_progress => "in_progress", 
+                .completed => "completed",
+                .cancelled => "cancelled",
+            };
+            var result = try self.pool.exec(
+                "UPDATE workflow_runs SET status = $1 WHERE id = $2",
+                .{ status_str, run_id }
+            );
+            defer result.deinit();
+        } else if (update_data.conclusion != null) {
+            // Update conclusion only
+            const conclusion_str = switch (update_data.conclusion.?) {
+                .success => "success",
+                .failure => "failure",
+                .cancelled => "cancelled",
+                .timed_out => "timed_out",
+            };
+            var result = try self.pool.exec(
+                "UPDATE workflow_runs SET conclusion = $1 WHERE id = $2",
+                .{ conclusion_str, run_id }
+            );
+            defer result.deinit();
+        } else if (update_data.completed_at != null) {
+            // Update completed_at only
+            var result = try self.pool.exec(
+                "UPDATE workflow_runs SET completed_at = to_timestamp($1) AT TIME ZONE 'UTC' WHERE id = $2",
+                .{ update_data.completed_at.?, run_id }
+            );
+            defer result.deinit();
+        }
+        // If no fields to update, do nothing
     }
     
     // Job operations  
