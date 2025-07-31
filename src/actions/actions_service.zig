@@ -219,7 +219,7 @@ pub const ActionsService = struct {
         try self.job_dispatcher.stop();
         
         self.status = .stopped;
-        std.started_at = null;
+        self.started_at = null;
         std.log.info("Actions service stopped", .{});
     }
     
@@ -232,7 +232,11 @@ pub const ActionsService = struct {
             return ActionsServiceError.ServiceNotRunning;
         }
         
-        try self.job_dispatcher.registerRunner(runner_info);
+        try self.job_dispatcher.registerRunner(.{
+            .id = runner_info.id,
+            .name = runner_info.name,
+            .capabilities = runner_info.capabilities,
+        });
         std.log.info("Registered runner '{}' with ID {}", .{ runner_info.name, runner_info.id });
     }
     

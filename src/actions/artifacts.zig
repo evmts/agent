@@ -209,8 +209,7 @@ pub const ArtifactStorage = struct {
     }
     
     pub fn deleteArtifact(self: *ArtifactStorage, artifact_id: []const u8) !void {
-        const removed = self.artifacts.remove(artifact_id);
-        if (removed) {
+        if (self.artifacts.fetchRemove(artifact_id)) |removed| {
             // Delete from storage backend
             switch (self.config.backend) {
                 .filesystem => {

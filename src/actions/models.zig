@@ -232,13 +232,17 @@ pub const Workflow = struct {
         // Create a simple push trigger for testing
         const branches = try allocator.alloc([]const u8, 1);
         branches[0] = try allocator.dupe(u8, "main");
-        workflow.triggers[0] = TriggerEvent{
+        
+        // Create the triggers array with the trigger
+        var triggers = try allocator.alloc(TriggerEvent, 1);
+        triggers[0] = TriggerEvent{
             .push = .{
                 .branches = branches,
                 .tags = try allocator.alloc([]const u8, 0),
                 .paths = try allocator.alloc([]const u8, 0),
             },
         };
+        workflow.triggers = triggers;
         
         // Create a simple test job
         var test_job = Job{
@@ -1118,7 +1122,7 @@ test "creates Actions database schema" {
     defer pool.deinit();
     
     // For now, just verify the DAO can be created
-    var actions_dao = ActionsDAO.init(allocator, &pool);
+    var actions_dao = ActionsDAO.init(allocator, pool);
     defer actions_dao.deinit();
     
     // Basic functionality test
@@ -1232,10 +1236,15 @@ test "Runner capabilities match job requirements" {
     };
     defer capabilities.deinit(allocator);
     
+    // Create labels array first
+    var labels = try allocator.alloc([]const u8, 2);
+    labels[0] = try allocator.dupe(u8, "ubuntu-latest");
+    labels[1] = try allocator.dupe(u8, "x64");
+    
     var runner = Runner{
         .id = 1,
         .name = try allocator.dupe(u8, "test-runner"),
-        .labels = try allocator.alloc([]const u8, 2),
+        .labels = labels,
         .repository_id = 123,
         .organization_id = null,
         .user_id = null,
@@ -1251,9 +1260,6 @@ test "Runner capabilities match job requirements" {
         .updated_at = std.time.timestamp(),
     };
     defer runner.deinit(allocator);
-    
-    runner.labels[0] = try allocator.dupe(u8, "ubuntu-latest");
-    runner.labels[1] = try allocator.dupe(u8, "x64");
     
     try testing.expectEqualStrings("test-runner", runner.name);
     try testing.expectEqual(Runner.RunnerStatus.online, runner.status);

@@ -46,7 +46,7 @@ pub const Action = struct {
     path: []const u8,
     metadata: ActionMetadata,
     
-    pub fn deinit(self: Action, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Action, allocator: std.mem.Allocator) void {
         self.ref.deinit(allocator);
         allocator.free(self.path);
         self.metadata.deinit(allocator);
@@ -444,7 +444,7 @@ pub const StepRunner = struct {
         const start_time = std.time.milliTimestamp();
         
         // Get action from cache
-        const action = try self.action_cache.getAction(action_ref);
+        var action = try self.action_cache.getAction(action_ref);
         defer action.deinit(self.allocator);
         
         var result = ActionResult{

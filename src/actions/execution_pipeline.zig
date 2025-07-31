@@ -111,9 +111,7 @@ pub const ExecutionPipeline = struct {
         pub fn deinit(self: *ActiveWorkflowRun, allocator: std.mem.Allocator) void {
             self.workflow_run.deinit(allocator);
             
-            for (self.queued_jobs.items) |*job| {
-                job.deinit(allocator);
-            }
+            // QueuedJob doesn't need deinit (simple struct)
             self.queued_jobs.deinit();
             
             self.running_jobs.deinit();

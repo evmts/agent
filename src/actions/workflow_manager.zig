@@ -723,7 +723,7 @@ test "WorkflowManager initialization" {
     var mock_dao = models.ActionsDAO.init(allocator, undefined);
     defer mock_dao.deinit();
     
-    var mock_dispatcher = dispatcher.JobDispatcher.init(allocator, undefined);
+    var mock_dispatcher = try dispatcher.JobDispatcher.init(allocator, undefined);
     defer mock_dispatcher.deinit();
     
     var manager = try WorkflowManager.init(allocator, &mock_dao, &mock_dispatcher);
@@ -739,7 +739,7 @@ test "workflow discovery handles missing directory gracefully" {
     var mock_dao = models.ActionsDAO.init(allocator, undefined);
     defer mock_dao.deinit();
     
-    var mock_dispatcher = dispatcher.JobDispatcher.init(allocator, undefined);
+    var mock_dispatcher = try dispatcher.JobDispatcher.init(allocator, undefined);
     defer mock_dispatcher.deinit();
     
     var manager = try WorkflowManager.init(allocator, &mock_dao, &mock_dispatcher);
@@ -761,7 +761,7 @@ test "push event evaluation works correctly" {
     var mock_dao = models.ActionsDAO.init(allocator, undefined);
     defer mock_dao.deinit();
     
-    var mock_dispatcher = dispatcher.JobDispatcher.init(allocator, undefined);
+    var mock_dispatcher = try dispatcher.JobDispatcher.init(allocator, undefined);
     defer mock_dispatcher.deinit();
     
     var manager = try WorkflowManager.init(allocator, &mock_dao, &mock_dispatcher);
@@ -810,7 +810,7 @@ test "workflow caching works correctly" {
     var mock_dao = models.ActionsDAO.init(allocator, undefined);
     defer mock_dao.deinit();
     
-    var mock_dispatcher = dispatcher.JobDispatcher.init(allocator, undefined);
+    var mock_dispatcher = try dispatcher.JobDispatcher.init(allocator, undefined);
     defer mock_dispatcher.deinit();
     
     var manager = try WorkflowManager.init(allocator, &mock_dao, &mock_dispatcher);
