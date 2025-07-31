@@ -602,12 +602,61 @@ pub fn listArtifacts(r: zap.Request, ctx: *Context) !void {
     const page = std.fmt.parseInt(u32, page_str, 10) catch 1;
     const per_page = std.fmt.parseInt(u32, per_page_str, 10) catch 30;
     
-    _ = owner; _ = repo; _ = page; _ = per_page; _ = name;
+    // Get repository to validate access
+    const repository = ctx.actions_service.getRepositoryByName(ctx.allocator, owner, repo) catch |err| {
+        std.log.err("Failed to get repository {s}/{s}: {}", .{ owner, repo, err });
+        return sendError(r, 500, "Failed to retrieve repository");
+    } orelse {
+        return sendError(r, 404, "Repository not found");
+    };
+    defer repository.deinit(ctx.allocator);
     
-    // For now, return empty list
+    // Get artifacts for this repository
+    const artifacts = ctx.actions_service.getArtifactsForRepository(ctx.allocator, repository.id, name) catch |err| {
+        std.log.err("Failed to get artifacts for repository {}: {}", .{ repository.id, err });
+        return sendError(r, 500, "Failed to retrieve artifacts");
+    };
+    defer {
+        for (artifacts) |*artifact| {
+            artifact.deinit(ctx.allocator);
+        }
+        ctx.allocator.free(artifacts);
+    }
+    
+    // Apply pagination
+    const start_idx = (page - 1) * per_page;
+    const end_idx = std.math.min(start_idx + per_page, artifacts.len);
+    const paginated_artifacts = if (start_idx < artifacts.len) artifacts[start_idx..end_idx] else &[_]models.Artifact{};
+    
+    // Convert to API response format
+    var artifact_responses = try ctx.allocator.alloc(ArtifactResponse, paginated_artifacts.len);
+    defer ctx.allocator.free(artifact_responses);
+    
+    for (paginated_artifacts, 0..) |artifact, i| {
+        artifact_responses[i] = ArtifactResponse{
+            .id = artifact.id,
+            .node_id = try std.fmt.allocPrint(ctx.allocator, "artifact_{}", .{artifact.id}),
+            .name = try ctx.allocator.dupe(u8, artifact.name),
+            .size_in_bytes = artifact.size_bytes,
+            .url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/artifacts/{}", .{ owner, repo, artifact.id }),
+            .archive_download_url = try std.fmt.allocPrint(ctx.allocator, "/api/v1/repos/{s}/{s}/actions/artifacts/{}/zip", .{ owner, repo, artifact.id }),
+            .expired = artifact.expired,
+            .created_at = try formatTimestamp(ctx.allocator, artifact.created_at),
+            .expires_at = if (artifact.expires_at) |t| try formatTimestamp(ctx.allocator, t) else null,
+            .updated_at = try formatTimestamp(ctx.allocator, artifact.updated_at),
+            .workflow_run = if (artifact.workflow_run_id) |run_id| .{
+                .id = run_id,
+                .repository_id = repository.id,
+                .head_repository_id = repository.id,
+                .head_branch = try ctx.allocator.dupe(u8, "main"), // TODO: Get actual head branch
+                .head_sha = try ctx.allocator.dupe(u8, artifact.head_sha orelse ""),
+            } else null,
+        };
+    }
+    
     try sendJson(r, ctx.allocator, .{
-        .total_count = 0,
-        .artifacts = &[_]struct {}{},
+        .total_count = artifacts.len,
+        .artifacts = artifact_responses,
     });
 }
 
@@ -779,6 +828,118 @@ fn parseQueryParams(allocator: std.mem.Allocator, query: ?[]const u8) !std.Strin
     }
     
     return params;
+}
+
+/// GET /repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip
+pub fn downloadArtifact(r: zap.Request, ctx: *Context) !void {
+    const path_params = parseArtifactPath(r.path orelse "/");
+    if (path_params == null) {
+        return sendError(r, 400, "Invalid artifact path");
+    }
+    
+    const owner = path_params.?.owner;
+    const repo = path_params.?.repo;
+    const artifact_id = path_params.?.artifact_id;
+    
+    // Get artifact details
+    const artifact = ctx.actions_service.getArtifactById(ctx.allocator, artifact_id) catch |err| {
+        std.log.err("Failed to get artifact {}: {}", .{ artifact_id, err });
+        return sendError(r, 500, "Failed to retrieve artifact");
+    } orelse {
+        return sendError(r, 404, "Artifact not found");
+    };
+    defer artifact.deinit(ctx.allocator);
+    
+    // Check if artifact has expired
+    if (artifact.expired) {
+        return sendError(r, 410, "Artifact has expired");
+    }
+    
+    // Get artifact file path from storage
+    const file_path = try ctx.actions_service.getArtifactStoragePath(ctx.allocator, artifact_id);
+    defer ctx.allocator.free(file_path);
+    
+    // Read artifact file
+    const file_content = std.fs.cwd().readFileAlloc(ctx.allocator, file_path, 100 * 1024 * 1024) catch |err| { // 100MB limit
+        std.log.err("Failed to read artifact file {s}: {}", .{ file_path, err });
+        return sendError(r, 500, "Failed to read artifact file");
+    };
+    defer ctx.allocator.free(file_content);
+    
+    // Return artifact as downloadable zip
+    r.setStatus(@enumFromInt(200));
+    r.setHeader("Content-Type", "application/zip") catch {};
+    const filename = try std.fmt.allocPrint(ctx.allocator, "attachment; filename=\"{s}.zip\"", .{artifact.name});
+    defer ctx.allocator.free(filename);
+    r.setHeader("Content-Disposition", filename) catch {};
+    const content_length = try std.fmt.allocPrint(ctx.allocator, "{}", .{file_content.len});
+    defer ctx.allocator.free(content_length);
+    r.setHeader("Content-Length", content_length) catch {};
+    
+    try r.sendBody(file_content);
+}
+
+const ArtifactPathParams = struct {
+    owner: []const u8,
+    repo: []const u8,
+    artifact_id: u32,
+    
+    pub fn deinit(self: ArtifactPathParams, allocator: std.mem.Allocator) void {
+        allocator.free(self.owner);
+        allocator.free(self.repo);
+    }
+};
+
+fn parseArtifactPath(path: []const u8) ?ArtifactPathParams {
+    // Parse path like: /repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip
+    var parts = std.mem.splitScalar(u8, path, '/');
+    
+    // Skip empty part before first slash
+    _ = parts.next();
+    
+    const repos_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, repos_part, "repos")) return null;
+    
+    const owner = parts.next() orelse return null;
+    const repo = parts.next() orelse return null;
+    
+    const actions_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, actions_part, "actions")) return null;
+    
+    const artifacts_part = parts.next() orelse return null;
+    if (!std.mem.eql(u8, artifacts_part, "artifacts")) return null;
+    
+    const artifact_id_str = parts.next() orelse return null;
+    const artifact_id = std.fmt.parseInt(u32, artifact_id_str, 10) catch return null;
+    
+    return ArtifactPathParams{
+        .owner = owner,
+        .repo = repo,
+        .artifact_id = artifact_id,
+    };
+}
+
+fn formatTimestamp(allocator: std.mem.Allocator, timestamp: i64) ![]u8 {
+    // Format timestamp as ISO 8601 for GitHub API compatibility
+    // This is a simplified implementation - a real implementation would use proper date formatting
+    return try std.fmt.allocPrint(allocator, "2024-01-01T00:00:00Z");
+}
+
+fn convertJobStepsToResponse(allocator: std.mem.Allocator, steps: []const models.JobStep) ![]StepResponse {
+    var step_responses = try allocator.alloc(StepResponse, steps.len);
+    
+    for (steps, 0..) |step, i| {
+        step_responses[i] = StepResponse{
+            .name = try allocator.dupe(u8, step.name),
+            .status = @tagName(step.status),
+            .conclusion = if (step.conclusion) |c| @tagName(c) else null,
+            .number = @intCast(i + 1),
+            .started_at = if (step.started_at) |t| try formatTimestamp(allocator, t) else null,
+            .completed_at = if (step.completed_at) |t| try formatTimestamp(allocator, t) else null,
+        };
+    }
+    
+    return step_responses;
 }
 
 // Integration test for workflow parsing and job execution
