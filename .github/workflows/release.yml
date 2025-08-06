@@ -193,7 +193,7 @@ jobs:
     needs: [build-release, validate-release]
     steps:
     - name: Download release artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: release-macos-universal
 
@@ -235,7 +235,7 @@ jobs:
         fetch-depth: 0
 
     - name: Download all release artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: release-macos-universal
 
