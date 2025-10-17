@@ -143,6 +143,9 @@ func executeRead(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 		title = fmt.Sprintf("%s (lines %d-%d)", relPath, offset+1, offset+linesRead)
 	}
 
+	// Mark file as read for write tracking
+	MarkFileRead(filePath)
+
 	return ToolResult{
 		Title:  title,
 		Output: output.String(),

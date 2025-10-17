@@ -44,6 +44,20 @@ func NewToolRegistry() *ToolRegistry {
 	// Register built-in tools
 	registry.Register(BashTool())
 	registry.Register(ReadTool())
+	registry.Register(EditTool())
+	registry.Register(WriteTool())
+	registry.Register(GrepTool())
+	registry.Register(LspHoverTool())
+	registry.Register(LspDiagnosticsTool())
+	registry.Register(GlobTool())
+	registry.Register(MultiEditTool())
+	registry.Register(ListTool())
+	registry.Register(TaskTool())
+	registry.Register(PatchTool())
+	registry.Register(WebFetchTool())
+	registry.Register(WebSearchTool())
+	registry.Register(TodoWriteTool())
+	registry.Register(TodoReadTool())
 
 	return registry
 }
