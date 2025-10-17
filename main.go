@@ -508,14 +508,24 @@ func main() {
 				Aliases: []string{"i"},
 				Usage:   "Run in interactive TUI mode",
 			},
+			&cli.StringFlag{
+				Name:    "prompt",
+				Aliases: []string{"p"},
+				Usage:   "Send a single prompt and exit (non-interactive mode)",
+			},
 		},
 		Action: func(c *cli.Context) error {
-			if c.Bool("interactive") {
-				apiKey := os.Getenv("ANTHROPIC_API_KEY")
-				if apiKey == "" {
-					return fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
-				}
+			apiKey := os.Getenv("ANTHROPIC_API_KEY")
+			if apiKey == "" {
+				return fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
+			}
 
+			prompt := c.String("prompt")
+			if prompt != "" {
+				// Non-interactive mode: send prompt and exit
+				return runNonInteractive(apiKey, prompt)
+			} else if c.Bool("interactive") {
+				// Interactive TUI mode
 				p := tea.NewProgram(initialModel(apiKey), tea.WithAltScreen())
 				if _, err := p.Run(); err != nil {
 					return err
@@ -529,5 +539,99 @@ func main() {
 
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// runNonInteractive sends a single prompt to Claude and prints the result
+func runNonInteractive(apiKey, prompt string) error {
+	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+	registry := tool.NewToolRegistry()
+	ctx := context.Background()
+
+	fmt.Printf("User: %s\n\n", prompt)
+
+	// Send initial request
+	msg := sendToClaudeAPIWithTools(
+		client,
+		anthropic.Model("claude-sonnet-4-5-20250929"),
+		[]message{},
+		prompt,
+		registry,
+		normalMode,
+	)
+
+	// Process the conversation loop
+	messages := []message{{role: "user", content: prompt}}
+
+	for {
+		switch m := msg.(type) {
+		case responseMsg:
+			fmt.Printf("Assistant: %s\n", string(m))
+			return nil
+
+		case toolUseMsg:
+			fmt.Printf("🔧 Using tool: %s\n", m.toolName)
+
+			// Execute the tool
+			result, err := registry.Execute(m.toolName, m.input, tool.ToolContext{
+				SessionID: "cli",
+				Abort:     ctx,
+				Mode:      "normal",
+			})
+
+			if err != nil {
+				result.Error = err
+			}
+
+			// Display tool result
+			fmt.Printf("└─ Result: %s\n", result.Output)
+			if result.Error != nil {
+				fmt.Printf("   Error: %v\n", result.Error)
+			}
+			fmt.Println()
+
+			// Add messages to history
+			messages = append(messages, message{
+				role:         "assistant",
+				content:      fmt.Sprintf("Using tool: %s", m.toolName),
+				isToolUse:    true,
+				toolName:     m.toolName,
+				toolUseID:    m.toolID,
+				toolUseBlock: &m.toolUseBlock,
+			})
+
+			resultContent := result.Output
+			if resultContent == "" {
+				resultContent = "(empty output)"
+			}
+			messages = append(messages, message{
+				role:         "tool_result",
+				content:      resultContent,
+				isToolResult: true,
+				toolName:     m.toolName,
+				toolUseID:    m.toolID,
+				Error:        result.Error,
+			})
+
+			// Continue conversation with tool result
+			msg = continueWithToolResult(
+				client,
+				anthropic.Model("claude-sonnet-4-5-20250929"),
+				messages,
+				toolResultMsg{
+					toolName: m.toolName,
+					toolID:   m.toolID,
+					result:   result,
+				},
+				registry,
+				normalMode,
+			)
+
+		case errMsg:
+			return fmt.Errorf("error: %v", m)
+
+		default:
+			return fmt.Errorf("unexpected message type")
+		}
 	}
 }
