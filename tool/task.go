@@ -11,41 +11,90 @@ type Agent struct {
 	Description string
 	Mode        string
 	Tools       map[string]bool
+	BuiltIn     bool
+	TopP        *float64
+	Temperature *float64
+	Model       *ModelConfig
+	Prompt      string
+	Options     map[string]interface{}
+	Permission  PermissionConfig
+}
+
+// ModelConfig represents model configuration
+type ModelConfig struct {
+	ModelID    string
+	ProviderID string
+}
+
+// PermissionConfig represents permission settings
+type PermissionConfig struct {
+	Edit     string
+	Bash     map[string]string
+	WebFetch string
 }
 
 // DefaultAgents returns the list of available agent types
 func DefaultAgents() []Agent {
 	return []Agent{
 		{
-			Name:        "research",
-			Description: "Use this agent for complex research tasks that require searching through multiple files and analyzing code patterns",
-			Mode:        "normal",
+			Name:        "general",
+			Description: "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you.",
+			Mode:        "subagent",
+			BuiltIn:     true,
 			Tools: map[string]bool{
-				"read":   true,
-				"grep":   true,
-				"glob":   true,
-				"bash":   true,
-				"task":   false, // Agents can't spawn other task agents
+				"todoread":  false,
+				"todowrite": false,
+				"task":      false, // Agents can't spawn other task agents
 			},
+			Permission: PermissionConfig{
+				Edit:     "allow",
+				Bash:     map[string]string{"*": "allow"},
+				WebFetch: "allow",
+			},
+			Options: map[string]interface{}{},
 		},
 		{
-			Name:        "writer",
-			Description: "Use this agent for creating or modifying code files",
-			Mode:        "normal",
+			Name:    "build",
+			Mode:    "primary",
+			BuiltIn: true,
 			Tools: map[string]bool{
-				"read":  true,
-				"write": true,
-				"edit":  true,
-				"bash":  true,
-				"task":  false,
+				"task": false,
 			},
+			Permission: PermissionConfig{
+				Edit:     "allow",
+				Bash:     map[string]string{"*": "allow"},
+				WebFetch: "allow",
+			},
+			Options: map[string]interface{}{},
+		},
+		{
+			Name:    "plan",
+			Mode:    "primary",
+			BuiltIn: true,
+			Tools: map[string]bool{
+				"task": false,
+			},
+			Permission: PermissionConfig{
+				Edit:     "deny",
+				Bash:     map[string]string{"*": "ask"},
+				WebFetch: "allow",
+			},
+			Options: map[string]interface{}{},
 		},
 	}
 }
 
 // TaskTool creates the task tool for launching specialized agents
 func TaskTool() *ToolDefinition {
-	agents := DefaultAgents()
+	allAgents := DefaultAgents()
+	// Filter to only include subagent and all mode agents (exclude primary)
+	agents := make([]Agent, 0)
+	for _, agent := range allAgents {
+		if agent.Mode != "primary" {
+			agents = append(agents, agent)
+		}
+	}
+
 	agentDescriptions := make([]string, len(agents))
 	for i, agent := range agents {
 		desc := agent.Description
@@ -113,17 +162,9 @@ func executeTask(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 		return ToolResult{}, fmt.Errorf("unknown agent type: %s is not a valid agent type", subagentType)
 	}
 
-	// Check if task execution is allowed in current mode
-	if ctx.Mode == "plan" {
-		return ToolResult{
-			Title:  description,
-			Output: fmt.Sprintf("[PLAN] Would launch %s agent with prompt: %s", selectedAgent.Name, prompt),
-			Metadata: map[string]interface{}{
-				"agent":  selectedAgent.Name,
-				"prompt": prompt,
-			},
-		}, nil
-	}
+	// Note: In TypeScript, plan mode is handled differently through the session system.
+	// For now, we'll handle it similarly but this may need adjustment based on
+	// how the Go session system implements plan mode.
 
 	// For now, we return a placeholder indicating that the task system is not fully implemented
 	// In a full implementation, this would:
@@ -132,18 +173,14 @@ func executeTask(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 	// 3. Capture all tool execution events
 	// 4. Return the final result with a summary of tool calls
 
-	sessionID := fmt.Sprintf("%s-subtask-%s", ctx.SessionID, selectedAgent.Name)
+	// sessionID would be: fmt.Sprintf("%s-subtask-%s", ctx.SessionID, selectedAgent.Name)
 
 	return ToolResult{
-		Title: fmt.Sprintf("%s (@%s subagent)", description, selectedAgent.Name),
+		Title: description + fmt.Sprintf(" (@%s subagent)", selectedAgent.Name),
 		Output: fmt.Sprintf("Task agent system not fully implemented yet.\n\nWould execute task:\n  Agent: %s\n  Description: %s\n  Prompt: %s\n\nThis requires implementing:\n  - Session creation with parent ID\n  - Agent-specific tool permissions\n  - Tool execution event capture\n  - Result aggregation",
 			selectedAgent.Name, description, prompt),
 		Metadata: map[string]interface{}{
-			"agent":      selectedAgent.Name,
-			"prompt":     prompt,
-			"session_id": sessionID,
-			"tools":      selectedAgent.Tools,
-			"summary":    []interface{}{},
+			"summary": []interface{}{},
 		},
 	}, nil
 }

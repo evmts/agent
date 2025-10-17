@@ -52,13 +52,26 @@ Usage notes:
 }
 
 func executeWebSearch(params map[string]interface{}, ctx ToolContext) (ToolResult, error) {
-	// This tool is executed server-side by Anthropic's API
-	// If this function is called, it means the tool wasn't handled by the server
+	// IMPORTANT: WebSearch is a server-side tool provided by Anthropic's API.
+	// This function should never actually be called in production - it's only here
+	// as a fallback to indicate that the tool definition exists but execution
+	// must be handled by Anthropic's servers, not the client.
 	query, _ := params["query"].(string)
+	allowedDomains, _ := params["allowed_domains"].([]interface{})
+	blockedDomains, _ := params["blocked_domains"].([]interface{})
+
+	// Build a descriptive message about what would have been searched
+	msg := fmt.Sprintf("WebSearch query: %s", query)
+	if len(allowedDomains) > 0 {
+		msg += fmt.Sprintf("\nAllowed domains: %v", allowedDomains)
+	}
+	if len(blockedDomains) > 0 {
+		msg += fmt.Sprintf("\nBlocked domains: %v", blockedDomains)
+	}
 
 	return ToolResult{
-		Title:  "WebSearch (Server-side)",
-		Output: fmt.Sprintf("WebSearch is a server-side tool handled by Anthropic's API. Query: %s", query),
-		Error:  fmt.Errorf("websearch should be handled server-side by Anthropic's API"),
+		Title:  "WebSearch (Server-side Tool)",
+		Output: msg + "\n\nNote: WebSearch is a server-side tool that must be executed by Anthropic's API infrastructure. This client-side handler should not be invoked during normal operation.",
+		Error:  fmt.Errorf("websearch is a server-side tool and should be handled by Anthropic's API, not executed client-side"),
 	}, nil
 }

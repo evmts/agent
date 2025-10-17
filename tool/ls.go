@@ -155,11 +155,14 @@ func executeList(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 	filesByDir := make(map[string][]string)
 
 	for _, file := range files {
-		dir := filepath.Dir(file)
-
-		// Normalize path separators to forward slashes
-		dir = filepath.ToSlash(dir)
+		// Normalize path separators to forward slashes first
 		file = filepath.ToSlash(file)
+
+		// Get directory from normalized path
+		dir := "."
+		if idx := strings.LastIndex(file, "/"); idx >= 0 {
+			dir = file[:idx]
+		}
 
 		// Add all parent directories
 		parts := []string{}
@@ -181,7 +184,12 @@ func executeList(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 		if _, exists := filesByDir[dir]; !exists {
 			filesByDir[dir] = []string{}
 		}
-		filesByDir[dir] = append(filesByDir[dir], filepath.Base(file))
+		// Extract basename using forward slash (file is already normalized)
+		baseName := file
+		if idx := strings.LastIndex(file, "/"); idx >= 0 {
+			baseName = file[idx+1:]
+		}
+		filesByDir[dir] = append(filesByDir[dir], baseName)
 	}
 
 	// Build output
@@ -228,7 +236,12 @@ func renderDir(dirPath string, depth int, dirs map[string]bool, filesByDir map[s
 	var output strings.Builder
 
 	if depth > 0 {
-		output.WriteString(fmt.Sprintf("%s%s/\n", indent, filepath.Base(dirPath)))
+		// Get the basename from the path (already normalized to forward slashes)
+		baseName := dirPath
+		if idx := strings.LastIndex(dirPath, "/"); idx >= 0 {
+			baseName = dirPath[idx+1:]
+		}
+		output.WriteString(fmt.Sprintf("%s%s/\n", indent, baseName))
 	}
 
 	childIndent := strings.Repeat("  ", depth+1)
@@ -236,7 +249,11 @@ func renderDir(dirPath string, depth int, dirs map[string]bool, filesByDir map[s
 	// Get child directories
 	children := []string{}
 	for d := range dirs {
-		parent := filepath.Dir(d)
+		// Get parent directory (using forward slash since paths are normalized)
+		parent := "."
+		if idx := strings.LastIndex(d, "/"); idx >= 0 {
+			parent = d[:idx]
+		}
 		if parent == dirPath && d != dirPath {
 			children = append(children, d)
 		}

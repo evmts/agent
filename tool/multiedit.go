@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // MultiEditTool creates the multi-edit tool for making multiple edits to a single file
@@ -12,7 +11,7 @@ func MultiEditTool() *ToolDefinition {
 	return &ToolDefinition{
 		ID:   "multiedit",
 		Name: "multiedit",
-		Description: `This is a tool for making multiple edits to a single file in one operation. It allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the Edit tool when you need to make multiple edits to the same file.
+		Description: `This is a tool for making multiple edits to a single file in one operation. It is built on top of the Edit tool and allows you to perform multiple find-and-replace operations efficiently. Prefer this tool over the Edit tool when you need to make multiple edits to the same file.
 
 Before using this tool:
 
@@ -47,7 +46,13 @@ When making edits:
 - Do not leave the code in a broken state
 - Always use absolute file paths (starting with /)
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
-- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.`,
+- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.
+
+FILE CREATION SUPPORT:
+If you want to create a new file, use:
+- A new file path, including dir name if needed
+- First edit: empty old_string and the new file's contents as new_string
+- Subsequent edits: normal edit operations on the created content`,
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -150,44 +155,29 @@ func executeMultiEdit(params map[string]interface{}, ctx ToolContext) (ToolResul
 		})
 	}
 
-	// Read the file
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// If file doesn't exist and first edit has empty old_string, create new file
-			if edits[0].OldString == "" {
-				content = []byte{}
-			} else {
-				return ToolResult{}, fmt.Errorf("file not found: %s", filePath)
-			}
-		} else {
-			return ToolResult{}, fmt.Errorf("failed to read file: %v", err)
-		}
-	}
+	// Get the Edit tool for proper sequential application
+	editTool := EditTool()
 
-	// Check if path is a directory
-	info, err := os.Stat(filePath)
-	if err == nil && info.IsDir() {
-		return ToolResult{}, fmt.Errorf("path is a directory, not a file: %s", filePath)
-	}
-
-	// Apply edits sequentially
-	currentContent := string(content)
-	var editResults []string
-
+	// Collect results from each edit operation
+	var results []ToolResult
 	for i, edit := range edits {
-		newContent, err := applyEdit(currentContent, edit)
+		// Prepare params for the Edit tool
+		editParams := map[string]interface{}{
+			"file_path":  filePath,
+			"old_string": edit.OldString,
+			"new_string": edit.NewString,
+		}
+		if edit.ReplaceAll {
+			editParams["replace_all"] = true
+		}
+
+		// Execute the edit using the Edit tool
+		// This ensures we use all the sophisticated replacement strategies
+		result, err := editTool.Execute(editParams, ctx)
 		if err != nil {
 			return ToolResult{}, fmt.Errorf("edit %d failed: %v", i+1, err)
 		}
-		currentContent = newContent
-		editResults = append(editResults, fmt.Sprintf("Edit %d: Applied successfully", i+1))
-	}
-
-	// Write the modified content back to the file
-	err = os.WriteFile(filePath, []byte(currentContent), 0644)
-	if err != nil {
-		return ToolResult{}, fmt.Errorf("failed to write file: %v", err)
+		results = append(results, result)
 	}
 
 	// Get relative path for title if possible
@@ -197,47 +187,24 @@ func executeMultiEdit(params map[string]interface{}, ctx ToolContext) (ToolResul
 		relPath = filePath
 	}
 
-	output := fmt.Sprintf("Successfully applied %d edit(s) to %s\n\n%s",
-		len(edits), relPath, strings.Join(editResults, "\n"))
+	// Use the output from the last edit result
+	lastOutput := ""
+	if len(results) > 0 {
+		lastOutput = results[len(results)-1].Output
+	}
+
+	// Collect metadata from all results
+	allMetadata := make([]map[string]interface{}, len(results))
+	for i, result := range results {
+		allMetadata[i] = result.Metadata
+	}
 
 	return ToolResult{
 		Title:  relPath,
-		Output: output,
+		Output: lastOutput,
 		Metadata: map[string]interface{}{
-			"file_path":   filePath,
-			"edits_count": len(edits),
+			"results": allMetadata,
 		},
 	}, nil
 }
 
-// applyEdit applies a single edit operation to the content
-func applyEdit(content string, edit EditOperation) (string, error) {
-	// Handle file creation case (empty old_string)
-	if edit.OldString == "" {
-		if content != "" {
-			return "", fmt.Errorf("old_string is empty but file already has content")
-		}
-		return edit.NewString, nil
-	}
-
-	// Check if old_string exists in content
-	if !strings.Contains(content, edit.OldString) {
-		return "", fmt.Errorf("old_string not found in content")
-	}
-
-	// Count occurrences
-	count := strings.Count(content, edit.OldString)
-
-	if edit.ReplaceAll {
-		// Replace all occurrences
-		return strings.ReplaceAll(content, edit.OldString, edit.NewString), nil
-	}
-
-	// For single replacement, ensure uniqueness
-	if count > 1 {
-		return "", fmt.Errorf("old_string found %d times, use replace_all: true or provide more context to make it unique", count)
-	}
-
-	// Replace single occurrence
-	return strings.Replace(content, edit.OldString, edit.NewString, 1), nil
-}

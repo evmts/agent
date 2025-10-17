@@ -101,6 +101,16 @@ func executeWrite(params map[string]interface{}, ctx ToolContext) (ToolResult, e
 		filePath = filepath.Join(cwd, filePath)
 	}
 
+	// Validate that the file path is within the current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ToolResult{}, fmt.Errorf("failed to get current directory: %v", err)
+	}
+	relPath, err := filepath.Rel(cwd, filePath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return ToolResult{}, fmt.Errorf("file %s is not in the current working directory", filePath)
+	}
+
 	// Check if file exists
 	info, err := os.Stat(filePath)
 	exists := err == nil
@@ -142,12 +152,14 @@ func executeWrite(params map[string]interface{}, ctx ToolContext) (ToolResult, e
 
 	// Generate diff
 	diff := generateDiff(filePath, oldContent, content)
+	diff = trimDiff(diff)
 
 	// Get relative path for title if possible
-	cwd, _ := os.Getwd()
-	relPath, err := filepath.Rel(cwd, filePath)
-	if err != nil {
-		relPath = filePath
+	relPath = filePath
+	if cwdPath, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwdPath, filePath); err == nil {
+			relPath = rel
+		}
 	}
 
 	output := ""
@@ -163,77 +175,4 @@ func executeWrite(params map[string]interface{}, ctx ToolContext) (ToolResult, e
 			"exists":   exists,
 		},
 	}, nil
-}
-
-// generateDiff creates a simplified unified diff between old and new content
-func generateDiff(filename string, oldContent, newContent string) string {
-	if oldContent == newContent {
-		return ""
-	}
-
-	oldLines := strings.Split(oldContent, "\n")
-	newLines := strings.Split(newContent, "\n")
-
-	var diff strings.Builder
-
-	// Header
-	diff.WriteString(fmt.Sprintf("--- %s\n", filename))
-	diff.WriteString(fmt.Sprintf("+++ %s\n", filename))
-
-	// Simple line-by-line comparison
-	maxLines := len(oldLines)
-	if len(newLines) > maxLines {
-		maxLines = len(newLines)
-	}
-
-	// Find changed regions
-	i := 0
-	for i < maxLines {
-		// Skip unchanged lines at the start
-		for i < len(oldLines) && i < len(newLines) && oldLines[i] == newLines[i] {
-			i++
-		}
-
-		if i >= maxLines {
-			break
-		}
-
-		// Found a difference, find the end of this chunk
-		chunkStart := i
-		for i < maxLines && (i >= len(oldLines) || i >= len(newLines) || oldLines[i] != newLines[i]) {
-			i++
-		}
-		chunkEnd := i
-
-		// Write chunk header
-		oldStart := chunkStart + 1
-		oldCount := 0
-		if chunkEnd <= len(oldLines) {
-			oldCount = chunkEnd - chunkStart
-		} else if chunkStart < len(oldLines) {
-			oldCount = len(oldLines) - chunkStart
-		}
-
-		newStart := chunkStart + 1
-		newCount := 0
-		if chunkEnd <= len(newLines) {
-			newCount = chunkEnd - chunkStart
-		} else if chunkStart < len(newLines) {
-			newCount = len(newLines) - chunkStart
-		}
-
-		diff.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount))
-
-		// Write old lines
-		for j := chunkStart; j < chunkStart+oldCount && j < len(oldLines); j++ {
-			diff.WriteString(fmt.Sprintf("-%s\n", oldLines[j]))
-		}
-
-		// Write new lines
-		for j := chunkStart; j < chunkStart+newCount && j < len(newLines); j++ {
-			diff.WriteString(fmt.Sprintf("+%s\n", newLines[j]))
-		}
-	}
-
-	return diff.String()
 }

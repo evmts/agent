@@ -2,6 +2,7 @@ package tool
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,10 +13,9 @@ import (
 )
 
 const (
-	MaxResponseSize       = 5 * 1024 * 1024 // 5MB
-	DefaultWebTimeout     = 30 * time.Second
-	MaxWebTimeout         = 120 * time.Second
-	DefaultWebFetchFormat = "markdown"
+	MaxResponseSize   = 5 * 1024 * 1024 // 5MB
+	DefaultWebTimeout = 30 * time.Second
+	MaxWebTimeout     = 120 * time.Second
 )
 
 // WebFetchTool creates the web fetch tool
@@ -26,15 +26,16 @@ func WebFetchTool() *ToolDefinition {
 		Description: `Fetches content from a specified URL and processes it.
 
 Usage:
-- Takes a URL and optional format parameter
+- Takes a URL and format parameter
 - Fetches the URL content, converts HTML to markdown or text based on format
 - Returns the fetched content with appropriate formatting
 - Use this tool when you need to retrieve web content
 
 Usage notes:
+  - IMPORTANT: if another tool is present that offers better web fetching capabilities, is more targeted to the task, or has fewer restrictions, prefer using that tool instead of this one.
   - The URL must be a fully-formed valid URL starting with http:// or https://
   - HTTP URLs will be automatically upgraded to HTTPS
-  - The format parameter can be "text", "markdown", or "html" (defaults to "markdown")
+  - The format parameter can be "text", "markdown", or "html"
   - This tool is read-only and does not modify any files
   - Results may be truncated if the content is very large (exceeds 5MB limit)
   - Default timeout is 30 seconds, maximum is 120 seconds`,
@@ -48,14 +49,14 @@ Usage notes:
 				"format": map[string]interface{}{
 					"type":        "string",
 					"enum":        []string{"text", "markdown", "html"},
-					"description": "The format to return the content in (text, markdown, or html). Defaults to markdown.",
+					"description": "The format to return the content in (text, markdown, or html)",
 				},
 				"timeout": map[string]interface{}{
 					"type":        "number",
 					"description": "Optional timeout in seconds (max 120)",
 				},
 			},
-			"required": []string{"url"},
+			"required": []string{"url", "format"},
 		},
 		Execute: executeWebFetch,
 	}
@@ -77,13 +78,13 @@ func executeWebFetch(params map[string]interface{}, ctx ToolContext) (ToolResult
 		url = "https://" + strings.TrimPrefix(url, "http://")
 	}
 
-	// Get format parameter (default to markdown)
-	format := DefaultWebFetchFormat
-	if formatParam, ok := params["format"].(string); ok {
-		format = formatParam
+	// Get format parameter
+	format, ok := params["format"].(string)
+	if !ok {
+		return ToolResult{}, fmt.Errorf("format parameter is required")
 	}
 
-	// Get timeout
+	// Get timeout (convert from seconds to duration)
 	timeout := DefaultWebTimeout
 	if timeoutParam, ok := params["timeout"].(float64); ok {
 		timeout = time.Duration(timeoutParam) * time.Second
@@ -92,12 +93,10 @@ func executeWebFetch(params map[string]interface{}, ctx ToolContext) (ToolResult
 		}
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: timeout,
-	}
+	// Create HTTP client without timeout (we handle it via context)
+	client := &http.Client{}
 
-	// Build Accept header based on requested format
+	// Build Accept header based on requested format with q parameters for fallbacks
 	var acceptHeader string
 	switch format {
 	case "markdown":
@@ -107,11 +106,15 @@ func executeWebFetch(params map[string]interface{}, ctx ToolContext) (ToolResult
 	case "html":
 		acceptHeader = "text/html;q=1.0, application/xhtml+xml;q=0.9, text/plain;q=0.8, text/markdown;q=0.7, */*;q=0.1"
 	default:
-		acceptHeader = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+		acceptHeader = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
 	}
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx.Abort, "GET", url, nil)
+	// Create a context that combines the abort signal and timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx.Abort, timeout)
+	defer cancel()
+
+	// Create request with combined context
+	req, err := http.NewRequestWithContext(timeoutCtx, "GET", url, nil)
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("failed to create request: %v", err)
 	}
@@ -225,6 +228,12 @@ func extractTextFromHTML(htmlContent []byte) (string, error) {
 }
 
 // convertHTMLToMarkdown converts HTML to markdown format
+// This implementation mirrors TurndownService's behavior with:
+// - headingStyle: "atx" (# style headings)
+// - hr: "---"
+// - bulletListMarker: "-"
+// - codeBlockStyle: "fenced" (```)
+// - emDelimiter: "*"
 func convertHTMLToMarkdown(htmlContent []byte) (string, error) {
 	doc, err := html.Parse(bytes.NewReader(htmlContent))
 	if err != nil {
@@ -232,13 +241,13 @@ func convertHTMLToMarkdown(htmlContent []byte) (string, error) {
 	}
 
 	var md strings.Builder
-	var convert func(*html.Node, int)
+	var convert func(*html.Node, bool, int)
 
-	convert = func(n *html.Node, depth int) {
-		// Skip script, style, meta, link tags
+	convert = func(n *html.Node, skipContent bool, listDepth int) {
+		// Skip script, style, meta, link tags (like TurndownService.remove)
 		if n.Type == html.ElementNode {
 			switch n.Data {
-			case "script", "style", "meta", "link":
+			case "script", "style", "meta", "link", "noscript", "iframe", "object", "embed":
 				return
 			}
 		}
@@ -268,36 +277,68 @@ func convertHTMLToMarkdown(htmlContent []byte) (string, error) {
 			case "em", "i":
 				md.WriteString("*")
 			case "code":
+				// Check if parent is pre
 				md.WriteString("`")
 			case "pre":
 				md.WriteString("\n```\n")
+			case "blockquote":
+				md.WriteString("\n> ")
 			case "a":
-				// Handle links
+				// Handle links - opening bracket
 				for _, attr := range n.Attr {
 					if attr.Key == "href" {
 						md.WriteString("[")
 						break
 					}
 				}
+			case "img":
+				// Handle images
+				var altText, src string
+				for _, attr := range n.Attr {
+					if attr.Key == "alt" {
+						altText = attr.Val
+					}
+					if attr.Key == "src" {
+						src = attr.Val
+					}
+				}
+				if src != "" {
+					md.WriteString("![")
+					md.WriteString(altText)
+					md.WriteString("](")
+					md.WriteString(src)
+					md.WriteString(")")
+				}
+				return // Don't process children of img
 			case "ul", "ol":
 				md.WriteString("\n")
 			case "li":
 				md.WriteString("\n- ")
+			case "div", "section", "article", "header", "footer", "main", "nav", "aside":
+				md.WriteString("\n")
 			}
 		}
 
-		if n.Type == html.TextNode {
-			md.WriteString(n.Data)
+		if n.Type == html.TextNode && !skipContent {
+			// Clean up whitespace but preserve intentional spacing
+			text := n.Data
+			if text != "" {
+				md.WriteString(text)
+			}
 		}
 
 		// Process children
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			convert(c, depth+1)
+			convert(c, skipContent, listDepth)
 		}
 
 		// Closing tags
 		if n.Type == html.ElementNode {
 			switch n.Data {
+			case "h1", "h2", "h3", "h4", "h5", "h6":
+				md.WriteString("\n")
+			case "p":
+				md.WriteString("\n")
 			case "strong", "b":
 				md.WriteString("**")
 			case "em", "i":
@@ -306,8 +347,10 @@ func convertHTMLToMarkdown(htmlContent []byte) (string, error) {
 				md.WriteString("`")
 			case "pre":
 				md.WriteString("\n```\n")
+			case "blockquote":
+				md.WriteString("\n")
 			case "a":
-				// Handle links
+				// Handle links - closing with href
 				for _, attr := range n.Attr {
 					if attr.Key == "href" {
 						md.WriteString("](")
@@ -316,10 +359,20 @@ func convertHTMLToMarkdown(htmlContent []byte) (string, error) {
 						break
 					}
 				}
+			case "ul", "ol":
+				md.WriteString("\n")
 			}
 		}
 	}
 
-	convert(doc, 0)
-	return strings.TrimSpace(md.String()), nil
+	convert(doc, false, 0)
+
+	// Clean up the output - remove excessive newlines
+	result := strings.TrimSpace(md.String())
+	// Replace multiple consecutive newlines with max 2
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+
+	return result, nil
 }

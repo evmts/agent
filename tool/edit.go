@@ -84,50 +84,99 @@ func executeEdit(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 		filePath = filepath.Join(cwd, filePath)
 	}
 
+	// Verify file is within working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ToolResult{}, fmt.Errorf("failed to get current directory: %v", err)
+	}
+
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return ToolResult{}, fmt.Errorf("failed to resolve file path: %v", err)
+	}
+
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return ToolResult{}, fmt.Errorf("failed to resolve working directory: %v", err)
+	}
+
+	relPath, err := filepath.Rel(absCwd, absFilePath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return ToolResult{}, fmt.Errorf("file %s is not in the current working directory", filePath)
+	}
+
+	var contentOld, contentNew string
+	var diff string
+
+	// Handle empty oldString case (create new file)
+	if oldString == "" {
+		contentNew = newString
+		diff = createDiff(filePath, contentOld, contentNew)
+
+		// Write new file
+		err = os.WriteFile(absFilePath, []byte(contentNew), 0644)
+		if err != nil {
+			return ToolResult{}, fmt.Errorf("failed to write file: %v", err)
+		}
+
+		return ToolResult{
+			Title:  relPath,
+			Output: "",
+			Metadata: map[string]interface{}{
+				"filePath": absFilePath,
+				"diff":     diff,
+			},
+		}, nil
+	}
+
 	// Check if file exists
-	info, err := os.Stat(filePath)
+	info, err := os.Stat(absFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return ToolResult{}, fmt.Errorf("file not found: %s", filePath)
+			return ToolResult{}, fmt.Errorf("file not found: %s", absFilePath)
 		}
 		return ToolResult{}, fmt.Errorf("failed to stat file: %v", err)
 	}
 
 	if info.IsDir() {
-		return ToolResult{}, fmt.Errorf("path is a directory, not a file: %s", filePath)
+		return ToolResult{}, fmt.Errorf("path is a directory, not a file: %s", absFilePath)
 	}
 
 	// Read the file content
-	contentBytes, err := os.ReadFile(filePath)
+	contentBytes, err := os.ReadFile(absFilePath)
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("failed to read file: %v", err)
 	}
-	content := string(contentBytes)
+	contentOld = string(contentBytes)
 
 	// Perform the replacement using multiple strategies
-	newContent, err := replace(content, oldString, newString, replaceAll)
+	contentNew, err = replace(contentOld, oldString, newString, replaceAll)
 	if err != nil {
 		return ToolResult{}, err
 	}
 
+	// Generate diff before writing
+	diff = createDiff(filePath, contentOld, contentNew)
+
 	// Write the new content back to the file
-	err = os.WriteFile(filePath, []byte(newContent), info.Mode())
+	err = os.WriteFile(absFilePath, []byte(contentNew), info.Mode())
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("failed to write file: %v", err)
 	}
 
-	// Get relative path for title if possible
-	cwd, _ := os.Getwd()
-	relPath, err := filepath.Rel(cwd, filePath)
-	if err != nil {
-		relPath = filePath
+	// Re-read to ensure diff accuracy after write
+	contentBytes, err = os.ReadFile(absFilePath)
+	if err == nil {
+		contentNew = string(contentBytes)
+		diff = createDiff(filePath, contentOld, contentNew)
 	}
 
 	return ToolResult{
 		Title:  relPath,
 		Output: "",
 		Metadata: map[string]interface{}{
-			"path": filePath,
+			"filePath": absFilePath,
+			"diff":     diff,
 		},
 	}, nil
 }
@@ -671,4 +720,162 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// createDiff creates a unified diff between old and new content
+func createDiff(filePath, oldContent, newContent string) string {
+	if oldContent == newContent {
+		return ""
+	}
+
+	oldLines := strings.Split(oldContent, "\n")
+	newLines := strings.Split(newContent, "\n")
+
+	// Simple unified diff header
+	diff := fmt.Sprintf("--- %s\n+++ %s\n", filePath, filePath)
+
+	// Generate context and changes
+	var changes []string
+	i := 0
+	maxLen := len(oldLines)
+	if len(newLines) > maxLen {
+		maxLen = len(newLines)
+	}
+
+	for i < maxLen {
+		// Find start of difference
+		if i < len(oldLines) && i < len(newLines) && oldLines[i] == newLines[i] {
+			i++
+			continue
+		}
+
+		// Found a difference
+		contextStart := i
+		if contextStart > 3 {
+			contextStart = i - 3
+		} else {
+			contextStart = 0
+		}
+
+		// Find end of difference
+		j := i
+		for j < len(oldLines) || j < len(newLines) {
+			if j >= len(oldLines) || j >= len(newLines) {
+				j++
+				continue
+			}
+			if oldLines[j] != newLines[j] {
+				j++
+				continue
+			}
+			break
+		}
+
+		contextEnd := j + 3
+		if contextEnd > len(oldLines) && contextEnd > len(newLines) {
+			if len(oldLines) > len(newLines) {
+				contextEnd = len(oldLines)
+			} else {
+				contextEnd = len(newLines)
+			}
+		}
+
+		// Build hunk
+		oldStart := contextStart + 1
+		oldCount := min(contextEnd, len(oldLines)) - contextStart
+		newStart := contextStart + 1
+		newCount := min(contextEnd, len(newLines)) - contextStart
+
+		changes = append(changes, fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount))
+
+		// Add context and changes
+		for k := contextStart; k < contextEnd; k++ {
+			if k < i || (k < len(oldLines) && k < len(newLines) && oldLines[k] == newLines[k]) {
+				// Context line
+				if k < len(oldLines) {
+					changes = append(changes, " "+oldLines[k])
+				} else if k < len(newLines) {
+					changes = append(changes, " "+newLines[k])
+				}
+			} else {
+				// Changed lines
+				if k < len(oldLines) && (k >= len(newLines) || oldLines[k] != newLines[k]) {
+					changes = append(changes, "-"+oldLines[k])
+				}
+				if k < len(newLines) && (k >= len(oldLines) || oldLines[k] != newLines[k]) {
+					changes = append(changes, "+"+newLines[k])
+				}
+			}
+		}
+
+		i = contextEnd
+	}
+
+	if len(changes) > 0 {
+		diff += strings.Join(changes, "\n")
+	}
+
+	return trimDiff(diff)
+}
+
+// trimDiff removes common leading whitespace from diff output
+func trimDiff(diff string) string {
+	lines := strings.Split(diff, "\n")
+	contentLines := []string{}
+
+	for _, line := range lines {
+		if (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") || strings.HasPrefix(line, " ")) &&
+			!strings.HasPrefix(line, "---") && !strings.HasPrefix(line, "+++") {
+			contentLines = append(contentLines, line)
+		}
+	}
+
+	if len(contentLines) == 0 {
+		return diff
+	}
+
+	// Find minimum indentation
+	minIndent := math.MaxInt32
+	for _, line := range contentLines {
+		content := ""
+		if len(line) > 0 {
+			content = line[1:]
+		}
+		if strings.TrimSpace(content) != "" {
+			re := regexp.MustCompile(`^(\s*)`)
+			match := re.FindString(content)
+			if len(match) < minIndent {
+				minIndent = len(match)
+			}
+		}
+	}
+
+	if minIndent == math.MaxInt32 || minIndent == 0 {
+		return diff
+	}
+
+	// Trim common indentation
+	trimmedLines := []string{}
+	for _, line := range lines {
+		if (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") || strings.HasPrefix(line, " ")) &&
+			!strings.HasPrefix(line, "---") && !strings.HasPrefix(line, "+++") {
+			prefix := ""
+			content := ""
+			if len(line) > 0 {
+				prefix = string(line[0])
+				if len(line) > 1 {
+					content = line[1:]
+				}
+			}
+			if len(content) >= minIndent {
+				trimmedLines = append(trimmedLines, prefix+content[minIndent:])
+			} else {
+				trimmedLines = append(trimmedLines, line)
+			}
+		} else {
+			trimmedLines = append(trimmedLines, line)
+		}
+	}
+
+	return strings.Join(trimmedLines, "\n")
 }

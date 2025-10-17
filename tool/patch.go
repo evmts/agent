@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -361,6 +362,7 @@ func seekSequence(lines []string, pattern []string, startIndex int) int {
 		return -1
 	}
 
+	// Try exact match first
 	for i := startIndex; i <= len(lines)-len(pattern); i++ {
 		matches := true
 
@@ -376,7 +378,32 @@ func seekSequence(lines []string, pattern []string, startIndex int) int {
 		}
 	}
 
+	// If exact match fails, try trimmed match (more flexible)
+	for i := startIndex; i <= len(lines)-len(pattern); i++ {
+		matches := true
+
+		for j := 0; j < len(pattern); j++ {
+			if strings.TrimSpace(lines[i+j]) != strings.TrimSpace(pattern[j]) {
+				matches = false
+				break
+			}
+		}
+
+		if matches {
+			return i
+		}
+	}
+
 	return -1
+}
+
+// FileChange represents a single file change for validation and diff generation
+type FileChange struct {
+	FilePath   string
+	OldContent string
+	NewContent string
+	Type       string // "add", "update", "delete", "move"
+	MovePath   string
 }
 
 // executePatch applies the patch
@@ -398,9 +425,485 @@ func executePatch(params map[string]interface{}, ctx ToolContext) (ToolResult, e
 		return ToolResult{}, fmt.Errorf("failed to get working directory: %v", err)
 	}
 
-	// Apply hunks
+	// First pass: validate all operations and prepare file changes
+	var fileChanges []FileChange
+	var totalDiff strings.Builder
+
+	for _, hunk := range hunks {
+		switch h := hunk.(type) {
+		case *AddHunk:
+			filePath := filepath.Join(cwd, h.Path)
+
+			// Validate that path is within working directory
+			if !isPathWithinDirectory(filePath, cwd) {
+				return ToolResult{}, fmt.Errorf("file %s is not in the current working directory", h.Path)
+			}
+
+			oldContent := ""
+			newContent := h.Contents
+
+			fileChanges = append(fileChanges, FileChange{
+				FilePath:   filePath,
+				OldContent: oldContent,
+				NewContent: newContent,
+				Type:       "add",
+			})
+
+			// Generate diff for metadata
+			diff := generateDiff(filePath, oldContent, newContent)
+			totalDiff.WriteString(diff)
+			totalDiff.WriteString("\n")
+
+		case *DeleteHunk:
+			filePath := filepath.Join(cwd, h.Path)
+
+			// Validate that path is within working directory
+			if !isPathWithinDirectory(filePath, cwd) {
+				return ToolResult{}, fmt.Errorf("file %s is not in the current working directory", h.Path)
+			}
+
+			// Check if file exists and read content
+			fileInfo, err := os.Stat(filePath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return ToolResult{}, fmt.Errorf("file not found or is directory: %s", filePath)
+				}
+				return ToolResult{}, fmt.Errorf("failed to stat file %s: %v", h.Path, err)
+			}
+
+			if fileInfo.IsDir() {
+				return ToolResult{}, fmt.Errorf("file not found or is directory: %s", filePath)
+			}
+
+			oldContent, err := os.ReadFile(filePath)
+			if err != nil {
+				return ToolResult{}, fmt.Errorf("failed to read file for deletion %s: %v", h.Path, err)
+			}
+
+			fileChanges = append(fileChanges, FileChange{
+				FilePath:   filePath,
+				OldContent: string(oldContent),
+				NewContent: "",
+				Type:       "delete",
+			})
+
+			// Generate diff for metadata
+			diff := generateDiff(filePath, string(oldContent), "")
+			totalDiff.WriteString(diff)
+			totalDiff.WriteString("\n")
+
+		case *UpdateHunk:
+			filePath := filepath.Join(cwd, h.Path)
+
+			// Validate that path is within working directory
+			if !isPathWithinDirectory(filePath, cwd) {
+				return ToolResult{}, fmt.Errorf("file %s is not in the current working directory", h.Path)
+			}
+
+			// Check if file exists
+			fileInfo, err := os.Stat(filePath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return ToolResult{}, fmt.Errorf("file not found or is directory: %s", filePath)
+				}
+				return ToolResult{}, fmt.Errorf("failed to stat file %s: %v", h.Path, err)
+			}
+
+			if fileInfo.IsDir() {
+				return ToolResult{}, fmt.Errorf("file not found or is directory: %s", filePath)
+			}
+
+			oldContent, err := os.ReadFile(filePath)
+			if err != nil {
+				return ToolResult{}, fmt.Errorf("failed to read file %s: %v", h.Path, err)
+			}
+
+			// Apply chunks to get new content
+			newContent, err := deriveNewContentsFromChunks(filePath, h.Chunks)
+			if err != nil {
+				return ToolResult{}, fmt.Errorf("failed to apply update to %s: %v", h.Path, err)
+			}
+
+			changeType := "update"
+			movePath := ""
+			if h.MovePath != "" {
+				changeType = "move"
+				movePath = filepath.Join(cwd, h.MovePath)
+
+				// Validate move destination is within working directory
+				if !isPathWithinDirectory(movePath, cwd) {
+					return ToolResult{}, fmt.Errorf("move destination %s is not in the current working directory", h.MovePath)
+				}
+			}
+
+			fileChanges = append(fileChanges, FileChange{
+				FilePath:   filePath,
+				OldContent: string(oldContent),
+				NewContent: newContent,
+				Type:       changeType,
+				MovePath:   movePath,
+			})
+
+			// Generate diff for metadata
+			diff := generateDiff(filePath, string(oldContent), newContent)
+			totalDiff.WriteString(diff)
+			totalDiff.WriteString("\n")
+		}
+	}
+
+	// Second pass: apply all changes
 	var changedFiles []string
-	var errors []string
+
+	for _, change := range fileChanges {
+		switch change.Type {
+		case "add":
+			// Create parent directories
+			dir := filepath.Dir(change.FilePath)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to create directory for %s: %v", change.FilePath, err)
+			}
+
+			// Write file
+			if err := os.WriteFile(change.FilePath, []byte(change.NewContent), 0644); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to write %s: %v", change.FilePath, err)
+			}
+
+			changedFiles = append(changedFiles, change.FilePath)
+
+		case "update":
+			// Write updated content
+			if err := os.WriteFile(change.FilePath, []byte(change.NewContent), 0644); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to write updated file %s: %v", change.FilePath, err)
+			}
+
+			changedFiles = append(changedFiles, change.FilePath)
+
+		case "move":
+			// Create parent directories for destination
+			dir := filepath.Dir(change.MovePath)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to create directory for move %s: %v", change.MovePath, err)
+			}
+
+			// Write to new location
+			if err := os.WriteFile(change.MovePath, []byte(change.NewContent), 0644); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to write moved file %s: %v", change.MovePath, err)
+			}
+
+			// Remove original
+			if err := os.Remove(change.FilePath); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to remove original file %s: %v", change.FilePath, err)
+			}
+
+			changedFiles = append(changedFiles, change.MovePath)
+
+		case "delete":
+			// Delete file
+			if err := os.Remove(change.FilePath); err != nil {
+				return ToolResult{}, fmt.Errorf("failed to delete %s: %v", change.FilePath, err)
+			}
+
+			changedFiles = append(changedFiles, change.FilePath)
+		}
+	}
+
+	// Generate relative paths for output
+	var relativePaths []string
+	for _, filePath := range changedFiles {
+		relPath, err := filepath.Rel(cwd, filePath)
+		if err != nil {
+			relPath = filePath
+		}
+		relativePaths = append(relativePaths, relPath)
+	}
+
+	// Generate output
+	summary := fmt.Sprintf("%d files changed", len(fileChanges))
+	output := fmt.Sprintf("Patch applied successfully. %s:\n", summary)
+	for _, relPath := range relativePaths {
+		output += fmt.Sprintf("  %s\n", relPath)
+	}
+
+	result := ToolResult{
+		Title:  summary,
+		Output: output,
+		Metadata: map[string]interface{}{
+			"diff": totalDiff.String(),
+		},
+	}
+
+	return result, nil
+}
+
+// isPathWithinDirectory checks if a path is within a given directory
+func isPathWithinDirectory(filePath, dir string) bool {
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+
+	// Clean both paths to normalize them
+	absFilePath = filepath.Clean(absFilePath)
+	absDir = filepath.Clean(absDir)
+
+	// Check if filePath starts with dir
+	rel, err := filepath.Rel(absDir, absFilePath)
+	if err != nil {
+		return false
+	}
+
+	// If the relative path starts with "..", it's outside the directory
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
+}
+
+// generateDiff creates a simple unified diff between old and new content
+func generateDiff(filePath, oldContent, newContent string) string {
+	var diff strings.Builder
+
+	diff.WriteString(fmt.Sprintf("--- %s\n", filePath))
+	diff.WriteString(fmt.Sprintf("+++ %s\n", filePath))
+	diff.WriteString("@@ -1 +1 @@\n")
+
+	oldLines := strings.Split(oldContent, "\n")
+	newLines := strings.Split(newContent, "\n")
+
+	maxLen := len(oldLines)
+	if len(newLines) > maxLen {
+		maxLen = len(newLines)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		var oldLine, newLine string
+		if i < len(oldLines) {
+			oldLine = oldLines[i]
+		}
+		if i < len(newLines) {
+			newLine = newLines[i]
+		}
+
+		if oldLine != newLine {
+			if oldLine != "" {
+				diff.WriteString(fmt.Sprintf("-%s\n", oldLine))
+			}
+			if newLine != "" {
+				diff.WriteString(fmt.Sprintf("+%s\n", newLine))
+			}
+		} else if oldLine != "" {
+			diff.WriteString(fmt.Sprintf(" %s\n", oldLine))
+		}
+	}
+
+	return diff.String()
+}
+
+// MaybeApplyPatchResult represents the result of trying to parse an apply_patch command
+type MaybeApplyPatchResult struct {
+	Type   string // "Body", "PatchParseError", "NotApplyPatch"
+	Patch  string
+	Hunks  []Hunk
+	Error  error
+}
+
+// MaybeParseApplyPatch attempts to detect and parse apply_patch commands
+func MaybeParseApplyPatch(argv []string) MaybeApplyPatchResult {
+	applyPatchCommands := []string{"apply_patch", "applypatch"}
+
+	// Direct invocation: apply_patch <patch>
+	if len(argv) == 2 {
+		for _, cmd := range applyPatchCommands {
+			if argv[0] == cmd {
+				hunks, err := parsePatch(argv[1])
+				if err != nil {
+					return MaybeApplyPatchResult{
+						Type:  "PatchParseError",
+						Error: err,
+					}
+				}
+				return MaybeApplyPatchResult{
+					Type:  "Body",
+					Patch: argv[1],
+					Hunks: hunks,
+				}
+			}
+		}
+	}
+
+	// Bash heredoc form: bash -lc 'apply_patch <<"EOF" ...'
+	if len(argv) == 3 && argv[0] == "bash" && argv[1] == "-lc" {
+		// Extract heredoc content using regex
+		script := argv[2]
+		heredocRegex := regexp.MustCompile(`apply_patch\s*<<['"]?(\w+)['"]?\s*\n([\s\S]*?)\n\1`)
+		matches := heredocRegex.FindStringSubmatch(script)
+
+		if matches != nil && len(matches) >= 3 {
+			patchContent := matches[2]
+			hunks, err := parsePatch(patchContent)
+			if err != nil {
+				return MaybeApplyPatchResult{
+					Type:  "PatchParseError",
+					Error: err,
+				}
+			}
+			return MaybeApplyPatchResult{
+				Type:  "Body",
+				Patch: patchContent,
+				Hunks: hunks,
+			}
+		}
+	}
+
+	return MaybeApplyPatchResult{
+		Type: "NotApplyPatch",
+	}
+}
+
+// ApplyPatchFileChange represents a validated file change ready to be applied
+type ApplyPatchFileChange struct {
+	Type        string // "add", "delete", "update"
+	Content     string
+	UnifiedDiff string
+	MovePath    string
+	NewContent  string
+}
+
+// MaybeApplyPatchVerifiedResult represents the result of validating an apply_patch command
+type MaybeApplyPatchVerifiedResult struct {
+	Type    string // "Body", "CorrectnessError", "NotApplyPatch"
+	Changes map[string]*ApplyPatchFileChange
+	Patch   string
+	Cwd     string
+	Error   error
+}
+
+// MaybeParseApplyPatchVerified attempts to parse and verify an apply_patch command
+func MaybeParseApplyPatchVerified(argv []string, cwd string) MaybeApplyPatchVerifiedResult {
+	// Detect implicit patch invocation (raw patch without apply_patch command)
+	if len(argv) == 1 {
+		_, err := parsePatch(argv[0])
+		if err == nil {
+			// It's a valid patch but called implicitly - this is an error
+			return MaybeApplyPatchVerifiedResult{
+				Type:  "CorrectnessError",
+				Error: fmt.Errorf("implicit invocation: patch must be invoked with apply_patch command"),
+			}
+		}
+		// Not a patch, continue
+	}
+
+	result := MaybeParseApplyPatch(argv)
+
+	switch result.Type {
+	case "Body":
+		effectiveCwd := cwd
+		changes := make(map[string]*ApplyPatchFileChange)
+
+		for _, hunk := range result.Hunks {
+			var resolvedPath string
+			var change *ApplyPatchFileChange
+
+			switch h := hunk.(type) {
+			case *AddHunk:
+				resolvedPath = filepath.Join(effectiveCwd, h.Path)
+				change = &ApplyPatchFileChange{
+					Type:    "add",
+					Content: h.Contents,
+				}
+
+			case *DeleteHunk:
+				resolvedPath = filepath.Join(effectiveCwd, h.Path)
+				deletePath := resolvedPath
+
+				content, err := os.ReadFile(deletePath)
+				if err != nil {
+					return MaybeApplyPatchVerifiedResult{
+						Type:  "CorrectnessError",
+						Error: fmt.Errorf("failed to read file for deletion: %s: %v", deletePath, err),
+					}
+				}
+
+				change = &ApplyPatchFileChange{
+					Type:    "delete",
+					Content: string(content),
+				}
+
+			case *UpdateHunk:
+				updatePath := filepath.Join(effectiveCwd, h.Path)
+
+				newContent, err := deriveNewContentsFromChunks(updatePath, h.Chunks)
+				if err != nil {
+					return MaybeApplyPatchVerifiedResult{
+						Type:  "CorrectnessError",
+						Error: fmt.Errorf("failed to apply update to %s: %v", updatePath, err),
+					}
+				}
+
+				oldContent, err := os.ReadFile(updatePath)
+				if err != nil {
+					return MaybeApplyPatchVerifiedResult{
+						Type:  "CorrectnessError",
+						Error: fmt.Errorf("failed to read file for update: %s: %v", updatePath, err),
+					}
+				}
+
+				unifiedDiff := generateDiff(updatePath, string(oldContent), newContent)
+
+				if h.MovePath != "" {
+					resolvedPath = filepath.Join(effectiveCwd, h.MovePath)
+					change = &ApplyPatchFileChange{
+						Type:        "update",
+						UnifiedDiff: unifiedDiff,
+						MovePath:    resolvedPath,
+						NewContent:  newContent,
+					}
+				} else {
+					resolvedPath = updatePath
+					change = &ApplyPatchFileChange{
+						Type:        "update",
+						UnifiedDiff: unifiedDiff,
+						NewContent:  newContent,
+					}
+				}
+			}
+
+			if change != nil {
+				changes[resolvedPath] = change
+			}
+		}
+
+		return MaybeApplyPatchVerifiedResult{
+			Type:    "Body",
+			Changes: changes,
+			Patch:   result.Patch,
+			Cwd:     effectiveCwd,
+		}
+
+	case "PatchParseError":
+		return MaybeApplyPatchVerifiedResult{
+			Type:  "CorrectnessError",
+			Error: result.Error,
+		}
+
+	case "NotApplyPatch":
+		return MaybeApplyPatchVerifiedResult{
+			Type: "NotApplyPatch",
+		}
+	}
+
+	return MaybeApplyPatchVerifiedResult{
+		Type: "NotApplyPatch",
+	}
+}
+
+// ApplyHunksToFiles applies a list of hunks directly to the filesystem
+func ApplyHunksToFiles(hunks []Hunk, cwd string) (added []string, modified []string, deleted []string, err error) {
+	if len(hunks) == 0 {
+		return nil, nil, nil, fmt.Errorf("no files were modified")
+	}
 
 	for _, hunk := range hunks {
 		switch h := hunk.(type) {
@@ -409,124 +912,74 @@ func executePatch(params map[string]interface{}, ctx ToolContext) (ToolResult, e
 
 			// Create parent directories
 			dir := filepath.Dir(filePath)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				errors = append(errors, fmt.Sprintf("failed to create directory for %s: %v", h.Path, err))
-				continue
+			if dir != "." && dir != "/" {
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					return nil, nil, nil, fmt.Errorf("failed to create directory for %s: %v", h.Path, err)
+				}
 			}
 
-			// Write file
 			if err := os.WriteFile(filePath, []byte(h.Contents), 0644); err != nil {
-				errors = append(errors, fmt.Sprintf("failed to write %s: %v", h.Path, err))
-				continue
+				return nil, nil, nil, fmt.Errorf("failed to write added file %s: %v", h.Path, err)
 			}
 
-			changedFiles = append(changedFiles, h.Path)
+			added = append(added, filePath)
 
 		case *DeleteHunk:
 			filePath := filepath.Join(cwd, h.Path)
 
-			// Check if file exists
-			if _, err := os.Stat(filePath); os.IsNotExist(err) {
-				errors = append(errors, fmt.Sprintf("file not found for deletion: %s", h.Path))
-				continue
-			}
-
-			// Delete file
 			if err := os.Remove(filePath); err != nil {
-				errors = append(errors, fmt.Sprintf("failed to delete %s: %v", h.Path, err))
-				continue
+				return nil, nil, nil, fmt.Errorf("failed to delete file %s: %v", h.Path, err)
 			}
 
-			changedFiles = append(changedFiles, h.Path)
+			deleted = append(deleted, filePath)
 
 		case *UpdateHunk:
 			filePath := filepath.Join(cwd, h.Path)
 
-			// Check if file exists
-			if _, err := os.Stat(filePath); os.IsNotExist(err) {
-				errors = append(errors, fmt.Sprintf("file not found for update: %s", h.Path))
-				continue
-			}
-
-			// Apply chunks to get new content
 			newContent, err := deriveNewContentsFromChunks(filePath, h.Chunks)
 			if err != nil {
-				errors = append(errors, fmt.Sprintf("failed to apply update to %s: %v", h.Path, err))
-				continue
+				return nil, nil, nil, fmt.Errorf("failed to derive new contents for %s: %v", h.Path, err)
 			}
 
 			if h.MovePath != "" {
 				// Handle file move
 				newPath := filepath.Join(cwd, h.MovePath)
-				newDir := filepath.Dir(newPath)
-
-				if err := os.MkdirAll(newDir, 0755); err != nil {
-					errors = append(errors, fmt.Sprintf("failed to create directory for move %s: %v", h.MovePath, err))
-					continue
+				dir := filepath.Dir(newPath)
+				if dir != "." && dir != "/" {
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						return nil, nil, nil, fmt.Errorf("failed to create directory for move %s: %v", h.MovePath, err)
+					}
 				}
 
-				// Write to new location
 				if err := os.WriteFile(newPath, []byte(newContent), 0644); err != nil {
-					errors = append(errors, fmt.Sprintf("failed to write moved file %s: %v", h.MovePath, err))
-					continue
+					return nil, nil, nil, fmt.Errorf("failed to write moved file %s: %v", h.MovePath, err)
 				}
 
-				// Remove original
 				if err := os.Remove(filePath); err != nil {
-					errors = append(errors, fmt.Sprintf("failed to remove original file %s: %v", h.Path, err))
-					continue
+					return nil, nil, nil, fmt.Errorf("failed to remove original file %s: %v", h.Path, err)
 				}
 
-				changedFiles = append(changedFiles, h.MovePath)
+				modified = append(modified, newPath)
 			} else {
 				// Regular update
 				if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
-					errors = append(errors, fmt.Sprintf("failed to write updated file %s: %v", h.Path, err))
-					continue
+					return nil, nil, nil, fmt.Errorf("failed to write updated file %s: %v", h.Path, err)
 				}
 
-				changedFiles = append(changedFiles, h.Path)
+				modified = append(modified, filePath)
 			}
 		}
 	}
 
-	// Generate output
-	var output strings.Builder
-	if len(errors) > 0 {
-		output.WriteString("Patch applied with errors:\n\n")
-		output.WriteString("Errors:\n")
-		for _, err := range errors {
-			output.WriteString(fmt.Sprintf("  - %s\n", err))
-		}
-		output.WriteString("\n")
+	return added, modified, deleted, nil
+}
+
+// ApplyPatch is a convenience function to parse and apply a patch in one call
+func ApplyPatch(patchText string, cwd string) (added []string, modified []string, deleted []string, err error) {
+	hunks, err := parsePatch(patchText)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to parse patch: %v", err)
 	}
 
-	if len(changedFiles) > 0 {
-		output.WriteString(fmt.Sprintf("Successfully modified %d file(s):\n", len(changedFiles)))
-		for _, file := range changedFiles {
-			output.WriteString(fmt.Sprintf("  %s\n", file))
-		}
-	} else {
-		output.WriteString("No files were modified.\n")
-	}
-
-	title := fmt.Sprintf("%d files changed", len(changedFiles))
-	if len(errors) > 0 {
-		title += fmt.Sprintf(" (%d errors)", len(errors))
-	}
-
-	result := ToolResult{
-		Title:  title,
-		Output: output.String(),
-		Metadata: map[string]interface{}{
-			"files_changed": len(changedFiles),
-			"errors":        len(errors),
-		},
-	}
-
-	if len(errors) > 0 && len(changedFiles) == 0 {
-		result.Error = fmt.Errorf("patch failed with %d errors", len(errors))
-	}
-
-	return result, nil
+	return ApplyHunksToFiles(hunks, cwd)
 }

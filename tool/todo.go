@@ -17,9 +17,9 @@ Use this tool proactively in these scenarios:
 2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations
 3. User explicitly requests todo list - When the user directly asks you to use the todo list
 4. User provides multiple tasks - When users provide a list of things to be done (numbered or comma-separated)
-5. After receiving new instructions - Immediately capture user requirements as todos
-6. When you start working on a task - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time
-7. After completing a task - Mark it as completed and add any new follow-up tasks discovered during implementation
+5. After receiving new instructions - Immediately capture user requirements as todos. Feel free to edit the todo list based on new information.
+6. After completing a task - Mark it complete and add any new follow-up tasks
+7. When you start working on a new task, mark the todo as in_progress. Ideally you should only have one todo as in_progress at a time. Complete existing tasks before starting new ones.
 
 ## When NOT to Use This Tool
 
@@ -37,11 +37,11 @@ NOTE that you should not use this tool if there is only one trivial task to do. 
 User: I want to add a dark mode toggle to the application settings. Make sure you run the tests and build when you're done!
 Assistant: I'll help add a dark mode toggle to your application settings. Let me create a todo list to track this implementation.
 *Creates todo list with the following items:*
-1. Creating dark mode toggle component in Settings page
-2. Adding dark mode state management (context/store)
-3. Implementing CSS-in-JS styles for dark theme
-4. Updating existing components to support theme switching
-5. Running tests and build process, addressing any failures or errors that occur
+1. Create dark mode toggle component in Settings page
+2. Add dark mode state management (context/store)
+3. Implement CSS-in-JS styles for dark theme
+4. Update existing components to support theme switching
+5. Run tests and build process, addressing any failures or errors that occur
 *Begins working on the first task*
 
 <reasoning>
@@ -88,7 +88,7 @@ User: Can you help optimize my React application? It's rendering slowly and has 
 Assistant: I'll help optimize your React application. First, let me examine your codebase to identify potential performance bottlenecks.
 *Reviews component structure, render patterns, state management, and data fetching*
 Assistant: After analyzing your codebase, I've identified several performance issues. Let me create a todo list to track our optimization efforts.
-*Creates todo list with items like: 1) Implementing memoization for expensive calculations in ProductList, 2) Adding virtualization for long lists in Dashboard, 3) Optimizing image loading in Gallery component, 4) Fixing state update loops in ShoppingCart, 5) Reviewing bundle size and implementing code splitting*
+*Creates todo list with items like: 1) Implement memoization for expensive calculations in ProductList, 2) Add virtualization for long lists in Dashboard, 3) Optimize image loading in Gallery component, 4) Fix state update loops in ShoppingCart, 5) Review bundle size and implement code splitting*
 Let's start by implementing memoization for the expensive calculations in your ProductList component.</assistant>
 
 <reasoning>
@@ -158,35 +158,19 @@ The assistant did not use the todo list because this is a single command executi
    - pending: Task not yet started
    - in_progress: Currently working on (limit to ONE task at a time)
    - completed: Task finished successfully
-
-   **IMPORTANT**: Task descriptions must have two forms:
-   - content: The imperative form describing what needs to be done (e.g., "Run tests", "Build the project")
-   - activeForm: The present continuous form shown during execution (e.g., "Running tests", "Building the project")
+   - cancelled: Task no longer needed
 
 2. **Task Management**:
    - Update task status in real-time as you work
    - Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
-   - Exactly ONE task must be in_progress at any time (not less, not more)
+   - Only have ONE task in_progress at any time
    - Complete current tasks before starting new ones
-   - Remove tasks that are no longer relevant from the list entirely
+   - Cancel tasks that become irrelevant
 
-3. **Task Completion Requirements**:
-   - ONLY mark a task as completed when you have FULLY accomplished it
-   - If you encounter errors, blockers, or cannot finish, keep the task as in_progress
-   - When blocked, create a new task describing what needs to be resolved
-   - Never mark a task as completed if:
-     - Tests are failing
-     - Implementation is partial
-     - You encountered unresolved errors
-     - You couldn't find necessary files or dependencies
-
-4. **Task Breakdown**:
+3. **Task Breakdown**:
    - Create specific, actionable items
    - Break complex tasks into smaller, manageable steps
    - Use clear, descriptive task names
-   - Always provide both forms:
-     - content: "Fix authentication bug"
-     - activeForm: "Fixing authentication bug"
 
 When in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
 `
@@ -212,6 +196,8 @@ Usage:
 type TodoInfo struct {
 	Content    string `json:"content"`
 	Status     string `json:"status"`
+	Priority   string `json:"priority"`
+	ID         string `json:"id"`
 	ActiveForm string `json:"activeForm"`
 }
 
@@ -272,8 +258,16 @@ func TodoWriteTool() *ToolDefinition {
 							},
 							"status": map[string]interface{}{
 								"type":        "string",
-								"description": "Current status of the task: pending, in_progress, completed",
-								"enum":        []string{"pending", "in_progress", "completed"},
+								"description": "Current status of the task: pending, in_progress, completed, cancelled",
+								"enum":        []string{"pending", "in_progress", "completed", "cancelled"},
+							},
+							"priority": map[string]interface{}{
+								"type":        "string",
+								"description": "Priority level of the task: high, medium, low",
+							},
+							"id": map[string]interface{}{
+								"type":        "string",
+								"description": "Unique identifier for the todo item",
 							},
 							"activeForm": map[string]interface{}{
 								"type":        "string",
@@ -330,8 +324,8 @@ func executeTodoWrite(params map[string]interface{}, ctx ToolContext) (ToolResul
 		if todo.ActiveForm == "" {
 			return ToolResult{}, fmt.Errorf("todo %d: activeForm is required", i)
 		}
-		if todo.Status != "pending" && todo.Status != "in_progress" && todo.Status != "completed" {
-			return ToolResult{}, fmt.Errorf("todo %d: invalid status '%s' (must be pending, in_progress, or completed)", i, todo.Status)
+		if todo.Status != "pending" && todo.Status != "in_progress" && todo.Status != "completed" && todo.Status != "cancelled" {
+			return ToolResult{}, fmt.Errorf("todo %d: invalid status '%s' (must be pending, in_progress, completed, or cancelled)", i, todo.Status)
 		}
 	}
 
