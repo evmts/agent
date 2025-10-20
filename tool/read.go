@@ -100,6 +100,29 @@ func executeRead(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 	var output strings.Builder
 	lineNum := 1
 	linesRead := 0
+	totalLines := 0
+
+	// First pass: count total lines
+	for scanner.Scan() {
+		totalLines++
+	}
+	if err := scanner.Err(); err != nil {
+		return ToolResult{}, fmt.Errorf("error reading file: %v", err)
+	}
+
+	// Reopen file for second pass
+	file.Close()
+	file, err = os.Open(filePath)
+	if err != nil {
+		return ToolResult{}, fmt.Errorf("failed to reopen file: %v", err)
+	}
+	defer file.Close()
+
+	scanner = bufio.NewScanner(file)
+	lineNum = 1
+
+	// Start with <file> tag
+	output.WriteString("<file>\n")
 
 	for scanner.Scan() {
 		// Skip lines before offset
@@ -117,11 +140,11 @@ func executeRead(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 
 		// Truncate long lines
 		if len(line) > MaxLineLength {
-			line = line[:MaxLineLength] + "... (line truncated)"
+			line = line[:MaxLineLength] + "..."
 		}
 
-		// Format with line number (cat -n format)
-		output.WriteString(fmt.Sprintf("%6d\t%s\n", lineNum, line))
+		// Format with line number (5-digit zero-padded with pipe separator, matching TypeScript)
+		output.WriteString(fmt.Sprintf("%05d| %s\n", lineNum, line))
 
 		lineNum++
 		linesRead++
@@ -130,6 +153,14 @@ func executeRead(params map[string]interface{}, ctx ToolContext) (ToolResult, er
 	if err := scanner.Err(); err != nil {
 		return ToolResult{}, fmt.Errorf("error reading file: %v", err)
 	}
+
+	// Add note if there are more lines
+	if totalLines > offset+linesRead {
+		output.WriteString(fmt.Sprintf("\n(File has more lines. Use 'offset' parameter to read beyond line %d)\n", offset+linesRead))
+	}
+
+	// Close with </file> tag
+	output.WriteString("</file>")
 
 	// Get relative path for title if possible
 	cwd, _ := os.Getwd()

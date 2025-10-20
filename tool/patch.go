@@ -287,7 +287,7 @@ func computeReplacements(originalLines []string, filePath string, chunks []Updat
 			if contextIdx == -1 {
 				return nil, fmt.Errorf("failed to find context '%s' in %s", chunk.ChangeContext, filePath)
 			}
-			lineIndex = contextIdx + 1
+			lineIndex = contextIdx
 		}
 
 		// Handle pure addition (no old lines)

@@ -48,6 +48,17 @@ var globalFileTimeTracker = &fileTimeTracker{
 }
 
 func (ft *fileTimeTracker) markRead(filePath string) {
+	// Normalize the path to handle symlinks and get canonical path
+	absPath, err := filepath.Abs(filePath)
+	if err == nil {
+		filePath = absPath
+	}
+	// Evaluate symlinks to get the real path
+	realPath, err := filepath.EvalSymlinks(filePath)
+	if err == nil {
+		filePath = realPath
+	}
+
 	info, err := os.Stat(filePath)
 	if err == nil {
 		ft.lastRead[filePath] = info.ModTime()
@@ -55,6 +66,17 @@ func (ft *fileTimeTracker) markRead(filePath string) {
 }
 
 func (ft *fileTimeTracker) assertNotModified(filePath string) error {
+	// Normalize the path to handle symlinks and get canonical path
+	absPath, err := filepath.Abs(filePath)
+	if err == nil {
+		filePath = absPath
+	}
+	// Evaluate symlinks to get the real path
+	realPath, err := filepath.EvalSymlinks(filePath)
+	if err == nil {
+		filePath = realPath
+	}
+
 	lastRead, exists := ft.lastRead[filePath]
 	if !exists {
 		return fmt.Errorf("file %s has not been read in this session. You MUST use the Read tool first before writing to existing files", filePath)
