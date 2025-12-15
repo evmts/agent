@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/williamcory/agent/sdk/agent"
 	"claude-tui/internal/messages"
 )
 
@@ -19,14 +20,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 
 		// Calculate component sizes
-		// Reserve space for: header (1), input (5), status bar (1), padding (2)
-		chatHeight := msg.Height - 9
+		// Reserve space for: header (2), input (5), status bar (2), padding (2)
+		chatHeight := msg.Height - 11
 		if chatHeight < 5 {
 			chatHeight = 5
 		}
 
 		m.chat.SetSize(msg.Width, chatHeight)
 		m.input.SetWidth(msg.Width)
+		return m, nil
+
+	case healthCheckMsg:
+		if msg.healthy {
+			// Create a new session on startup
+			return m, m.createSession()
+		} else {
+			m.state = StateError
+			m.err = msg.err
+			return m, nil
+		}
+
+	case sessionCreatedMsg:
+		m.session = msg.session
+		m.state = StateIdle
+		return m, m.input.Focus()
+
+	case messagesLoadedMsg:
+		m.chat.LoadMessages(msg.messages)
+		m.state = StateIdle
 		return m, nil
 
 	case tea.KeyMsg:
@@ -51,41 +72,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
-			// Only send if idle and has content
-			if m.state == StateIdle && m.input.Value() != "" {
+			// Only send if idle, has session, and has content
+			if m.state == StateIdle && m.session != nil && m.input.Value() != "" {
 				return m.sendMessage()
 			}
 
+		case "ctrl+n":
+			// New session
+			if m.state == StateIdle {
+				m.chat.Clear()
+				m.session = nil
+				m.state = StateLoading
+				return m, m.createSession()
+			}
+
 		case "ctrl+l":
-			// Clear chat
+			// Clear chat (but keep session)
 			m.chat.Clear()
-			m.conversationID = nil
 			return m, nil
 		}
 
-	// SSE Events
+	// SDK Stream Events
+	case messages.StreamEventMsg:
+		if msg.Event != nil {
+			m.chat.HandleStreamEvent(msg.Event)
+
+			// Update token tracking
+			if msg.Event.Message != nil && msg.Event.Message.Tokens != nil {
+				tokens := msg.Event.Message.Tokens
+				m.totalTokens = tokens.Input + tokens.Output + tokens.Reasoning
+				m.totalCost = msg.Event.Message.Cost
+			}
+		}
+		return m, nil
+
 	case messages.StreamStartMsg:
 		m.state = StateStreaming
 		m.chat.StartAssistantMessage()
 		return m, nil
-
-	case messages.TokenMsg:
-		m.chat.AppendToken(msg.Content)
-		return m, nil
-
-	case messages.ToolUseMsg:
-		m.chat.AddToolEvent(msg.Tool, msg.Input)
-		return m, nil
-
-	case messages.ToolResultMsg:
-		m.chat.CompleteToolEvent(msg.Tool, msg.Output)
-		return m, nil
-
-	case messages.DoneMsg:
-		m.conversationID = &msg.ConversationID
-		m.chat.EndAssistantMessage()
-		m.state = StateIdle
-		return m, m.input.Focus()
 
 	case messages.StreamEndMsg:
 		if m.state == StateStreaming {
@@ -116,6 +140,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// Internal message types
+type sessionCreatedMsg struct {
+	session *agent.Session
+}
+
+type messagesLoadedMsg struct {
+	messages []agent.MessageWithParts
+}
+
+// createSession creates a new session
+func (m Model) createSession() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10000000000) // 10 seconds
+		defer cancel()
+
+		session, err := m.client.CreateSession(ctx, &agent.CreateSessionRequest{
+			Title: agent.String("Claude TUI Session"),
+		})
+		if err != nil {
+			return messages.ErrorMsg{Message: fmt.Sprintf("Failed to create session: %v", err)}
+		}
+		return sessionCreatedMsg{session: session}
+	}
+}
+
 // sendMessage sends the current input to the backend
 func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 	content := m.input.Value()
@@ -134,5 +183,45 @@ func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 	p := m.shared.GetProgram()
 
 	// Start streaming
-	return m, m.client.StreamChat(m.ctx, content, m.conversationID, p)
+	return m, m.streamMessage(m.ctx, m.session.ID, content, p)
+}
+
+// streamMessage streams a message using the SDK
+func (m Model) streamMessage(ctx context.Context, sessionID, content string, p *tea.Program) tea.Cmd {
+	return func() tea.Msg {
+		// Prepare the request
+		req := &agent.PromptRequest{
+			Parts: []interface{}{
+				agent.TextPartInput{Type: "text", Text: content},
+			},
+		}
+
+		// Start streaming
+		eventCh, errCh, err := m.client.SendMessage(ctx, sessionID, req)
+		if err != nil {
+			return messages.ErrorMsg{Message: fmt.Sprintf("Failed to send message: %v", err)}
+		}
+
+		// Signal stream start
+		p.Send(messages.StreamStartMsg{})
+
+		// Process events
+		for {
+			select {
+			case <-ctx.Done():
+				return messages.StreamEndMsg{}
+			case err := <-errCh:
+				if err != nil {
+					return messages.ErrorMsg{Message: fmt.Sprintf("Stream error: %v", err)}
+				}
+				return messages.StreamEndMsg{}
+			case event, ok := <-eventCh:
+				if !ok {
+					return messages.StreamEndMsg{}
+				}
+				// Send event to the program
+				p.Send(messages.StreamEventMsg{Event: event})
+			}
+		}
+	}
 }
