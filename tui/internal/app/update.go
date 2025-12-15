@@ -7,6 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
+	"tui/internal/components/dialog"
+	"tui/internal/components/sidebar"
+	"tui/internal/keybind"
 	"tui/internal/messages"
 )
 
@@ -27,8 +30,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			chatHeight = 5
 		}
 
-		m.chat.SetSize(msg.Width, chatHeight)
-		m.input.SetWidth(msg.Width)
+		// Adjust widths based on sidebar visibility
+		sidebarWidth := 32 // sidebar width + border
+		chatWidth := msg.Width
+		if m.sidebar.IsVisible() {
+			chatWidth = msg.Width - sidebarWidth
+		}
+
+		m.chat.SetSize(chatWidth, chatHeight)
+		m.input.SetWidth(chatWidth)
+		m.sidebar.SetSize(sidebarWidth, msg.Height)
 		return m, nil
 
 	case healthCheckMsg:
@@ -44,6 +55,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionCreatedMsg:
 		m.session = msg.session
 		m.state = StateIdle
+		m.inputFocused = true
 		return m, m.input.Focus()
 
 	case messagesLoadedMsg:
@@ -51,46 +63,137 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateIdle
 		return m, nil
 
+	case sidebar.SessionSelectedMsg:
+		// Load the selected session
+		if m.state == StateIdle {
+			m.chat.Clear()
+			m.session = &msg.Session
+			return m, m.loadSessionMessages(msg.Session.ID)
+		}
+		return m, nil
+
+	case sessionsLoadedMsg:
+		m.sidebar.SetSessions(msg.sessions)
+		return m, nil
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
+		// If there's an active dialog, handle it first
+		if m.HasActiveDialog() {
+			switch d := m.activeDialog.(type) {
+			case *dialog.HelpDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
+			case *dialog.ConfirmDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
+			}
+		}
+
+		action := m.keyMap.Get(msg.String())
+
+		// Handle help action
+		if action == keybind.ActionShowHelp {
+			m.ShowHelp()
+			return m, nil
+		}
+
+		// Handle cancel/escape - always check streaming state first
+		if action == keybind.ActionCancel {
 			if m.state == StateStreaming && m.cancel != nil {
-				// Cancel the current stream
 				m.cancel()
 				m.state = StateIdle
 				m.chat.EndAssistantMessage()
+				m.inputFocused = true
 				return m, m.input.Focus()
 			}
-			return m, tea.Quit
+			// If input is focused, unfocus it
+			if m.inputFocused {
+				m.input.Blur()
+				m.inputFocused = false
+				return m, nil
+			}
+		}
 
-		case "esc":
+		// Handle quit
+		if action == keybind.ActionQuit {
+			// If streaming, cancel first
 			if m.state == StateStreaming && m.cancel != nil {
 				m.cancel()
 				m.state = StateIdle
 				m.chat.EndAssistantMessage()
-				return m, m.input.Focus()
 			}
 			return m, tea.Quit
+		}
 
-		case "enter":
-			// Only send if idle, has session, and has content
+		// Handle submit
+		if action == keybind.ActionSubmit && m.inputFocused {
 			if m.state == StateIdle && m.session != nil && m.input.Value() != "" {
 				return m.sendMessage()
 			}
+		}
 
-		case "ctrl+n":
-			// New session
-			if m.state == StateIdle {
+		// Handle actions that require idle state
+		if m.state == StateIdle {
+			switch action {
+			case keybind.ActionNewSession:
 				m.chat.Clear()
 				m.session = nil
 				m.state = StateLoading
 				return m, m.createSession()
-			}
 
-		case "ctrl+l":
-			// Clear chat (but keep session)
-			m.chat.Clear()
-			return m, nil
+			case keybind.ActionClearChat:
+				m.chat.Clear()
+				return m, nil
+
+			case keybind.ActionFocusInput:
+				if !m.inputFocused {
+					m.inputFocused = true
+					return m, m.input.Focus()
+				}
+
+			case keybind.ActionToggleSidebar:
+				m.sidebar.Toggle()
+				// Load sessions when opening sidebar
+				if m.sidebar.IsVisible() {
+					return m, m.loadSessions()
+				}
+				// Recalculate sizes when toggling
+				return m, func() tea.Msg {
+					return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+				}
+			}
+		}
+
+		// Navigation actions - only when input is not focused
+		if !m.inputFocused {
+			switch action {
+			case keybind.ActionScrollUp:
+				m.chat.ScrollUp()
+				return m, nil
+			case keybind.ActionScrollDown:
+				m.chat.ScrollDown()
+				return m, nil
+			case keybind.ActionPageUp:
+				m.chat.PageUp()
+				return m, nil
+			case keybind.ActionPageDown:
+				m.chat.PageDown()
+				return m, nil
+			case keybind.ActionScrollToTop:
+				m.chat.ScrollToTop()
+				return m, nil
+			case keybind.ActionScrollToBottom:
+				m.chat.ScrollToBottom()
+				return m, nil
+			}
 		}
 
 	// SDK Stream Events
@@ -99,10 +202,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chat.HandleStreamEvent(msg.Event)
 
 			// Update token tracking
-			if msg.Event.Message != nil && msg.Event.Message.Tokens != nil {
-				tokens := msg.Event.Message.Tokens
-				m.totalTokens = tokens.Input + tokens.Output + tokens.Reasoning
-				m.totalCost = msg.Event.Message.Cost
+			if msg.Event.Message != nil {
+				if msg.Event.Message.Tokens != nil {
+					tokens := msg.Event.Message.Tokens
+					m.totalInputTokens = tokens.Input
+					m.totalOutputTokens = tokens.Output + tokens.Reasoning
+				}
+				if msg.Event.Message.Cost > 0 {
+					m.totalCost = msg.Event.Message.Cost
+				}
+				// Track model info
+				if msg.Event.Message.ModelID != "" {
+					m.currentModel = msg.Event.Message.ModelID
+				}
+				if msg.Event.Message.Agent != "" {
+					m.currentAgent = msg.Event.Message.Agent
+				}
 			}
 		}
 		return m, nil
@@ -117,23 +232,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chat.EndAssistantMessage()
 		}
 		m.state = StateIdle
+		m.inputFocused = true
 		return m, m.input.Focus()
 
 	case messages.ErrorMsg:
 		m.err = fmt.Errorf("%s", msg.Message)
 		m.state = StateError
 		m.chat.EndAssistantMessage()
+		m.inputFocused = true
 		return m, m.input.Focus()
 	}
 
-	// Update child components when idle
-	if m.state == StateIdle {
+	// Update child components when idle and focused
+	if m.state == StateIdle && m.inputFocused {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
-	// Always allow chat scrolling
+	// Update sidebar if visible
+	if m.sidebar.IsVisible() {
+		var cmd tea.Cmd
+		m.sidebar, cmd = m.sidebar.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	// Always allow chat scrolling (viewport handles its own key events)
 	var cmd tea.Cmd
 	m.chat, cmd = m.chat.Update(msg)
 	cmds = append(cmds, cmd)
@@ -148,6 +272,10 @@ type sessionCreatedMsg struct {
 
 type messagesLoadedMsg struct {
 	messages []agent.MessageWithParts
+}
+
+type sessionsLoadedMsg struct {
+	sessions []agent.Session
 }
 
 // createSession creates a new session
@@ -173,9 +301,10 @@ func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 	// Add user message to chat
 	m.chat.AddUserMessage(content)
 
-	// Clear input
+	// Clear input and unfocus
 	m.input.Clear()
 	m.input.Blur()
+	m.inputFocused = false
 
 	// Create cancellable context
 	m.ctx, m.cancel = context.WithCancel(context.Background())
@@ -224,5 +353,33 @@ func (m Model) streamMessage(ctx context.Context, sessionID, content string, p *
 				p.Send(messages.StreamEventMsg{Event: event})
 			}
 		}
+	}
+}
+
+// loadSessions loads all sessions from the backend
+func (m Model) loadSessions() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		sessions, err := m.client.ListSessions(ctx)
+		if err != nil {
+			return messages.ErrorMsg{Message: fmt.Sprintf("Failed to load sessions: %v", err)}
+		}
+		return sessionsLoadedMsg{sessions: sessions}
+	}
+}
+
+// loadSessionMessages loads messages for a specific session
+func (m Model) loadSessionMessages(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		msgs, err := m.client.ListMessages(ctx, sessionID, nil)
+		if err != nil {
+			return messages.ErrorMsg{Message: fmt.Sprintf("Failed to load messages: %v", err)}
+		}
+		return messagesLoadedMsg{messages: msgs}
 	}
 }

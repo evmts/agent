@@ -8,7 +8,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
 	"tui/internal/components/chat"
+	"tui/internal/components/dialog"
 	"tui/internal/components/input"
+	"tui/internal/components/sidebar"
+	"tui/internal/keybind"
 )
 
 // State represents the application state
@@ -43,33 +46,45 @@ func (s *SharedState) GetProgram() *tea.Program {
 
 // Model is the main application model
 type Model struct {
-	chat    chat.Model
-	input   input.Model
-	client  *agent.Client
-	shared  *SharedState
-	state   State
-	session *agent.Session
-	width   int
-	height  int
-	err     error
-	ctx     context.Context
-	cancel  context.CancelFunc
-	ready   bool
+	chat         chat.Model
+	input        input.Model
+	sidebar      sidebar.Model
+	client       *agent.Client
+	shared       *SharedState
+	state        State
+	session      *agent.Session
+	width        int
+	height       int
+	err          error
+	ctx          context.Context
+	cancel       context.CancelFunc
+	ready        bool
+	keyMap       *keybind.KeyMap
+	inputFocused bool
+
+	// Dialog support
+	activeDialog dialog.Dialog
 
 	// Token tracking
-	totalTokens int
-	totalCost   float64
+	totalInputTokens  int
+	totalOutputTokens int
+	totalCost         float64
+	currentModel      string
+	currentAgent      string
 }
 
 // New creates a new application model
 func New(client *agent.Client) Model {
 	return Model{
-		chat:   chat.New(80, 20),
-		input:  input.New(80),
-		client: client,
-		shared: &SharedState{},
-		state:  StateLoading,
-		ready:  false,
+		chat:         chat.New(80, 20),
+		input:        input.New(80),
+		sidebar:      sidebar.New(30, 20),
+		client:       client,
+		shared:       &SharedState{},
+		state:        StateLoading,
+		ready:        false,
+		keyMap:       keybind.DefaultKeyMap(),
+		inputFocused: false,
 	}
 }
 
@@ -83,6 +98,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.input.Init(),
 		m.chat.Init(),
+		m.sidebar.Init(),
 		m.checkHealth(),
 	)
 }
@@ -104,4 +120,24 @@ func (m Model) checkHealth() tea.Cmd {
 type healthCheckMsg struct {
 	healthy bool
 	err     error
+}
+
+// ShowHelp shows the help dialog
+func (m *Model) ShowHelp() {
+	m.activeDialog = dialog.NewHelpDialog()
+}
+
+// ShowConfirm shows a confirmation dialog
+func (m *Model) ShowConfirm(message string, onConfirm, onCancel tea.Cmd) {
+	m.activeDialog = dialog.NewConfirmDialog(message, onConfirm, onCancel)
+}
+
+// CloseDialog closes the active dialog
+func (m *Model) CloseDialog() {
+	m.activeDialog = nil
+}
+
+// HasActiveDialog returns true if there is an active dialog
+func (m *Model) HasActiveDialog() bool {
+	return m.activeDialog != nil && m.activeDialog.IsVisible()
 }
