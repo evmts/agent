@@ -69,6 +69,7 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("ctrl+m", "Select AI model", ActionShowModels)
 	km.Add("ctrl+t", "Cycle theme", ActionCycleTheme)
 	km.Add("ctrl+a", "Select agent", ActionShowAgents)
+	km.Add("ctrl+r", "Toggle markdown rendering", ActionToggleMarkdown)
 
 	// Navigation
 	km.Add("pgup", "Scroll up one page", ActionPageUp)

@@ -77,6 +77,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebar.SetSessions(msg.sessions)
 		return m, nil
 
+	case dialog.AgentSelectedMsg:
+		// Update the current agent
+		m.currentAgent = msg.Agent.Name
+		return m, nil
+
 	case tea.KeyMsg:
 		// If there's an active dialog, handle it first
 		if m.HasActiveDialog() {

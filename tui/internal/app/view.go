@@ -201,3 +201,68 @@ func (m Model) renderStatusBar(width int) string {
 
 	return statusStyle.Render(statusBar)
 }
+
+// overlayToasts overlays toast notifications in the top-right corner
+func overlayToasts(base, toasts string, width, height int) string {
+	if toasts == "" {
+		return base
+	}
+
+	// Split both into lines
+	baseLines := strings.Split(base, "\n")
+	toastLines := strings.Split(toasts, "\n")
+
+	// Calculate toast dimensions
+	toastHeight := len(toastLines)
+	toastWidth := 0
+	for _, line := range toastLines {
+		lineWidth := ansi.PrintableRuneWidth(line)
+		if lineWidth > toastWidth {
+			toastWidth = lineWidth
+		}
+	}
+
+	// Position: top-right corner with some padding
+	rightPadding := 2
+	topPadding := 1
+	startX := width - toastWidth - rightPadding
+	if startX < 0 {
+		startX = 0
+	}
+
+	// Overlay toasts onto base
+	for i, toastLine := range toastLines {
+		lineIdx := topPadding + i
+		if lineIdx >= len(baseLines) {
+			break
+		}
+
+		baseLine := baseLines[lineIdx]
+		baseLineWidth := ansi.PrintableRuneWidth(baseLine)
+
+		// Pad the base line to startX if needed
+		if baseLineWidth < startX {
+			baseLine = baseLine + strings.Repeat(" ", startX-baseLineWidth)
+		}
+
+		// Convert to runes for proper handling
+		baseRunes := []rune(baseLine)
+
+		// Calculate where to insert the toast
+		visualPos := 0
+		insertPos := 0
+		for insertPos < len(baseRunes) && visualPos < startX {
+			visualPos += ansi.PrintableRuneWidth(string(baseRunes[insertPos]))
+			insertPos++
+		}
+
+		// Replace the portion with the toast
+		if insertPos < len(baseRunes) {
+			baseLines[lineIdx] = string(baseRunes[:insertPos]) + toastLine
+		} else {
+			baseLines[lineIdx] = baseLine + toastLine
+		}
+	}
+
+	return strings.Join(baseLines, "\n")
+}
