@@ -9,25 +9,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
 	"claude-tui/internal/app"
-	"claude-tui/internal/mock"
 )
 
 func main() {
 	// Parse flags
-	mockServer := flag.Bool("mock", false, "Run the mock server instead of the TUI")
-	mockPort := flag.Int("mock-port", 8000, "Port for the mock server")
 	backendURL := flag.String("backend", "", "Backend URL (default: http://localhost:8000)")
 	flag.Parse()
-
-	// Run mock server if requested
-	if *mockServer {
-		server := mock.NewServer(*mockPort)
-		if err := server.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Mock server error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
 
 	// Determine backend URL
 	url := *backendURL
