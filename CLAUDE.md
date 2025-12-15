@@ -22,9 +22,6 @@ Claude Agent is an AI agent platform with:
 - Bubbletea for terminal UI
 - Standard library for HTTP client
 
-### TypeScript/Bun (Optional Demo)
-- Bun runtime (NOT Node.js)
-
 ## Development Commands
 
 ### Python
@@ -73,14 +70,6 @@ zig build clean
 # Update dependencies
 zig build deps
 ```
-
-### Bun/TypeScript
-
-Use Bun instead of Node.js:
-- `bun <file>` instead of `node <file>`
-- `bun test` instead of `jest`
-- `bun install` instead of `npm install`
-- `bunx <pkg>` instead of `npx <pkg>`
 
 ## Key Files
 
@@ -189,11 +178,3 @@ zig build run-dev
 - Standard gofmt formatting
 - Godoc comments for exports
 - Error handling explicit
-
-## Bun-Specific APIs
-
-When writing TypeScript:
-- `Bun.serve()` for HTTP server (not Express)
-- `Bun.file()` for file operations
-- `bun:sqlite` for SQLite
-- WebSocket is built-in

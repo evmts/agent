@@ -1,6 +1,3 @@
-# dependencies (bun install)
-node_modules
-
 # reference code
 dependencies/
 
@@ -26,9 +23,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.local
 
 # caches
-.eslintcache
 .cache
-*.tsbuildinfo
 
 # IntelliJ based IDEs
 .idea

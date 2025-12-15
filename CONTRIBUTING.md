@@ -29,13 +29,7 @@ Please be respectful and constructive in all interactions. We welcome contributo
    cd ../sdk/agent && go mod download
    ```
 
-4. **Install Bun** (optional, for TypeScript)
-   ```bash
-   curl -fsSL https://bun.sh/install | bash
-   bun install
-   ```
-
-5. **Set environment variables**
+4. **Set environment variables**
    ```bash
    export ANTHROPIC_API_KEY="your-api-key"
    ```
@@ -133,12 +127,6 @@ func (c *Client) CreateSession(ctx context.Context, req *CreateSessionRequest) (
     ...
 }
 ```
-
-### TypeScript/JavaScript
-
-- Use Bun runtime (not Node.js)
-- Prefer TypeScript over JavaScript
-- Use ES modules
 
 ## Testing
 

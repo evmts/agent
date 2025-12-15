@@ -38,7 +38,6 @@ Registered Tools
 
 - Python 3.11+
 - Go 1.22+
-- [Bun](https://bun.sh) (optional, for TypeScript demo)
 - Anthropic API key
 
 ### Installation
@@ -52,9 +51,6 @@ cd agent
 pip install -e .
 # Or with uv:
 uv pip install -e .
-
-# Install Bun dependencies (optional)
-bun install
 ```
 
 ### Running the Server
