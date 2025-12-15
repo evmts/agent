@@ -1,16 +1,21 @@
 """
 Wrapper that adapts Pydantic AI streaming to the server.py expected interface.
+
+Uses run_stream_events() to get proper tool call events during streaming.
 """
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
+import json
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, AgentRunResultEvent
 from pydantic_ai.messages import (
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    ToolCallPart,
-    ToolReturnPart,
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelMessage,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPartDelta,
+    ToolCallPartDelta,
 )
 
 
@@ -35,7 +40,7 @@ class AgentWrapper:
     """
 
     agent: Agent
-    _message_history: list = field(default_factory=list)
+    _message_history: list[ModelMessage] = field(default_factory=list)
 
     async def stream_async(
         self,
@@ -45,76 +50,92 @@ class AgentWrapper:
         """
         Stream agent response, yielding events compatible with server.py.
 
-        The server expects events with a 'data' attribute containing text chunks.
-        We also yield tool events for richer UI updates.
+        Uses run_stream_events() to get proper tool call events including
+        FunctionToolCallEvent and FunctionToolResultEvent.
 
         Args:
             user_text: The user's input message
             session_id: Optional session ID for context
 
         Yields:
-            StreamEvent objects with text deltas and tool events
+            StreamEvent objects with text deltas, tool calls, and tool results
         """
-        async with self.agent.run_stream(
+        final_result = None
+
+        async for event in self.agent.run_stream_events(
             user_text, message_history=self._message_history
-        ) as result:
-            # Track tool calls for proper event emission
-            pending_tool_calls: dict[str, str] = {}  # tool_call_id -> tool_name
+        ):
+            if isinstance(event, PartStartEvent):
+                # A new part is starting - could be text or tool call
+                pass
 
-            async for text in result.stream_text(delta=True):
-                yield StreamEvent(data=text, event_type="text")
+            elif isinstance(event, PartDeltaEvent):
+                # Streaming delta for a part
+                if isinstance(event.delta, TextPartDelta):
+                    # Text content streaming
+                    if event.delta.content_delta:
+                        yield StreamEvent(
+                            data=event.delta.content_delta,
+                            event_type="text"
+                        )
+                elif isinstance(event.delta, ToolCallPartDelta):
+                    # Tool call arguments streaming (optional to handle)
+                    pass
 
-            # After streaming completes, update message history
-            self._message_history = result.all_messages()
+            elif isinstance(event, FunctionToolCallEvent):
+                # Tool is being called
+                tool_name = event.part.tool_name
+                # Args can be dict or object, convert to dict
+                try:
+                    if hasattr(event.part.args, 'model_dump'):
+                        args = event.part.args.model_dump()
+                    elif isinstance(event.part.args, dict):
+                        args = event.part.args
+                    else:
+                        args = dict(event.part.args) if event.part.args else {}
+                except Exception:
+                    args = {}
 
-    async def stream_async_with_tools(
-        self,
-        user_text: str,
-        session_id: str | None = None,
-    ) -> AsyncIterator[StreamEvent]:
-        """
-        Stream agent response with full tool event handling.
+                yield StreamEvent(
+                    event_type="tool_call",
+                    tool_name=tool_name,
+                    tool_input=args,
+                    tool_id=event.part.tool_call_id,
+                )
 
-        This version provides more detailed events including tool calls and results.
-        Use this when you need to display tool execution in the UI.
+            elif isinstance(event, FunctionToolResultEvent):
+                # Tool has returned a result
+                # result is ToolReturnPart with tool_call_id and content
+                try:
+                    content = event.result.content
+                    if isinstance(content, str):
+                        output = content
+                    elif hasattr(content, 'model_dump_json'):
+                        output = content.model_dump_json()
+                    else:
+                        output = str(content)
+                except Exception as e:
+                    output = f"Error formatting result: {e}"
 
-        Args:
-            user_text: The user's input message
-            session_id: Optional session ID for context
+                yield StreamEvent(
+                    event_type="tool_result",
+                    tool_id=event.result.tool_call_id,
+                    tool_output=output,
+                    tool_name=event.result.tool_name,
+                )
 
-        Yields:
-            StreamEvent objects with text, tool calls, and tool results
-        """
-        async with self.agent.run_stream(
-            user_text, message_history=self._message_history
-        ) as result:
-            current_text = ""
+            elif isinstance(event, AgentRunResultEvent):
+                # Final result - save for history update
+                final_result = event
 
-            async for message in result.stream():
-                # Handle different message/part types
-                if hasattr(message, "content"):
-                    # This is the accumulated response
-                    new_text = ""
-                    for part in message.content:
-                        if isinstance(part, str):
-                            new_text = part
-                        elif hasattr(part, "content"):
-                            new_text = part.content
-
-                    if new_text and new_text != current_text:
-                        # Emit the delta
-                        delta = new_text[len(current_text) :]
-                        if delta:
-                            yield StreamEvent(data=delta, event_type="text")
-                            current_text = new_text
-
-            # Update message history after completion
-            self._message_history = result.all_messages()
+        # Update message history after completion
+        if final_result:
+            self._message_history = list(final_result.result.all_messages())
 
     def reset_history(self) -> None:
         """Clear conversation history for new session."""
         self._message_history = []
 
-    def get_history(self) -> list:
+    def get_history(self) -> list[ModelMessage]:
         """Get the current message history."""
         return self._message_history.copy()
