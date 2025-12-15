@@ -2,23 +2,21 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     // ==========================================================
-    // PyInstaller: Build Python server (run from project root)
+    // PyInstaller: Build Python server
     // ==========================================================
     const pyinstaller_step = b.step("pyinstaller", "Build Python server with PyInstaller");
 
-    // PyInstaller must be run from project root to find agent/ and snapshot/ dirs
-    // Use .venv/bin/pyinstaller to ensure correct environment
     const pyinstaller_cmd = b.addSystemCommand(&.{
-        "../.venv/bin/pyinstaller",
+        ".venv/bin/pyinstaller",
         "--onefile",
         "--distpath",
-        "internal/embedded/bin",
+        "tui/internal/embedded/bin",
         "--name",
         "agent-server",
         "--add-data",
-        "../agent:agent",
+        "agent:agent",
         "--add-data",
-        "../snapshot:snapshot",
+        "snapshot:snapshot",
         "--hidden-import",
         "uvicorn",
         "--hidden-import",
@@ -49,7 +47,7 @@ pub fn build(b: *std.Build) void {
         "gitpython",
         "--hidden-import",
         "git",
-        "../main.py",
+        "main.py",
     });
     pyinstaller_step.dependOn(&pyinstaller_cmd.step);
 
@@ -57,14 +55,14 @@ pub fn build(b: *std.Build) void {
     // Go: Build TUI binary only (no PyInstaller)
     // ==========================================================
     const build_go_step = b.step("build-go", "Build Go TUI binary only");
-    const build_go_cmd = b.addSystemCommand(&.{ "go", "build", "-o", "agent-tui", "." });
+    const build_go_cmd = b.addSystemCommand(&.{ "go", "build", "-C", "tui", "-o", "../agent-tui", "." });
     build_go_step.dependOn(&build_go_cmd.step);
 
     // ==========================================================
     // Full build: PyInstaller + Go (unified binary)
     // ==========================================================
     const build_step = b.step("build", "Build unified binary (PyInstaller + Go)");
-    const full_go_cmd = b.addSystemCommand(&.{ "go", "build", "-o", "agent-tui", "." });
+    const full_go_cmd = b.addSystemCommand(&.{ "go", "build", "-C", "tui", "-o", "../agent-tui", "." });
     full_go_cmd.step.dependOn(&pyinstaller_cmd.step);
     build_step.dependOn(&full_go_cmd.step);
 
@@ -82,14 +80,15 @@ pub fn build(b: *std.Build) void {
     const run_dev_step = b.step("run-dev", "Run TUI with external backend");
     const run_dev_cmd = b.addSystemCommand(&.{ "./agent-tui", "--embedded=false" });
     run_dev_cmd.setEnvironmentVariable("BACKEND_URL", "http://localhost:8000");
-    run_dev_cmd.step.dependOn(&build_go_cmd.step);
+    const build_go_for_dev = b.addSystemCommand(&.{ "go", "build", "-C", "tui", "-o", "../agent-tui", "." });
+    run_dev_cmd.step.dependOn(&build_go_for_dev.step);
     run_dev_step.dependOn(&run_dev_cmd.step);
 
     // ==========================================================
     // Test: Run Go tests
     // ==========================================================
     const test_step = b.step("test", "Run Go tests");
-    const test_cmd = b.addSystemCommand(&.{ "go", "test", "./..." });
+    const test_cmd = b.addSystemCommand(&.{ "go", "test", "-C", "tui", "./..." });
     test_step.dependOn(&test_cmd.step);
 
     // ==========================================================
@@ -100,10 +99,10 @@ pub fn build(b: *std.Build) void {
         "rm",
         "-rf",
         "agent-tui",
-        "internal/embedded/bin/agent-server",
-        "../build",
-        "../dist",
-        "../agent-server.spec",
+        "tui/internal/embedded/bin/agent-server",
+        "build",
+        "dist",
+        "agent-server.spec",
     });
     clean_step.dependOn(&clean_cmd.step);
 
@@ -111,21 +110,21 @@ pub fn build(b: *std.Build) void {
     // Format: Format Go code
     // ==========================================================
     const fmt_step = b.step("fmt", "Format Go code");
-    const fmt_cmd = b.addSystemCommand(&.{ "go", "fmt", "./..." });
+    const fmt_cmd = b.addSystemCommand(&.{ "go", "fmt", "-C", "tui", "./..." });
     fmt_step.dependOn(&fmt_cmd.step);
 
     // ==========================================================
     // Lint: Run golangci-lint
     // ==========================================================
     const lint_step = b.step("lint", "Run golangci-lint");
-    const lint_cmd = b.addSystemCommand(&.{ "golangci-lint", "run" });
+    const lint_cmd = b.addSystemCommand(&.{ "golangci-lint", "run", "tui/..." });
     lint_step.dependOn(&lint_cmd.step);
 
     // ==========================================================
     // Deps: Install/update all dependencies
     // ==========================================================
     const deps_step = b.step("deps", "Install/update all dependencies");
-    const go_deps_cmd = b.addSystemCommand(&.{ "go", "mod", "tidy" });
+    const go_deps_cmd = b.addSystemCommand(&.{ "go", "mod", "-C", "tui", "tidy" });
     const pip_deps_cmd = b.addSystemCommand(&.{ "uv", "pip", "install", "pyinstaller" });
     deps_step.dependOn(&go_deps_cmd.step);
     deps_step.dependOn(&pip_deps_cmd.step);

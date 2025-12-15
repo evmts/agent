@@ -43,29 +43,35 @@ pytest tests/test_agent/test_tools/
 ### Go (using Zig build system)
 
 ```bash
-# Build TUI
-cd tui && zig build
+# Build unified binary (PyInstaller + Go)
+zig build
 
-# Run TUI
-cd tui && zig build run
+# Run unified TUI (includes embedded server)
+zig build run
 
-# Run with dev backend
-cd tui && zig build run-dev
+# Run with external backend (for development)
+zig build run-dev
+
+# Build Go TUI only (no PyInstaller)
+zig build build-go
+
+# Build Python server only
+zig build pyinstaller
 
 # Run tests
-cd tui && zig build test
+zig build test
 
 # Format code
-cd tui && zig build fmt
+zig build fmt
 
 # Run linter
-cd tui && zig build lint
+zig build lint
 
 # Clean build artifacts
-cd tui && zig build clean
+zig build clean
 
 # Update dependencies
-cd tui && zig build deps
+zig build deps
 ```
 
 ### Bun/TypeScript
@@ -88,7 +94,7 @@ Use Bun instead of Node.js:
 | `sdk/agent/client.go` | Go SDK HTTP client |
 | `sdk/agent/types.go` | OpenCode type definitions |
 | `tui/internal/app/` | TUI application logic |
-| `tui/build.zig` | Zig build system for TUI |
+| `build.zig` | Zig build system (root) |
 
 ## Environment Variables
 
@@ -153,12 +159,17 @@ Event types:
 ### Running the Full Stack
 
 ```bash
+# Option 1: Unified binary (server embedded in TUI)
+export ANTHROPIC_API_KEY="your-key"
+zig build run
+
+# Option 2: Separate processes (for development)
 # Terminal 1: Start server
 export ANTHROPIC_API_KEY="your-key"
 python main.py
 
-# Terminal 2: Start TUI
-cd tui && zig build run
+# Terminal 2: Start TUI with external backend
+zig build run-dev
 ```
 
 ### Debugging
