@@ -5,6 +5,24 @@ import (
 	"github.com/williamcory/agent/sdk/agent"
 )
 
+// SectionState tracks which sections are expanded
+type SectionState struct {
+	Sessions bool
+	Context  bool
+	Files    bool
+	Todos    bool
+}
+
+// ContextInfo tracks token and cost information
+type ContextInfo struct {
+	InputTokens   int
+	OutputTokens  int
+	TotalCost     float64
+	ContextUsed   int // percentage 0-100
+	ModelName     string
+	AgentName     string
+}
+
 // Model represents the sidebar component
 type Model struct {
 	sessions      []agent.Session
@@ -12,6 +30,12 @@ type Model struct {
 	width         int
 	height        int
 	visible       bool
+
+	// New fields for enhanced sidebar
+	sections      SectionState
+	contextInfo   ContextInfo
+	diffs         []agent.FileDiff
+	currentSession *agent.Session
 }
 
 // New creates a new sidebar model
@@ -22,6 +46,12 @@ func New(width, height int) Model {
 		width:         width,
 		height:        height,
 		visible:       false,
+		sections: SectionState{
+			Sessions: true,
+			Context:  true,
+			Files:    true,
+			Todos:    true,
+		},
 	}
 }
 
@@ -118,4 +148,38 @@ func (m Model) GetWidth() int {
 // SessionSelectedMsg is sent when a session is selected from the sidebar
 type SessionSelectedMsg struct {
 	Session agent.Session
+}
+
+// GetSessions returns all sessions
+func (m Model) GetSessions() []agent.Session {
+	return m.sessions
+}
+
+// SetContextInfo updates the context tracking information
+func (m *Model) SetContextInfo(info ContextInfo) {
+	m.contextInfo = info
+}
+
+// SetDiffs updates the file diffs
+func (m *Model) SetDiffs(diffs []agent.FileDiff) {
+	m.diffs = diffs
+}
+
+// SetCurrentSession sets the current session being viewed
+func (m *Model) SetCurrentSession(session *agent.Session) {
+	m.currentSession = session
+}
+
+// ToggleSection toggles a section's expanded/collapsed state
+func (m *Model) ToggleSection(section string) {
+	switch section {
+	case "sessions":
+		m.sections.Sessions = !m.sections.Sessions
+	case "context":
+		m.sections.Context = !m.sections.Context
+	case "files":
+		m.sections.Files = !m.sections.Files
+	case "todos":
+		m.sections.Todos = !m.sections.Todos
+	}
 }
