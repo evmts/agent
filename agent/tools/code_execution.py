@@ -9,6 +9,21 @@ import tempfile
 from pathlib import Path
 
 
+# Maximum output size in characters (OpenCode uses 30000)
+MAX_OUTPUT_SIZE = 30000
+
+
+def _truncate_output(output: str, max_size: int = MAX_OUTPUT_SIZE) -> str:
+    """Truncate output if it exceeds max size, preserving beginning and end."""
+    if len(output) <= max_size:
+        return output
+
+    # Keep first and last portions
+    half = max_size // 2
+    truncated_lines = output[:half] + f"\n\n... [OUTPUT TRUNCATED - {len(output) - max_size} characters removed] ...\n\n" + output[-half:]
+    return truncated_lines
+
+
 async def execute_python(code: str, timeout: int = 30) -> str:
     """
     Execute Python code in a sandboxed subprocess.
@@ -45,7 +60,8 @@ async def execute_python(code: str, timeout: int = 30) -> str:
             if process.returncode != 0:
                 result += f"\nExit code: {process.returncode}"
 
-            return result or "Code executed successfully (no output)"
+            result = result or "Code executed successfully (no output)"
+            return _truncate_output(result)
 
         except asyncio.TimeoutError:
             process.kill()
@@ -195,7 +211,8 @@ async def execute_shell(
             if process.returncode != 0:
                 result += f"\n(Exit code: {process.returncode})"
 
-            return result or f"{result_prefix}Command completed successfully (no output)"
+            result = result or f"{result_prefix}Command completed successfully (no output)"
+            return _truncate_output(result)
 
         except asyncio.TimeoutError:
             process.kill()
