@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/williamcory/agent/sdk/agent"
 	"claude-tui/internal/styles"
 )
 
@@ -17,19 +18,12 @@ const (
 	RoleAssistant Role = "assistant"
 )
 
-// Message represents a chat message
+// Message represents a chat message with its parts
 type Message struct {
 	Role        Role
-	Content     string
+	Parts       []agent.Part
 	IsStreaming bool
-}
-
-// ToolEvent represents a tool being used by the assistant
-type ToolEvent struct {
-	Tool      string
-	Input     map[string]any
-	Output    string
-	Completed bool
+	Info        *agent.Message // Original message info
 }
 
 // Render renders a message with the given width
@@ -43,74 +37,192 @@ func (m Message) Render(width int) string {
 		sb.WriteString("\n")
 	case RoleAssistant:
 		sb.WriteString(styles.AssistantLabel.Render("Assistant"))
+		// Add model info if available
+		if m.Info != nil && m.Info.ModelID != "" {
+			modelInfo := styles.Muted.Render(fmt.Sprintf(" (%s)", m.Info.ModelID))
+			sb.WriteString(modelInfo)
+		}
 		sb.WriteString("\n")
 	}
 
-	// Render content
-	content := m.Content
-	if m.Role == RoleAssistant && content != "" {
-		// Use glamour for markdown rendering
-		rendered, err := renderMarkdown(content, width-4)
-		if err == nil {
-			content = strings.TrimSpace(rendered)
+	// Render all parts
+	for _, part := range m.Parts {
+		partView := renderPart(part, width-4)
+		if partView != "" {
+			sb.WriteString(partView)
+			sb.WriteString("\n")
 		}
 	}
 
 	// Add streaming cursor
 	if m.IsStreaming {
-		content += styles.StreamingCursor.Render("▊")
-	}
-
-	// Apply message style
-	switch m.Role {
-	case RoleUser:
-		sb.WriteString(styles.UserMessage.Width(width - 2).Render(content))
-	case RoleAssistant:
-		sb.WriteString(styles.AssistantMessage.Width(width - 2).Render(content))
+		sb.WriteString(styles.StreamingCursor.Render("▊"))
 	}
 
 	return sb.String()
 }
 
-// Render renders a tool event
-func (t ToolEvent) Render(width int) string {
-	var status string
-	if t.Completed {
-		status = styles.ToolStatus.Render("✓")
-	} else {
-		status = styles.ToolStatus.Render("...")
+// renderPart renders a single part based on its type
+func renderPart(part agent.Part, width int) string {
+	switch {
+	case part.IsText():
+		return renderTextPart(part, width)
+	case part.IsReasoning():
+		return renderReasoningPart(part, width)
+	case part.IsTool():
+		return renderToolPart(part, width)
+	case part.IsFile():
+		return renderFilePart(part, width)
+	default:
+		return ""
+	}
+}
+
+// renderTextPart renders text content with markdown
+func renderTextPart(part agent.Part, width int) string {
+	content := part.Text
+	if content == "" {
+		return ""
 	}
 
-	// Format input based on tool type
-	var inputStr string
-	switch t.Tool {
+	// Render markdown
+	rendered, err := renderMarkdown(content, width)
+	if err == nil {
+		content = strings.TrimSpace(rendered)
+	}
+
+	return styles.AssistantMessage.Width(width).Render(content)
+}
+
+// renderReasoningPart renders thinking/reasoning content
+func renderReasoningPart(part agent.Part, width int) string {
+	if part.Text == "" {
+		return ""
+	}
+
+	// Style for reasoning - dimmed and italic
+	reasoningStyle := lipgloss.NewStyle().
+		Foreground(styles.Muted).
+		Italic(true).
+		PaddingLeft(2).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(styles.Muted)
+
+	header := styles.Muted.Bold(true).Render("Thinking...")
+	content := reasoningStyle.Width(width - 4).Render(part.Text)
+
+	return header + "\n" + content
+}
+
+// renderToolPart renders tool invocation and results
+func renderToolPart(part agent.Part, width int) string {
+	if part.State == nil {
+		return ""
+	}
+
+	state := part.State
+	var status string
+	var statusStyle lipgloss.Style
+
+	switch state.Status {
+	case "pending":
+		status = "⏳"
+		statusStyle = styles.Muted
+	case "running":
+		status = "⚡"
+		statusStyle = styles.StatusBarStreaming
+	case "completed":
+		status = "✓"
+		statusStyle = styles.ToolStatus
+	default:
+		status = "?"
+		statusStyle = styles.Muted
+	}
+
+	// Format tool name and input
+	toolName := styles.ToolName.Render(part.Tool)
+	inputStr := formatToolInput(part.Tool, state.Input)
+
+	// Use title if available
+	if state.Title != nil && *state.Title != "" {
+		inputStr = *state.Title
+	}
+
+	header := fmt.Sprintf("%s %s %s", statusStyle.Render(status), toolName, inputStr)
+
+	// Show output if completed and has output
+	if state.Status == "completed" && state.Output != "" {
+		outputStyle := lipgloss.NewStyle().
+			Foreground(styles.Muted).
+			PaddingLeft(4)
+
+		output := state.Output
+		if len(output) > 200 {
+			output = output[:200] + "..."
+		}
+		// Replace newlines for compact display
+		output = strings.ReplaceAll(output, "\n", " ")
+		output = truncate(output, width-8)
+
+		return styles.ToolEvent.Render(header) + "\n" + outputStyle.Render(output)
+	}
+
+	return styles.ToolEvent.Render(header)
+}
+
+// renderFilePart renders file attachments
+func renderFilePart(part agent.Part, width int) string {
+	fileStyle := lipgloss.NewStyle().
+		Foreground(styles.Secondary).
+		Bold(true)
+
+	name := "File"
+	if part.Filename != nil {
+		name = *part.Filename
+	}
+
+	return fileStyle.Render(fmt.Sprintf("📎 %s (%s)", name, part.Mime))
+}
+
+// formatToolInput formats tool input for display
+func formatToolInput(tool string, input map[string]interface{}) string {
+	if input == nil {
+		return ""
+	}
+
+	switch tool {
 	case "Read":
-		if path, ok := t.Input["file_path"].(string); ok {
-			inputStr = truncate(path, 50)
+		if path, ok := input["file_path"].(string); ok {
+			return truncate(path, 50)
 		}
 	case "Bash":
-		if cmd, ok := t.Input["command"].(string); ok {
-			inputStr = truncate(cmd, 50)
+		if cmd, ok := input["command"].(string); ok {
+			return truncate(cmd, 50)
 		}
 	case "Glob", "Grep":
-		if pattern, ok := t.Input["pattern"].(string); ok {
-			inputStr = truncate(pattern, 50)
+		if pattern, ok := input["pattern"].(string); ok {
+			return truncate(pattern, 50)
 		}
-	case "Edit":
-		if path, ok := t.Input["file_path"].(string); ok {
-			inputStr = truncate(path, 50)
+	case "Edit", "Write":
+		if path, ok := input["file_path"].(string); ok {
+			return truncate(path, 50)
 		}
-	case "Write":
-		if path, ok := t.Input["file_path"].(string); ok {
-			inputStr = truncate(path, 50)
+	case "WebFetch":
+		if url, ok := input["url"].(string); ok {
+			return truncate(url, 50)
 		}
-	default:
-		inputStr = fmt.Sprintf("%v", t.Input)
-		inputStr = truncate(inputStr, 50)
+	case "WebSearch":
+		if query, ok := input["query"].(string); ok {
+			return truncate(query, 50)
+		}
+	case "Task":
+		if desc, ok := input["description"].(string); ok {
+			return truncate(desc, 50)
+		}
 	}
 
-	toolName := styles.ToolName.Render(t.Tool)
-	return styles.ToolEvent.Render(fmt.Sprintf("%s %s %s", status, toolName, inputStr))
+	// Fallback
+	return truncate(fmt.Sprintf("%v", input), 50)
 }
 
 // renderMarkdown renders markdown content for the terminal
@@ -135,18 +247,17 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// ChatItem represents either a message or tool event in the chat
+// ChatItem represents a renderable item in the chat
 type ChatItem interface {
 	Render(width int) string
 }
 
-// Ensure Message and ToolEvent implement ChatItem
+// Ensure Message implements ChatItem
 var _ ChatItem = Message{}
-var _ ChatItem = ToolEvent{}
 
 // HelpText returns the help text shown at the bottom
 func HelpText() string {
 	return lipgloss.NewStyle().
 		Foreground(styles.Muted).
-		Render("Enter: send • Ctrl+C: quit • Shift+Enter: newline")
+		Render("Enter: send • Ctrl+C: quit • Ctrl+N: new session")
 }
