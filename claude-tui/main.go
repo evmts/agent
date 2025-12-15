@@ -4,10 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/williamcory/agent/sdk/agent"
 	"claude-tui/internal/app"
-	"claude-tui/internal/client"
 	"claude-tui/internal/mock"
 )
 
@@ -37,11 +38,21 @@ func main() {
 		url = "http://localhost:8000"
 	}
 
-	// Create SSE client
-	sseClient := client.NewClient(url)
+	// Get working directory for the SDK
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create SDK client
+	client := agent.NewClient(url,
+		agent.WithDirectory(cwd),
+		agent.WithTimeout(60*time.Second),
+	)
 
 	// Create app model
-	model := app.New(sseClient)
+	model := app.New(client)
 
 	// Create program with options
 	p := tea.NewProgram(
