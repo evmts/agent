@@ -4,6 +4,8 @@ Agent tools module.
 from .code_execution import execute_python, execute_shell
 from .edit import edit_file, patch_file
 from .file_operations import grep_files, list_directory, read_file, search_files, write_file
+from .task import cancel_task, create_task, get_task_status, list_tasks
+from .todo import todo_add, todo_read, todo_update, todo_write
 from .web import web_fetch, web_search
 
 __all__ = [
@@ -18,4 +20,12 @@ __all__ = [
     "web_fetch",
     "edit_file",
     "patch_file",
+    "todo_write",
+    "todo_read",
+    "todo_add",
+    "todo_update",
+    "create_task",
+    "get_task_status",
+    "list_tasks",
+    "cancel_task",
 ]

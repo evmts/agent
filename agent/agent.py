@@ -10,13 +10,19 @@ from config import get_config
 
 from .registry import get_agent_config, AgentConfig
 from .tools import (
+    cancel_task,
+    create_task,
     edit_file,
     execute_python,
     execute_shell,
+    get_task_status,
     grep_files,
     list_directory,
+    list_tasks,
     read_file,
     search_files,
+    todo_read,
+    todo_write,
     web_fetch,
     web_search,
     write_file,
@@ -148,5 +154,43 @@ def create_agent(
         async def web(query: str) -> str:
             """Search the web for information."""
             return await web_search(query)
+
+    # Todo tools (always enabled)
+    @agent.tool_plain
+    async def todowrite(todos: list[dict]) -> str:
+        """Write/replace the todo list."""
+        return await todo_write("default", todos)
+
+    @agent.tool_plain
+    async def todoread() -> str:
+        """Read the current todo list."""
+        return await todo_read("default")
+
+    # Task tools (always enabled)
+    @agent.tool_plain
+    async def task(
+        action: str,
+        task_id: str | None = None,
+        description: str | None = None,
+        command: str | None = None,
+        timeout: int = 300,
+    ) -> str:
+        """Manage background tasks. Actions: create, status, list, cancel"""
+        if action == "create":
+            if not description or not command:
+                return "Error: 'create' action requires 'description' and 'command' parameters"
+            return await create_task(description, command, timeout)
+        elif action == "status":
+            if not task_id:
+                return "Error: 'status' action requires 'task_id' parameter"
+            return await get_task_status(task_id)
+        elif action == "list":
+            return await list_tasks()
+        elif action == "cancel":
+            if not task_id:
+                return "Error: 'cancel' action requires 'task_id' parameter"
+            return await cancel_task(task_id)
+        else:
+            return f"Error: Unknown action '{action}'. Valid actions: create, status, list, cancel"
 
     return agent
