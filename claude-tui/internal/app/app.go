@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"claude-tui/internal/client"
@@ -18,12 +19,32 @@ const (
 	StateError
 )
 
+// SharedState holds state that needs to be shared between model copies
+type SharedState struct {
+	mu      sync.Mutex
+	program *tea.Program
+}
+
+// SetProgram sets the program reference
+func (s *SharedState) SetProgram(p *tea.Program) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.program = p
+}
+
+// GetProgram gets the program reference
+func (s *SharedState) GetProgram() *tea.Program {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.program
+}
+
 // Model is the main application model
 type Model struct {
 	chat           chat.Model
 	input          input.Model
 	client         *client.Client
-	program        *tea.Program
+	shared         *SharedState
 	state          State
 	conversationID *string
 	width          int
@@ -40,6 +61,7 @@ func New(sseClient *client.Client) Model {
 		chat:   chat.New(80, 20),
 		input:  input.New(80),
 		client: sseClient,
+		shared: &SharedState{},
 		state:  StateIdle,
 		ready:  false,
 	}
@@ -47,7 +69,7 @@ func New(sseClient *client.Client) Model {
 
 // SetProgram sets the tea.Program reference for SSE callbacks
 func (m *Model) SetProgram(p *tea.Program) {
-	m.program = p
+	m.shared.SetProgram(p)
 }
 
 // Init initializes the application
