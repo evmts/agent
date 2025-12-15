@@ -58,3 +58,7 @@ tui/agent-tui
 build/
 dist/
 *.spec
+
+# Zig build cache
+.zig-cache/
+zig-out/
