@@ -47,6 +47,14 @@ pub fn build(b: *std.Build) void {
         "gitpython",
         "--hidden-import",
         "git",
+        "--exclude-module",
+        "logfire",
+        "--copy-metadata",
+        "genai_prices",
+        "--copy-metadata",
+        "pydantic_ai_slim",
+        "--copy-metadata",
+        "pydantic_ai",
         "main.py",
     });
     pyinstaller_step.dependOn(&pyinstaller_cmd.step);
