@@ -1,54 +1,179 @@
 """
-Pydantic AI Agent configuration with Claude as the LLM provider.
+Pydantic AI Agent configuration using MCP servers for tools.
+
+Uses external MCP servers for shell and filesystem operations,
+minimizing custom tool code that needs to be maintained.
 """
 
-from pathlib import Path
+import os
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, WebSearchTool
+from pydantic_ai.mcp import MCPServerStdio
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
-from config import get_config
+from .registry import get_agent_config
 
-from .registry import get_agent_config, AgentConfig
-from .tools import (
-    cancel_task,
-    create_task,
-    edit_file,
-    execute_python,
-    execute_shell,
-    get_task_status,
-    glob_files,
-    grep_files,
-    list_directory,
-    list_tasks,
-    multiedit,
-    read_file,
-    search_files,
-    todo_read,
-    todo_write,
-    web_fetch,
-    web_search,
-    write_file,
-)
+
+def _is_anthropic_model(model_id: str) -> bool:
+    """Check if the model is an Anthropic/Claude model."""
+    model_lower = model_id.lower()
+    return "claude" in model_lower or "anthropic" in model_lower
+
+
+# Simple in-memory todo storage (session-specific, doesn't need MCP)
+_todo_storage: dict[str, list[dict]] = {}
+
+
+def _get_todos(session_id: str) -> list[dict]:
+    return _todo_storage.get(session_id, [])
+
+
+def _set_todos(session_id: str, todos: list[dict]) -> None:
+    _todo_storage[session_id] = todos
+
 
 SYSTEM_INSTRUCTIONS = """You are a helpful coding assistant with access to tools for:
-- Executing Python and shell code
-- Reading and writing files
-- Editing files with targeted string replacements
-- Searching through codebases (file name patterns and content patterns)
-- Grep for searching file contents with regex patterns
-- Searching the web and fetching pages
-- Managing background tasks for long-running operations
-- Managing session todo lists to track tasks
+- Executing shell commands (via shell tool)
+- Reading and writing files (via filesystem tools)
+- Managing todo lists for task tracking
+- Searching the web for up-to-date information
 
 When helping users, prefer to:
 1. Read relevant files first to understand context
 2. Make targeted changes rather than rewriting entire files
 3. Explain what you're doing and why
 4. Verify changes work correctly
-5. Use background tasks for operations that may take a long time
 
 Be concise but thorough. If you need to execute code to verify something works, do so.
 """
+
+
+def create_mcp_servers(working_dir: str | None = None) -> list[MCPServerStdio]:
+    """
+    Create MCP server instances for tools.
+
+    Args:
+        working_dir: Working directory for filesystem operations
+
+    Returns:
+        List of MCP server configurations
+    """
+    cwd = working_dir or os.getcwd()
+
+    servers = []
+
+    # Shell server (Python-based)
+    # Provides: shell command execution
+    shell_server = MCPServerStdio(
+        'python',
+        args=['-m', 'mcp_server_shell'],
+        timeout=60,
+    )
+    servers.append(shell_server)
+
+    # Filesystem server (Node.js-based, more mature)
+    # Provides: read_file, write_file, list_directory, search_files, etc.
+    filesystem_server = MCPServerStdio(
+        'npx',
+        args=['-y', '@modelcontextprotocol/server-filesystem', cwd],
+        timeout=30,
+    )
+    servers.append(filesystem_server)
+
+    return servers
+
+
+@asynccontextmanager
+async def create_agent_with_mcp(
+    model_id: str = "claude-sonnet-4-20250514",
+    agent_name: str = "build",
+    working_dir: str | None = None,
+) -> AsyncIterator[Agent]:
+    """
+    Create and configure a Pydantic AI agent with MCP tools.
+
+    This is an async context manager that properly manages MCP server lifecycles.
+
+    Args:
+        model_id: Anthropic model identifier
+        agent_name: Name of the agent configuration to use
+        working_dir: Working directory for filesystem operations
+
+    Yields:
+        Configured Pydantic AI Agent with MCP tools
+
+    Example:
+        async with create_agent_with_mcp() as agent:
+            result = await agent.run("List files in current directory")
+    """
+    agent_config = get_agent_config(agent_name)
+    if agent_config is None:
+        raise ValueError(f"Unknown agent: {agent_name}")
+
+    # Create MCP servers
+    mcp_servers = create_mcp_servers(working_dir)
+
+    # Determine search tool based on model
+    use_anthropic = _is_anthropic_model(model_id)
+    builtin_tools = [WebSearchTool()] if use_anthropic else []
+    tools = [] if use_anthropic else [duckduckgo_search_tool()]
+
+    # Create agent with MCP toolsets
+    model_name = f"anthropic:{model_id}"
+    agent = Agent(
+        model_name,
+        system_prompt=agent_config.system_prompt or SYSTEM_INSTRUCTIONS,
+        toolsets=mcp_servers,
+        builtin_tools=builtin_tools if builtin_tools else None,
+        tools=tools if tools else None,
+    )
+
+    # Register simple custom tools that don't need MCP
+    @agent.tool_plain
+    async def todowrite(todos: list[dict], session_id: str = "default") -> str:
+        """Write/replace the todo list for task tracking.
+
+        Args:
+            todos: List of todo items with 'content', 'status', and 'activeForm' fields
+            session_id: Session identifier for todo storage
+        """
+        validated = []
+        for todo in todos:
+            validated.append({
+                "content": todo.get("content", ""),
+                "status": todo.get("status", "pending"),
+                "activeForm": todo.get("activeForm", todo.get("content", "")),
+            })
+        _set_todos(session_id, validated)
+        return f"Todo list updated with {len(validated)} items"
+
+    @agent.tool_plain
+    async def todoread(session_id: str = "default") -> str:
+        """Read the current todo list.
+
+        Args:
+            session_id: Session identifier for todo storage
+        """
+        todos = _get_todos(session_id)
+        if not todos:
+            return "No todos found"
+
+        lines = []
+        for i, todo in enumerate(todos, 1):
+            status_icon = {
+                "pending": "⏳",
+                "in_progress": "🔄",
+                "completed": "✅",
+            }.get(todo.get("status", "pending"), "⏳")
+            lines.append(f"{i}. {status_icon} {todo.get('content', '')}")
+
+        return "\n".join(lines)
+
+    # Use async context manager to properly manage MCP server lifecycles
+    async with agent:
+        yield agent
 
 
 def create_agent(
@@ -57,171 +182,49 @@ def create_agent(
     agent_name: str = "build",
 ) -> Agent:
     """
-    Create and configure a Pydantic AI agent with Claude.
+    Create a simple agent WITHOUT MCP tools (for backwards compatibility).
+
+    Note: This creates an agent without MCP tools. For full functionality,
+    use create_agent_with_mcp() as an async context manager instead.
 
     Args:
         model_id: Anthropic model identifier
         api_key: Optional API key (defaults to ANTHROPIC_API_KEY env var)
-        agent_name: Name of the agent configuration to use (default: "build")
+        agent_name: Name of the agent configuration to use
 
     Returns:
-        Configured Pydantic AI Agent
+        Configured Pydantic AI Agent (without MCP tools)
     """
-    # Get agent configuration from registry
     agent_config = get_agent_config(agent_name)
     if agent_config is None:
-        raise ValueError(f"Unknown agent: {agent_name}. Use list_agent_names() to see available agents.")
+        raise ValueError(f"Unknown agent: {agent_name}")
 
-    # Use anthropic: prefix for Pydantic AI model specification
+    # Determine search tool based on model
+    use_anthropic = _is_anthropic_model(model_id)
+    builtin_tools = [WebSearchTool()] if use_anthropic else []
+    tools = [] if use_anthropic else [duckduckgo_search_tool()]
+
     model_name = f"anthropic:{model_id}"
-
-    # Create agent with tools using agent-specific configuration
     agent = Agent(
         model_name,
-        system_prompt=agent_config.system_prompt,
+        system_prompt=agent_config.system_prompt or SYSTEM_INSTRUCTIONS,
+        builtin_tools=builtin_tools if builtin_tools else None,
+        tools=tools if tools else None,
     )
 
-    # Helper to check if tool is enabled
-    def is_enabled(tool_name: str) -> bool:
-        return agent_config.is_tool_enabled(tool_name)
-
-    # Register tools conditionally based on agent configuration
-    if is_enabled("python"):
-        @agent.tool_plain
-        async def python(code: str, timeout: int = 30) -> str:
-            """Execute Python code and return the output."""
-            return await execute_python(code, timeout)
-
-    if is_enabled("shell"):
-        @agent.tool_plain
-        async def shell(command: str, cwd: str | None = None, timeout: int = 30) -> str:
-            """Execute a shell command and return the output."""
-            # Check if command is allowed for this agent
-            if not agent_config.is_shell_command_allowed(command):
-                return (
-                    f"Error: Shell command not allowed for '{agent_name}' agent.\n"
-                    f"Command: {command}\n\n"
-                    f"This agent only allows specific shell commands for safety.\n"
-                    f"Allowed patterns: {agent_config.allowed_shell_patterns}"
-                )
-            return await execute_shell(command, cwd, timeout)
-
-    if is_enabled("read"):
-        @agent.tool_plain
-        async def read(path: str, offset: int = 0, limit: int | None = None) -> str:
-            """Read the contents of a file.
-
-            Args:
-                path: File path to read
-                offset: Line number to start from (0-indexed)
-                limit: Maximum number of lines to read (default 2000)
-            """
-            return await read_file(path, offset=offset, limit=limit)
-
-    if is_enabled("write"):
-        @agent.tool_plain
-        async def write(path: str, content: str) -> str:
-            """Write content to a file."""
-            return await write_file(path, content)
-
-        @agent.tool_plain
-        async def edit(path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
-            """Edit a file by replacing old_string with new_string."""
-            return await edit_file(path, old_string, new_string, replace_all)
-
-        @agent.tool_plain
-        async def batch_edit(edits: list[dict]) -> str:
-            """Apply multiple file edits atomically.
-
-            All edits are validated before any are applied.
-            Each edit should have: path, old_string, new_string, and optionally replace_all.
-            """
-            return await multiedit(edits)
-
-    if is_enabled("search"):
-        @agent.tool_plain
-        async def search(
-            pattern: str, path: str = ".", content_pattern: str | None = None
-        ) -> str:
-            """Search for files by glob pattern, optionally filtering by content."""
-            return await search_files(pattern, path, content_pattern)
-
-        @agent.tool_plain
-        async def grep(
-            pattern: str,
-            path: str = ".",
-            file_pattern: str | None = None,
-            ignore_case: bool = False,
-            context_lines: int = 0,
-        ) -> str:
-            """Search file contents using regex pattern."""
-            return await grep_files(pattern, path, file_pattern, ignore_case, context_lines)
-
-        @agent.tool_plain
-        async def glob(pattern: str, path: str = ".", max_results: int = 100) -> str:
-            """Find files matching a glob pattern, sorted by modification time (newest first).
-
-            Args:
-                pattern: Glob pattern (e.g., "**/*.py", "src/**/*.ts")
-                path: Base directory to search from
-                max_results: Maximum number of results to return
-            """
-            return await glob_files(pattern, path, max_results)
-
-    if is_enabled("ls"):
-        @agent.tool_plain
-        async def ls(path: str = ".", include_hidden: bool = False) -> str:
-            """List contents of a directory."""
-            return await list_directory(path, include_hidden)
-
-    if is_enabled("fetch"):
-        @agent.tool_plain
-        async def fetch(url: str) -> str:
-            """Fetch and extract text content from a URL."""
-            return await web_fetch(url)
-
-    if is_enabled("web"):
-        @agent.tool_plain
-        async def web(query: str) -> str:
-            """Search the web for information."""
-            return await web_search(query)
-
-    # Todo tools (always enabled)
+    # Register simple todo tools
     @agent.tool_plain
-    async def todowrite(todos: list[dict]) -> str:
+    async def todowrite(todos: list[dict], session_id: str = "default") -> str:
         """Write/replace the todo list."""
-        return await todo_write("default", todos)
+        _set_todos(session_id, todos)
+        return f"Todo list updated with {len(todos)} items"
 
     @agent.tool_plain
-    async def todoread() -> str:
+    async def todoread(session_id: str = "default") -> str:
         """Read the current todo list."""
-        return await todo_read("default")
-
-    # Task tools (always enabled)
-    @agent.tool_plain
-    async def task(
-        action: str,
-        task_id: str | None = None,
-        description: str | None = None,
-        command: str | None = None,
-        timeout: int = 300,
-    ) -> str:
-        """Manage background tasks. Actions: create, status, list, cancel"""
-        if action == "create":
-            if not description or not command:
-                return "Error: 'create' action requires 'description' and 'command' parameters"
-            return await create_task(description, command, timeout)
-        elif action == "status":
-            if not task_id:
-                return "Error: 'status' action requires 'task_id' parameter"
-            return await get_task_status(task_id)
-        elif action == "list":
-            return await list_tasks()
-        elif action == "cancel":
-            if not task_id:
-                return "Error: 'cancel' action requires 'task_id' parameter"
-            return await cancel_task(task_id)
-        else:
-            return f"Error: Unknown action '{action}'. Valid actions: create, status, list, cancel"
+        todos = _get_todos(session_id)
+        if not todos:
+            return "No todos found"
+        return "\n".join(f"- {t.get('content', '')}" for t in todos)
 
     return agent
