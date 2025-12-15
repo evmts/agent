@@ -40,17 +40,32 @@ pytest
 pytest tests/test_agent/test_tools/
 ```
 
-### Go
+### Go (using Zig build system)
 
 ```bash
 # Build TUI
-cd claude-tui && make build
+cd tui && zig build
 
 # Run TUI
-./claude-tui -backend http://localhost:8000
+cd tui && zig build run
 
-# Run SDK tests
-cd sdk/agent && go test ./...
+# Run with dev backend
+cd tui && zig build run-dev
+
+# Run tests
+cd tui && zig build test
+
+# Format code
+cd tui && zig build fmt
+
+# Run linter
+cd tui && zig build lint
+
+# Clean build artifacts
+cd tui && zig build clean
+
+# Update dependencies
+cd tui && zig build deps
 ```
 
 ### Bun/TypeScript
@@ -72,7 +87,8 @@ Use Bun instead of Node.js:
 | `snapshot/snapshot.py` | Git-based snapshot system |
 | `sdk/agent/client.go` | Go SDK HTTP client |
 | `sdk/agent/types.go` | OpenCode type definitions |
-| `claude-tui/internal/app/` | TUI application logic |
+| `tui/internal/app/` | TUI application logic |
+| `tui/build.zig` | Zig build system for TUI |
 
 ## Environment Variables
 
@@ -142,7 +158,7 @@ export ANTHROPIC_API_KEY="your-key"
 python main.py
 
 # Terminal 2: Start TUI
-cd claude-tui && ./claude-tui
+cd tui && zig build run
 ```
 
 ### Debugging
