@@ -2,10 +2,11 @@
 Wrapper that adapts Pydantic AI streaming to the server.py expected interface.
 
 Uses run_stream_events() to get proper tool call events during streaming.
+Supports MCP-based agents with proper lifecycle management.
 """
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
-import json
 
 from pydantic_ai import Agent, AgentRunResultEvent
 from pydantic_ai.messages import (
@@ -17,6 +18,8 @@ from pydantic_ai.messages import (
     TextPartDelta,
     ToolCallPartDelta,
 )
+
+from .agent import create_agent_with_mcp, create_agent
 
 
 @dataclass
@@ -139,3 +142,56 @@ class AgentWrapper:
     def get_history(self) -> list[ModelMessage]:
         """Get the current message history."""
         return self._message_history.copy()
+
+
+@asynccontextmanager
+async def create_mcp_wrapper(
+    model_id: str = "claude-sonnet-4-20250514",
+    agent_name: str = "build",
+    working_dir: str | None = None,
+) -> AsyncIterator[AgentWrapper]:
+    """
+    Create an AgentWrapper with MCP tools enabled.
+
+    This is an async context manager that properly manages MCP server lifecycles.
+
+    Args:
+        model_id: Anthropic model identifier
+        agent_name: Name of the agent configuration to use
+        working_dir: Working directory for filesystem operations
+
+    Yields:
+        AgentWrapper with MCP-enabled agent
+
+    Example:
+        async with create_mcp_wrapper() as wrapper:
+            async for event in wrapper.stream_async("Hello"):
+                print(event)
+    """
+    async with create_agent_with_mcp(
+        model_id=model_id,
+        agent_name=agent_name,
+        working_dir=working_dir,
+    ) as agent:
+        yield AgentWrapper(agent=agent)
+
+
+def create_simple_wrapper(
+    model_id: str = "claude-sonnet-4-20250514",
+    agent_name: str = "build",
+) -> AgentWrapper:
+    """
+    Create an AgentWrapper WITHOUT MCP tools (for backwards compatibility).
+
+    Note: This creates a wrapper without MCP tools. For full functionality,
+    use create_mcp_wrapper() as an async context manager instead.
+
+    Args:
+        model_id: Anthropic model identifier
+        agent_name: Name of the agent configuration to use
+
+    Returns:
+        AgentWrapper with basic agent (no MCP tools)
+    """
+    agent = create_agent(model_id=model_id, agent_name=agent_name)
+    return AgentWrapper(agent=agent)
