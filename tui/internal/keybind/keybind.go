@@ -75,6 +75,13 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("ctrl+s", "Switch session", ActionSessionList)
 	km.Add("ctrl+e", "Open external editor", ActionOpenEditor)
 
+	// New dialogs
+	km.Add("ctrl+k", "Open command palette", ActionShowCommands)
+	km.Add("T", "Select theme", ActionShowThemes)
+	km.Add("ctrl+,", "Open settings", ActionShowSettings)
+	km.Add("ctrl+i", "Show status", ActionShowStatus)
+	km.Add("F2", "Rename session", ActionRenameSession)
+
 	// Session actions
 	km.Add("ctrl+f", "Fork current session", ActionForkSession)
 	km.Add("ctrl+z", "Revert session changes", ActionRevertSession)

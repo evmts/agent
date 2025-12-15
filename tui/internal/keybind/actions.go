@@ -20,6 +20,9 @@ const (
 	ActionShowCommands    Action = "show_commands"
 	ActionToggleTimestamp Action = "toggle_timestamps"
 	ActionToggleToolInfo  Action = "toggle_tool_info"
+	ActionShowThemes      Action = "show_themes"
+	ActionShowStatus      Action = "show_status"
+	ActionShowSettings    Action = "show_settings"
 
 	// Session actions
 	ActionForkSession     Action = "fork_session"
