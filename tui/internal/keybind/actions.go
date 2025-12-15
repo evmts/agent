@@ -11,6 +11,7 @@ const (
 	ActionClearChat     Action = "clear_chat"
 	ActionToggleSidebar Action = "toggle_sidebar"
 	ActionShowHelp      Action = "show_help"
+	ActionShowModels    Action = "show_models"
 	ActionCycleTheme    Action = "cycle_theme"
 	ActionShowAgents    Action = "show_agents"
 

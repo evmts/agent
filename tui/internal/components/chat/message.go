@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
 	"tui/internal/styles"
@@ -28,6 +27,11 @@ type Message struct {
 
 // Render renders a message with the given width
 func (m Message) Render(width int) string {
+	return m.RenderWithOptions(width, false)
+}
+
+// RenderWithOptions renders a message with the given width and options
+func (m Message) RenderWithOptions(width int, showThinking bool) string {
 	var sb strings.Builder
 
 	// Add role label
@@ -47,7 +51,7 @@ func (m Message) Render(width int) string {
 
 	// Render all parts
 	for _, part := range m.Parts {
-		partView := renderPart(part, width-4)
+		partView := renderPart(part, width-4, showThinking)
 		if partView != "" {
 			sb.WriteString(partView)
 			sb.WriteString("\n")
@@ -85,11 +89,9 @@ func renderTextPart(part agent.Part, width int) string {
 		return ""
 	}
 
-	// Render markdown
-	rendered, err := renderMarkdown(content, width)
-	if err == nil {
-		content = strings.TrimSpace(rendered)
-	}
+	// Render markdown using shared renderer
+	rendered := RenderMarkdown(content)
+	content = strings.TrimSpace(rendered)
 
 	return styles.AssistantMessage().Width(width).Render(content)
 }
@@ -225,17 +227,6 @@ func formatToolInput(tool string, input map[string]interface{}) string {
 	return truncate(fmt.Sprintf("%v", input), 50)
 }
 
-// renderMarkdown renders markdown content for the terminal
-func renderMarkdown(content string, width int) (string, error) {
-	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width),
-	)
-	if err != nil {
-		return content, err
-	}
-	return r.Render(content)
-}
 
 // truncate truncates a string to the given length
 func truncate(s string, maxLen int) string {

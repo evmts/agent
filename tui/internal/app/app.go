@@ -11,6 +11,7 @@ import (
 	"tui/internal/components/dialog"
 	"tui/internal/components/input"
 	"tui/internal/components/sidebar"
+	"tui/internal/components/toast"
 	"tui/internal/keybind"
 )
 
@@ -49,6 +50,7 @@ type Model struct {
 	chat         chat.Model
 	input        input.Model
 	sidebar      sidebar.Model
+	toast        toast.Model
 	client       *agent.Client
 	shared       *SharedState
 	state        State
@@ -79,6 +81,7 @@ func New(client *agent.Client) Model {
 		chat:         chat.New(80, 20),
 		input:        input.New(80),
 		sidebar:      sidebar.New(30, 20),
+		toast:        toast.New(),
 		client:       client,
 		shared:       &SharedState{},
 		state:        StateLoading,
@@ -140,4 +143,9 @@ func (m *Model) CloseDialog() {
 // HasActiveDialog returns true if there is an active dialog
 func (m *Model) HasActiveDialog() bool {
 	return m.activeDialog != nil && m.activeDialog.IsVisible()
+}
+
+// ShowToast displays a toast notification
+func (m *Model) ShowToast(message string, toastType toast.ToastType, duration time.Duration) tea.Cmd {
+	return m.toast.Add(message, toastType, duration)
 }

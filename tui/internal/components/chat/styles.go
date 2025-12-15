@@ -29,3 +29,27 @@ Try:
 • "Read the main.go file" - See file reading
 • "Run ls command" - See command execution
 • "Search for main function" - See code search`
+
+// ThinkingContainer is the style for thinking/reasoning content container
+func ThinkingContainer() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(styles.GetCurrentTheme().Muted).
+		Italic(true).
+		PaddingLeft(2).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(styles.GetCurrentTheme().Muted)
+}
+
+// ThinkingHeader is the style for the "Thinking..." label
+func ThinkingHeader() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(styles.GetCurrentTheme().Muted).
+		Bold(true)
+}
+
+// ThinkingCollapsed is the style for the collapsed thinking indicator
+func ThinkingCollapsed() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(styles.GetCurrentTheme().Muted).
+		Italic(true)
+}

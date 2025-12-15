@@ -16,6 +16,7 @@ type Model struct {
 	width           int
 	height          int
 	ready           bool
+	showThinking    bool // Whether to show thinking/reasoning content
 }
 
 // New creates a new chat model
@@ -23,6 +24,10 @@ func New(width, height int) Model {
 	vp := viewport.New(width, height)
 	vp.SetContent("")
 	vp.YPosition = 0
+
+	// Initialize markdown renderer with current width
+	// Ignore errors - if it fails, markdown will fall back to plain text
+	_ = InitMarkdown(width)
 
 	return Model{
 		viewport:     vp,
@@ -61,6 +66,11 @@ func (m *Model) SetSize(width, height int) {
 	m.height = height
 	m.viewport.Width = width
 	m.viewport.Height = height
+
+	// Reinitialize markdown renderer with new width
+	// Ignore errors - if it fails, markdown will fall back to plain text
+	_ = InitMarkdown(width)
+
 	m.updateContent()
 }
 
@@ -122,4 +132,27 @@ func (m *Model) ScrollToTop() {
 // ScrollToBottom scrolls to the bottom of the chat
 func (m *Model) ScrollToBottom() {
 	m.viewport.GotoBottom()
+}
+
+// ToggleThinking toggles the display of thinking/reasoning content
+func (m *Model) ToggleThinking() {
+	m.showThinking = !m.showThinking
+	m.updateContent()
+}
+
+// IsShowingThinking returns true if thinking content is being displayed
+func (m Model) IsShowingThinking() bool {
+	return m.showThinking
+}
+
+// ToggleMarkdown toggles markdown rendering on/off
+func (m *Model) ToggleMarkdown() bool {
+	enabled := ToggleMarkdown()
+	m.updateContent()
+	return enabled
+}
+
+// IsMarkdownEnabled returns whether markdown rendering is enabled
+func (m Model) IsMarkdownEnabled() bool {
+	return IsMarkdownEnabled()
 }

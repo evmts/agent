@@ -40,6 +40,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chat.SetSize(chatWidth, chatHeight)
 		m.input.SetWidth(chatWidth)
 		m.sidebar.SetSize(sidebarWidth, msg.Height)
+		m.toast.SetWidth(msg.Width)
 		return m, nil
 
 	case healthCheckMsg:
@@ -261,6 +262,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.chat, cmd = m.chat.Update(msg)
 	cmds = append(cmds, cmd)
+
+	// Update toast (always, to handle auto-dismiss)
+	var toastCmd tea.Cmd
+	m.toast, toastCmd = m.toast.Update(msg)
+	cmds = append(cmds, toastCmd)
 
 	return m, tea.Batch(cmds...)
 }

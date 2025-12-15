@@ -10,6 +10,24 @@ import (
 	"tui/internal/styles"
 )
 
+// formatTokens formats token count for display
+func formatTokens(count int) string {
+	if count < 1000 {
+		return fmt.Sprintf("%d", count)
+	} else if count < 1000000 {
+		return fmt.Sprintf("%.1fk", float64(count)/1000)
+	}
+	return fmt.Sprintf("%.1fM", float64(count)/1000000)
+}
+
+// formatCost formats cost for display
+func formatCost(cost float64) string {
+	if cost >= 1.0 {
+		return fmt.Sprintf("$%.2f", cost)
+	}
+	return fmt.Sprintf("$%.4f", cost)
+}
+
 // View renders the application
 func (m Model) View() string {
 	if !m.ready {
@@ -112,60 +130,68 @@ func (m Model) renderHeader(width int) string {
 
 // renderStatusBar renders the status bar at the bottom
 func (m Model) renderStatusBar(width int) string {
-	var status string
-	var statusStyle lipgloss.Style
+	theme := styles.GetCurrentTheme()
 
+	// Build status bar sections from left to right
+	var sections []string
+
+	// Left section: Model name
+	if m.currentModel != "" {
+		modelStyle := lipgloss.NewStyle().Foreground(theme.Accent)
+		sections = append(sections, modelStyle.Render(m.currentModel))
+	}
+
+	// Agent name (if available)
+	if m.currentAgent != "" {
+		agentStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		sections = append(sections, agentStyle.Render(m.currentAgent))
+	}
+
+	// Token count (if available)
+	if m.totalInputTokens > 0 || m.totalOutputTokens > 0 {
+		tokenLabel := lipgloss.NewStyle().Foreground(theme.Muted).Render("Tokens:")
+		tokenValue := lipgloss.NewStyle().Foreground(theme.Text).Render(
+			fmt.Sprintf("%s↓ %s↑", formatTokens(m.totalInputTokens), formatTokens(m.totalOutputTokens)),
+		)
+		sections = append(sections, tokenLabel+" "+tokenValue)
+	}
+
+	// Cost (if available)
+	if m.totalCost > 0 {
+		costStyle := lipgloss.NewStyle().Foreground(theme.Success)
+		sections = append(sections, costStyle.Render(formatCost(m.totalCost)))
+	}
+
+	// Session state
+	var stateText string
+	var stateStyle lipgloss.Style
 	switch m.state {
 	case StateIdle:
-		status = "Ready"
-		statusStyle = styles.StatusBar()
+		stateText = "Idle"
+		stateStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 	case StateStreaming:
-		status = "Streaming..."
-		statusStyle = styles.StatusBarStreaming()
+		stateText = "Streaming"
+		stateStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 	case StateLoading:
-		status = "Loading..."
-		statusStyle = styles.StatusBarStreaming()
+		stateText = "Loading"
+		stateStyle = lipgloss.NewStyle().Foreground(theme.Info)
 	case StateError:
-		status = fmt.Sprintf("Error: %v", m.err)
-		statusStyle = styles.StatusBarError()
+		stateText = fmt.Sprintf("Error: %v", m.err)
+		stateStyle = lipgloss.NewStyle().Foreground(theme.Error)
 	}
+	sections = append(sections, stateStyle.Render(stateText))
 
-	// Left side: status
-	left := statusStyle.Render(status)
+	// Join sections with separator
+	separatorStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	separator := separatorStyle.Render(" | ")
 
-	// Center: token info (if available)
-	var tokenInfo string
-	if m.totalTokens > 0 {
-		tokenInfo = styles.MutedText().Render(fmt.Sprintf("Tokens: %d", m.totalTokens))
-		if m.totalCost > 0 {
-			tokenInfo += styles.MutedText().Render(fmt.Sprintf(" • $%.4f", m.totalCost))
-		}
-	}
+	statusBar := strings.Join(sections, separator)
 
-	// Right side: help - show sidebar toggle hint
-	helpText := "Enter: send • Ctrl+N: new • Ctrl+/: sidebar • Ctrl+C: quit"
-	help := styles.StatusBar().Render(helpText)
+	// Apply padding to fill the width
+	statusStyle := lipgloss.NewStyle().
+		Width(width).
+		MaxWidth(width).
+		Foreground(theme.Text)
 
-	// Calculate spacing
-	leftWidth := lipgloss.Width(left)
-	centerWidth := lipgloss.Width(tokenInfo)
-	rightWidth := lipgloss.Width(help)
-	totalContent := leftWidth + centerWidth + rightWidth
-
-	spacerWidth := (width - totalContent - 4) / 2
-	if spacerWidth < 1 {
-		spacerWidth = 1
-	}
-	spacer := strings.Repeat(" ", spacerWidth)
-
-	if tokenInfo != "" {
-		return lipgloss.JoinHorizontal(lipgloss.Top, left, spacer, tokenInfo, spacer, help)
-	}
-
-	// If no token info, just spread left and right
-	totalSpacer := width - leftWidth - rightWidth - 2
-	if totalSpacer < 0 {
-		totalSpacer = 0
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", totalSpacer), help)
+	return statusStyle.Render(statusBar)
 }

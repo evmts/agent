@@ -67,6 +67,7 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("ctrl+/", "Toggle sidebar", ActionToggleSidebar)
 	km.Add("?", "Show help", ActionShowHelp)
 	km.Add("ctrl+t", "Cycle theme", ActionCycleTheme)
+	km.Add("ctrl+a", "Select agent", ActionShowAgents)
 
 	// Navigation
 	km.Add("pgup", "Scroll up one page", ActionPageUp)
