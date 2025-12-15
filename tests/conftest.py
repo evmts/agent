@@ -45,4 +45,6 @@ def mock_env_vars(monkeypatch):
     """Set up mock environment variables for testing."""
     # Set a test API key to avoid requiring real credentials
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-123")
+    # Disable path validation to allow tests to use temp directories
+    monkeypatch.setenv("DISABLE_PATH_VALIDATION", "1")
     return monkeypatch
