@@ -67,12 +67,12 @@ func (m Message) RenderWithOptions(width int, showThinking bool) string {
 }
 
 // renderPart renders a single part based on its type
-func renderPart(part agent.Part, width int) string {
+func renderPart(part agent.Part, width int, showThinking bool) string {
 	switch {
 	case part.IsText():
 		return renderTextPart(part, width)
 	case part.IsReasoning():
-		return renderReasoningPart(part, width)
+		return renderReasoningPart(part, width, showThinking)
 	case part.IsTool():
 		return renderToolPart(part, width)
 	case part.IsFile():
@@ -97,20 +97,19 @@ func renderTextPart(part agent.Part, width int) string {
 }
 
 // renderReasoningPart renders thinking/reasoning content
-func renderReasoningPart(part agent.Part, width int) string {
+func renderReasoningPart(part agent.Part, width int, showThinking bool) string {
 	if part.Text == "" {
 		return ""
 	}
 
-	// Style for reasoning - dimmed and italic
-	reasoningStyle := lipgloss.NewStyle().
-		Foreground(styles.GetCurrentTheme().Muted).
-		Italic(true).
-		PaddingLeft(2).
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(styles.GetCurrentTheme().Muted)
+	// If showThinking is false, show collapsed indicator
+	if !showThinking {
+		return ThinkingCollapsed().Render("[Thinking hidden - press Ctrl+T to show]")
+	}
 
-	header := styles.MutedBold().Render("Thinking...")
+	// Style for reasoning - dimmed and italic
+	reasoningStyle := ThinkingContainer()
+	header := ThinkingHeader().Render("Thinking...")
 	content := reasoningStyle.Width(width - 4).Render(part.Text)
 
 	return header + "\n" + content

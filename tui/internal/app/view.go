@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/ansi"
 	"tui/internal/components/chat"
 	"tui/internal/components/dialog"
 	"tui/internal/styles"
@@ -103,7 +104,12 @@ func (m Model) View() string {
 		baseView = mainContent
 	}
 
-	// If there's an active dialog, overlay it on top of the base view
+	// If there are toasts, overlay them on top of the base view (top-right corner)
+	if m.toast.HasToasts() {
+		baseView = overlayToasts(baseView, m.toast.View(), m.width, m.height)
+	}
+
+	// If there's an active dialog, overlay it on top of everything
 	if m.HasActiveDialog() {
 		dialogView := m.activeDialog.Render(m.width, m.height)
 		return dialog.Overlay(baseView, dialogView, m.width, m.height)

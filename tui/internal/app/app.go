@@ -135,6 +135,11 @@ func (m *Model) ShowConfirm(message string, onConfirm, onCancel tea.Cmd) {
 	m.activeDialog = dialog.NewConfirmDialog(message, onConfirm, onCancel)
 }
 
+// ShowAgentDialog shows the agent selection dialog
+func (m *Model) ShowAgentDialog() {
+	m.activeDialog = dialog.NewAgentDialog()
+}
+
 // CloseDialog closes the active dialog
 func (m *Model) CloseDialog() {
 	m.activeDialog = nil

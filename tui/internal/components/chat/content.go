@@ -49,7 +49,7 @@ func (m *Model) updateContent() {
 	var content strings.Builder
 
 	for i, msg := range m.messages {
-		content.WriteString(msg.Render(m.width))
+		content.WriteString(msg.RenderWithOptions(m.width, m.showThinking))
 		if i < len(m.messages)-1 {
 			content.WriteString("\n")
 		}

@@ -95,6 +95,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.CloseDialog()
 				}
 				return m, cmd
+			case *dialog.AgentDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
 			}
 		}
 
@@ -103,6 +110,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle help action
 		if action == keybind.ActionShowHelp {
 			m.ShowHelp()
+			return m, nil
+		}
+
+		// Handle agent selection action
+		if action == keybind.ActionShowAgents {
+			m.ShowAgentDialog()
 			return m, nil
 		}
 
