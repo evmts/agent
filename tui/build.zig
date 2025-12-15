@@ -2,18 +2,17 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     // ==========================================================
-    // PyInstaller: Build Python server
+    // PyInstaller: Build Python server (run from project root)
     // ==========================================================
     const pyinstaller_step = b.step("pyinstaller", "Build Python server with PyInstaller");
+
+    // PyInstaller must be run from project root to find agent/ and snapshot/ dirs
+    // Use .venv/bin/pyinstaller to ensure correct environment
     const pyinstaller_cmd = b.addSystemCommand(&.{
-        "pyinstaller",
+        "../.venv/bin/pyinstaller",
         "--onefile",
         "--distpath",
         "internal/embedded/bin",
-        "--workpath",
-        "../build/pyinstaller",
-        "--specpath",
-        "../build/pyinstaller",
         "--name",
         "agent-server",
         "--add-data",
@@ -101,10 +100,10 @@ pub fn build(b: *std.Build) void {
         "rm",
         "-rf",
         "agent-tui",
-        "tui",
         "internal/embedded/bin/agent-server",
-        "../build/pyinstaller",
+        "../build",
         "../dist",
+        "../agent-server.spec",
     });
     clean_step.dependOn(&clean_cmd.step);
 
@@ -127,7 +126,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================
     const deps_step = b.step("deps", "Install/update all dependencies");
     const go_deps_cmd = b.addSystemCommand(&.{ "go", "mod", "tidy" });
-    const pip_deps_cmd = b.addSystemCommand(&.{ "pip", "install", "pyinstaller" });
+    const pip_deps_cmd = b.addSystemCommand(&.{ "uv", "pip", "install", "pyinstaller" });
     deps_step.dependOn(&go_deps_cmd.step);
     deps_step.dependOn(&pip_deps_cmd.step);
 

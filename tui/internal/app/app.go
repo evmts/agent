@@ -130,6 +130,11 @@ func (m *Model) ShowHelp() {
 	m.activeDialog = dialog.NewHelpDialog()
 }
 
+// ShowModelDialog shows the model selection dialog
+func (m *Model) ShowModelDialog() {
+	m.activeDialog = dialog.NewModelDialog()
+}
+
 // ShowConfirm shows a confirmation dialog
 func (m *Model) ShowConfirm(message string, onConfirm, onCancel tea.Cmd) {
 	m.activeDialog = dialog.NewConfirmDialog(message, onConfirm, onCancel)
