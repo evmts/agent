@@ -92,140 +92,25 @@ func renderSidebar(m Model) string {
 	var content strings.Builder
 	theme := styles.GetCurrentTheme()
 
-	// Current session info (if available)
-	if m.currentSession != nil {
-		title := m.currentSession.Title
-		if title == "" {
-			title = "Untitled"
-		}
-		content.WriteString(sectionHeaderStyle().Render(title))
-		content.WriteString("\n\n")
-	}
+	// Tab bar at top
+	content.WriteString(m.tabs.View())
+	content.WriteString("\n\n")
 
-	// Context section
-	if m.sections.Context && (m.contextInfo.InputTokens > 0 || m.contextInfo.OutputTokens > 0) {
-		expandIcon := "▼"
-		if !m.sections.Context {
-			expandIcon = "▶"
-		}
-		content.WriteString(sectionHeaderStyle().Render(expandIcon + " Context"))
-		content.WriteString("\n")
-
-		// Token counts
-		tokenLine := fmt.Sprintf("%s tokens", formatNumber(m.contextInfo.InputTokens+m.contextInfo.OutputTokens))
-		content.WriteString(sectionValueStyle().Render(tokenLine))
-		content.WriteString("\n")
-
-		// Context percentage
-		if m.contextInfo.ContextUsed > 0 {
-			percentLine := fmt.Sprintf("%d%% used", m.contextInfo.ContextUsed)
-			content.WriteString(sectionLabelStyle().Render(percentLine))
-			content.WriteString("\n")
-		}
-
-		// Cost
-		if m.contextInfo.TotalCost > 0 {
-			costLine := formatCost(m.contextInfo.TotalCost) + " spent"
-			content.WriteString(sectionLabelStyle().Render(costLine))
-			content.WriteString("\n")
-		}
-		content.WriteString("\n")
-	}
-
-	// Modified files section
-	if len(m.diffs) > 0 {
-		expandIcon := "▼"
-		if !m.sections.Files {
-			expandIcon = "▶"
-		}
-		content.WriteString(sectionHeaderStyle().Render(fmt.Sprintf("%s Modified Files", expandIcon)))
-		content.WriteString("\n")
-
-		if m.sections.Files {
-			maxFiles := 5
-			for i, diff := range m.diffs {
-				if i >= maxFiles {
-					remaining := len(m.diffs) - maxFiles
-					content.WriteString(sectionLabelStyle().Render(fmt.Sprintf("  ... and %d more", remaining)))
-					content.WriteString("\n")
-					break
-				}
-				// Truncate file path
-				file := diff.File
-				if len(file) > 25 {
-					file = "..." + file[len(file)-22:]
-				}
-				// Format additions/deletions
-				stats := ""
-				if diff.Additions > 0 {
-					stats += diffAddedStyle().Render(fmt.Sprintf("+%d", diff.Additions))
-				}
-				if diff.Deletions > 0 {
-					if stats != "" {
-						stats += " "
-					}
-					stats += diffRemovedStyle().Render(fmt.Sprintf("-%d", diff.Deletions))
-				}
-				fileLine := fmt.Sprintf("  %s", file)
-				if stats != "" {
-					fileLine += " " + stats
-				}
-				content.WriteString(sectionValueStyle().Render(fileLine))
-				content.WriteString("\n")
-			}
-		}
-		content.WriteString("\n")
-	}
-
-	// Sessions section
-	expandIcon := "▼"
-	if !m.sections.Sessions {
-		expandIcon = "▶"
-	}
-	content.WriteString(sectionHeaderStyle().Render(fmt.Sprintf("%s Sessions (%d)", expandIcon, len(m.sessions))))
-	content.WriteString("\n")
-
-	if m.sections.Sessions {
-		// Session list
-		if len(m.sessions) == 0 {
-			empty := emptyStyle().Render("No sessions")
-			content.WriteString(empty)
-		} else {
-			// Calculate max visible sessions based on height
-			maxVisible := 5
-			if m.height > 30 {
-				maxVisible = 8
-			}
-
-			// Calculate scroll offset to keep selected item visible
-			start := 0
-			if m.selectedIndex >= maxVisible {
-				start = m.selectedIndex - maxVisible + 1
-			}
-			end := start + maxVisible
-			if end > len(m.sessions) {
-				end = len(m.sessions)
-			}
-
-			for i := start; i < end; i++ {
-				session := m.sessions[i]
-				itemStr := formatSessionItemCompact(session, i == m.selectedIndex)
-				content.WriteString(itemStr)
-				content.WriteString("\n")
-			}
-
-			// Show scroll indicator if there are more sessions
-			if len(m.sessions) > maxVisible {
-				scrollInfo := sectionLabelStyle().Render(fmt.Sprintf("  [%d-%d of %d]", start+1, end, len(m.sessions)))
-				content.WriteString(scrollInfo)
-				content.WriteString("\n")
-			}
-		}
+	// Render content based on active tab
+	switch m.activeTab {
+	case TabSessions:
+		content.WriteString(renderSessionsTab(m))
+	case TabFiles:
+		content.WriteString(renderFilesTab(m))
+	case TabContext:
+		content.WriteString(renderContextTab(m))
+	default:
+		content.WriteString(renderSessionsTab(m))
 	}
 
 	// Help text at bottom
 	content.WriteString("\n")
-	helpText := lipgloss.NewStyle().Foreground(theme.Muted).Render("↑↓: nav • Enter: select • Ctrl+/: hide")
+	helpText := lipgloss.NewStyle().Foreground(theme.Muted).Render("Tab: switch • ↑↓: nav • Ctrl+/: hide")
 	content.WriteString(helpText)
 
 	// Apply container style and set dimensions
@@ -235,6 +120,175 @@ func renderSidebar(m Model) string {
 		Render(content.String())
 
 	return rendered
+}
+
+// renderSessionsTab renders the sessions tab content
+func renderSessionsTab(m Model) string {
+	var content strings.Builder
+
+	// Current session info (if available)
+	if m.currentSession != nil {
+		title := m.currentSession.Title
+		if title == "" {
+			title = "Untitled"
+		}
+		content.WriteString(sectionHeaderStyle().Render("▸ " + title))
+		content.WriteString("\n\n")
+	}
+
+	// Session list
+	if len(m.sessions) == 0 {
+		empty := emptyStyle().Render("No sessions")
+		content.WriteString(empty)
+	} else {
+		// Calculate max visible sessions based on height
+		maxVisible := 8
+		if m.height < 30 {
+			maxVisible = 5
+		}
+
+		// Calculate scroll offset to keep selected item visible
+		start := 0
+		if m.selectedIndex >= maxVisible {
+			start = m.selectedIndex - maxVisible + 1
+		}
+		end := start + maxVisible
+		if end > len(m.sessions) {
+			end = len(m.sessions)
+		}
+
+		for i := start; i < end; i++ {
+			session := m.sessions[i]
+			itemStr := formatSessionItemCompact(session, i == m.selectedIndex)
+			content.WriteString(itemStr)
+			content.WriteString("\n")
+		}
+
+		// Show scroll indicator if there are more sessions
+		if len(m.sessions) > maxVisible {
+			scrollInfo := sectionLabelStyle().Render(fmt.Sprintf("  [%d-%d of %d]", start+1, end, len(m.sessions)))
+			content.WriteString(scrollInfo)
+			content.WriteString("\n")
+		}
+	}
+
+	return content.String()
+}
+
+// renderFilesTab renders the modified files tab content
+func renderFilesTab(m Model) string {
+	var content strings.Builder
+
+	if len(m.diffs) == 0 {
+		content.WriteString(emptyStyle().Render("No file changes"))
+		return content.String()
+	}
+
+	content.WriteString(sectionHeaderStyle().Render(fmt.Sprintf("Modified Files (%d)", len(m.diffs))))
+	content.WriteString("\n\n")
+
+	maxFiles := 10
+	for i, diff := range m.diffs {
+		if i >= maxFiles {
+			remaining := len(m.diffs) - maxFiles
+			content.WriteString(sectionLabelStyle().Render(fmt.Sprintf("  ... and %d more", remaining)))
+			content.WriteString("\n")
+			break
+		}
+		// Truncate file path
+		file := diff.File
+		if len(file) > 25 {
+			file = "..." + file[len(file)-22:]
+		}
+		// Format additions/deletions
+		stats := ""
+		if diff.Additions > 0 {
+			stats += diffAddedStyle().Render(fmt.Sprintf("+%d", diff.Additions))
+		}
+		if diff.Deletions > 0 {
+			if stats != "" {
+				stats += " "
+			}
+			stats += diffRemovedStyle().Render(fmt.Sprintf("-%d", diff.Deletions))
+		}
+		fileLine := fmt.Sprintf("  %s", file)
+		if stats != "" {
+			fileLine += " " + stats
+		}
+		content.WriteString(sectionValueStyle().Render(fileLine))
+		content.WriteString("\n")
+	}
+
+	return content.String()
+}
+
+// renderContextTab renders the context/tokens tab content
+func renderContextTab(m Model) string {
+	var content strings.Builder
+
+	content.WriteString(sectionHeaderStyle().Render("Context Info"))
+	content.WriteString("\n\n")
+
+	// Token counts
+	inputTokens := m.contextInfo.InputTokens
+	outputTokens := m.contextInfo.OutputTokens
+	totalTokens := inputTokens + outputTokens
+
+	if totalTokens > 0 {
+		content.WriteString(sectionLabelStyle().Render("Input Tokens:  "))
+		content.WriteString(sectionValueStyle().Render(formatNumber(inputTokens)))
+		content.WriteString("\n")
+
+		content.WriteString(sectionLabelStyle().Render("Output Tokens: "))
+		content.WriteString(sectionValueStyle().Render(formatNumber(outputTokens)))
+		content.WriteString("\n")
+
+		content.WriteString(sectionLabelStyle().Render("Total Tokens:  "))
+		content.WriteString(sectionValueStyle().Render(formatNumber(totalTokens)))
+		content.WriteString("\n\n")
+	} else {
+		content.WriteString(emptyStyle().Render("No token data"))
+		content.WriteString("\n\n")
+	}
+
+	// Context percentage
+	if m.contextInfo.ContextUsed > 0 {
+		content.WriteString(sectionLabelStyle().Render("Context Used:  "))
+		percentStr := fmt.Sprintf("%d%%", m.contextInfo.ContextUsed)
+		// Color based on usage
+		theme := styles.GetCurrentTheme()
+		percentStyle := lipgloss.NewStyle()
+		if m.contextInfo.ContextUsed > 90 {
+			percentStyle = percentStyle.Foreground(theme.Error)
+		} else if m.contextInfo.ContextUsed > 75 {
+			percentStyle = percentStyle.Foreground(theme.Warning)
+		} else {
+			percentStyle = percentStyle.Foreground(theme.Success)
+		}
+		content.WriteString(percentStyle.Render(percentStr))
+		content.WriteString("\n\n")
+	}
+
+	// Cost
+	if m.contextInfo.TotalCost > 0 {
+		content.WriteString(sectionLabelStyle().Render("Session Cost:  "))
+		content.WriteString(sectionValueStyle().Render(formatCost(m.contextInfo.TotalCost)))
+		content.WriteString("\n\n")
+	}
+
+	// Model and agent info
+	if m.contextInfo.ModelName != "" {
+		content.WriteString(sectionLabelStyle().Render("Model:         "))
+		content.WriteString(sectionValueStyle().Render(m.contextInfo.ModelName))
+		content.WriteString("\n")
+	}
+	if m.contextInfo.AgentName != "" {
+		content.WriteString(sectionLabelStyle().Render("Agent:         "))
+		content.WriteString(sectionValueStyle().Render(m.contextInfo.AgentName))
+		content.WriteString("\n")
+	}
+
+	return content.String()
 }
 
 // formatSessionItemCompact formats a session item in compact form (single line)
