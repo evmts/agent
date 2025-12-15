@@ -1,9 +1,3 @@
 [submodule "context/pydantic-ai"]
 	path = context/pydantic-ai
 	url = git@github.com:pydantic/pydantic-ai.git
-[submodule "context/ai"]
-	path = context/ai
-	url = https://github.com/vercel/ai.git
-[submodule "context/clack"]
-	path = context/clack
-	url = https://github.com/bombshell-dev/clack.git
