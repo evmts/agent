@@ -1,3 +1,3 @@
-from .snapshot import Snapshot
+from .snapshot import FileDiff, Snapshot
 
-__all__ = ["Snapshot"]
+__all__ = ["FileDiff", "Snapshot"]

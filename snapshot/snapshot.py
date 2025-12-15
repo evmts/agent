@@ -8,8 +8,14 @@ Inspired by opencode's snapshot implementation.
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import git
+from git import Repo
+
+if TYPE_CHECKING:
+    from git.objects.tree import Tree
 
 
 class FileDiff:
@@ -47,11 +53,12 @@ class Snapshot:
         """
         self.project_dir = Path(project_dir).resolve()
         self.snapshot_dir = self.project_dir / ".agent" / "snapshots"
+        self._repo: Repo | None = None
         self._initialized = False
 
     def _ensure_init(self) -> None:
         """Ensure the snapshot git repository is initialized."""
-        if self._initialized:
+        if self._initialized and self._repo is not None:
             return
 
         # Create snapshot directory
@@ -60,7 +67,10 @@ class Snapshot:
         # Check if already initialized
         if not (self.snapshot_dir / "HEAD").exists():
             # Initialize bare repository
-            self._run_git(["init", "--bare"], use_env=False, cwd=self.snapshot_dir)
+            self._repo = Repo.init(self.snapshot_dir, bare=True)
+        else:
+            # Open existing repository
+            self._repo = Repo(self.snapshot_dir)
 
         # Set up exclude file to ignore .agent directory
         info_dir = self.snapshot_dir / "info"
@@ -72,32 +82,13 @@ class Snapshot:
 
         self._initialized = True
 
-    def _env(self) -> dict[str, str]:
-        """Return full environment variables for git operations."""
-        env = os.environ.copy()
-        env["GIT_DIR"] = str(self.snapshot_dir)
-        env["GIT_WORK_TREE"] = str(self.project_dir)
-        return env
-
-    def _run_git(
-        self,
-        args: list[str],
-        use_env: bool = True,
-        cwd: Path | None = None,
-        check: bool = True,
-    ) -> str:
-        """Run a git command and return stdout."""
-        cmd = ["git", *args]
-        env = self._env() if use_env else None
-        result = subprocess.run(
-            cmd,
-            env=env,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=check,
-        )
-        return result.stdout.strip()
+    @property
+    def repo(self) -> Repo:
+        """Get the GitPython repository instance."""
+        self._ensure_init()
+        if self._repo is None:
+            raise RuntimeError("Repository not initialized")
+        return self._repo
 
     def track(self) -> str:
         """
@@ -107,12 +98,21 @@ class Snapshot:
             str: The tree SHA hash identifying this snapshot (40-char hex string)
         """
         self._ensure_init()
-
-        # Stage all files in project directory
-        self._run_git(["add", "-A"])
-
-        # Write tree object (does not create commit)
-        tree_sha = self._run_git(["write-tree"])
+        
+        # Create a temporary Git object to use index operations
+        # We need to use the command interface for some operations that aren't directly supported in GitPython
+        repo = self.repo
+        
+        # Set environment variables for git operations
+        with repo.git.custom_environment(
+            GIT_DIR=str(self.snapshot_dir),
+            GIT_WORK_TREE=str(self.project_dir)
+        ):
+            # Stage all files in project directory
+            repo.git.add("-A")
+            
+            # Write tree object (does not create commit)
+            tree_sha = repo.git.write_tree()
 
         return tree_sha
 
@@ -128,15 +128,20 @@ class Snapshot:
             list[str]: List of changed file paths (relative to project_dir)
         """
         self._ensure_init()
+        repo = self.repo
 
         try:
-            if to_hash:
-                diff_output = self._run_git(["diff", "--name-only", from_hash, to_hash])
-            else:
-                diff_output = self._run_git(["diff", "--name-only", from_hash])
+            with repo.git.custom_environment(
+                GIT_DIR=str(self.snapshot_dir),
+                GIT_WORK_TREE=str(self.project_dir)
+            ):
+                if to_hash:
+                    diff_output = repo.git.diff("--name-only", from_hash, to_hash)
+                else:
+                    diff_output = repo.git.diff("--name-only", from_hash)
 
-            return [f for f in diff_output.split("\n") if f]
-        except subprocess.CalledProcessError:
+                return [f for f in diff_output.split("\n") if f]
+        except git.exc.GitCommandError:
             return []
 
     def revert(self, hash: str, files: list[str]) -> None:
@@ -151,12 +156,17 @@ class Snapshot:
             return
 
         self._ensure_init()
+        repo = self.repo
 
-        # Read tree into index
-        self._run_git(["read-tree", hash])
+        with repo.git.custom_environment(
+            GIT_DIR=str(self.snapshot_dir),
+            GIT_WORK_TREE=str(self.project_dir)
+        ):
+            # Read tree into index
+            repo.git.read_tree(hash)
 
-        # Checkout specific files from index to working tree
-        self._run_git(["checkout-index", "-f", "--", *files])
+            # Checkout specific files from index to working tree
+            repo.git.checkout_index("-f", "--", *files)
 
     def restore(self, hash: str) -> None:
         """
@@ -166,12 +176,17 @@ class Snapshot:
             hash: Tree SHA to restore to
         """
         self._ensure_init()
+        repo = self.repo
 
-        # Read tree into index
-        self._run_git(["read-tree", hash])
+        with repo.git.custom_environment(
+            GIT_DIR=str(self.snapshot_dir),
+            GIT_WORK_TREE=str(self.project_dir)
+        ):
+            # Read tree into index
+            repo.git.read_tree(hash)
 
-        # Checkout all files from index to working tree
-        self._run_git(["checkout-index", "-a", "-f"])
+            # Checkout all files from index to working tree
+            repo.git.checkout_index("-a", "-f")
 
     def diff_full(
         self, from_hash: str, to_hash: str | None = None
@@ -187,14 +202,19 @@ class Snapshot:
             list[FileDiff]: Detailed diff information for each changed file
         """
         self._ensure_init()
+        repo = self.repo
 
         # Get changed files with stats
         try:
-            if to_hash:
-                numstat = self._run_git(["diff", "--numstat", from_hash, to_hash])
-            else:
-                numstat = self._run_git(["diff", "--numstat", from_hash])
-        except subprocess.CalledProcessError:
+            with repo.git.custom_environment(
+                GIT_DIR=str(self.snapshot_dir),
+                GIT_WORK_TREE=str(self.project_dir)
+            ):
+                if to_hash:
+                    numstat = repo.git.diff("--numstat", from_hash, to_hash)
+                else:
+                    numstat = repo.git.diff("--numstat", from_hash)
+        except git.exc.GitCommandError:
             return []
 
         diffs: list[FileDiff] = []
@@ -215,15 +235,23 @@ class Snapshot:
 
             # Get before content
             try:
-                before = self._run_git(["show", f"{from_hash}:{filepath}"])
-            except subprocess.CalledProcessError:
+                with repo.git.custom_environment(
+                    GIT_DIR=str(self.snapshot_dir),
+                    GIT_WORK_TREE=str(self.project_dir)
+                ):
+                    before = repo.git.show(f"{from_hash}:{filepath}")
+            except git.exc.GitCommandError:
                 before = ""  # File didn't exist
 
             # Get after content
             if to_hash:
                 try:
-                    after = self._run_git(["show", f"{to_hash}:{filepath}"])
-                except subprocess.CalledProcessError:
+                    with repo.git.custom_environment(
+                        GIT_DIR=str(self.snapshot_dir),
+                        GIT_WORK_TREE=str(self.project_dir)
+                    ):
+                        after = repo.git.show(f"{to_hash}:{filepath}")
+                except git.exc.GitCommandError:
                     after = ""  # File was deleted
             else:
                 # Read from working tree
@@ -260,10 +288,16 @@ class Snapshot:
             str: File contents
 
         Raises:
-            subprocess.CalledProcessError: If file doesn't exist in snapshot
+            git.exc.GitCommandError: If file doesn't exist in snapshot
         """
         self._ensure_init()
-        return self._run_git(["show", f"{hash}:{filepath}"])
+        repo = self.repo
+        
+        with repo.git.custom_environment(
+            GIT_DIR=str(self.snapshot_dir),
+            GIT_WORK_TREE=str(self.project_dir)
+        ):
+            return repo.git.show(f"{hash}:{filepath}")
 
     def list_files(self, hash: str) -> list[str]:
         """
@@ -276,8 +310,14 @@ class Snapshot:
             list[str]: File paths in the snapshot
         """
         self._ensure_init()
-        output = self._run_git(["ls-tree", "-r", "--name-only", hash])
-        return [f for f in output.split("\n") if f]
+        repo = self.repo
+        
+        with repo.git.custom_environment(
+            GIT_DIR=str(self.snapshot_dir),
+            GIT_WORK_TREE=str(self.project_dir)
+        ):
+            output = repo.git.ls_tree("-r", "--name-only", hash)
+            return [f for f in output.split("\n") if f]
 
     def file_exists_at(self, hash: str, filepath: str) -> bool:
         """
@@ -291,8 +331,14 @@ class Snapshot:
             bool: True if file exists in snapshot
         """
         self._ensure_init()
+        repo = self.repo
+        
         try:
-            output = self._run_git(["ls-tree", hash, "--", filepath])
-            return bool(output)
-        except subprocess.CalledProcessError:
+            with repo.git.custom_environment(
+                GIT_DIR=str(self.snapshot_dir),
+                GIT_WORK_TREE=str(self.project_dir)
+            ):
+                output = repo.git.ls_tree(hash, "--", filepath)
+                return bool(output)
+        except git.exc.GitCommandError:
             return False
