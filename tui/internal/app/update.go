@@ -9,6 +9,7 @@ import (
 	"github.com/williamcory/agent/sdk/agent"
 	"tui/internal/components/dialog"
 	"tui/internal/components/sidebar"
+	"tui/internal/components/toast"
 	"tui/internal/keybind"
 	"tui/internal/messages"
 )
@@ -82,6 +83,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentAgent = msg.Agent.Name
 		return m, nil
 
+	case dialog.ModelSelectedMsg:
+		// Update the current model
+		m.currentModel = msg.Model.ID
+		return m, nil
+
 	case tea.KeyMsg:
 		// If there's an active dialog, handle it first
 		if m.HasActiveDialog() {
@@ -107,6 +113,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.CloseDialog()
 				}
 				return m, cmd
+			case *dialog.ModelDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
 			}
 		}
 
@@ -115,6 +128,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle help action
 		if action == keybind.ActionShowHelp {
 			m.ShowHelp()
+			return m, nil
+		}
+
+		// Handle model selection action
+		if action == keybind.ActionShowModels {
+			m.ShowModelDialog()
 			return m, nil
 		}
 
@@ -188,6 +207,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg {
 					return tea.WindowSizeMsg{Width: m.width, Height: m.height}
 				}
+
+			case keybind.ActionToggleMarkdown:
+				m.chat.ToggleMarkdown()
+				return m, nil
+
+			case keybind.ActionToggleThinking:
+				m.ToggleThinking()
+				status := "hidden"
+				if m.IsShowingThinking() {
+					status = "visible"
+				}
+				return m, m.ShowToast("Thinking content "+status, toast.ToastInfo, 2*time.Second)
 			}
 		}
 

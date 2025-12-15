@@ -156,7 +156,7 @@ func (m Model) renderStatusBar(width int) string {
 	// Token count (if available)
 	if m.totalInputTokens > 0 || m.totalOutputTokens > 0 {
 		tokenLabel := lipgloss.NewStyle().Foreground(theme.Muted).Render("Tokens:")
-		tokenValue := lipgloss.NewStyle().Foreground(theme.Text).Render(
+		tokenValue := lipgloss.NewStyle().Foreground(theme.TextPrimary).Render(
 			fmt.Sprintf("%s↓ %s↑", formatTokens(m.totalInputTokens), formatTokens(m.totalOutputTokens)),
 		)
 		sections = append(sections, tokenLabel+" "+tokenValue)
@@ -197,7 +197,7 @@ func (m Model) renderStatusBar(width int) string {
 	statusStyle := lipgloss.NewStyle().
 		Width(width).
 		MaxWidth(width).
-		Foreground(theme.Text)
+		Foreground(theme.TextPrimary)
 
 	return statusStyle.Render(statusBar)
 }
@@ -213,7 +213,6 @@ func overlayToasts(base, toasts string, width, height int) string {
 	toastLines := strings.Split(toasts, "\n")
 
 	// Calculate toast dimensions
-	toastHeight := len(toastLines)
 	toastWidth := 0
 	for _, line := range toastLines {
 		lineWidth := ansi.PrintableRuneWidth(line)

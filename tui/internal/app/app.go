@@ -88,6 +88,7 @@ func New(client *agent.Client) Model {
 		ready:        false,
 		keyMap:       keybind.DefaultKeyMap(),
 		inputFocused: false,
+		currentAgent: "build", // Default agent
 	}
 }
 
