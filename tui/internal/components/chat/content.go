@@ -44,6 +44,23 @@ func (m *Model) AddUserMessage(content string) {
 	m.updateContent()
 }
 
+// AddShellOutput adds shell command output to the chat as a system message
+func (m *Model) AddShellOutput(output string) {
+	// Create a text part for shell output with code formatting
+	formattedOutput := "```\n" + output + "\n```"
+	part := agent.Part{
+		Type: "text",
+		Text: formattedOutput,
+	}
+
+	m.messages = append(m.messages, Message{
+		Role:        RoleAssistant,
+		Parts:       []agent.Part{part},
+		IsStreaming: false,
+	})
+	m.updateContent()
+}
+
 // updateContent rebuilds the viewport content from messages
 func (m *Model) updateContent() {
 	var content strings.Builder
