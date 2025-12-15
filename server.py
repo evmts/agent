@@ -542,6 +542,9 @@ async def send_message(
             # Stream from agent
             text_part_id = gen_id("prt_")
             text_content = ""
+            reasoning_part_id: str | None = None
+            reasoning_content = ""
+            tool_parts: dict[str, dict] = {}  # tool_id -> tool_part
 
             try:
                 # Extract text from user message
@@ -551,7 +554,10 @@ async def send_message(
                         user_text += part.get("text", "")
 
                 async for event in agent.stream_async(user_text):
-                    if hasattr(event, "data") and event.data:
+                    event_type = getattr(event, "event_type", "text")
+
+                    if event_type == "text" and hasattr(event, "data") and event.data:
+                        # Text content
                         text_content += event.data
                         text_part = {
                             "id": text_part_id,
@@ -562,6 +568,50 @@ async def send_message(
                         }
                         yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": text_part})}
 
+                    elif event_type == "reasoning" and hasattr(event, "reasoning") and event.reasoning:
+                        # Reasoning/thinking content
+                        if reasoning_part_id is None:
+                            reasoning_part_id = gen_id("prt_")
+                        reasoning_content += event.reasoning
+                        reasoning_part = {
+                            "id": reasoning_part_id,
+                            "sessionID": sessionID,
+                            "messageID": asst_msg_id,
+                            "type": "reasoning",
+                            "text": reasoning_content,
+                            "time": {"start": time.time()},
+                        }
+                        yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": reasoning_part})}
+
+                    elif event_type == "tool_call":
+                        # Tool invocation started
+                        tool_part_id = gen_id("prt_")
+                        tool_part = {
+                            "id": tool_part_id,
+                            "sessionID": sessionID,
+                            "messageID": asst_msg_id,
+                            "type": "tool",
+                            "tool": event.tool_name,
+                            "state": {
+                                "status": "running",
+                                "input": event.tool_input or {},
+                                "title": event.tool_name,
+                                "time": {"start": time.time()},
+                            },
+                        }
+                        if event.tool_id:
+                            tool_parts[event.tool_id] = tool_part
+                        yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": tool_part})}
+
+                    elif event_type == "tool_result":
+                        # Tool execution completed
+                        if event.tool_id and event.tool_id in tool_parts:
+                            tool_part = tool_parts[event.tool_id]
+                            tool_part["state"]["status"] = "completed"
+                            tool_part["state"]["output"] = event.tool_output
+                            tool_part["state"]["time"]["end"] = time.time()
+                            yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": tool_part})}
+
                 # Final text part
                 if text_content:
                     asst_msg["parts"].append({
@@ -571,6 +621,20 @@ async def send_message(
                         "type": "text",
                         "text": text_content,
                     })
+
+                # Final reasoning part
+                if reasoning_content and reasoning_part_id:
+                    asst_msg["parts"].append({
+                        "id": reasoning_part_id,
+                        "sessionID": sessionID,
+                        "messageID": asst_msg_id,
+                        "type": "reasoning",
+                        "text": reasoning_content,
+                    })
+
+                # Final tool parts
+                for tool_part in tool_parts.values():
+                    asst_msg["parts"].append(tool_part)
 
             except Exception as e:
                 error_part_id = gen_id("prt_")
