@@ -1,5 +1,21 @@
 """
 Task management for async operations.
+
+This module provides functionality to create and manage background tasks that run
+shell commands asynchronously. Tasks can be created, monitored, listed, and cancelled.
+
+Example usage:
+    # Create a task
+    task_id = await create_task("Run tests", "pytest tests/", timeout=300)
+
+    # Check task status
+    status = await get_task_status(task_id)
+
+    # List all tasks
+    all_tasks = await list_tasks()
+
+    # Cancel a running task
+    result = await cancel_task(task_id)
 """
 import asyncio
 import time
