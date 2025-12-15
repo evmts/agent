@@ -16,9 +16,11 @@ from .tools import (
     execute_python,
     execute_shell,
     get_task_status,
+    glob_files,
     grep_files,
     list_directory,
     list_tasks,
+    multiedit,
     read_file,
     search_files,
     todo_read,
@@ -106,9 +108,15 @@ def create_agent(
 
     if is_enabled("read"):
         @agent.tool_plain
-        async def read(path: str) -> str:
-            """Read the contents of a file."""
-            return await read_file(path)
+        async def read(path: str, offset: int = 0, limit: int | None = None) -> str:
+            """Read the contents of a file.
+
+            Args:
+                path: File path to read
+                offset: Line number to start from (0-indexed)
+                limit: Maximum number of lines to read (default 2000)
+            """
+            return await read_file(path, offset=offset, limit=limit)
 
     if is_enabled("write"):
         @agent.tool_plain
@@ -120,6 +128,15 @@ def create_agent(
         async def edit(path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
             """Edit a file by replacing old_string with new_string."""
             return await edit_file(path, old_string, new_string, replace_all)
+
+        @agent.tool_plain
+        async def batch_edit(edits: list[dict]) -> str:
+            """Apply multiple file edits atomically.
+
+            All edits are validated before any are applied.
+            Each edit should have: path, old_string, new_string, and optionally replace_all.
+            """
+            return await multiedit(edits)
 
     if is_enabled("search"):
         @agent.tool_plain
@@ -139,6 +156,17 @@ def create_agent(
         ) -> str:
             """Search file contents using regex pattern."""
             return await grep_files(pattern, path, file_pattern, ignore_case, context_lines)
+
+        @agent.tool_plain
+        async def glob(pattern: str, path: str = ".", max_results: int = 100) -> str:
+            """Find files matching a glob pattern, sorted by modification time (newest first).
+
+            Args:
+                pattern: Glob pattern (e.g., "**/*.py", "src/**/*.ts")
+                path: Base directory to search from
+                max_results: Maximum number of results to return
+            """
+            return await glob_files(pattern, path, max_results)
 
     if is_enabled("ls"):
         @agent.tool_plain
