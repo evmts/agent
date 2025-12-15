@@ -95,7 +95,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.input.Focus()
 
 	case messages.ErrorMsg:
-		m.err = fmt.Errorf(msg.Message)
+		m.err = fmt.Errorf("%s", msg.Message)
 		m.state = StateError
 		m.chat.EndAssistantMessage()
 		return m, m.input.Focus()
