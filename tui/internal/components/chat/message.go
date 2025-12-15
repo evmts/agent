@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
@@ -17,12 +18,20 @@ const (
 	RoleAssistant Role = "assistant"
 )
 
+// MessageOptions contains rendering options
+type MessageOptions struct {
+	ShowThinking   bool
+	ShowTimestamps bool
+	ExpandedTools  map[string]bool // Track which tools are expanded
+}
+
 // Message represents a chat message with its parts
 type Message struct {
 	Role        Role
 	Parts       []agent.Part
 	IsStreaming bool
 	Info        *agent.Message // Original message info
+	Timestamp   time.Time      // When the message was created
 }
 
 // Render renders a message with the given width
@@ -32,26 +41,54 @@ func (m Message) Render(width int) string {
 
 // RenderWithOptions renders a message with the given width and options
 func (m Message) RenderWithOptions(width int, showThinking bool) string {
-	var sb strings.Builder
+	opts := MessageOptions{
+		ShowThinking:   showThinking,
+		ShowTimestamps: false, // Default off
+		ExpandedTools:  make(map[string]bool),
+	}
+	return m.RenderWithFullOptions(width, opts)
+}
 
-	// Add role label
+// RenderWithFullOptions renders a message with full options control
+func (m Message) RenderWithFullOptions(width int, opts MessageOptions) string {
+	var sb strings.Builder
+	theme := styles.GetCurrentTheme()
+
+	// Build header line with role + optional timestamp
+	var headerParts []string
+
 	switch m.Role {
 	case RoleUser:
-		sb.WriteString(styles.UserLabel().Render("You"))
-		sb.WriteString("\n")
+		headerParts = append(headerParts, styles.UserLabel().Render("You"))
 	case RoleAssistant:
-		sb.WriteString(styles.AssistantLabel().Render("Assistant"))
+		headerParts = append(headerParts, styles.AssistantLabel().Render("Assistant"))
 		// Add model info if available
 		if m.Info != nil && m.Info.ModelID != "" {
-			modelInfo := styles.MutedText().Render(fmt.Sprintf(" (%s)", m.Info.ModelID))
-			sb.WriteString(modelInfo)
+			modelStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+			headerParts = append(headerParts, modelStyle.Render(fmt.Sprintf("(%s)", m.Info.ModelID)))
 		}
-		sb.WriteString("\n")
+	}
+
+	// Add timestamp if enabled
+	if opts.ShowTimestamps && !m.Timestamp.IsZero() {
+		timestampStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		headerParts = append(headerParts, timestampStyle.Render(formatMessageTime(m.Timestamp)))
+	}
+
+	sb.WriteString(strings.Join(headerParts, " "))
+	sb.WriteString("\n")
+
+	// Count tool parts for collapsible display
+	toolCount := 0
+	for _, part := range m.Parts {
+		if part.IsTool() {
+			toolCount++
+		}
 	}
 
 	// Render all parts
-	for _, part := range m.Parts {
-		partView := renderPart(part, width-4, showThinking)
+	for i, part := range m.Parts {
+		partView := renderPartWithOptions(part, width-4, opts, i)
 		if partView != "" {
 			sb.WriteString(partView)
 			sb.WriteString("\n")
@@ -64,6 +101,39 @@ func (m Message) RenderWithOptions(width int, showThinking bool) string {
 	}
 
 	return sb.String()
+}
+
+// formatMessageTime formats a timestamp for display
+func formatMessageTime(t time.Time) string {
+	now := time.Now()
+	diff := now.Sub(t)
+
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return t.Format("3:04 PM")
+	default:
+		return t.Format("Jan 2, 3:04 PM")
+	}
+}
+
+// renderPartWithOptions renders a part with full options
+func renderPartWithOptions(part agent.Part, width int, opts MessageOptions, index int) string {
+	switch {
+	case part.IsText():
+		return renderTextPartEnhanced(part, width)
+	case part.IsReasoning():
+		return renderReasoningPart(part, width, opts.ShowThinking)
+	case part.IsTool():
+		return renderToolPartEnhanced(part, width, opts, index)
+	case part.IsFile():
+		return renderFilePart(part, width)
+	default:
+		return ""
+	}
 }
 
 // renderPart renders a single part based on its type
@@ -94,6 +164,133 @@ func renderTextPart(part agent.Part, width int) string {
 	content = strings.TrimSpace(rendered)
 
 	return styles.AssistantMessage().Width(width).Render(content)
+}
+
+// renderTextPartEnhanced renders text with code block indicators
+func renderTextPartEnhanced(part agent.Part, width int) string {
+	content := part.Text
+	if content == "" {
+		return ""
+	}
+
+	theme := styles.GetCurrentTheme()
+
+	// Check for code blocks and add copy indicator
+	hasCodeBlock := strings.Contains(content, "```")
+
+	// Render markdown using shared renderer
+	rendered := RenderMarkdown(content)
+	content = strings.TrimSpace(rendered)
+
+	// Add code block indicator if present
+	if hasCodeBlock {
+		copyHint := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Italic(true).
+			Render("  [Code block - select to copy]")
+		content = content + "\n" + copyHint
+	}
+
+	return styles.AssistantMessage().Width(width).Render(content)
+}
+
+// renderToolPartEnhanced renders tool with better formatting
+func renderToolPartEnhanced(part agent.Part, width int, opts MessageOptions, index int) string {
+	if part.State == nil {
+		return ""
+	}
+
+	theme := styles.GetCurrentTheme()
+	state := part.State
+
+	// Status indicator with better icons
+	var status string
+	var statusStyle lipgloss.Style
+
+	switch state.Status {
+	case "pending":
+		status = "○"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	case "running":
+		status = "●"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Warning)
+	case "completed":
+		status = "✓"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Success)
+	case "failed":
+		status = "✗"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Error)
+	default:
+		status = "?"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	}
+
+	// Format tool name with better styling
+	toolNameStyle := lipgloss.NewStyle().
+		Foreground(theme.Accent).
+		Bold(true)
+	toolName := toolNameStyle.Render(part.Tool)
+
+	// Input description
+	inputStr := formatToolInput(part.Tool, state.Input)
+	if state.Title != nil && *state.Title != "" {
+		inputStr = *state.Title
+	}
+	inputStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	inputDisplay := inputStyle.Render(inputStr)
+
+	// Build header
+	header := fmt.Sprintf("%s %s %s", statusStyle.Render(status), toolName, inputDisplay)
+
+	// Tool container style
+	toolContainerStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Border).
+		BorderLeft(true).
+		BorderRight(false).
+		BorderTop(false).
+		BorderBottom(false).
+		PaddingLeft(1).
+		Width(width - 2)
+
+	// Show output if completed
+	if state.Status == "completed" && state.Output != "" {
+		output := state.Output
+
+		// Truncate long output with "Show more" indicator
+		maxLines := 5
+		lines := strings.Split(output, "\n")
+		truncated := false
+		if len(lines) > maxLines {
+			lines = lines[:maxLines]
+			truncated = true
+		}
+		output = strings.Join(lines, "\n")
+
+		// Limit total length
+		if len(output) > 500 {
+			output = output[:500]
+			truncated = true
+		}
+
+		outputStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Width(width - 8)
+
+		outputView := outputStyle.Render(output)
+
+		if truncated {
+			moreStyle := lipgloss.NewStyle().
+				Foreground(theme.Accent).
+				Italic(true)
+			outputView += "\n" + moreStyle.Render("  ... (output truncated)")
+		}
+
+		content := header + "\n" + outputView
+		return toolContainerStyle.Render(content)
+	}
+
+	return toolContainerStyle.Render(header)
 }
 
 // renderReasoningPart renders thinking/reasoning content
