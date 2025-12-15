@@ -130,6 +130,9 @@ func (m Model) sendMessage() (tea.Model, tea.Cmd) {
 	// Create cancellable context
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 
+	// Get program from shared state
+	p := m.shared.GetProgram()
+
 	// Start streaming
-	return m, m.client.StreamChat(m.ctx, content, m.conversationID, m.program)
+	return m, m.client.StreamChat(m.ctx, content, m.conversationID, p)
 }
