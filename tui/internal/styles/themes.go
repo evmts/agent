@@ -623,3 +623,39 @@ func SetTheme(name string) bool {
 func SetThemeObj(theme *Theme) {
 	currentTheme = theme
 }
+
+// GetThemeNames returns a sorted list of available theme names
+func GetThemeNames() []string {
+	names := ListThemes()
+	// Sort alphabetically
+	for i := 0; i < len(names)-1; i++ {
+		for j := i + 1; j < len(names); j++ {
+			if names[i] > names[j] {
+				names[i], names[j] = names[j], names[i]
+			}
+		}
+	}
+	return names
+}
+
+// GetCurrentThemeName returns the name of the currently active theme
+func GetCurrentThemeName() string {
+	if currentTheme == nil {
+		return "default"
+	}
+	// Find the key for the current theme
+	for name, theme := range themes {
+		if theme == currentTheme {
+			return name
+		}
+	}
+	return "default"
+}
+
+// GetThemeByName returns a theme by name, or nil if not found
+func GetThemeByName(name string) *Theme {
+	if theme, ok := themes[name]; ok {
+		return theme
+	}
+	return nil
+}
