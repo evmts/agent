@@ -70,6 +70,17 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("ctrl+t", "Toggle thinking display", ActionToggleThinking)
 	km.Add("ctrl+a", "Select agent", ActionShowAgents)
 	km.Add("ctrl+r", "Toggle markdown rendering", ActionToggleMarkdown)
+	km.Add("ctrl+y", "Toggle mouse mode (for text selection)", ActionToggleMouse)
+	km.Add("ctrl+p", "Open command palette", ActionShowCommands)
+	km.Add("ctrl+s", "Switch session", ActionSessionList)
+	km.Add("ctrl+e", "Open external editor", ActionOpenEditor)
+
+	// Session actions
+	km.Add("ctrl+f", "Fork current session", ActionForkSession)
+	km.Add("ctrl+z", "Revert session changes", ActionRevertSession)
+	km.Add("ctrl+d", "Show file changes diff", ActionShowDiff)
+	km.Add("ctrl+u", "Undo last message", ActionUndoMessage)
+	km.Add("m", "Message actions menu", ActionShowContextMenu)
 
 	// Navigation
 	km.Add("pgup", "Scroll up one page", ActionPageUp)
