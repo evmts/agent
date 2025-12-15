@@ -1,9 +1,55 @@
 """
 File operation tools for reading, writing, and searching files.
 """
+import base64
+import mimetypes
 import os
 import re
 from pathlib import Path
+
+
+# Binary file extensions that should not be read as text
+BINARY_EXTENSIONS = {
+    # Archives
+    '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar',
+    # Executables and libraries
+    '.exe', '.dll', '.so', '.dylib', '.a', '.o', '.obj',
+    '.pyc', '.pyo', '.class', '.jar', '.war',
+    # Images
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp',
+    '.tiff', '.tif', '.psd', '.svg', '.heic', '.heif',
+    # Documents (binary)
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.odt', '.ods', '.odp',
+    # Media
+    '.mp3', '.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
+    '.wav', '.flac', '.ogg', '.webm', '.m4a', '.aac',
+    # Databases
+    '.db', '.sqlite', '.sqlite3', '.mdb',
+    # Fonts
+    '.ttf', '.otf', '.woff', '.woff2', '.eot',
+    # Other binary
+    '.bin', '.dat', '.iso', '.img', '.dmg',
+}
+
+# Image extensions that should be returned as base64
+IMAGE_EXTENSIONS = {
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp',
+    '.tiff', '.tif', '.svg', '.heic', '.heif',
+}
+
+# PDF extension
+PDF_EXTENSION = '.pdf'
+
+# Sensitive files that should be blocked
+SENSITIVE_FILES = {
+    '.env', '.env.local', '.env.development', '.env.production',
+    '.env.test', '.env.staging',
+}
+
+# Default limits
+DEFAULT_LINE_LIMIT = 2000
+MAX_LINE_LENGTH = 2000
 
 
 def _validate_path(path: str, base_dir: Path | None = None, skip_validation: bool = False) -> Path | None:
@@ -44,16 +90,75 @@ def _validate_path(path: str, base_dir: Path | None = None, skip_validation: boo
         return None
 
 
-async def read_file(path: str, encoding: str = "utf-8") -> str:
+def _is_binary_file(file_path: Path) -> bool:
+    """
+    Detect if a file is binary by checking extension and content.
+
+    Returns True if the file appears to be binary.
+    """
+    # Check extension first
+    if file_path.suffix.lower() in BINARY_EXTENSIONS:
+        return True
+
+    # Check content (first 4096 bytes)
+    try:
+        with open(file_path, 'rb') as f:
+            chunk = f.read(4096)
+
+        # Check for null bytes
+        if b'\x00' in chunk:
+            return True
+
+        # Check for high percentage of non-printable characters
+        if chunk:
+            non_printable = sum(
+                1 for byte in chunk
+                if byte < 32 and byte not in (9, 10, 13)  # tab, newline, carriage return
+            )
+            if non_printable / len(chunk) > 0.30:
+                return True
+
+    except (OSError, IOError):
+        pass
+
+    return False
+
+
+def _is_sensitive_file(file_path: Path) -> bool:
+    """Check if a file is a sensitive file that should be blocked."""
+    filename = file_path.name.lower()
+    return filename in SENSITIVE_FILES or filename.startswith('.env')
+
+
+def _is_image_file(file_path: Path) -> bool:
+    """Check if file is an image."""
+    return file_path.suffix.lower() in IMAGE_EXTENSIONS
+
+
+def _is_pdf_file(file_path: Path) -> bool:
+    """Check if file is a PDF."""
+    return file_path.suffix.lower() == PDF_EXTENSION
+
+
+async def read_file(
+    path: str,
+    encoding: str = "utf-8",
+    offset: int = 0,
+    limit: int | None = None,
+) -> str:
     """
     Read contents of a file.
 
     Args:
         path: Absolute or relative path to file
         encoding: File encoding (default utf-8)
+        offset: Line number to start reading from (0-indexed, default 0)
+        limit: Maximum number of lines to read (default 2000)
 
     Returns:
-        File contents with line numbers or error message
+        File contents with line numbers or error message.
+        For images/PDFs, returns base64 encoded content.
+        Blocks .env files for security.
     """
     try:
         file_path = _validate_path(path)
@@ -65,13 +170,73 @@ async def read_file(path: str, encoding: str = "utf-8") -> str:
         if not file_path.is_file():
             return f"Error: Not a file: {path}"
 
+        # Block sensitive files
+        if _is_sensitive_file(file_path):
+            return f"Error: Access denied - cannot read sensitive file: {path}"
+
+        # Handle images - return as base64
+        if _is_image_file(file_path):
+            try:
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                mime_type, _ = mimetypes.guess_type(str(file_path))
+                if mime_type is None:
+                    mime_type = 'application/octet-stream'
+                b64 = base64.b64encode(content).decode('ascii')
+                return f"[IMAGE: {file_path.name}]\nMIME type: {mime_type}\nBase64 ({len(content)} bytes):\ndata:{mime_type};base64,{b64}"
+            except Exception as e:
+                return f"Error reading image file: {str(e)}"
+
+        # Handle PDFs - return as base64
+        if _is_pdf_file(file_path):
+            try:
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                b64 = base64.b64encode(content).decode('ascii')
+                return f"[PDF: {file_path.name}]\nBase64 ({len(content)} bytes):\ndata:application/pdf;base64,{b64}"
+            except Exception as e:
+                return f"Error reading PDF file: {str(e)}"
+
+        # Check for binary files
+        if _is_binary_file(file_path):
+            size = file_path.stat().st_size
+            return f"Error: Cannot read binary file: {path} ({_format_size(size)})"
+
+        # Set default limit
+        if limit is None:
+            limit = DEFAULT_LINE_LIMIT
+
+        # Read text file with line numbers
         content = file_path.read_text(encoding=encoding)
-
-        # Add line numbers for better reference
         lines = content.split("\n")
-        numbered = [f"{i + 1:4d} | {line}" for i, line in enumerate(lines)]
-        return "\n".join(numbered)
+        total_lines = len(lines)
 
+        # Apply offset and limit
+        end_line = min(offset + limit, total_lines)
+        selected_lines = lines[offset:end_line]
+
+        # Format with line numbers (1-indexed for display)
+        numbered = []
+        for i, line in enumerate(selected_lines):
+            line_num = offset + i + 1  # 1-indexed
+            # Truncate long lines
+            if len(line) > MAX_LINE_LENGTH:
+                line = line[:MAX_LINE_LENGTH] + "..."
+            numbered.append(f"{line_num:5d}| {line}")
+
+        result = "\n".join(numbered)
+
+        # Add information about remaining content
+        if end_line < total_lines:
+            remaining = total_lines - end_line
+            result += f"\n\n(File has {remaining} more lines. Use 'offset' parameter to read beyond line {end_line})"
+        else:
+            result += f"\n\n(End of file - {total_lines} total lines)"
+
+        return result
+
+    except UnicodeDecodeError:
+        return f"Error: Cannot decode file as {encoding}. File may be binary or use a different encoding."
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
@@ -92,6 +257,10 @@ async def write_file(path: str, content: str, encoding: str = "utf-8") -> str:
         file_path = _validate_path(path)
         if file_path is None:
             return f"Error: Access denied - path traversal detected: {path}"
+
+        # Block writing to sensitive files
+        if _is_sensitive_file(file_path):
+            return f"Error: Access denied - cannot write to sensitive file: {path}"
 
         # Create parent directories if needed
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,6 +304,10 @@ async def search_files(
 
         for file_path in base_path.glob(pattern):
             if not file_path.is_file():
+                continue
+
+            # Skip binary files in content search
+            if content_pattern and _is_binary_file(file_path):
                 continue
 
             if content_pattern:
@@ -266,6 +439,9 @@ async def grep_files(
                 break
 
             # Skip binary files
+            if _is_binary_file(file_path):
+                continue
+
             try:
                 content = file_path.read_text(errors="strict")
             except (UnicodeDecodeError, PermissionError):
@@ -345,3 +521,60 @@ async def grep_files(
 
     except Exception as e:
         return f"Error searching files: {str(e)}"
+
+
+async def glob_files(
+    pattern: str,
+    path: str = ".",
+    max_results: int = 100,
+) -> str:
+    """
+    Find files matching a glob pattern.
+
+    Args:
+        pattern: Glob pattern (e.g., "**/*.py", "src/**/*.ts")
+        path: Base directory to search from
+        max_results: Maximum number of results to return
+
+    Returns:
+        List of matching file paths, sorted by modification time (newest first)
+    """
+    try:
+        base_path = _validate_path(path)
+        if base_path is None:
+            return f"Error: Access denied - path traversal detected: {path}"
+
+        if not base_path.exists():
+            return f"Error: Directory not found: {path}"
+        if not base_path.is_dir():
+            return f"Error: Not a directory: {path}"
+
+        # Collect matches with modification times
+        matches = []
+        for file_path in base_path.glob(pattern):
+            if file_path.is_file():
+                try:
+                    mtime = file_path.stat().st_mtime
+                    rel_path = str(file_path.relative_to(base_path))
+                    matches.append((mtime, rel_path))
+                except (OSError, ValueError):
+                    continue
+
+        if not matches:
+            return f"No files found matching pattern: {pattern}"
+
+        # Sort by modification time (newest first) and take top results
+        matches.sort(reverse=True)
+        limited_matches = matches[:max_results]
+
+        result_lines = [path for _, path in limited_matches]
+
+        result = f"Found {len(matches)} files"
+        if len(matches) > max_results:
+            result += f" (showing {max_results} most recently modified)"
+        result += f":\n" + "\n".join(result_lines)
+
+        return result
+
+    except Exception as e:
+        return f"Error finding files: {str(e)}"
