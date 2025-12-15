@@ -34,6 +34,7 @@ func buildHelpContent() string {
 		{"Esc", "Close dialog (or cancel streaming)"},
 		{"Ctrl+N", "Start new session"},
 		{"Ctrl+L", "Clear chat history"},
+		{"Ctrl+A", "Select agent"},
 		{"PgUp/PgDn", "Scroll chat"},
 		{"?", "Show this help dialog"},
 	}
