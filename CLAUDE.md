@@ -1,111 +1,172 @@
----
-description: Use Bun instead of Node.js, npm, pnpm, or vite.
-globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
----
+# Claude Agent - Development Guidelines
 
-Default to using Bun instead of Node.js.
+This file provides context for AI assistants working on this codebase.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## Project Overview
 
-## APIs
+Claude Agent is an AI agent platform with:
+- **Python backend** (FastAPI) - OpenCode-compatible REST API
+- **Go TUI client** (Bubbletea) - Terminal interface
+- **Go SDK** - Client library for the API
+- **Snapshot system** - Git-based file state tracking
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+## Technology Stack
 
-## Testing
+### Python (Backend)
+- FastAPI for REST API
+- Pydantic AI for agent framework
+- SSE-Starlette for streaming
+- asyncio for async operations
 
-Use `bun test` to run tests.
+### Go (TUI & SDK)
+- Bubbletea for terminal UI
+- Standard library for HTTP client
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+### TypeScript/Bun (Optional Demo)
+- Bun runtime (NOT Node.js)
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+## Development Commands
+
+### Python
+
+```bash
+# Run server
+python main.py
+
+# Run tests
+pytest
+
+# Run specific tests
+pytest tests/test_agent/test_tools/
 ```
 
-## Frontend
+### Go
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+```bash
+# Build TUI
+cd claude-tui && make build
 
-Server:
+# Run TUI
+./claude-tui -backend http://localhost:8000
 
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
+# Run SDK tests
+cd sdk/agent && go test ./...
 ```
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+### Bun/TypeScript
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
+Use Bun instead of Node.js:
+- `bun <file>` instead of `node <file>`
+- `bun test` instead of `jest`
+- `bun install` instead of `npm install`
+- `bunx <pkg>` instead of `npx <pkg>`
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `server.py` | Main FastAPI server (876 lines) |
+| `agent/agent.py` | Agent creation & tool registration |
+| `agent/wrapper.py` | Streaming adapter for server |
+| `agent/tools/*.py` | Tool implementations |
+| `snapshot/snapshot.py` | Git-based snapshot system |
+| `sdk/agent/client.go` | Go SDK HTTP client |
+| `sdk/agent/types.go` | OpenCode type definitions |
+| `claude-tui/internal/app/` | TUI application logic |
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ANTHROPIC_API_KEY` | Required - Claude API key | - |
+| `ANTHROPIC_MODEL` | Model ID | `claude-sonnet-4-20250514` |
+| `PORT` | Server port | `8000` |
+| `CORS_ORIGINS` | Allowed origins | `*` |
+
+## Code Patterns
+
+### Adding a New Tool
+
+1. Create function in `agent/tools/`:
+```python
+async def my_tool(param: str) -> str:
+    """Tool description."""
+    # Implementation
+    return result
 ```
 
-With the following `frontend.tsx`:
+2. Export in `agent/tools/__init__.py`
 
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
+3. Register in `agent/agent.py`:
+```python
+@agent.tool_plain
+async def my_tool(param: str) -> str:
+    """Tool description."""
+    return await my_tool_impl(param)
 ```
 
-Then, run index.ts
+### API Endpoints
 
-```sh
-bun --hot ./index.ts
+Follow OpenCode spec pattern:
+- Session CRUD: `/session`, `/session/{id}`
+- Messages: `/session/{id}/message`
+- Actions: `/session/{id}/abort`, `/session/{id}/fork`, etc.
+
+### SSE Events
+
+Event types:
+- `session.created`, `session.updated`, `session.deleted`
+- `message.updated`
+- `part.updated`
+
+## Security Considerations
+
+- **Shell execution**: Commands are validated for dangerous patterns
+- **File operations**: Path traversal prevention via `_validate_path()`
+- **CORS**: Configurable via `CORS_ORIGINS` env var
+- **Timeouts**: All subprocess operations have timeouts
+
+## Testing Guidelines
+
+- Write async tests with `@pytest.mark.asyncio`
+- Test both success and error paths
+- Mock external services (API calls, file system)
+
+## Common Tasks
+
+### Running the Full Stack
+
+```bash
+# Terminal 1: Start server
+export ANTHROPIC_API_KEY="your-key"
+python main.py
+
+# Terminal 2: Start TUI
+cd claude-tui && ./claude-tui
 ```
 
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+### Debugging
+
+- Server logs to stdout
+- TUI debug: Check `internal/app/update.go` for message handling
+- SDK: Use `-v` flag with go test for verbose output
+
+## Style Guide
+
+### Python
+- Type hints required
+- Async functions for I/O
+- Docstrings for public functions
+
+### Go
+- Standard gofmt formatting
+- Godoc comments for exports
+- Error handling explicit
+
+## Bun-Specific APIs
+
+When writing TypeScript:
+- `Bun.serve()` for HTTP server (not Express)
+- `Bun.file()` for file operations
+- `bun:sqlite` for SQLite
+- WebSocket is built-in
