@@ -46,3 +46,9 @@ __pycache__/
 
 # Go binaries
 claude-tui/claude-tui
+
+# IDE
+.cursor/
+
+# Python build artifacts
+*.egg-info/
