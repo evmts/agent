@@ -208,3 +208,140 @@ def _format_size(size: int) -> str:
             return f"{size:.1f}{unit}"
         size /= 1024
     return f"{size:.1f}TB"
+
+
+async def grep_files(
+    pattern: str,
+    path: str = ".",
+    file_pattern: str | None = None,
+    ignore_case: bool = False,
+    context_lines: int = 0,
+    max_results: int = 50,
+    include_line_numbers: bool = True,
+) -> str:
+    """
+    Search file contents using regex pattern.
+
+    Args:
+        pattern: Regex pattern to search for in file contents
+        path: Base directory to search from
+        file_pattern: Optional glob pattern for filtering files (e.g., "*.py")
+        ignore_case: If True, perform case-insensitive search
+        context_lines: Number of lines to show before and after each match
+        max_results: Maximum number of matches to return
+        include_line_numbers: Whether to include line numbers in output
+
+    Returns:
+        Formatted search results similar to ripgrep output
+    """
+    try:
+        base_path = _validate_path(path)
+        if base_path is None:
+            return f"Error: Access denied - path traversal detected: {path}"
+
+        if not base_path.exists():
+            return f"Error: Directory not found: {path}"
+
+        # Compile regex pattern
+        regex_flags = re.IGNORECASE if ignore_case else 0
+        try:
+            regex = re.compile(pattern, regex_flags)
+        except re.error as e:
+            return f"Error: Invalid regex pattern: {e}"
+
+        # Determine which files to search
+        if base_path.is_file():
+            files_to_search = [base_path]
+        else:
+            # Use glob pattern if provided, otherwise search all files
+            glob_pattern = file_pattern if file_pattern else "**/*"
+            files_to_search = [f for f in base_path.glob(glob_pattern) if f.is_file()]
+
+        results = []
+        match_count = 0
+        file_count = 0
+
+        for file_path in files_to_search:
+            if match_count >= max_results:
+                break
+
+            # Skip binary files
+            try:
+                content = file_path.read_text(errors="strict")
+            except (UnicodeDecodeError, PermissionError):
+                # Skip binary files or files we can't read
+                continue
+            except Exception:
+                continue
+
+            lines = content.split("\n")
+            matches_in_file = []
+            matched_lines = set()
+
+            # Find all matches in this file
+            for line_num, line in enumerate(lines, start=1):
+                if regex.search(line):
+                    matched_lines.add(line_num)
+                    match_count += 1
+
+            if matched_lines:
+                file_count += 1
+                # Display relative path
+                try:
+                    display_path = file_path.relative_to(Path.cwd())
+                except ValueError:
+                    display_path = file_path
+
+                matches_in_file.append(f"\n{display_path}")
+
+                # Sort matched lines and add context
+                sorted_matches = sorted(matched_lines)
+                i = 0
+                while i < len(sorted_matches):
+                    current_line = sorted_matches[i]
+
+                    # Determine context range
+                    start = max(1, current_line - context_lines)
+                    end = min(len(lines), current_line + context_lines)
+
+                    # Expand range if adjacent matches overlap
+                    while i + 1 < len(sorted_matches) and sorted_matches[i + 1] <= end + 1:
+                        i += 1
+                        end = min(len(lines), sorted_matches[i] + context_lines)
+
+                    # Output the range
+                    for ln in range(start, end + 1):
+                        line_content = lines[ln - 1]
+                        is_match = ln in matched_lines
+
+                        if include_line_numbers:
+                            if is_match:
+                                matches_in_file.append(f"{ln}:{line_content}")
+                            else:
+                                matches_in_file.append(f"{ln}-{line_content}")
+                        else:
+                            prefix = ":" if is_match else "-"
+                            matches_in_file.append(f"{prefix}{line_content}")
+
+                    # Add separator if there are more matches
+                    if i + 1 < len(sorted_matches):
+                        matches_in_file.append("--")
+
+                    i += 1
+
+                results.append("\n".join(matches_in_file))
+
+            if match_count >= max_results:
+                break
+
+        if not results:
+            return f"No matches found for pattern: {pattern}"
+
+        summary = f"Found {match_count} matches in {file_count} files"
+        if match_count >= max_results:
+            summary += f" (limited to {max_results} results)"
+
+        return summary + "\n" + "\n".join(results)
+
+    except Exception as e:
+        return f"Error searching files: {str(e)}"
