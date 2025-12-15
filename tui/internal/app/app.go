@@ -11,6 +11,7 @@ import (
 	"tui/internal/components/dialog"
 	"tui/internal/components/input"
 	"tui/internal/components/sidebar"
+	"tui/internal/components/spinner"
 	"tui/internal/components/toast"
 	"tui/internal/keybind"
 )
@@ -51,6 +52,7 @@ type Model struct {
 	input        input.Model
 	sidebar      sidebar.Model
 	toast        toast.Model
+	spinner      spinner.Model
 	client       *agent.Client
 	shared       *SharedState
 	state        State
@@ -73,6 +75,12 @@ type Model struct {
 	totalCost         float64
 	currentModel      string
 	currentAgent      string
+
+	// Mouse mode (enabled by default for scrolling, can be toggled for text selection)
+	mouseEnabled bool
+
+	// Double-escape interrupt tracking
+	lastEscapeTime time.Time
 }
 
 // New creates a new application model
@@ -82,6 +90,7 @@ func New(client *agent.Client) Model {
 		input:        input.New(80),
 		sidebar:      sidebar.New(30, 20),
 		toast:        toast.New(),
+		spinner:      spinner.New(spinner.StyleDots),
 		client:       client,
 		shared:       &SharedState{},
 		state:        StateLoading,
@@ -89,6 +98,7 @@ func New(client *agent.Client) Model {
 		keyMap:       keybind.DefaultKeyMap(),
 		inputFocused: false,
 		currentAgent: "build", // Default agent
+		mouseEnabled: true,    // Mouse mode enabled by default
 	}
 }
 
@@ -99,10 +109,12 @@ func (m *Model) SetProgram(p *tea.Program) {
 
 // Init initializes the application
 func (m Model) Init() tea.Cmd {
+	m.spinner.SetMessage("Connecting...")
 	return tea.Batch(
 		m.input.Init(),
 		m.chat.Init(),
 		m.sidebar.Init(),
+		m.spinner.Start(),
 		m.checkHealth(),
 	)
 }
@@ -169,4 +181,47 @@ func (m *Model) ToggleThinking() {
 // IsShowingThinking returns true if thinking content is being displayed
 func (m *Model) IsShowingThinking() bool {
 	return m.chat.IsShowingThinking()
+}
+
+// IsMouseEnabled returns true if mouse mode is enabled
+func (m *Model) IsMouseEnabled() bool {
+	return m.mouseEnabled
+}
+
+// ShowDiffDialog shows the file changes diff dialog
+func (m *Model) ShowDiffDialog(diffs []agent.FileDiff) {
+	width := m.width * 3 / 4
+	height := m.height * 3 / 4
+	if width < 60 {
+		width = 60
+	}
+	if height < 20 {
+		height = 20
+	}
+	m.activeDialog = dialog.NewDiffDialog(diffs, width, height)
+}
+
+// ShowCommandDialog shows the command palette
+func (m *Model) ShowCommandDialog() {
+	m.activeDialog = dialog.NewCommandDialog(m.keyMap)
+}
+
+// ShowSessionListDialog shows the session list dialog
+func (m *Model) ShowSessionListDialog(sessions []agent.Session) {
+	m.activeDialog = dialog.NewSessionListDialog(sessions)
+}
+
+// GetSessions returns the cached sessions from sidebar
+func (m *Model) GetSessions() []agent.Session {
+	return m.sidebar.GetSessions()
+}
+
+// ShowContextMenu shows the message context menu
+func (m *Model) ShowContextMenu(messageID string, isUserMessage bool) {
+	m.activeDialog = dialog.NewContextMenuDialog(messageID, isUserMessage)
+}
+
+// GetLastMessageInfo returns the ID and role of the last message in the chat
+func (m *Model) GetLastMessageInfo() (string, bool) {
+	return m.chat.GetLastMessageInfo()
 }

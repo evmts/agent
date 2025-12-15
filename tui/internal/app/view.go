@@ -63,27 +63,35 @@ func (m Model) View() string {
 
 	// Input area
 	if m.state == StateStreaming {
-		// Show disabled input during streaming
+		// Show disabled input during streaming with spinner
 		theme := styles.GetCurrentTheme()
+		spinnerView := m.spinner.View()
+		if spinnerView == "" {
+			spinnerView = "..."
+		}
 		disabledInput := lipgloss.NewStyle().
 			Foreground(theme.Muted).
 			Italic(true).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(theme.Muted).
+			BorderForeground(theme.Warning).
 			Padding(0, 1).
 			Width(contentWidth - 2).
-			Render("Waiting for response... (Ctrl+C to cancel)")
+			Render(spinnerView + " (Ctrl+C to cancel)")
 		sections = append(sections, disabledInput)
 	} else if m.state == StateLoading {
 		theme := styles.GetCurrentTheme()
+		spinnerView := m.spinner.View()
+		if spinnerView == "" {
+			spinnerView = "..."
+		}
 		loadingInput := lipgloss.NewStyle().
 			Foreground(theme.Muted).
 			Italic(true).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(theme.Muted).
+			BorderForeground(theme.Info).
 			Padding(0, 1).
 			Width(contentWidth - 2).
-			Render("Connecting to server...")
+			Render(spinnerView)
 		sections = append(sections, loadingInput)
 	} else {
 		sections = append(sections, m.input.View())
@@ -173,13 +181,15 @@ func (m Model) renderStatusBar(width int) string {
 	var stateStyle lipgloss.Style
 	switch m.state {
 	case StateIdle:
-		stateText = "Idle"
-		stateStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+		stateText = "Ready"
+		stateStyle = lipgloss.NewStyle().Foreground(theme.Success)
 	case StateStreaming:
-		stateText = "Streaming"
+		spinnerFrame := m.spinner.Frame()
+		stateText = spinnerFrame + " Streaming"
 		stateStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 	case StateLoading:
-		stateText = "Loading"
+		spinnerFrame := m.spinner.Frame()
+		stateText = spinnerFrame + " Loading"
 		stateStyle = lipgloss.NewStyle().Foreground(theme.Info)
 	case StateError:
 		stateText = fmt.Sprintf("Error: %v", m.err)
