@@ -16,3 +16,6 @@ dependencies = [
     "anthropic>=0.39.0",
     "httpx>=0.27.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["agent*", "snapshot*"]
