@@ -46,6 +46,9 @@ __pycache__/
 
 # Go binaries
 claude-tui/claude-tui
+tui/claude-tui
+tui/tui
+tui/agent-tui
 
 # IDE
 .cursor/
