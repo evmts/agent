@@ -159,3 +159,13 @@ func (m *Model) HasActiveDialog() bool {
 func (m *Model) ShowToast(message string, toastType toast.ToastType, duration time.Duration) tea.Cmd {
 	return m.toast.Add(message, toastType, duration)
 }
+
+// ToggleThinking toggles the display of thinking/reasoning content
+func (m *Model) ToggleThinking() {
+	m.chat.ToggleThinking()
+}
+
+// IsShowingThinking returns true if thinking content is being displayed
+func (m *Model) IsShowingThinking() bool {
+	return m.chat.IsShowingThinking()
+}
