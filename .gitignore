@@ -55,3 +55,6 @@ tui/agent-tui
 
 # Python build artifacts
 *.egg-info/
+build/
+dist/
+*.spec
