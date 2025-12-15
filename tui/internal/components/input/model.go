@@ -28,9 +28,10 @@ func New(width int) Model {
 	ta.KeyMap.InsertNewline.SetKeys("shift+enter")
 
 	// Style the textarea
-	ta.FocusedStyle.CursorLine = ta.FocusedStyle.CursorLine.Background(styles.AssistantBg)
-	ta.FocusedStyle.Placeholder = ta.FocusedStyle.Placeholder.Foreground(styles.Muted)
-	ta.BlurredStyle.Placeholder = ta.BlurredStyle.Placeholder.Foreground(styles.Muted)
+	theme := styles.GetCurrentTheme()
+	ta.FocusedStyle.CursorLine = ta.FocusedStyle.CursorLine.Background(theme.CodeBackground)
+	ta.FocusedStyle.Placeholder = ta.FocusedStyle.Placeholder.Foreground(theme.Muted)
+	ta.BlurredStyle.Placeholder = ta.BlurredStyle.Placeholder.Foreground(theme.Muted)
 
 	return Model{
 		textarea: ta,
@@ -94,7 +95,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 // View renders the input component
 func (m Model) View() string {
-	return styles.InputBorder.Width(m.width - 2).Render(m.textarea.View())
+	return styles.InputBorder().Width(m.width - 2).Render(m.textarea.View())
 }
 
 // Value returns the current input value

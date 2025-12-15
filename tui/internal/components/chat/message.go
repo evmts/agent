@@ -33,13 +33,13 @@ func (m Message) Render(width int) string {
 	// Add role label
 	switch m.Role {
 	case RoleUser:
-		sb.WriteString(styles.UserLabel.Render("You"))
+		sb.WriteString(styles.UserLabel().Render("You"))
 		sb.WriteString("\n")
 	case RoleAssistant:
-		sb.WriteString(styles.AssistantLabel.Render("Assistant"))
+		sb.WriteString(styles.AssistantLabel().Render("Assistant"))
 		// Add model info if available
 		if m.Info != nil && m.Info.ModelID != "" {
-			modelInfo := styles.MutedText.Render(fmt.Sprintf(" (%s)", m.Info.ModelID))
+			modelInfo := styles.MutedText().Render(fmt.Sprintf(" (%s)", m.Info.ModelID))
 			sb.WriteString(modelInfo)
 		}
 		sb.WriteString("\n")
@@ -56,7 +56,7 @@ func (m Message) Render(width int) string {
 
 	// Add streaming cursor
 	if m.IsStreaming {
-		sb.WriteString(styles.StreamingCursor.Render("▊"))
+		sb.WriteString(styles.StreamingCursor().Render("▊"))
 	}
 
 	return sb.String()
@@ -91,7 +91,7 @@ func renderTextPart(part agent.Part, width int) string {
 		content = strings.TrimSpace(rendered)
 	}
 
-	return styles.AssistantMessage.Width(width).Render(content)
+	return styles.AssistantMessage().Width(width).Render(content)
 }
 
 // renderReasoningPart renders thinking/reasoning content
@@ -102,13 +102,13 @@ func renderReasoningPart(part agent.Part, width int) string {
 
 	// Style for reasoning - dimmed and italic
 	reasoningStyle := lipgloss.NewStyle().
-		Foreground(styles.Muted).
+		Foreground(styles.GetCurrentTheme().Muted).
 		Italic(true).
 		PaddingLeft(2).
 		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(styles.Muted)
+		BorderForeground(styles.GetCurrentTheme().Muted)
 
-	header := styles.MutedBold.Render("Thinking...")
+	header := styles.MutedBold().Render("Thinking...")
 	content := reasoningStyle.Width(width - 4).Render(part.Text)
 
 	return header + "\n" + content
@@ -127,20 +127,20 @@ func renderToolPart(part agent.Part, width int) string {
 	switch state.Status {
 	case "pending":
 		status = "⏳"
-		statusStyle = styles.MutedText
+		statusStyle = styles.MutedText()
 	case "running":
 		status = "⚡"
-		statusStyle = styles.StatusBarStreaming
+		statusStyle = styles.StatusBarStreaming()
 	case "completed":
 		status = "✓"
-		statusStyle = styles.ToolStatus
+		statusStyle = styles.ToolStatus()
 	default:
 		status = "?"
-		statusStyle = styles.MutedText
+		statusStyle = styles.MutedText()
 	}
 
 	// Format tool name and input
-	toolName := styles.ToolName.Render(part.Tool)
+	toolName := styles.ToolName().Render(part.Tool)
 	inputStr := formatToolInput(part.Tool, state.Input)
 
 	// Use title if available
@@ -153,7 +153,7 @@ func renderToolPart(part agent.Part, width int) string {
 	// Show output if completed and has output
 	if state.Status == "completed" && state.Output != "" {
 		outputStyle := lipgloss.NewStyle().
-			Foreground(styles.Muted).
+			Foreground(styles.GetCurrentTheme().Muted).
 			PaddingLeft(4)
 
 		output := state.Output
@@ -164,16 +164,16 @@ func renderToolPart(part agent.Part, width int) string {
 		output = strings.ReplaceAll(output, "\n", " ")
 		output = truncate(output, width-8)
 
-		return styles.ToolEvent.Render(header) + "\n" + outputStyle.Render(output)
+		return styles.ToolEvent().Render(header) + "\n" + outputStyle.Render(output)
 	}
 
-	return styles.ToolEvent.Render(header)
+	return styles.ToolEvent().Render(header)
 }
 
 // renderFilePart renders file attachments
 func renderFilePart(part agent.Part, width int) string {
 	fileStyle := lipgloss.NewStyle().
-		Foreground(styles.Secondary).
+		Foreground(styles.GetCurrentTheme().Secondary).
 		Bold(true)
 
 	name := "File"
@@ -258,6 +258,6 @@ var _ ChatItem = Message{}
 // HelpText returns the help text shown at the bottom
 func HelpText() string {
 	return lipgloss.NewStyle().
-		Foreground(styles.Muted).
+		Foreground(styles.GetCurrentTheme().Muted).
 		Render("Enter: send • Ctrl+C: quit • Ctrl+N: new session")
 }

@@ -1,8 +1,6 @@
 package chat
 
 import (
-	"strings"
-
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
@@ -44,18 +42,7 @@ func (m Model) Init() tea.Cmd {
 // Update handles messages for the chat component
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Handle scrolling
-		switch msg.String() {
-		case "pgup":
-			m.viewport.ViewUp()
-		case "pgdown":
-			m.viewport.ViewDown()
-		}
-	}
-
+	// Let viewport handle mouse events, but key events are handled by app
 	m.viewport, cmd = m.viewport.Update(msg)
 	return m, cmd
 }
@@ -68,114 +55,6 @@ func (m Model) View() string {
 	return m.viewport.View()
 }
 
-// LoadMessages loads messages from API response
-func (m *Model) LoadMessages(messages []agent.MessageWithParts) {
-	m.messages = []Message{}
-	m.currentParts = make(map[string]agent.Part)
-
-	for _, msg := range messages {
-		role := RoleUser
-		if msg.Info.IsAssistant() {
-			role = RoleAssistant
-		}
-
-		m.messages = append(m.messages, Message{
-			Role:        role,
-			Parts:       msg.Parts,
-			IsStreaming: false,
-			Info:        &msg.Info,
-		})
-	}
-
-	m.updateContent()
-}
-
-// AddUserMessage adds a user message to the chat
-func (m *Model) AddUserMessage(content string) {
-	// Create a simple text part for user message
-	part := agent.Part{
-		Type: "text",
-		Text: content,
-	}
-
-	m.messages = append(m.messages, Message{
-		Role:        RoleUser,
-		Parts:       []agent.Part{part},
-		IsStreaming: false,
-	})
-	m.updateContent()
-}
-
-// StartAssistantMessage starts a new assistant message for streaming
-func (m *Model) StartAssistantMessage() {
-	m.currentParts = make(map[string]agent.Part)
-	m.currentMessage = nil
-	m.streamingPartID = ""
-
-	m.messages = append(m.messages, Message{
-		Role:        RoleAssistant,
-		Parts:       []agent.Part{},
-		IsStreaming: true,
-	})
-}
-
-// HandleStreamEvent processes a streaming event from the SDK
-func (m *Model) HandleStreamEvent(event *agent.StreamEvent) {
-	if event == nil {
-		return
-	}
-
-	switch event.Type {
-	case "message.updated":
-		if event.Message != nil {
-			m.currentMessage = event.Message
-			// Update the last message's info
-			if len(m.messages) > 0 {
-				m.messages[len(m.messages)-1].Info = event.Message
-			}
-		}
-
-	case "part.updated":
-		if event.Part != nil {
-			m.currentParts[event.Part.ID] = *event.Part
-
-			// Track streaming text part
-			if event.Part.IsText() {
-				m.streamingPartID = event.Part.ID
-			}
-
-			// Rebuild parts for the current message
-			m.rebuildCurrentMessageParts()
-		}
-	}
-
-	m.updateContent()
-}
-
-// rebuildCurrentMessageParts rebuilds the parts slice from the map
-func (m *Model) rebuildCurrentMessageParts() {
-	if len(m.messages) == 0 {
-		return
-	}
-
-	// Convert map to slice, maintaining some order
-	var parts []agent.Part
-	for _, part := range m.currentParts {
-		parts = append(parts, part)
-	}
-
-	m.messages[len(m.messages)-1].Parts = parts
-}
-
-// EndAssistantMessage marks the current assistant message as complete
-func (m *Model) EndAssistantMessage() {
-	if len(m.messages) > 0 {
-		m.messages[len(m.messages)-1].IsStreaming = false
-	}
-	m.streamingPartID = ""
-	m.updateContent()
-}
-
 // SetSize updates the chat dimensions
 func (m *Model) SetSize(width, height int) {
 	m.width = width
@@ -183,21 +62,6 @@ func (m *Model) SetSize(width, height int) {
 	m.viewport.Width = width
 	m.viewport.Height = height
 	m.updateContent()
-}
-
-// updateContent rebuilds the viewport content from messages
-func (m *Model) updateContent() {
-	var content strings.Builder
-
-	for i, msg := range m.messages {
-		content.WriteString(msg.Render(m.width))
-		if i < len(m.messages)-1 {
-			content.WriteString("\n")
-		}
-	}
-
-	m.viewport.SetContent(content.String())
-	m.viewport.GotoBottom()
 }
 
 // Clear clears all messages
@@ -228,4 +92,34 @@ func (m Model) GetCurrentCost() float64 {
 		return m.currentMessage.Cost
 	}
 	return 0
+}
+
+// ScrollUp scrolls up by one line
+func (m *Model) ScrollUp() {
+	m.viewport.LineUp(1)
+}
+
+// ScrollDown scrolls down by one line
+func (m *Model) ScrollDown() {
+	m.viewport.LineDown(1)
+}
+
+// PageUp scrolls up by one page
+func (m *Model) PageUp() {
+	m.viewport.ViewUp()
+}
+
+// PageDown scrolls down by one page
+func (m *Model) PageDown() {
+	m.viewport.ViewDown()
+}
+
+// ScrollToTop scrolls to the top of the chat
+func (m *Model) ScrollToTop() {
+	m.viewport.GotoTop()
+}
+
+// ScrollToBottom scrolls to the bottom of the chat
+func (m *Model) ScrollToBottom() {
+	m.viewport.GotoBottom()
 }
