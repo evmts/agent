@@ -2,85 +2,180 @@ package styles
 
 import "github.com/charmbracelet/lipgloss"
 
-var (
-	// Colors
-	Primary     = lipgloss.Color("#7C3AED")
-	Secondary   = lipgloss.Color("#10B981")
-	Error       = lipgloss.Color("#EF4444")
-	Muted       = lipgloss.Color("#6B7280")
-	UserBg      = lipgloss.Color("#1E3A5F")
-	AssistantBg = lipgloss.Color("#1F2937")
-	ToolBg      = lipgloss.Color("#374151")
-	White       = lipgloss.Color("#FFFFFF")
-	LightGray   = lipgloss.Color("#E5E7EB")
+// Helper functions to get current theme colors
+func getCurrentPrimary() lipgloss.Color {
+	return GetCurrentTheme().Primary
+}
 
-	// Message Styles
-	UserMessage = lipgloss.NewStyle().
-			Padding(0, 1).
-			Foreground(White).
-			Bold(true)
+func getCurrentSecondary() lipgloss.Color {
+	return GetCurrentTheme().Secondary
+}
 
-	UserLabel = lipgloss.NewStyle().
-			Foreground(Primary).
-			Bold(true)
+func getCurrentError() lipgloss.Color {
+	return GetCurrentTheme().Error
+}
 
-	AssistantMessage = lipgloss.NewStyle().
-				Padding(0, 1).
-				Foreground(LightGray)
+func getCurrentMuted() lipgloss.Color {
+	return GetCurrentTheme().Muted
+}
 
-	AssistantLabel = lipgloss.NewStyle().
-			Foreground(Secondary).
-			Bold(true)
+func getCurrentTextPrimary() lipgloss.Color {
+	return GetCurrentTheme().TextPrimary
+}
 
-	// Tool Event Styles
-	ToolEvent = lipgloss.NewStyle().
-			Foreground(Muted).
-			Italic(true).
-			PaddingLeft(2)
+func getCurrentTextSecondary() lipgloss.Color {
+	return GetCurrentTheme().TextSecondary
+}
 
-	ToolName = lipgloss.NewStyle().
-			Foreground(Primary).
-			Bold(true)
+func getCurrentSuccess() lipgloss.Color {
+	return GetCurrentTheme().Success
+}
 
-	ToolStatus = lipgloss.NewStyle().
-			Foreground(Secondary)
+func getCurrentWarning() lipgloss.Color {
+	return GetCurrentTheme().Warning
+}
 
-	// Input Styles
-	InputBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Primary).
-			Padding(0, 1)
+func getCurrentInfo() lipgloss.Color {
+	return GetCurrentTheme().Info
+}
 
-	// Status Bar Styles
-	StatusBar = lipgloss.NewStyle().
-			Foreground(Muted).
-			Padding(0, 1)
+func getCurrentBorder() lipgloss.Color {
+	return GetCurrentTheme().Border
+}
 
-	StatusBarStreaming = lipgloss.NewStyle().
-				Foreground(Primary).
-				Padding(0, 1)
+func getCurrentAccent() lipgloss.Color {
+	return GetCurrentTheme().Accent
+}
 
-	StatusBarError = lipgloss.NewStyle().
-			Foreground(Error).
-			Padding(0, 1)
+// Style helper functions that use current theme
+func PrimaryStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentPrimary())
+}
 
-	// Header
-	Header = lipgloss.NewStyle().
-		Foreground(Primary).
+func SecondaryStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentSecondary())
+}
+
+func ErrorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentError())
+}
+
+func SuccessStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentSuccess())
+}
+
+func WarningStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentWarning())
+}
+
+func InfoStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentInfo())
+}
+
+func MutedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentMuted())
+}
+
+func AccentStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(getCurrentAccent())
+}
+
+// Message Styles - using functions to ensure theme updates are reflected
+func UserMessage() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Padding(0, 1).
+		Foreground(getCurrentTextPrimary()).
+		Bold(true)
+}
+
+func UserLabel() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentPrimary()).
+		Bold(true)
+}
+
+func AssistantMessage() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Padding(0, 1).
+		Foreground(getCurrentTextSecondary())
+}
+
+func AssistantLabel() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentSecondary()).
+		Bold(true)
+}
+
+// Tool Event Styles
+func ToolEvent() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentMuted()).
+		Italic(true).
+		PaddingLeft(2)
+}
+
+func ToolName() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentPrimary()).
+		Bold(true)
+}
+
+func ToolStatus() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentSecondary())
+}
+
+// Input Styles
+func InputBorder() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(getCurrentPrimary()).
+		Padding(0, 1)
+}
+
+// Status Bar Styles
+func StatusBar() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentMuted()).
+		Padding(0, 1)
+}
+
+func StatusBarStreaming() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentPrimary()).
+		Padding(0, 1)
+}
+
+func StatusBarError() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentError()).
+		Padding(0, 1)
+}
+
+// Header
+func Header() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentPrimary()).
 		Bold(true).
 		Padding(0, 1)
+}
 
-	// Cursor for streaming
-	StreamingCursor = lipgloss.NewStyle().
-			Foreground(Primary).
-			Bold(true)
+// Cursor for streaming
+func StreamingCursor() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentPrimary()).
+		Bold(true)
+}
 
-	// Muted text style
-	MutedText = lipgloss.NewStyle().
-			Foreground(Muted)
+// Muted text style
+func MutedText() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentMuted())
+}
 
-	// Muted bold text
-	MutedBold = lipgloss.NewStyle().
-			Foreground(Muted).
-			Bold(true)
-)
+// Muted bold text
+func MutedBold() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(getCurrentMuted()).
+		Bold(true)
+}
