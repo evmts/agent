@@ -1,21 +1,16 @@
-.PHONY: build run mock test clean
+.PHONY: build run test clean fmt lint deps
 
 # Build the binary
 build:
 	go build -o claude-tui .
 
-# Run the TUI (assumes mock server is running)
+# Run the TUI
 run: build
 	./claude-tui
 
-# Run the mock server
-mock: build
-	./claude-tui -mock
-
-# Run with mock server (starts mock in background, then TUI)
-dev: build
-	@echo "Starting mock server..."
-	@./claude-tui -mock & sleep 1 && ./claude-tui; kill $$!
+# Run with custom backend
+run-dev: build
+	BACKEND_URL=http://localhost:8000 ./claude-tui
 
 # Run tests
 test:
@@ -33,6 +28,6 @@ fmt:
 lint:
 	golangci-lint run
 
-# Install dependencies
+# Install/update dependencies
 deps:
 	go mod tidy
