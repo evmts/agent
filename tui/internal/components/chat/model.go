@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
@@ -155,4 +157,33 @@ func (m *Model) ToggleMarkdown() bool {
 // IsMarkdownEnabled returns whether markdown rendering is enabled
 func (m Model) IsMarkdownEnabled() bool {
 	return IsMarkdownEnabled()
+}
+
+// GetLastMessageInfo returns the ID and whether it's a user message for the last message
+// Returns empty string and false if no messages exist
+func (m Model) GetLastMessageInfo() (string, bool) {
+	if len(m.messages) == 0 {
+		return "", false
+	}
+	lastMsg := m.messages[len(m.messages)-1]
+	msgID := ""
+	if lastMsg.Info != nil {
+		msgID = lastMsg.Info.ID
+	}
+	return msgID, lastMsg.Role == RoleUser
+}
+
+// GetLastMessageText returns the text content of the last message
+func (m Model) GetLastMessageText() string {
+	if len(m.messages) == 0 {
+		return ""
+	}
+	lastMsg := m.messages[len(m.messages)-1]
+	var text strings.Builder
+	for _, part := range lastMsg.Parts {
+		if part.IsText() {
+			text.WriteString(part.Text)
+		}
+	}
+	return text.String()
 }
