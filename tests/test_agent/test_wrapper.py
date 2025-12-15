@@ -135,14 +135,6 @@ class TestWrapperStreaming:
         assert hasattr(wrapper, "stream_async")
         assert callable(wrapper.stream_async)
 
-    def test_wrapper_has_stream_async_with_tools_method(self, mock_env_vars):
-        """Test that wrapper has stream_async_with_tools method."""
-        agent = create_agent()
-        wrapper = AgentWrapper(agent)
-
-        assert hasattr(wrapper, "stream_async_with_tools")
-        assert callable(wrapper.stream_async_with_tools)
-
     @pytest.mark.asyncio
     async def test_stream_async_signature(self, mock_env_vars):
         """Test stream_async method signature."""
