@@ -1,0 +1,697 @@
+"""
+OpenCode-compatible API server.
+
+Implements the OpenCode API specification for use with OpenCode clients
+(including Go Bubbletea TUI).
+"""
+
+import asyncio
+import json
+import os
+import secrets
+import time
+from typing import Any, AsyncGenerator, Literal
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
+
+# =============================================================================
+# Pydantic Models
+# =============================================================================
+
+
+def gen_id(prefix: str) -> str:
+    """Generate IDs matching OpenCode format: ses_xxx, msg_xxx, prt_xxx"""
+    return f"{prefix}{secrets.token_urlsafe(12)}"
+
+
+# --- Time Models ---
+class SessionTime(BaseModel):
+    created: float
+    updated: float
+    archived: float | None = None
+
+
+class MessageTime(BaseModel):
+    created: float
+    completed: float | None = None
+
+
+class PartTime(BaseModel):
+    start: float
+    end: float | None = None
+
+
+# --- Session Models ---
+class FileDiff(BaseModel):
+    file: str
+    before: str
+    after: str
+    additions: int
+    deletions: int
+
+
+class SessionSummary(BaseModel):
+    additions: int
+    deletions: int
+    files: int
+    diffs: list[FileDiff] | None = None
+
+
+class RevertInfo(BaseModel):
+    messageID: str
+    partID: str | None = None
+    snapshot: str | None = None
+    diff: str | None = None
+
+
+class Session(BaseModel):
+    id: str
+    projectID: str
+    directory: str
+    title: str
+    version: str
+    time: SessionTime
+    parentID: str | None = None
+    summary: SessionSummary | None = None
+    revert: RevertInfo | None = None
+
+
+# --- Model/Provider Info ---
+class ModelInfo(BaseModel):
+    providerID: str
+    modelID: str
+
+
+class TokenInfo(BaseModel):
+    input: int
+    output: int
+    reasoning: int = 0
+    cache: dict[str, int] | None = None
+
+
+class PathInfo(BaseModel):
+    cwd: str
+    root: str
+
+
+# --- Message Models ---
+class UserMessage(BaseModel):
+    id: str
+    sessionID: str
+    role: Literal["user"] = "user"
+    time: MessageTime
+    agent: str
+    model: ModelInfo
+    system: str | None = None
+    tools: dict[str, bool] | None = None
+
+
+class AssistantMessage(BaseModel):
+    id: str
+    sessionID: str
+    role: Literal["assistant"] = "assistant"
+    time: MessageTime
+    parentID: str
+    modelID: str
+    providerID: str
+    mode: str
+    path: PathInfo
+    cost: float
+    tokens: TokenInfo
+    finish: str | None = None
+    summary: bool | None = None
+    error: dict | None = None
+
+
+Message = UserMessage | AssistantMessage
+
+
+# --- Part Models ---
+class TextPart(BaseModel):
+    id: str
+    sessionID: str
+    messageID: str
+    type: Literal["text"] = "text"
+    text: str
+    time: PartTime | None = None
+
+
+class ReasoningPart(BaseModel):
+    id: str
+    sessionID: str
+    messageID: str
+    type: Literal["reasoning"] = "reasoning"
+    text: str
+    time: PartTime
+
+
+class ToolStatePending(BaseModel):
+    status: Literal["pending"] = "pending"
+    input: dict[str, Any]
+    raw: str
+
+
+class ToolStateRunning(BaseModel):
+    status: Literal["running"] = "running"
+    input: dict[str, Any]
+    title: str | None = None
+    metadata: dict[str, Any] | None = None
+    time: PartTime
+
+
+class ToolStateCompleted(BaseModel):
+    status: Literal["completed"] = "completed"
+    input: dict[str, Any]
+    output: str
+    title: str | None = None
+    metadata: dict[str, Any] | None = None
+    time: PartTime
+
+
+ToolState = ToolStatePending | ToolStateRunning | ToolStateCompleted
+
+
+class ToolPart(BaseModel):
+    id: str
+    sessionID: str
+    messageID: str
+    type: Literal["tool"] = "tool"
+    tool: str
+    state: ToolState
+
+
+class FilePart(BaseModel):
+    id: str
+    sessionID: str
+    messageID: str
+    type: Literal["file"] = "file"
+    mime: str
+    url: str
+    filename: str | None = None
+
+
+Part = TextPart | ReasoningPart | ToolPart | FilePart
+
+
+# --- Request/Response Models ---
+class CreateSessionRequest(BaseModel):
+    parentID: str | None = None
+    title: str | None = None
+
+
+class UpdateSessionRequest(BaseModel):
+    title: str | None = None
+    time: dict | None = None  # { archived: number }
+
+
+class TextPartInput(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class FilePartInput(BaseModel):
+    type: Literal["file"] = "file"
+    mime: str
+    url: str
+    filename: str | None = None
+
+
+PartInput = TextPartInput | FilePartInput
+
+
+class PromptRequest(BaseModel):
+    parts: list[dict]  # TextPartInput | FilePartInput
+    messageID: str | None = None
+    model: ModelInfo | None = None
+    agent: str | None = None
+    noReply: bool | None = None
+    system: str | None = None
+    tools: dict[str, bool] | None = None
+
+
+class ForkRequest(BaseModel):
+    messageID: str | None = None
+
+
+class RevertRequest(BaseModel):
+    messageID: str
+    partID: str | None = None
+
+
+# --- Event Models ---
+class Event(BaseModel):
+    type: str
+    properties: dict
+
+
+# --- Error Models ---
+class BadRequestError(BaseModel):
+    error: str = "Bad request"
+    message: str
+
+
+class NotFoundError(BaseModel):
+    error: str = "Not found"
+    message: str
+
+
+# =============================================================================
+# In-Memory Storage & Event Bus
+# =============================================================================
+
+# Storage
+sessions: dict[str, Session] = {}
+session_messages: dict[str, list[dict]] = {}  # sessionID -> [{info, parts}]
+active_tasks: dict[str, asyncio.Task] = {}  # sessionID -> running task
+
+# Event bus for SSE
+event_subscribers: list[asyncio.Queue] = []
+
+
+async def broadcast_event(event: Event):
+    """Broadcast event to all SSE subscribers."""
+    data = event.model_dump()
+    for queue in event_subscribers:
+        await queue.put(data)
+
+
+# Placeholder for agent
+agent = None
+
+
+def set_agent(new_agent):
+    """Set the agent instance. Called by agent configuration module."""
+    global agent
+    agent = new_agent
+
+
+# =============================================================================
+# FastAPI App
+# =============================================================================
+
+app = FastAPI(title="OpenCode API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# =============================================================================
+# Global Event SSE Endpoint
+# =============================================================================
+
+
+@app.get("/global/event")
+async def global_event(directory: str | None = Query(None)):
+    """Subscribe to global events via SSE."""
+
+    async def event_generator() -> AsyncGenerator[dict, None]:
+        queue: asyncio.Queue = asyncio.Queue()
+        event_subscribers.append(queue)
+        try:
+            while True:
+                event = await queue.get()
+                yield {"event": event["type"], "data": json.dumps(event)}
+        finally:
+            event_subscribers.remove(queue)
+
+    return EventSourceResponse(event_generator())
+
+
+# =============================================================================
+# Session Endpoints
+# =============================================================================
+
+
+@app.get("/session")
+async def list_sessions(directory: str | None = Query(None)) -> list[Session]:
+    """List all sessions sorted by most recently updated."""
+    return sorted(sessions.values(), key=lambda s: s.time.updated, reverse=True)
+
+
+@app.post("/session")
+async def create_session(
+    request: CreateSessionRequest, directory: str | None = Query(None)
+) -> Session:
+    """Create a new session."""
+    now = time.time()
+    session = Session(
+        id=gen_id("ses_"),
+        projectID="default",
+        directory=directory or os.getcwd(),
+        title=request.title or "New Session",
+        version="1.0.0",
+        time=SessionTime(created=now, updated=now),
+        parentID=request.parentID,
+    )
+    sessions[session.id] = session
+    session_messages[session.id] = []
+
+    await broadcast_event(
+        Event(type="session.created", properties={"info": session.model_dump()})
+    )
+    return session
+
+
+@app.get("/session/{sessionID}")
+async def get_session(sessionID: str, directory: str | None = Query(None)) -> Session:
+    """Get session details."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return sessions[sessionID]
+
+
+@app.delete("/session/{sessionID}")
+async def delete_session(sessionID: str, directory: str | None = Query(None)) -> bool:
+    """Delete a session."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions.pop(sessionID)
+    session_messages.pop(sessionID, None)
+
+    await broadcast_event(
+        Event(type="session.deleted", properties={"info": session.model_dump()})
+    )
+    return True
+
+
+@app.patch("/session/{sessionID}")
+async def update_session(
+    sessionID: str, request: UpdateSessionRequest, directory: str | None = Query(None)
+) -> Session:
+    """Update session title or archived status."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[sessionID]
+    if request.title is not None:
+        session.title = request.title
+    if request.time and "archived" in request.time:
+        session.time.archived = request.time["archived"]
+    session.time.updated = time.time()
+    sessions[sessionID] = session
+
+    await broadcast_event(
+        Event(type="session.updated", properties={"info": session.model_dump()})
+    )
+    return session
+
+
+# =============================================================================
+# Message Endpoints
+# =============================================================================
+
+
+@app.get("/session/{sessionID}/message")
+async def list_messages(
+    sessionID: str, limit: int | None = Query(None), directory: str | None = Query(None)
+) -> list[dict]:
+    """List messages in a session."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = session_messages.get(sessionID, [])
+    if limit:
+        messages = messages[-limit:]
+    return messages
+
+
+@app.get("/session/{sessionID}/message/{messageID}")
+async def get_message(
+    sessionID: str, messageID: str, directory: str | None = Query(None)
+) -> dict:
+    """Get a specific message."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    for msg in session_messages.get(sessionID, []):
+        if msg["info"]["id"] == messageID:
+            return msg
+
+    raise HTTPException(status_code=404, detail="Message not found")
+
+
+@app.post("/session/{sessionID}/message")
+async def send_message(
+    sessionID: str, request: PromptRequest, directory: str | None = Query(None)
+):
+    """Send a prompt and stream the response via SSE."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    async def stream_response() -> AsyncGenerator[dict, None]:
+        now = time.time()
+
+        # Create user message
+        user_msg_id = request.messageID or gen_id("msg_")
+        user_msg = {
+            "info": {
+                "id": user_msg_id,
+                "sessionID": sessionID,
+                "role": "user",
+                "time": {"created": now},
+                "agent": request.agent or "default",
+                "model": (request.model.model_dump() if request.model else {"providerID": "default", "modelID": "default"}),
+            },
+            "parts": [],
+        }
+
+        # Add text parts from request
+        for part in request.parts:
+            if part.get("type") == "text":
+                part_id = gen_id("prt_")
+                user_msg["parts"].append({
+                    "id": part_id,
+                    "sessionID": sessionID,
+                    "messageID": user_msg_id,
+                    "type": "text",
+                    "text": part.get("text", ""),
+                })
+
+        session_messages[sessionID].append(user_msg)
+        await broadcast_event(Event(type="message.updated", properties={"info": user_msg["info"]}))
+
+        # Create assistant message
+        asst_msg_id = gen_id("msg_")
+        asst_msg = {
+            "info": {
+                "id": asst_msg_id,
+                "sessionID": sessionID,
+                "role": "assistant",
+                "time": {"created": time.time()},
+                "parentID": user_msg_id,
+                "modelID": request.model.modelID if request.model else "default",
+                "providerID": request.model.providerID if request.model else "default",
+                "mode": "normal",
+                "path": {"cwd": os.getcwd(), "root": os.getcwd()},
+                "cost": 0.0,
+                "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            },
+            "parts": [],
+        }
+
+        # Broadcast assistant message creation
+        yield {"event": "message.updated", "data": json.dumps({"type": "message.updated", "properties": {"info": asst_msg["info"]}})}
+
+        if agent is None:
+            # No agent configured - return error part
+            error_part_id = gen_id("prt_")
+            error_part = {
+                "id": error_part_id,
+                "sessionID": sessionID,
+                "messageID": asst_msg_id,
+                "type": "text",
+                "text": "Agent not configured. Please set up an agent using set_agent().",
+            }
+            asst_msg["parts"].append(error_part)
+            yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": error_part})}
+        else:
+            # Stream from agent
+            text_part_id = gen_id("prt_")
+            text_content = ""
+
+            try:
+                # Extract text from user message
+                user_text = ""
+                for part in request.parts:
+                    if part.get("type") == "text":
+                        user_text += part.get("text", "")
+
+                async for event in agent.stream_async(user_text):
+                    if hasattr(event, "data") and event.data:
+                        text_content += event.data
+                        text_part = {
+                            "id": text_part_id,
+                            "sessionID": sessionID,
+                            "messageID": asst_msg_id,
+                            "type": "text",
+                            "text": text_content,
+                        }
+                        yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": text_part})}
+
+                # Final text part
+                if text_content:
+                    asst_msg["parts"].append({
+                        "id": text_part_id,
+                        "sessionID": sessionID,
+                        "messageID": asst_msg_id,
+                        "type": "text",
+                        "text": text_content,
+                    })
+
+            except Exception as e:
+                error_part_id = gen_id("prt_")
+                error_part = {
+                    "id": error_part_id,
+                    "sessionID": sessionID,
+                    "messageID": asst_msg_id,
+                    "type": "text",
+                    "text": f"Error: {str(e)}",
+                }
+                asst_msg["parts"].append(error_part)
+                yield {"event": "part.updated", "data": json.dumps({"type": "part.updated", "properties": error_part})}
+
+        # Complete assistant message
+        asst_msg["info"]["time"]["completed"] = time.time()
+        session_messages[sessionID].append(asst_msg)
+
+        # Update session timestamp
+        sessions[sessionID].time.updated = time.time()
+
+        yield {"event": "message.updated", "data": json.dumps({"type": "message.updated", "properties": {"info": asst_msg["info"]}})}
+
+    return EventSourceResponse(stream_response())
+
+
+# =============================================================================
+# Session Action Endpoints
+# =============================================================================
+
+
+@app.post("/session/{sessionID}/abort")
+async def abort_session(sessionID: str, directory: str | None = Query(None)) -> bool:
+    """Abort an active session."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if sessionID in active_tasks:
+        active_tasks[sessionID].cancel()
+        del active_tasks[sessionID]
+
+    return True
+
+
+@app.get("/session/{sessionID}/diff")
+async def get_session_diff(
+    sessionID: str, messageID: str | None = Query(None), directory: str | None = Query(None)
+) -> list[FileDiff]:
+    """Get file diffs for a session."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[sessionID]
+    if session.summary and session.summary.diffs:
+        return session.summary.diffs
+    return []
+
+
+@app.post("/session/{sessionID}/fork")
+async def fork_session(
+    sessionID: str, request: ForkRequest, directory: str | None = Query(None)
+) -> Session:
+    """Fork a session at a specific message."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    parent = sessions[sessionID]
+    now = time.time()
+
+    new_session = Session(
+        id=gen_id("ses_"),
+        projectID=parent.projectID,
+        directory=parent.directory,
+        title=f"{parent.title} (fork)",
+        version=parent.version,
+        time=SessionTime(created=now, updated=now),
+        parentID=sessionID,
+    )
+    sessions[new_session.id] = new_session
+
+    # Copy messages up to the fork point
+    messages_to_copy = []
+    for msg in session_messages.get(sessionID, []):
+        messages_to_copy.append(msg)
+        if request.messageID and msg["info"]["id"] == request.messageID:
+            break
+    session_messages[new_session.id] = messages_to_copy.copy()
+
+    await broadcast_event(
+        Event(type="session.created", properties={"info": new_session.model_dump()})
+    )
+    return new_session
+
+
+@app.post("/session/{sessionID}/revert")
+async def revert_session(
+    sessionID: str, request: RevertRequest, directory: str | None = Query(None)
+) -> Session:
+    """Revert session to a specific message."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[sessionID]
+    session.revert = RevertInfo(messageID=request.messageID, partID=request.partID)
+    session.time.updated = time.time()
+    sessions[sessionID] = session
+
+    await broadcast_event(
+        Event(type="session.updated", properties={"info": session.model_dump()})
+    )
+    return session
+
+
+@app.post("/session/{sessionID}/unrevert")
+async def unrevert_session(sessionID: str, directory: str | None = Query(None)) -> Session:
+    """Undo revert on a session."""
+    if sessionID not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[sessionID]
+    session.revert = None
+    session.time.updated = time.time()
+    sessions[sessionID] = session
+
+    await broadcast_event(
+        Event(type="session.updated", properties={"info": session.model_dump()})
+    )
+    return session
+
+
+# =============================================================================
+# Health Endpoint
+# =============================================================================
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "ok", "agent_configured": agent is not None}
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
