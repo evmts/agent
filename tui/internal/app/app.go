@@ -75,6 +75,12 @@ type Model struct {
 	totalCost         float64
 	currentModel      string
 	currentAgent      string
+	maxContextTokens  int    // Maximum context window size
+	provider          string // Provider name (e.g., "Anthropic", "OpenAI")
+
+	// Connection status
+	connected bool
+	gitBranch string
 
 	// Mouse mode (enabled by default for scrolling, can be toggled for text selection)
 	mouseEnabled bool
@@ -86,19 +92,22 @@ type Model struct {
 // New creates a new application model
 func New(client *agent.Client) Model {
 	return Model{
-		chat:         chat.New(80, 20),
-		input:        input.New(80),
-		sidebar:      sidebar.New(30, 20),
-		toast:        toast.New(),
-		spinner:      spinner.New(spinner.StyleDots),
-		client:       client,
-		shared:       &SharedState{},
-		state:        StateLoading,
-		ready:        false,
-		keyMap:       keybind.DefaultKeyMap(),
-		inputFocused: false,
-		currentAgent: "build", // Default agent
-		mouseEnabled: true,    // Mouse mode enabled by default
+		chat:             chat.New(80, 20),
+		input:            input.New(80),
+		sidebar:          sidebar.New(30, 20),
+		toast:            toast.New(),
+		spinner:          spinner.New(spinner.StyleDots),
+		client:           client,
+		shared:           &SharedState{},
+		state:            StateLoading,
+		ready:            false,
+		keyMap:           keybind.DefaultKeyMap(),
+		inputFocused:     false,
+		currentAgent:     "build",    // Default agent
+		mouseEnabled:     true,       // Mouse mode enabled by default
+		maxContextTokens: 200000,     // Default Claude context window
+		provider:         "Anthropic", // Default provider
+		connected:        false,
 	}
 }
 
@@ -219,6 +228,51 @@ func (m *Model) GetSessions() []agent.Session {
 // ShowContextMenu shows the message context menu
 func (m *Model) ShowContextMenu(messageID string, isUserMessage bool) {
 	m.activeDialog = dialog.NewContextMenuDialog(messageID, isUserMessage)
+}
+
+// ShowThemeDialog shows the theme selection dialog
+func (m *Model) ShowThemeDialog() {
+	m.activeDialog = dialog.NewThemeDialog()
+}
+
+// ShowStatusDialog shows the system status dialog
+func (m *Model) ShowStatusDialog() {
+	sessionID := ""
+	if m.session != nil {
+		sessionID = m.session.ID
+	}
+	info := dialog.StatusInfo{
+		Connected:    m.connected,
+		Provider:     m.provider,
+		Model:        m.currentModel,
+		Agent:        m.currentAgent,
+		SessionID:    sessionID,
+		InputTokens:  m.totalInputTokens,
+		OutputTokens: m.totalOutputTokens,
+		TotalCost:    m.totalCost,
+		GitBranch:    m.gitBranch,
+	}
+	m.activeDialog = dialog.NewStatusDialog(info)
+}
+
+// ShowSettingsDialog shows the settings dialog
+func (m *Model) ShowSettingsDialog() {
+	m.activeDialog = dialog.NewDefaultSettingsDialog(
+		m.IsShowingThinking(),
+		m.chat.IsMarkdownEnabled(),
+		m.mouseEnabled,
+	)
+}
+
+// ShowRenameDialog shows the session rename dialog
+func (m *Model) ShowRenameDialog() {
+	if m.session != nil {
+		title := m.session.Title
+		if title == "" {
+			title = ""
+		}
+		m.activeDialog = dialog.NewRenameDialog(m.session.ID, title)
+	}
 }
 
 // GetLastMessageInfo returns the ID and role of the last message in the chat

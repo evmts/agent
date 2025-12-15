@@ -8,6 +8,7 @@ import (
 	"github.com/muesli/reflow/ansi"
 	"tui/internal/components/chat"
 	"tui/internal/components/dialog"
+	"tui/internal/components/progress"
 	"tui/internal/styles"
 )
 
@@ -126,62 +127,121 @@ func (m Model) View() string {
 	return baseView
 }
 
-// renderHeader renders the header with session info
+// renderHeader renders the enhanced header with session info, tokens, cost, and provider
 func (m Model) renderHeader(width int) string {
-	title := styles.Header().Render("Claude TUI")
+	theme := styles.GetCurrentTheme()
 
+	// Left side: Title and session
+	title := styles.Header().Render("Claude TUI")
 	var sessionInfo string
 	if m.session != nil {
 		sessionTitle := m.session.Title
 		if sessionTitle == "" {
 			sessionTitle = "Untitled"
 		}
-		sessionInfo = styles.MutedText().Render(fmt.Sprintf(" • %s", sessionTitle))
+		sessionStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		sessionInfo = sessionStyle.Render(" • " + sessionTitle)
+	}
+	leftSide := title + sessionInfo
+
+	// Right side: Tokens, Cost, Provider
+	var rightParts []string
+
+	// Context tokens with mini progress bar
+	totalTokens := m.totalInputTokens + m.totalOutputTokens
+	if totalTokens > 0 || m.maxContextTokens > 0 {
+		prog := progress.New(progress.VariantTokens, m.maxContextTokens)
+		prog.SetProgress(totalTokens)
+		prog.SetThresholds(0.75, 0.90)
+		tokenDisplay := prog.View()
+		rightParts = append(rightParts, tokenDisplay)
 	}
 
-	return title + sessionInfo + "\n"
+	// Cost display (prominent)
+	if m.totalCost > 0 {
+		costStyle := lipgloss.NewStyle().
+			Foreground(theme.Success).
+			Bold(true)
+		rightParts = append(rightParts, costStyle.Render(formatCost(m.totalCost)))
+	}
+
+	// Provider badge with connection status
+	if m.provider != "" {
+		// Connection status dot
+		var statusDot string
+		if m.connected {
+			statusDot = lipgloss.NewStyle().Foreground(theme.Success).Render("●")
+		} else {
+			statusDot = lipgloss.NewStyle().Foreground(theme.Error).Render("○")
+		}
+
+		providerStyle := lipgloss.NewStyle().
+			Foreground(theme.Accent).
+			Background(theme.CodeBackground).
+			Padding(0, 1).
+			Bold(true)
+		providerBadge := statusDot + " " + providerStyle.Render(m.provider)
+		rightParts = append(rightParts, providerBadge)
+	}
+
+	// Join right side parts
+	rightSide := ""
+	if len(rightParts) > 0 {
+		separator := lipgloss.NewStyle().Foreground(theme.Muted).Render(" │ ")
+		rightSide = strings.Join(rightParts, separator)
+	}
+
+	// Calculate spacing between left and right
+	leftWidth := ansi.PrintableRuneWidth(leftSide)
+	rightWidth := ansi.PrintableRuneWidth(rightSide)
+	spacing := width - leftWidth - rightWidth - 2
+	if spacing < 1 {
+		spacing = 1
+	}
+
+	headerLine := leftSide + strings.Repeat(" ", spacing) + rightSide
+
+	// Add a subtle border underneath
+	borderStyle := lipgloss.NewStyle().Foreground(theme.Border)
+	border := borderStyle.Render(strings.Repeat("─", width))
+
+	return headerLine + "\n" + border + "\n"
 }
 
-// renderStatusBar renders the status bar at the bottom
+// renderStatusBar renders the enhanced status bar at the bottom
 func (m Model) renderStatusBar(width int) string {
 	theme := styles.GetCurrentTheme()
 
-	// Build status bar sections from left to right
-	var sections []string
+	// Left section: Model, Agent, Git branch
+	var leftParts []string
 
-	// Left section: Model name
+	// Model name with icon
 	if m.currentModel != "" {
-		modelStyle := lipgloss.NewStyle().Foreground(theme.Accent)
-		sections = append(sections, modelStyle.Render(m.currentModel))
+		modelStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
+		leftParts = append(leftParts, modelStyle.Render("⚡ "+m.currentModel))
 	}
 
-	// Agent name (if available)
+	// Agent name
 	if m.currentAgent != "" {
-		agentStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-		sections = append(sections, agentStyle.Render(m.currentAgent))
+		agentStyle := lipgloss.NewStyle().
+			Foreground(theme.TextSecondary).
+			Background(theme.CodeBackground).
+			Padding(0, 1)
+		leftParts = append(leftParts, agentStyle.Render(m.currentAgent))
 	}
 
-	// Token count (if available)
-	if m.totalInputTokens > 0 || m.totalOutputTokens > 0 {
-		tokenLabel := lipgloss.NewStyle().Foreground(theme.Muted).Render("Tokens:")
-		tokenValue := lipgloss.NewStyle().Foreground(theme.TextPrimary).Render(
-			fmt.Sprintf("%s↓ %s↑", formatTokens(m.totalInputTokens), formatTokens(m.totalOutputTokens)),
-		)
-		sections = append(sections, tokenLabel+" "+tokenValue)
+	// Git branch (if available)
+	if m.gitBranch != "" {
+		branchStyle := lipgloss.NewStyle().Foreground(theme.Warning)
+		leftParts = append(leftParts, branchStyle.Render(" "+m.gitBranch))
 	}
 
-	// Cost (if available)
-	if m.totalCost > 0 {
-		costStyle := lipgloss.NewStyle().Foreground(theme.Success)
-		sections = append(sections, costStyle.Render(formatCost(m.totalCost)))
-	}
-
-	// Session state
+	// Center section: State with spinner
 	var stateText string
 	var stateStyle lipgloss.Style
 	switch m.state {
 	case StateIdle:
-		stateText = "Ready"
+		stateText = "● Ready"
 		stateStyle = lipgloss.NewStyle().Foreground(theme.Success)
 	case StateStreaming:
 		spinnerFrame := m.spinner.Frame()
@@ -192,24 +252,77 @@ func (m Model) renderStatusBar(width int) string {
 		stateText = spinnerFrame + " Loading"
 		stateStyle = lipgloss.NewStyle().Foreground(theme.Info)
 	case StateError:
-		stateText = fmt.Sprintf("Error: %v", m.err)
+		errMsg := "Error"
+		if m.err != nil {
+			errMsg = m.err.Error()
+			if len(errMsg) > 30 {
+				errMsg = errMsg[:27] + "..."
+			}
+		}
+		stateText = "✕ " + errMsg
 		stateStyle = lipgloss.NewStyle().Foreground(theme.Error)
 	}
-	sections = append(sections, stateStyle.Render(stateText))
 
-	// Join sections with separator
-	separatorStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	separator := separatorStyle.Render(" | ")
+	// Right section: Context-sensitive keybind hints
+	var rightParts []string
 
-	statusBar := strings.Join(sections, separator)
+	hintStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
 
-	// Apply padding to fill the width
+	switch m.state {
+	case StateStreaming:
+		// Show cancel hint during streaming
+		rightParts = append(rightParts, hintStyle.Render("Press ")+keyStyle.Render("Ctrl+C")+hintStyle.Render(" to cancel"))
+	case StateIdle:
+		// Show context-sensitive hints
+		if m.HasActiveDialog() {
+			rightParts = append(rightParts, keyStyle.Render("Esc")+hintStyle.Render(" close"))
+		} else if m.sidebar.IsVisible() {
+			rightParts = append(rightParts, keyStyle.Render("Tab")+hintStyle.Render(" switch"))
+			rightParts = append(rightParts, keyStyle.Render("Ctrl+/")+hintStyle.Render(" hide"))
+		} else {
+			rightParts = append(rightParts, keyStyle.Render("?")+hintStyle.Render(" help"))
+			rightParts = append(rightParts, keyStyle.Render("Ctrl+K")+hintStyle.Render(" cmd"))
+		}
+	default:
+		// Show basic hints
+		rightParts = append(rightParts, keyStyle.Render("?")+hintStyle.Render(" help"))
+	}
+
+	// Build the status bar with proper spacing
+	separatorStyle := lipgloss.NewStyle().Foreground(theme.Border)
+	separator := separatorStyle.Render(" │ ")
+
+	leftSide := strings.Join(leftParts, separator)
+	centerSection := stateStyle.Render(stateText)
+	rightSide := strings.Join(rightParts, " ")
+
+	// Calculate widths
+	leftWidth := ansi.PrintableRuneWidth(leftSide)
+	centerWidth := ansi.PrintableRuneWidth(centerSection)
+	rightWidth := ansi.PrintableRuneWidth(rightSide)
+
+	// Distribute spacing
+	totalContent := leftWidth + centerWidth + rightWidth
+	totalSpacing := width - totalContent - 4 // Leave some margin
+	if totalSpacing < 2 {
+		totalSpacing = 2
+	}
+	leftSpacing := totalSpacing / 2
+	rightSpacing := totalSpacing - leftSpacing
+
+	// Add a subtle top border
+	borderStyle := lipgloss.NewStyle().Foreground(theme.Border)
+	topBorder := borderStyle.Render(strings.Repeat("─", width))
+
+	statusLine := leftSide + strings.Repeat(" ", leftSpacing) + centerSection + strings.Repeat(" ", rightSpacing) + rightSide
+
+	// Apply container style
 	statusStyle := lipgloss.NewStyle().
 		Width(width).
-		MaxWidth(width).
-		Foreground(theme.TextPrimary)
+		MaxWidth(width)
 
-	return statusStyle.Render(statusBar)
+	return topBorder + "\n" + statusStyle.Render(statusLine)
 }
 
 // overlayToasts overlays toast notifications in the top-right corner

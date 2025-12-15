@@ -56,14 +56,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case healthCheckMsg:
 		if msg.healthy {
-			// Create a new session on startup
-			return m, m.createSession()
+			// Mark as connected and create a new session on startup
+			m.connected = true
+			return m, tea.Batch(m.createSession(), m.detectGitBranch())
 		} else {
 			m.state = StateError
+			m.connected = false
 			m.spinner.Stop()
 			m.err = msg.err
 			return m, nil
 		}
+
+	case gitBranchMsg:
+		m.gitBranch = msg.branch
+		return m, nil
 
 	case sessionCreatedMsg:
 		m.session = msg.session
@@ -160,6 +166,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle context menu action
 		return m.handleContextMenuAction(msg)
 
+	case dialog.ThemeSelectedMsg:
+		// Theme was changed
+		return m, m.ShowToast("Theme changed to "+msg.ThemeName, toast.ToastSuccess, 2*time.Second)
+
+	case dialog.SettingChangedMsg:
+		// Handle setting changes
+		switch msg.Key {
+		case "show_thinking":
+			if msg.Value != m.IsShowingThinking() {
+				m.ToggleThinking()
+			}
+		case "render_markdown":
+			if msg.Value != m.chat.IsMarkdownEnabled() {
+				m.chat.ToggleMarkdown()
+			}
+		case "mouse_mode":
+			if msg.Value != m.mouseEnabled {
+				m.mouseEnabled = msg.Value
+			}
+		}
+		return m, nil
+
+	case dialog.RenameConfirmedMsg:
+		// Rename the session
+		return m, m.renameSession(msg.SessionID, msg.NewTitle)
+
+	case dialog.RenameCancelledMsg:
+		// Just closed, nothing to do
+		return m, nil
+
+	case sessionRenamedMsg:
+		m.session = msg.session
+		m.sidebar.SetCurrentSession(msg.session)
+		return m, m.ShowToast("Session renamed", toast.ToastSuccess, 2*time.Second)
+
 	case shellCommandResultMsg:
 		// Add shell output as a system message to chat
 		var output string
@@ -244,6 +285,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.CloseDialog()
 				}
 				return m, cmd
+			case *dialog.ThemeDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
+			case *dialog.StatusDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
+			case *dialog.SettingsDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
+			case *dialog.RenameDialog:
+				var cmd tea.Cmd
+				m.activeDialog, cmd = d.Update(msg)
+				if !m.activeDialog.IsVisible() {
+					m.CloseDialog()
+				}
+				return m, cmd
 			}
 		}
 
@@ -270,6 +339,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle command palette action
 		if action == keybind.ActionShowCommands {
 			m.ShowCommandDialog()
+			return m, nil
+		}
+
+		// Handle theme dialog action
+		if action == keybind.ActionShowThemes {
+			m.ShowThemeDialog()
+			return m, nil
+		}
+
+		// Handle status dialog action
+		if action == keybind.ActionShowStatus {
+			m.ShowStatusDialog()
+			return m, nil
+		}
+
+		// Handle settings dialog action
+		if action == keybind.ActionShowSettings {
+			m.ShowSettingsDialog()
+			return m, nil
+		}
+
+		// Handle rename session action
+		if action == keybind.ActionRenameSession {
+			if m.session != nil {
+				m.ShowRenameDialog()
+			} else {
+				return m, m.ShowToast("No active session to rename", toast.ToastWarning, 2*time.Second)
+			}
 			return m, nil
 		}
 
@@ -558,6 +655,14 @@ type sessionRevertedMsg struct {
 
 type showSessionListMsg struct{}
 
+type gitBranchMsg struct {
+	branch string
+}
+
+type sessionRenamedMsg struct {
+	session *agent.Session
+}
+
 type shellCommandResultMsg struct {
 	output string
 	err    error
@@ -802,6 +907,36 @@ func (m Model) forkSession(sessionID string) tea.Cmd {
 			return messages.ErrorMsg{Message: fmt.Sprintf("Failed to fork session: %v", err)}
 		}
 		return sessionForkedMsg{session: session}
+	}
+}
+
+// detectGitBranch detects the current git branch
+func (m Model) detectGitBranch() tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		output, err := cmd.Output()
+		if err != nil {
+			// Not in a git repo or git not available
+			return gitBranchMsg{branch: ""}
+		}
+		branch := strings.TrimSpace(string(output))
+		return gitBranchMsg{branch: branch}
+	}
+}
+
+// renameSession renames a session
+func (m Model) renameSession(sessionID, newTitle string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		session, err := m.client.UpdateSession(ctx, sessionID, &agent.UpdateSessionRequest{
+			Title: &newTitle,
+		})
+		if err != nil {
+			return messages.ErrorMsg{Message: fmt.Sprintf("Failed to rename session: %v", err)}
+		}
+		return sessionRenamedMsg{session: session}
 	}
 }
 
