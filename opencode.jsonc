@@ -1,0 +1,64 @@
+{
+  // Example OpenCode configuration file
+  // This demonstrates the config system for the agent project
+
+  // Custom agent configurations
+  "agents": {
+    "docs": {
+      "model_id": "claude-sonnet-4-20250514",
+      "system_prompt": "You are a documentation specialist. Focus on creating clear, comprehensive documentation for code and APIs.",
+      "tools": ["read", "search", "ls", "web"],
+      "temperature": 0.5
+    },
+    "test": {
+      "model_id": "claude-sonnet-4-20250514",
+      "system_prompt": "You are a testing specialist. Create comprehensive test suites using pytest and ensure code quality.",
+      "tools": ["read", "write", "python", "search", "ls"],
+      "temperature": 0.7
+    }
+  },
+
+  // Global tool configuration (applies when agent doesn't specify tools)
+  "tools": {
+    "python": true,
+    "shell": true,
+    "read": true,
+    "write": true,
+    "search": true,
+    "ls": true,
+    "fetch": true,
+    "web": true
+  },
+
+  // Default permissions
+  "permissions": {
+    "edit_patterns": ["**/*"],
+    "bash_patterns": ["*"],
+    "webfetch_enabled": true
+  },
+
+  // UI theme
+  "theme": "default",
+
+  // Custom keybindings (placeholder for TUI)
+  "keybindings": {
+    "quit": "Ctrl+Q",
+    "clear": "Ctrl+L"
+  },
+
+  // MCP server configurations (placeholder for future MCP support)
+  "mcp": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {}
+    }
+  },
+
+  // Experimental features
+  "experimental": {
+    "streaming": false,
+    "parallel_tools": false,
+    "caching": false
+  }
+}
