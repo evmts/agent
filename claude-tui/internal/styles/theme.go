@@ -74,4 +74,13 @@ var (
 	StreamingCursor = lipgloss.NewStyle().
 			Foreground(Primary).
 			Bold(true)
+
+	// Muted text style
+	MutedText = lipgloss.NewStyle().
+			Foreground(Muted)
+
+	// Muted bold text
+	MutedBold = lipgloss.NewStyle().
+			Foreground(Muted).
+			Bold(true)
 )
