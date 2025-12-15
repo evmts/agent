@@ -39,6 +39,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Python
 __pycache__/
 *.pyc
+.venv/
+
+# Agent snapshot storage
+.agent/
 
 # Go binaries
 claude-tui/claude-tui
