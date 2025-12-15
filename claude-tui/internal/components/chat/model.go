@@ -5,16 +5,19 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/williamcory/agent/sdk/agent"
 )
 
 // Model represents the chat component
 type Model struct {
-	viewport      viewport.Model
-	items         []ChatItem // Messages and tool events
-	currentStream strings.Builder
-	width         int
-	height        int
-	ready         bool
+	viewport        viewport.Model
+	messages        []Message
+	currentParts    map[string]agent.Part // Part ID -> Part (for updates)
+	currentMessage  *agent.Message
+	streamingPartID string
+	width           int
+	height          int
+	ready           bool
 }
 
 // New creates a new chat model
@@ -24,11 +27,12 @@ func New(width, height int) Model {
 	vp.YPosition = 0
 
 	return Model{
-		viewport: vp,
-		items:    []ChatItem{},
-		width:    width,
-		height:   height,
-		ready:    true,
+		viewport:     vp,
+		messages:     []Message{},
+		currentParts: make(map[string]agent.Part),
+		width:        width,
+		height:       height,
+		ready:        true,
 	}
 }
 
@@ -64,95 +68,111 @@ func (m Model) View() string {
 	return m.viewport.View()
 }
 
+// LoadMessages loads messages from API response
+func (m *Model) LoadMessages(messages []agent.MessageWithParts) {
+	m.messages = []Message{}
+	m.currentParts = make(map[string]agent.Part)
+
+	for _, msg := range messages {
+		role := RoleUser
+		if msg.Info.IsAssistant() {
+			role = RoleAssistant
+		}
+
+		m.messages = append(m.messages, Message{
+			Role:        role,
+			Parts:       msg.Parts,
+			IsStreaming: false,
+			Info:        &msg.Info,
+		})
+	}
+
+	m.updateContent()
+}
+
 // AddUserMessage adds a user message to the chat
 func (m *Model) AddUserMessage(content string) {
-	m.items = append(m.items, Message{
-		Role:    RoleUser,
-		Content: content,
+	// Create a simple text part for user message
+	part := agent.Part{
+		Type: "text",
+		Text: content,
+	}
+
+	m.messages = append(m.messages, Message{
+		Role:        RoleUser,
+		Parts:       []agent.Part{part},
+		IsStreaming: false,
 	})
 	m.updateContent()
 }
 
 // StartAssistantMessage starts a new assistant message for streaming
 func (m *Model) StartAssistantMessage() {
-	m.currentStream.Reset()
-	m.items = append(m.items, Message{
+	m.currentParts = make(map[string]agent.Part)
+	m.currentMessage = nil
+	m.streamingPartID = ""
+
+	m.messages = append(m.messages, Message{
 		Role:        RoleAssistant,
-		Content:     "",
+		Parts:       []agent.Part{},
 		IsStreaming: true,
 	})
 }
 
-// AppendToken appends a token to the current streaming message
-func (m *Model) AppendToken(token string) {
-	m.currentStream.WriteString(token)
-	// Update the last message with the accumulated content
-	if len(m.items) > 0 {
-		if msg, ok := m.items[len(m.items)-1].(Message); ok && msg.IsStreaming {
-			m.items[len(m.items)-1] = Message{
-				Role:        RoleAssistant,
-				Content:     m.currentStream.String(),
-				IsStreaming: true,
+// HandleStreamEvent processes a streaming event from the SDK
+func (m *Model) HandleStreamEvent(event *agent.StreamEvent) {
+	if event == nil {
+		return
+	}
+
+	switch event.Type {
+	case "message.updated":
+		if event.Message != nil {
+			m.currentMessage = event.Message
+			// Update the last message's info
+			if len(m.messages) > 0 {
+				m.messages[len(m.messages)-1].Info = event.Message
 			}
 		}
+
+	case "part.updated":
+		if event.Part != nil {
+			m.currentParts[event.Part.ID] = *event.Part
+
+			// Track streaming text part
+			if event.Part.IsText() {
+				m.streamingPartID = event.Part.ID
+			}
+
+			// Rebuild parts for the current message
+			m.rebuildCurrentMessageParts()
+		}
 	}
+
 	m.updateContent()
+}
+
+// rebuildCurrentMessageParts rebuilds the parts slice from the map
+func (m *Model) rebuildCurrentMessageParts() {
+	if len(m.messages) == 0 {
+		return
+	}
+
+	// Convert map to slice, maintaining some order
+	var parts []agent.Part
+	for _, part := range m.currentParts {
+		parts = append(parts, part)
+	}
+
+	m.messages[len(m.messages)-1].Parts = parts
 }
 
 // EndAssistantMessage marks the current assistant message as complete
 func (m *Model) EndAssistantMessage() {
-	if len(m.items) > 0 {
-		if msg, ok := m.items[len(m.items)-1].(Message); ok && msg.IsStreaming {
-			m.items[len(m.items)-1] = Message{
-				Role:        RoleAssistant,
-				Content:     m.currentStream.String(),
-				IsStreaming: false,
-			}
-		}
+	if len(m.messages) > 0 {
+		m.messages[len(m.messages)-1].IsStreaming = false
 	}
-	m.updateContent()
-}
-
-// AddToolEvent adds a tool event to the chat
-func (m *Model) AddToolEvent(tool string, input map[string]any) {
-	// Insert before the last message if it's streaming
-	insertIdx := len(m.items)
-	if insertIdx > 0 {
-		if msg, ok := m.items[insertIdx-1].(Message); ok && msg.IsStreaming {
-			// Insert before the streaming message
-			insertIdx = insertIdx - 1
-		}
-	}
-
-	event := ToolEvent{
-		Tool:      tool,
-		Input:     input,
-		Completed: false,
-	}
-
-	if insertIdx == len(m.items) {
-		m.items = append(m.items, event)
-	} else {
-		// Insert at position
-		m.items = append(m.items[:insertIdx], append([]ChatItem{event}, m.items[insertIdx:]...)...)
-	}
-	m.updateContent()
-}
-
-// CompleteToolEvent marks a tool event as completed
-func (m *Model) CompleteToolEvent(tool string, output string) {
-	// Find the most recent uncompleted tool event with this name
-	for i := len(m.items) - 1; i >= 0; i-- {
-		if event, ok := m.items[i].(ToolEvent); ok && event.Tool == tool && !event.Completed {
-			m.items[i] = ToolEvent{
-				Tool:      tool,
-				Input:     event.Input,
-				Output:    output,
-				Completed: true,
-			}
-			break
-		}
-	}
+	m.streamingPartID = ""
 	m.updateContent()
 }
 
@@ -165,14 +185,14 @@ func (m *Model) SetSize(width, height int) {
 	m.updateContent()
 }
 
-// updateContent rebuilds the viewport content from items
+// updateContent rebuilds the viewport content from messages
 func (m *Model) updateContent() {
 	var content strings.Builder
 
-	for i, item := range m.items {
-		content.WriteString(item.Render(m.width))
-		if i < len(m.items)-1 {
-			content.WriteString("\n\n")
+	for i, msg := range m.messages {
+		content.WriteString(msg.Render(m.width))
+		if i < len(m.messages)-1 {
+			content.WriteString("\n")
 		}
 	}
 
@@ -182,12 +202,30 @@ func (m *Model) updateContent() {
 
 // Clear clears all messages
 func (m *Model) Clear() {
-	m.items = []ChatItem{}
-	m.currentStream.Reset()
+	m.messages = []Message{}
+	m.currentParts = make(map[string]agent.Part)
+	m.currentMessage = nil
+	m.streamingPartID = ""
 	m.viewport.SetContent("")
 }
 
 // IsEmpty returns true if there are no messages
 func (m Model) IsEmpty() bool {
-	return len(m.items) == 0
+	return len(m.messages) == 0
+}
+
+// GetCurrentTokens returns token info from the current message
+func (m Model) GetCurrentTokens() *agent.TokenInfo {
+	if m.currentMessage != nil && m.currentMessage.Tokens != nil {
+		return m.currentMessage.Tokens
+	}
+	return nil
+}
+
+// GetCurrentCost returns cost from the current message
+func (m Model) GetCurrentCost() float64 {
+	if m.currentMessage != nil {
+		return m.currentMessage.Cost
+	}
+	return 0
 }
