@@ -226,7 +226,6 @@ func formatToolInput(tool string, input map[string]interface{}) string {
 	return truncate(fmt.Sprintf("%v", input), 50)
 }
 
-
 // truncate truncates a string to the given length
 func truncate(s string, maxLen int) string {
 	// Replace newlines with spaces for display

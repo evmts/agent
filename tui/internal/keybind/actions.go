@@ -15,6 +15,7 @@ const (
 	ActionCycleTheme     Action = "cycle_theme"
 	ActionShowAgents     Action = "show_agents"
 	ActionToggleMarkdown Action = "toggle_markdown"
+	ActionToggleThinking Action = "toggle_thinking"
 
 	// Navigation
 	ActionScrollUp       Action = "scroll_up"
