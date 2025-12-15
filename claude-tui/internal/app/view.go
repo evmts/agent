@@ -77,7 +77,7 @@ func (m Model) renderHeader() string {
 		if sessionTitle == "" {
 			sessionTitle = "Untitled"
 		}
-		sessionInfo = styles.Muted.Render(fmt.Sprintf(" • %s", sessionTitle))
+		sessionInfo = styles.MutedText.Render(fmt.Sprintf(" • %s", sessionTitle))
 	}
 
 	return title + sessionInfo + "\n"
@@ -109,9 +109,9 @@ func (m Model) renderStatusBar() string {
 	// Center: token info (if available)
 	var tokenInfo string
 	if m.totalTokens > 0 {
-		tokenInfo = styles.Muted.Render(fmt.Sprintf("Tokens: %d", m.totalTokens))
+		tokenInfo = styles.MutedText.Render(fmt.Sprintf("Tokens: %d", m.totalTokens))
 		if m.totalCost > 0 {
-			tokenInfo += styles.Muted.Render(fmt.Sprintf(" • $%.4f", m.totalCost))
+			tokenInfo += styles.MutedText.Render(fmt.Sprintf(" • $%.4f", m.totalCost))
 		}
 	}
 

@@ -39,7 +39,7 @@ func (m Message) Render(width int) string {
 		sb.WriteString(styles.AssistantLabel.Render("Assistant"))
 		// Add model info if available
 		if m.Info != nil && m.Info.ModelID != "" {
-			modelInfo := styles.Muted.Render(fmt.Sprintf(" (%s)", m.Info.ModelID))
+			modelInfo := styles.MutedText.Render(fmt.Sprintf(" (%s)", m.Info.ModelID))
 			sb.WriteString(modelInfo)
 		}
 		sb.WriteString("\n")
@@ -108,7 +108,7 @@ func renderReasoningPart(part agent.Part, width int) string {
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(styles.Muted)
 
-	header := styles.Muted.Bold(true).Render("Thinking...")
+	header := styles.MutedBold.Render("Thinking...")
 	content := reasoningStyle.Width(width - 4).Render(part.Text)
 
 	return header + "\n" + content
@@ -127,7 +127,7 @@ func renderToolPart(part agent.Part, width int) string {
 	switch state.Status {
 	case "pending":
 		status = "⏳"
-		statusStyle = styles.Muted
+		statusStyle = styles.MutedText
 	case "running":
 		status = "⚡"
 		statusStyle = styles.StatusBarStreaming
@@ -136,7 +136,7 @@ func renderToolPart(part agent.Part, width int) string {
 		statusStyle = styles.ToolStatus
 	default:
 		status = "?"
-		statusStyle = styles.Muted
+		statusStyle = styles.MutedText
 	}
 
 	// Format tool name and input
