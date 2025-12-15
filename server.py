@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from snapshot import Snapshot
+
 # =============================================================================
 # Pydantic Models
 # =============================================================================
@@ -266,6 +268,8 @@ class NotFoundError(BaseModel):
 sessions: dict[str, Session] = {}
 session_messages: dict[str, list[dict]] = {}  # sessionID -> [{info, parts}]
 active_tasks: dict[str, asyncio.Task] = {}  # sessionID -> running task
+session_snapshots: dict[str, Snapshot] = {}  # sessionID -> Snapshot instance
+session_snapshot_history: dict[str, list[str]] = {}  # sessionID -> [tree SHA hashes]
 
 # Event bus for SSE
 event_subscribers: list[asyncio.Queue] = []
@@ -354,6 +358,16 @@ async def create_session(
     sessions[session.id] = session
     session_messages[session.id] = []
 
+    # Initialize snapshot system
+    snapshot = Snapshot(directory or os.getcwd())
+    session_snapshots[session.id] = snapshot
+    try:
+        initial_hash = snapshot.track()
+        session_snapshot_history[session.id] = [initial_hash]
+    except Exception:
+        # Snapshot initialization failed (e.g., not a valid directory)
+        session_snapshot_history[session.id] = []
+
     await broadcast_event(
         Event(type="session.created", properties={"info": session.model_dump()})
     )
@@ -376,6 +390,8 @@ async def delete_session(sessionID: str, directory: str | None = Query(None)) ->
 
     session = sessions.pop(sessionID)
     session_messages.pop(sessionID, None)
+    session_snapshots.pop(sessionID, None)
+    session_snapshot_history.pop(sessionID, None)
 
     await broadcast_event(
         Event(type="session.deleted", properties={"info": session.model_dump()})
@@ -501,6 +517,15 @@ async def send_message(
         # Broadcast assistant message creation
         yield {"event": "message.updated", "data": json.dumps({"type": "message.updated", "properties": {"info": asst_msg["info"]}})}
 
+        # Capture step start snapshot
+        snapshot = session_snapshots.get(sessionID)
+        step_start_hash: str | None = None
+        if snapshot:
+            try:
+                step_start_hash = snapshot.track()
+            except Exception:
+                pass
+
         if agent is None:
             # No agent configured - return error part
             error_part_id = gen_id("prt_")
@@ -563,6 +588,34 @@ async def send_message(
         asst_msg["info"]["time"]["completed"] = time.time()
         session_messages[sessionID].append(asst_msg)
 
+        # Capture step finish snapshot and compute diff
+        if snapshot and step_start_hash:
+            try:
+                step_finish_hash = snapshot.track()
+                session_snapshot_history[sessionID].append(step_finish_hash)
+
+                # Compute diff and update session summary
+                changed_files = snapshot.patch(step_start_hash, step_finish_hash)
+                if changed_files:
+                    diffs = snapshot.diff_full(step_start_hash, step_finish_hash)
+                    sessions[sessionID].summary = SessionSummary(
+                        additions=sum(d.additions for d in diffs),
+                        deletions=sum(d.deletions for d in diffs),
+                        files=len(diffs),
+                        diffs=[
+                            FileDiff(
+                                file=d.file,
+                                before=d.before,
+                                after=d.after,
+                                additions=d.additions,
+                                deletions=d.deletions,
+                            )
+                            for d in diffs
+                        ],
+                    )
+            except Exception:
+                pass
+
         # Update session timestamp
         sessions[sessionID].time.updated = time.time()
 
@@ -597,6 +650,42 @@ async def get_session_diff(
     if sessionID not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    snapshot = session_snapshots.get(sessionID)
+    history = session_snapshot_history.get(sessionID, [])
+
+    # If we have snapshots, compute real diffs
+    if snapshot and len(history) >= 2:
+        try:
+            # Determine the range based on messageID
+            if messageID:
+                messages = session_messages.get(sessionID, [])
+                target_index = None
+                for i, msg in enumerate(messages):
+                    if msg["info"]["id"] == messageID:
+                        target_index = i
+                        break
+                if target_index is not None and target_index < len(history):
+                    diffs = snapshot.diff_full(history[0], history[target_index])
+                else:
+                    diffs = snapshot.diff_full(history[0], history[-1])
+            else:
+                # Default: diff from session start to current
+                diffs = snapshot.diff_full(history[0], history[-1])
+
+            return [
+                FileDiff(
+                    file=d.file,
+                    before=d.before,
+                    after=d.after,
+                    additions=d.additions,
+                    deletions=d.deletions,
+                )
+                for d in diffs
+            ]
+        except Exception:
+            pass
+
+    # Fallback to cached summary diffs
     session = sessions[sessionID]
     if session.summary and session.summary.diffs:
         return session.summary.diffs
@@ -643,12 +732,38 @@ async def fork_session(
 async def revert_session(
     sessionID: str, request: RevertRequest, directory: str | None = Query(None)
 ) -> Session:
-    """Revert session to a specific message."""
+    """Revert session to a specific message, restoring files to that state."""
     if sessionID not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    snapshot = session_snapshots.get(sessionID)
+    history = session_snapshot_history.get(sessionID, [])
+
+    # Find the snapshot hash corresponding to the target message
+    messages = session_messages.get(sessionID, [])
+    target_index: int | None = None
+    for i, msg in enumerate(messages):
+        if msg["info"]["id"] == request.messageID:
+            target_index = i
+            break
+
+    target_hash: str | None = None
+    if target_index is not None and target_index < len(history):
+        target_hash = history[target_index]
+
+    # Restore files if we have a valid snapshot
+    if snapshot and target_hash:
+        try:
+            snapshot.restore(target_hash)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to restore snapshot: {e}")
+
     session = sessions[sessionID]
-    session.revert = RevertInfo(messageID=request.messageID, partID=request.partID)
+    session.revert = RevertInfo(
+        messageID=request.messageID,
+        partID=request.partID,
+        snapshot=target_hash,
+    )
     session.time.updated = time.time()
     sessions[sessionID] = session
 
