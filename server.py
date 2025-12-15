@@ -298,9 +298,17 @@ def set_agent(new_agent):
 
 app = FastAPI(title="OpenCode API", version="1.0.0")
 
+# CORS Configuration
+# SECURITY NOTE: allow_origins=["*"] is insecure for production environments.
+# It allows any origin to make requests, which can lead to CSRF attacks.
+# For production, set CORS_ORIGINS environment variable to specific allowed origins:
+# Example: CORS_ORIGINS="https://example.com,https://app.example.com"
+cors_origins_env = os.environ.get("CORS_ORIGINS", "*")
+cors_origins = [origin.strip() for origin in cors_origins_env.split(",")] if cors_origins_env != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
