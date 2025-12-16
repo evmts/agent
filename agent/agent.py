@@ -11,7 +11,19 @@ from typing import AsyncIterator
 
 from pydantic_ai import Agent, WebSearchTool
 from pydantic_ai.mcp import MCPServerStdio
-from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+
+# Lazy import - duckduckgo is optional
+_duckduckgo_search_tool = None
+
+def _get_duckduckgo_tool():
+    global _duckduckgo_search_tool
+    if _duckduckgo_search_tool is None:
+        try:
+            from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+            _duckduckgo_search_tool = duckduckgo_search_tool
+        except ImportError:
+            _duckduckgo_search_tool = False  # Mark as unavailable
+    return _duckduckgo_search_tool if _duckduckgo_search_tool else None
 
 from config import DEFAULT_MODEL
 from .registry import get_agent_config
@@ -135,7 +147,8 @@ async def create_agent_with_mcp(
     # Determine search tool based on model
     use_anthropic = _is_anthropic_model(model_id)
     builtin_tools = [WebSearchTool()] if use_anthropic else []
-    tools = [] if use_anthropic else [duckduckgo_search_tool()]
+    ddg_tool = _get_duckduckgo_tool()
+    tools = [] if use_anthropic else ([ddg_tool()] if ddg_tool else [])
 
     # Create agent with MCP toolsets
     model_name = f"anthropic:{model_id}"
@@ -213,7 +226,8 @@ def create_agent(
     # Determine search tool based on model
     use_anthropic = _is_anthropic_model(model_id)
     builtin_tools = [WebSearchTool()] if use_anthropic else []
-    tools = [] if use_anthropic else [duckduckgo_search_tool()]
+    ddg_tool = _get_duckduckgo_tool()
+    tools = [] if use_anthropic else ([ddg_tool()] if ddg_tool else [])
 
     model_name = f"anthropic:{model_id}"
     agent = Agent(
