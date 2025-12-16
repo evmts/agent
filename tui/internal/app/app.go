@@ -2,385 +2,510 @@ package app
 
 import (
 	"context"
-	"strings"
+	"sync"
 	"time"
 
-	"github.com/williamcory/agent/sdk/agent"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/williamcory/agent/sdk/agent"
+	"tui/internal/components/chat"
+	"tui/internal/components/dialog"
+	"tui/internal/components/input"
+	"tui/internal/components/sidebar"
+	"tui/internal/components/spinner"
+	"tui/internal/components/toast"
+	"tui/internal/config"
+	"tui/internal/keybind"
+	"tui/internal/notification"
 )
 
-// Styles - Claude Code inspired
-var (
-	userStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("5")). // Magenta
-			Bold(true)
+// State represents the application state
+type State int
 
-	assistantStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("4")). // Blue
-			Bold(true)
-
-	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("1")) // Red
+const (
+	StateIdle State = iota
+	StateStreaming
+	StateError
+	StateLoading
 )
 
-// Message represents a chat message
-type Message struct {
-	Role    string
-	Content string
+// OperationType represents the type of operation that can be interrupted
+type OperationType int
+
+const (
+	OpThinking OperationType = iota
+	OpGenerating
+	OpToolExecution
+	OpToolWaiting
+)
+
+// String returns the string representation of the operation type
+func (op OperationType) String() string {
+	switch op {
+	case OpThinking:
+		return "Thinking"
+	case OpGenerating:
+		return "Generating response"
+	case OpToolExecution:
+		return "Executing tool"
+	case OpToolWaiting:
+		return "Waiting for tool"
+	default:
+		return "Unknown"
+	}
+}
+
+// InterruptContext captures the state when an operation is interrupted
+type InterruptContext struct {
+	Timestamp   time.Time
+	Operation   OperationType
+	Description string
+	ToolName    string
+	ToolInput   map[string]interface{}
+	PartialText string
+	TokensUsed  int
+	CanResume   bool
+}
+
+// SharedState holds state that needs to be shared between model copies
+type SharedState struct {
+	mu      sync.Mutex
+	program *tea.Program
+}
+
+// SetProgram sets the program reference
+func (s *SharedState) SetProgram(p *tea.Program) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.program = p
+}
+
+// GetProgram gets the program reference
+func (s *SharedState) GetProgram() *tea.Program {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.program
 }
 
 // Model is the main application model
 type Model struct {
-	client    *agent.Client
-	sessionID string
+	chat         chat.Model
+	input        input.Model
+	sidebar      sidebar.Model
+	toast        toast.Model
+	spinner      spinner.Model
+	client       *agent.Client
+	shared       *SharedState
+	state        State
+	session      *agent.Session
+	width        int
+	height       int
+	err          error
+	ctx          context.Context
+	cancel       context.CancelFunc
+	ready        bool
+	keyMap       *keybind.KeyMap
+	inputFocused bool
 
-	messages []Message
-	viewport viewport.Model
-	textarea textarea.Model
-	renderer *glamour.TermRenderer
+	// Dialog support
+	activeDialog     dialog.Dialog
+	shortcutsOverlay *dialog.ShortcutsOverlay
+	mcpDialog        *dialog.MCPDialog
 
-	width  int
-	height int
+	// Token tracking
+	totalInputTokens  int
+	totalOutputTokens int
+	totalCost         float64
+	currentModel      string
+	currentAgent      string
+	maxContextTokens  int    // Maximum context window size
+	provider          string // Provider name (e.g., "Anthropic", "OpenAI")
 
-	streaming      bool
-	currentContent string
-	err            error
-	initialized    bool
+	// Connection status
+	connected bool
+	gitBranch string
 
-	// For streaming
-	streamCtx    context.Context
-	streamCancel context.CancelFunc
-	eventCh      <-chan *agent.StreamEvent
-	errCh        <-chan error
+	// Mouse mode (enabled by default for scrolling, can be toggled for text selection)
+	mouseEnabled bool
+
+	// Double-escape interrupt tracking
+	lastEscapeTime time.Time
+
+	// Permissions mode - Claude Code style (bypass permissions, ask, etc.)
+	permissionsMode string
+
+	// Version info
+	appVersion    string
+	latestVersion string
+
+	// Task tracking - Claude Code style
+	currentTask     string    // Current active task description
+	nextTask        string    // Next task in queue
+	taskStartTime   time.Time // When the current task started
+	taskTokensUsed  int       // Tokens used for current task
+
+	// Interrupt tracking
+	currentOperation  OperationType
+	interruptContext  *InterruptContext
+	lastInterruptTime time.Time
+
+	// Notification configuration
+	notificationConfig notification.NotificationConfig
 }
 
-// New creates a new Model
-func New(backendURL string) Model {
-	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Enter to send, Esc to quit)"
-	ta.Focus()
-	ta.CharLimit = 0
-	ta.SetWidth(80)
-	ta.SetHeight(3)
-	ta.ShowLineNumbers = false
-	ta.KeyMap.InsertNewline.SetEnabled(false)
-
-	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(80),
-	)
-
-	client := agent.NewClient(backendURL)
+// New creates a new application model
+func New(client *agent.Client) Model {
+	// Load notification preferences
+	prefs, err := config.LoadPreferences()
+	var notifConfig notification.NotificationConfig
+	if err != nil {
+		// Use defaults if loading fails
+		notifConfig = notification.DefaultNotificationConfig()
+	} else {
+		notifConfig = convertNotificationPreferences(prefs.Notifications)
+	}
 
 	return Model{
-		client:   client,
-		textarea: ta,
-		renderer: renderer,
-		messages: []Message{},
+		chat:               chat.New(80, 20),
+		input:              input.New(80),
+		sidebar:            sidebar.New(30, 20),
+		toast:              toast.New(),
+		spinner:            spinner.New(spinner.StyleDots),
+		client:             client,
+		shared:             &SharedState{},
+		state:              StateLoading,
+		ready:              false,
+		keyMap:             keybind.DefaultKeyMap(),
+		inputFocused:       false,
+		mcpDialog:          dialog.NewMCPDialog(),
+		currentAgent:       "build",           // Default agent
+		mouseEnabled:       true,              // Mouse mode enabled by default
+		maxContextTokens:   200000,            // Default Claude context window
+		provider:           "Anthropic",       // Default provider
+		connected:          false,
+		permissionsMode:    "bypass",          // Claude Code style: bypass, ask, deny
+		appVersion:         "1.0.0",           // Version info
+		latestVersion:      "1.0.0",
+		notificationConfig: notifConfig,
 	}
 }
 
-// Init initializes the model
+// SetProgram sets the tea.Program reference for SSE callbacks
+func (m *Model) SetProgram(p *tea.Program) {
+	m.shared.SetProgram(p)
+}
+
+// Init initializes the application
 func (m Model) Init() tea.Cmd {
+	m.spinner.SetMessage("Connecting...")
+	// Load CLAUDE.md context on startup
+	m.sidebar.LoadClaudeMd()
 	return tea.Batch(
-		textarea.Blink,
-		m.createSession(),
+		m.input.Init(),
+		m.chat.Init(),
+		m.sidebar.Init(),
+		m.spinner.Start(),
+		m.checkHealth(),
+		m.checkResumeSession(),
 	)
 }
 
-// Update handles messages
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
+// checkHealth checks if the backend is healthy
+func (m Model) checkHealth() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
-			if m.streamCancel != nil {
-				m.streamCancel()
-			}
-			return m, tea.Quit
-
-		case tea.KeyEnter:
-			if m.streaming {
-				return m, nil
-			}
-			content := strings.TrimSpace(m.textarea.Value())
-			if content == "" {
-				return m, nil
-			}
-
-			// Add user message
-			m.messages = append(m.messages, Message{Role: "user", Content: content})
-			m.textarea.Reset()
-			m.streaming = true
-			m.currentContent = ""
-
-			// Update viewport with new message
-			m.updateViewportContent()
-			m.viewport.GotoBottom()
-
-			return m, m.startStream(content)
-		}
-
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		inputHeight := 5
-		helpHeight := 1
-		viewportHeight := m.height - inputHeight - helpHeight - 1
-
-		if !m.initialized {
-			m.viewport = viewport.New(m.width, viewportHeight)
-			m.viewport.SetContent("")
-			m.initialized = true
-		} else {
-			m.viewport.Width = m.width
-			m.viewport.Height = viewportHeight
-		}
-
-		m.textarea.SetWidth(m.width - 2)
-		if m.renderer != nil {
-			m.renderer, _ = glamour.NewTermRenderer(
-				glamour.WithAutoStyle(),
-				glamour.WithWordWrap(m.width-4),
-			)
-		}
-		m.updateViewportContent()
-
-	case sessionCreatedMsg:
-		m.sessionID = msg.sessionID
-
-	case streamStartedMsg:
-		m.eventCh = msg.eventCh
-		m.errCh = msg.errCh
-		return m, m.waitForStreamEvent()
-
-	case streamUpdateMsg:
-		m.currentContent = msg.content
-		m.updateStreamingContent()
-		m.viewport.GotoBottom()
-		return m, m.waitForStreamEvent()
-
-	case streamDoneMsg:
-		m.streaming = false
-		if m.currentContent != "" {
-			m.messages = append(m.messages, Message{Role: "assistant", Content: m.currentContent})
-		}
-		m.currentContent = ""
-		m.updateViewportContent()
-		m.viewport.GotoBottom()
-
-	case streamErrorMsg:
-		m.streaming = false
-		m.err = msg.err
-		m.messages = append(m.messages, Message{Role: "error", Content: msg.err.Error()})
-		m.currentContent = ""
-		m.updateViewportContent()
-
-	case errMsg:
-		m.err = msg.err
-	}
-
-	// Update textarea
-	var cmd tea.Cmd
-	m.textarea, cmd = m.textarea.Update(msg)
-	cmds = append(cmds, cmd)
-
-	// Update viewport
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-
-	return m, tea.Batch(cmds...)
-}
-
-func (m *Model) updateViewportContent() {
-	var content strings.Builder
-
-	for _, msg := range m.messages {
-		switch msg.Role {
-		case "user":
-			content.WriteString(userStyle.Render("> You") + "\n")
-			content.WriteString(msg.Content + "\n\n")
-		case "assistant":
-			content.WriteString(assistantStyle.Render("Claude") + "\n")
-			rendered, err := m.renderer.Render(msg.Content)
-			if err != nil {
-				content.WriteString(msg.Content)
-			} else {
-				content.WriteString(strings.TrimSpace(rendered))
-			}
-			content.WriteString("\n\n")
-		case "error":
-			content.WriteString(errorStyle.Render("Error: "+msg.Content) + "\n\n")
-		}
-	}
-
-	m.viewport.SetContent(content.String())
-}
-
-func (m *Model) updateStreamingContent() {
-	var content strings.Builder
-
-	for _, msg := range m.messages {
-		switch msg.Role {
-		case "user":
-			content.WriteString(userStyle.Render("> You") + "\n")
-			content.WriteString(msg.Content + "\n\n")
-		case "assistant":
-			content.WriteString(assistantStyle.Render("Claude") + "\n")
-			rendered, err := m.renderer.Render(msg.Content)
-			if err != nil {
-				content.WriteString(msg.Content)
-			} else {
-				content.WriteString(strings.TrimSpace(rendered))
-			}
-			content.WriteString("\n\n")
-		case "error":
-			content.WriteString(errorStyle.Render("Error: "+msg.Content) + "\n\n")
-		}
-	}
-
-	// Add streaming content
-	if m.currentContent != "" {
-		content.WriteString(assistantStyle.Render("Claude") + "\n")
-		rendered, err := m.renderer.Render(m.currentContent)
+		_, err := m.client.Health(ctx)
 		if err != nil {
-			content.WriteString(m.currentContent)
-		} else {
-			content.WriteString(strings.TrimSpace(rendered))
+			return healthCheckMsg{healthy: false, err: err}
 		}
-		content.WriteString(dimStyle.Render(" █") + "\n\n")
+		return healthCheckMsg{healthy: true}
 	}
-
-	m.viewport.SetContent(content.String())
 }
 
-// View renders the UI
-func (m Model) View() string {
-	if !m.initialized {
-		return "Connecting to server..."
+type healthCheckMsg struct {
+	healthy bool
+	err     error
+}
+
+// ShowHelp shows the help dialog
+func (m *Model) ShowHelp() {
+	m.activeDialog = dialog.NewHelpDialog()
+}
+
+// ShowModelDialog shows the model selection dialog
+func (m *Model) ShowModelDialog() {
+	m.activeDialog = dialog.NewModelDialog()
+}
+
+// ShowConfirm shows a confirmation dialog
+func (m *Model) ShowConfirm(message string, onConfirm, onCancel tea.Cmd) {
+	m.activeDialog = dialog.NewConfirmDialog(message, onConfirm, onCancel)
+	// Play confirmation notification
+	go notification.NotifyConfirmation(m.notificationConfig)
+}
+
+// ShowAgentDialog shows the agent selection dialog
+func (m *Model) ShowAgentDialog() {
+	m.activeDialog = dialog.NewAgentDialog()
+}
+
+// CloseDialog closes the active dialog
+func (m *Model) CloseDialog() {
+	m.activeDialog = nil
+}
+
+// HasActiveDialog returns true if there is an active dialog
+func (m *Model) HasActiveDialog() bool {
+	return m.activeDialog != nil && m.activeDialog.IsVisible()
+}
+
+// ShowToast displays a toast notification
+func (m *Model) ShowToast(message string, toastType toast.ToastType, duration time.Duration) tea.Cmd {
+	return m.toast.Add(message, toastType, duration)
+}
+
+// ToggleThinking toggles the display of thinking/reasoning content
+func (m *Model) ToggleThinking() {
+	m.chat.ToggleThinking()
+}
+
+// IsShowingThinking returns true if thinking content is being displayed
+func (m *Model) IsShowingThinking() bool {
+	return m.chat.IsShowingThinking()
+}
+
+// IsMouseEnabled returns true if mouse mode is enabled
+func (m *Model) IsMouseEnabled() bool {
+	return m.mouseEnabled
+}
+
+// ShowDiffDialog shows the file changes diff dialog
+func (m *Model) ShowDiffDialog(diffs []agent.FileDiff) {
+	width := m.width * 3 / 4
+	height := m.height * 3 / 4
+	if width < 60 {
+		width = 60
 	}
-
-	// Chat viewport
-	chatView := m.viewport.View()
-
-	// Input
-	inputView := m.textarea.View()
-
-	// Help
-	var help string
-	if m.streaming {
-		help = dimStyle.Render("  Thinking...")
-	} else {
-		help = dimStyle.Render("  Enter to send | Esc to quit")
+	if height < 20 {
+		height = 20
 	}
+	m.activeDialog = dialog.NewDiffDialog(diffs, width, height)
+}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		chatView,
-		inputView,
-		help,
+// ShowCommandDialog shows the command palette
+func (m *Model) ShowCommandDialog() {
+	m.activeDialog = dialog.NewCommandDialog(m.keyMap)
+}
+
+// ShowSessionListDialog shows the session list dialog
+func (m *Model) ShowSessionListDialog(sessions []agent.Session) {
+	m.activeDialog = dialog.NewSessionListDialog(sessions)
+}
+
+// GetSessions returns the cached sessions from sidebar
+func (m *Model) GetSessions() []agent.Session {
+	return m.sidebar.GetSessions()
+}
+
+// ShowContextMenu shows the message context menu
+func (m *Model) ShowContextMenu(messageID string, isUserMessage bool) {
+	m.activeDialog = dialog.NewContextMenuDialog(messageID, isUserMessage)
+}
+
+// ShowThemeDialog shows the theme selection dialog
+func (m *Model) ShowThemeDialog() {
+	m.activeDialog = dialog.NewThemeDialog()
+}
+
+// ShowStatusDialog shows the system status dialog
+func (m *Model) ShowStatusDialog() {
+	sessionID := ""
+	if m.session != nil {
+		sessionID = m.session.ID
+	}
+	info := dialog.StatusInfo{
+		Connected:    m.connected,
+		Provider:     m.provider,
+		Model:        m.currentModel,
+		Agent:        m.currentAgent,
+		SessionID:    sessionID,
+		InputTokens:  m.totalInputTokens,
+		OutputTokens: m.totalOutputTokens,
+		TotalCost:    m.totalCost,
+		GitBranch:    m.gitBranch,
+	}
+	m.activeDialog = dialog.NewStatusDialog(info)
+}
+
+// ShowSettingsDialog shows the settings dialog
+func (m *Model) ShowSettingsDialog() {
+	m.activeDialog = dialog.NewDefaultSettingsDialog(
+		m.IsShowingThinking(),
+		m.chat.IsMarkdownEnabled(),
+		m.mouseEnabled,
 	)
 }
 
-// Messages for tea.Cmd
-
-type sessionCreatedMsg struct {
-	sessionID string
-}
-
-type streamStartedMsg struct {
-	eventCh <-chan *agent.StreamEvent
-	errCh   <-chan error
-}
-
-type streamUpdateMsg struct {
-	content string
-}
-
-type streamDoneMsg struct{}
-
-type streamErrorMsg struct {
-	err error
-}
-
-type errMsg struct {
-	err error
-}
-
-// Commands
-
-func (m *Model) createSession() tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		session, err := m.client.CreateSession(ctx, &agent.CreateSessionRequest{})
-		if err != nil {
-			return errMsg{err: err}
+// ShowRenameDialog shows the session rename dialog
+func (m *Model) ShowRenameDialog() {
+	if m.session != nil {
+		title := m.session.Title
+		if title == "" {
+			title = ""
 		}
-		return sessionCreatedMsg{sessionID: session.ID}
+		m.activeDialog = dialog.NewRenameDialog(m.session.ID, title)
 	}
 }
 
-func (m *Model) startStream(content string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithCancel(context.Background())
-		m.streamCtx = ctx
-		m.streamCancel = cancel
+// ShowResumeDialog shows the resume session dialog
+func (m *Model) ShowResumeDialog(info *config.LastSessionInfo) {
+	m.activeDialog = dialog.NewResumeDialog(info)
+}
 
-		req := &agent.PromptRequest{
-			Parts: []interface{}{
-				agent.TextPartInput{Type: "text", Text: content},
-			},
-		}
+// ShowContextDialog shows the CLAUDE.md context dialog
+func (m *Model) ShowContextDialog() {
+	context := m.sidebar.GetClaudeMdContext()
+	m.activeDialog = dialog.NewContextDialog(context)
+}
 
-		eventCh, errCh, err := m.client.SendMessage(ctx, m.sessionID, req)
-		if err != nil {
-			return streamErrorMsg{err: err}
-		}
+// ShowShortcutsOverlay shows the keyboard shortcuts overlay
+func (m *Model) ShowShortcutsOverlay() {
+	m.shortcutsOverlay = dialog.NewShortcutsOverlay(m.keyMap, m.inputFocused, m.HasActiveDialog())
+}
 
-		return streamStartedMsg{eventCh: eventCh, errCh: errCh}
+// CloseShortcutsOverlay closes the shortcuts overlay
+func (m *Model) CloseShortcutsOverlay() {
+	m.shortcutsOverlay = nil
+}
+
+// HasShortcutsOverlay returns true if the shortcuts overlay is visible
+func (m *Model) HasShortcutsOverlay() bool {
+	return m.shortcutsOverlay != nil && m.shortcutsOverlay.IsVisible()
+}
+
+// GetLastMessageInfo returns the ID and role of the last message in the chat
+func (m *Model) GetLastMessageInfo() (string, bool) {
+	return m.chat.GetLastMessageInfo()
+}
+
+// cyclePermissionsMode cycles through permissions modes (bypass -> ask -> deny -> bypass)
+func (m *Model) cyclePermissionsMode() {
+	switch m.permissionsMode {
+	case "bypass":
+		m.permissionsMode = "ask"
+	case "ask":
+		m.permissionsMode = "deny"
+	case "deny":
+		m.permissionsMode = "bypass"
+	default:
+		m.permissionsMode = "bypass"
 	}
 }
 
-func (m *Model) waitForStreamEvent() tea.Cmd {
-	return func() tea.Msg {
-		if m.eventCh == nil {
-			return streamDoneMsg{}
+// SetCurrentTask sets the current task for display
+func (m *Model) SetCurrentTask(task string) {
+	m.currentTask = task
+	if task != "" && m.taskStartTime.IsZero() {
+		m.taskStartTime = time.Now()
+	}
+}
+
+// SetNextTask sets the next task for display
+func (m *Model) SetNextTask(task string) {
+	m.nextTask = task
+}
+
+// ClearTask clears the current task
+func (m *Model) ClearTask() {
+	m.currentTask = ""
+	m.nextTask = ""
+	m.taskStartTime = time.Time{}
+	m.taskTokensUsed = 0
+}
+
+// captureInterruptContext captures the current operation state for interrupt handling
+func (m *Model) captureInterruptContext() InterruptContext {
+	ctx := InterruptContext{
+		Timestamp: time.Now(),
+		CanResume: true,
+		TokensUsed: m.totalOutputTokens,
+	}
+
+	// Check if we're currently executing a tool
+	if tool := m.chat.GetCurrentTool(); tool != nil {
+		ctx.Operation = OpToolExecution
+		ctx.ToolName = tool.Tool
+		if tool.State != nil {
+			ctx.ToolInput = tool.State.Input
+			ctx.Description = formatToolDescription(tool.Tool, tool.State.Input)
+		} else {
+			ctx.Description = "Executing " + tool.Tool
 		}
+		return ctx
+	}
 
-		// Use a short timeout to keep UI responsive
-		timeout := time.After(100 * time.Millisecond)
+	// Check if we're in thinking mode
+	if m.chat.IsThinking() {
+		ctx.Operation = OpThinking
+		ctx.Description = "Thinking about the response"
+		ctx.PartialText = m.chat.GetPartialThinking()
+		return ctx
+	}
 
-		select {
-		case event, ok := <-m.eventCh:
-			if !ok {
-				return streamDoneMsg{}
-			}
-			// Extract text from part updates
-			if event.Part != nil && event.Part.Type == "text" {
-				return streamUpdateMsg{content: event.Part.Text}
-			}
-			// Continue waiting for more events
-			return streamUpdateMsg{content: m.currentContent}
+	// Otherwise we're generating text
+	ctx.Operation = OpGenerating
+	ctx.Description = "Generating response"
+	ctx.PartialText = m.chat.GetPartialText()
 
-		case err, ok := <-m.errCh:
-			if ok && err != nil {
-				return streamErrorMsg{err: err}
-			}
-			return streamDoneMsg{}
+	return ctx
+}
 
-		case <-timeout:
-			// Keep polling
-			return streamUpdateMsg{content: m.currentContent}
+// formatToolDescription creates a human-readable description of a tool operation
+func formatToolDescription(toolName string, input map[string]interface{}) string {
+	if input == nil {
+		return "Executing " + toolName
+	}
+
+	switch toolName {
+	case "Read":
+		if path, ok := input["file_path"].(string); ok {
+			return "Reading " + path
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			return "Running: " + cmd
+		}
+	case "Glob":
+		if pattern, ok := input["pattern"].(string); ok {
+			return "Searching for files matching " + pattern
+		}
+	case "Grep":
+		if pattern, ok := input["pattern"].(string); ok {
+			return "Searching for pattern: " + pattern
+		}
+	case "Edit":
+		if path, ok := input["file_path"].(string); ok {
+			return "Editing " + path
+		}
+	case "Write":
+		if path, ok := input["file_path"].(string); ok {
+			return "Writing to " + path
+		}
+	case "WebFetch":
+		if url, ok := input["url"].(string); ok {
+			return "Fetching " + url
+		}
+	case "WebSearch":
+		if query, ok := input["query"].(string); ok {
+			return "Searching for: " + query
 		}
 	}
+
+	return "Executing " + toolName
+}
+
+// getSearchState returns the chat's search state for rendering
+func (m Model) getSearchState() chat.SearchState {
+	return m.chat.GetSearchState()
 }
