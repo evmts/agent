@@ -34,6 +34,7 @@ from .registry import get_agent_config
 SHELL_SERVER_TIMEOUT_SECONDS = 60
 FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
 THINKING_BUDGET_TOKENS = 10000  # Extended thinking budget for better reasoning
+MAX_OUTPUT_TOKENS = 16000  # Must be greater than thinking budget
 
 
 def get_anthropic_model_settings(enable_thinking: bool = True) -> AnthropicModelSettings:
@@ -45,7 +46,9 @@ def get_anthropic_model_settings(enable_thinking: bool = True) -> AnthropicModel
     Returns:
         AnthropicModelSettings configured for the agent
     """
-    settings: AnthropicModelSettings = {}
+    settings: AnthropicModelSettings = {
+        'max_tokens': MAX_OUTPUT_TOKENS,  # Required to be > thinking budget
+    }
 
     if enable_thinking:
         settings['anthropic_thinking'] = {
