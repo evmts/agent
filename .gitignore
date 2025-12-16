@@ -40,10 +40,7 @@ __pycache__/
 .agent/
 
 # Go binaries
-claude-tui/claude-tui
-tui/claude-tui
-tui/tui
-tui/agent-tui
+agent-tui
 
 # IDE
 .cursor/
