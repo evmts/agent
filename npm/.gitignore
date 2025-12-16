@@ -1,0 +1,3 @@
+# Downloaded binary (installed via postinstall)
+bin/agent-*
+.tmp/

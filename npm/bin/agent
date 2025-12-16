@@ -1,0 +1,16 @@
+#!/bin/sh
+# Shim script for @tevm/agent
+# This script locates and executes the platform-specific binary
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY="$SCRIPT_DIR/agent"
+
+# Check if binary exists (should be downloaded during npm install)
+if [ ! -f "$BINARY" ] || [ ! -x "$BINARY" ]; then
+    echo "Error: agent binary not found at $BINARY" >&2
+    echo "Try reinstalling: npm install -g @tevm/agent" >&2
+    exit 1
+fi
+
+# Execute the binary with all arguments
+exec "$BINARY" "$@"

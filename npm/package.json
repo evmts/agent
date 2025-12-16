@@ -1,0 +1,40 @@
+{
+  "name": "@tevm/agent",
+  "version": "0.0.0",
+  "description": "AI agent with Claude integration - terminal UI and API server",
+  "bin": {
+    "agent": "./bin/agent"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/williamcory/agent.git"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "claude",
+    "anthropic",
+    "cli",
+    "tui"
+  ],
+  "author": "William Cory",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/williamcory/agent/issues"
+  },
+  "homepage": "https://github.com/williamcory/agent#readme",
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
