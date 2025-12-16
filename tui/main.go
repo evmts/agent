@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -256,15 +258,99 @@ type streamToolCompleteMsg struct {
 // streamCompleteMsg is sent when the stream is done
 type streamCompleteMsg struct{}
 
+// fileAttachment represents a file to include in context
+type fileAttachment struct {
+	path    string
+	content string
+	err     error
+}
+
+// parseFileReferences extracts @filename patterns from text
+// Returns the cleaned text and list of file paths
+func parseFileReferences(text string, cwd string) (string, []string) {
+	// Match @path patterns (handles @file.go, @./file.go, @../file.go, @/absolute/path)
+	// Stop at whitespace, quotes, or common punctuation
+	re := regexp.MustCompile(`@([^\s"'<>|*?]+)`)
+	matches := re.FindAllStringSubmatch(text, -1)
+
+	var files []string
+	seen := make(map[string]bool)
+
+	for _, match := range matches {
+		if len(match) >= 2 {
+			path := match[1]
+			// Resolve relative paths
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(cwd, path)
+			}
+			path = filepath.Clean(path)
+
+			if !seen[path] {
+				seen[path] = true
+				files = append(files, path)
+			}
+		}
+	}
+
+	// Remove @mentions from text for cleaner display
+	cleanedText := re.ReplaceAllString(text, "")
+	cleanedText = strings.TrimSpace(cleanedText)
+
+	return cleanedText, files
+}
+
+// readFileAttachments reads files and returns their contents
+func readFileAttachments(paths []string) []fileAttachment {
+	var attachments []fileAttachment
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		attachments = append(attachments, fileAttachment{
+			path:    path,
+			content: string(content),
+			err:     err,
+		})
+	}
+	return attachments
+}
+
+// buildMessageWithFiles constructs a message with file contents prepended
+func buildMessageWithFiles(text string, attachments []fileAttachment) string {
+	var sb strings.Builder
+
+	// Add file contents first
+	for _, att := range attachments {
+		if att.err != nil {
+			sb.WriteString(fmt.Sprintf("<!-- Error reading %s: %v -->\n\n", att.path, att.err))
+		} else {
+			// Format like Claude Code does
+			sb.WriteString(fmt.Sprintf("File: %s\n```\n%s\n```\n\n", att.path, att.content))
+		}
+	}
+
+	// Add the user's message
+	if text != "" {
+		sb.WriteString(text)
+	}
+
+	return sb.String()
+}
+
 func (m model) sendMessage(text string, p *tea.Program) tea.Cmd {
 	return func() tea.Msg {
 		if m.session == nil {
 			return errMsg(fmt.Errorf("no active session"))
 		}
 
+		// Parse @file references and read their contents
+		cleanedText, filePaths := parseFileReferences(text, m.cwd)
+		attachments := readFileAttachments(filePaths)
+
+		// Build the full message with file contents
+		fullMessage := buildMessageWithFiles(cleanedText, attachments)
+
 		req := &agent.PromptRequest{
 			Parts: []interface{}{
-				agent.TextPartInput{Type: "text", Text: text},
+				agent.TextPartInput{Type: "text", Text: fullMessage},
 			},
 		}
 
