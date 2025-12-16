@@ -9,10 +9,10 @@ import uvicorn
 from fastapi import FastAPI
 
 from agent import create_mcp_wrapper, create_simple_wrapper
+from config import DEFAULT_MODEL
 from server import app, set_agent
 
 # Constants
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 DEFAULT_USE_MCP = True

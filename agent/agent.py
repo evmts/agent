@@ -13,10 +13,10 @@ from pydantic_ai import Agent, WebSearchTool
 from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
+from config import DEFAULT_MODEL
 from .registry import get_agent_config
 
 # Constants
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
 SHELL_SERVER_TIMEOUT_SECONDS = 60
 FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
 
@@ -37,6 +37,18 @@ def _get_todos(session_id: str) -> list[dict]:
 
 def _set_todos(session_id: str, todos: list[dict]) -> None:
     _todo_storage[session_id] = todos
+
+
+def _validate_todos(todos: list[dict]) -> list[dict]:
+    """Validate and normalize todo items."""
+    validated = []
+    for todo in todos:
+        validated.append({
+            "content": todo.get("content", ""),
+            "status": todo.get("status", "pending"),
+            "activeForm": todo.get("activeForm", todo.get("content", "")),
+        })
+    return validated
 
 
 SYSTEM_INSTRUCTIONS = """You are a helpful coding assistant with access to tools for:
@@ -144,13 +156,7 @@ async def create_agent_with_mcp(
             todos: List of todo items with 'content', 'status', and 'activeForm' fields
             session_id: Session identifier for todo storage
         """
-        validated = []
-        for todo in todos:
-            validated.append({
-                "content": todo.get("content", ""),
-                "status": todo.get("status", "pending"),
-                "activeForm": todo.get("activeForm", todo.get("content", "")),
-            })
+        validated = _validate_todos(todos)
         _set_todos(session_id, validated)
         return f"Todo list updated with {len(validated)} items"
 
@@ -220,16 +226,36 @@ def create_agent(
     # Register simple todo tools
     @agent.tool_plain
     async def todowrite(todos: list[dict], session_id: str = "default") -> str:
-        """Write/replace the todo list."""
-        _set_todos(session_id, todos)
-        return f"Todo list updated with {len(todos)} items"
+        """Write/replace the todo list for task tracking.
+
+        Args:
+            todos: List of todo items with 'content', 'status', and 'activeForm' fields
+            session_id: Session identifier for todo storage
+        """
+        validated = _validate_todos(todos)
+        _set_todos(session_id, validated)
+        return f"Todo list updated with {len(validated)} items"
 
     @agent.tool_plain
     async def todoread(session_id: str = "default") -> str:
-        """Read the current todo list."""
+        """Read the current todo list.
+
+        Args:
+            session_id: Session identifier for todo storage
+        """
         todos = _get_todos(session_id)
         if not todos:
             return "No todos found"
-        return "\n".join(f"- {t.get('content', '')}" for t in todos)
+
+        lines = []
+        for i, todo in enumerate(todos, 1):
+            status_icon = {
+                "pending": "⏳",
+                "in_progress": "🔄",
+                "completed": "✅",
+            }.get(todo.get("status", "pending"), "⏳")
+            lines.append(f"{i}. {status_icon} {todo.get('content', '')}")
+
+        return "\n".join(lines)
 
     return agent

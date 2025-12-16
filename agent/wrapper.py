@@ -19,7 +19,8 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
-from .agent import create_agent_with_mcp, create_agent, DEFAULT_MODEL
+from config import DEFAULT_MODEL
+from .agent import create_agent_with_mcp, create_agent
 
 
 @dataclass
