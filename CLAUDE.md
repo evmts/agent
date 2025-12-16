@@ -75,10 +75,14 @@ zig build deps
 
 | File | Purpose |
 |------|---------|
-| `server.py` | Main FastAPI server (876 lines) |
-| `agent/agent.py` | Agent creation & tool registration |
+| `main.py` | Server entry point with MCP lifecycle |
+| `server/app.py` | FastAPI app setup & CORS config |
+| `server/routes/` | API route handlers (sessions, messages, events) |
+| `agent/agent.py` | Agent creation with MCP tools |
 | `agent/wrapper.py` | Streaming adapter for server |
-| `agent/tools/*.py` | Tool implementations |
+| `agent/registry.py` | Agent configurations & tool permissions |
+| `config/` | Configuration loading & defaults |
+| `core/` | Core models, sessions, events, state |
 | `snapshot/snapshot.py` | Git-based snapshot system |
 | `sdk/agent/client.go` | Go SDK HTTP client |
 | `sdk/agent/types.go` | OpenCode type definitions |
@@ -91,30 +95,33 @@ zig build deps
 |----------|-------------|---------|
 | `ANTHROPIC_API_KEY` | Required - Claude API key | - |
 | `ANTHROPIC_MODEL` | Model ID | `claude-sonnet-4-20250514` |
+| `HOST` | Server host | `0.0.0.0` |
 | `PORT` | Server port | `8000` |
 | `CORS_ORIGINS` | Allowed origins | `*` |
+| `USE_MCP` | Enable MCP tool servers | `true` |
+| `WORKING_DIR` | Working directory for filesystem ops | Current directory |
 
 ## Code Patterns
 
 ### Adding a New Tool
 
-1. Create function in `agent/tools/`:
+Tools are registered directly in `agent/agent.py` using the `@agent.tool_plain` decorator:
+
 ```python
+# Inside create_agent_with_mcp() or create_agent():
+@agent.tool_plain
 async def my_tool(param: str) -> str:
-    """Tool description."""
+    """Tool description.
+
+    Args:
+        param: Description of the parameter
+    """
     # Implementation
     return result
 ```
 
-2. Export in `agent/tools/__init__.py`
-
-3. Register in `agent/agent.py`:
-```python
-@agent.tool_plain
-async def my_tool(param: str) -> str:
-    """Tool description."""
-    return await my_tool_impl(param)
-```
+For shell/filesystem operations, use MCP servers (configured in `create_mcp_servers()`).
+For custom tools that don't need MCP, add them with the decorator pattern above.
 
 ### API Endpoints
 
@@ -132,10 +139,11 @@ Event types:
 
 ## Security Considerations
 
-- **Shell execution**: Commands are validated for dangerous patterns
-- **File operations**: Path traversal prevention via `_validate_path()`
+- **Shell execution**: MCP shell server with configurable timeouts
+- **File operations**: MCP filesystem server scoped to working directory
+- **Agent permissions**: Tool permissions per agent via `agent/registry.py`
 - **CORS**: Configurable via `CORS_ORIGINS` env var
-- **Timeouts**: All subprocess operations have timeouts
+- **Timeouts**: MCP servers have configurable timeouts (60s shell, 30s filesystem)
 
 ## Testing Guidelines
 
@@ -164,7 +172,8 @@ zig build run-dev
 ### Debugging
 
 - Server logs to stdout
-- TUI debug: Check `internal/app/update.go` for message handling
+- TUI debug: Check `tui/internal/app/update.go` and `update_keys.go` for message handling
+- TUI commands: See `commands_*.go` files for session, message, dialog, and system commands
 - SDK: Use `-v` flag with go test for verbose output
 
 ## Style Guide
