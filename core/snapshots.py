@@ -4,7 +4,11 @@ Snapshot operations for file state tracking.
 Provides functions for tracking file changes using git-based snapshots.
 """
 
+import logging
+
 from snapshot import Snapshot
+
+logger = logging.getLogger(__name__)
 
 from .exceptions import NotFoundError
 from .models import FileDiff
@@ -28,7 +32,8 @@ def init_snapshot(session_id: str, directory: str) -> str | None:
         initial_hash = snapshot.track()
         session_snapshot_history[session_id] = [initial_hash]
         return initial_hash
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to initialize snapshot for session %s: %s", session_id, e)
         session_snapshot_history[session_id] = []
         return None
 
@@ -48,7 +53,8 @@ def track_snapshot(session_id: str) -> str | None:
         return None
     try:
         return snapshot.track()
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to track snapshot for session %s: %s", session_id, e)
         return None
 
 
@@ -82,7 +88,14 @@ def compute_diff(
             )
             for d in diffs
         ]
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "Failed to compute diff for session %s (start: %s, end: %s): %s",
+            session_id,
+            start_hash,
+            end_hash,
+            e,
+        )
         return []
 
 
@@ -104,7 +117,14 @@ def get_changed_files(session_id: str, start_hash: str, end_hash: str) -> list[s
 
     try:
         return snapshot.patch(start_hash, end_hash)
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "Failed to get changed files for session %s (start: %s, end: %s): %s",
+            session_id,
+            start_hash,
+            end_hash,
+            e,
+        )
         return []
 
 
