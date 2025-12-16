@@ -4,19 +4,701 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
-	"github.com/williamcory/agent/tui/internal/app"
 	"github.com/williamcory/agent/tui/internal/embedded"
 )
 
+var Version = "dev"
+
+// Styles
+var (
+	promptStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("12"))
+
+	responseStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10"))
+
+	autocompleteSelectedStyle = lipgloss.NewStyle().
+					Foreground(lipgloss.Color("0")).
+					Background(lipgloss.Color("12"))
+
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+
+	availableCommands = []string{"/model", "/new", "/sessions", "/clear", "/help"}
+)
+
+// Message types
+type message struct {
+	role         string
+	content      string
+	toolName     string
+	toolID       string
+	isToolUse    bool
+	isToolResult bool
+	err          error
+}
+
+type modelOption struct {
+	name        string
+	description string
+	providerID  string
+	modelID     string
+}
+
+type mode string
+
+const (
+	normalMode mode = "normal"
+	planMode   mode = "plan"
+	bypassMode mode = "bypass"
+)
+
+var modes = []mode{normalMode, planMode, bypassMode}
+
+// Main model
+type model struct {
+	messages              []message
+	input                 string
+	client                *agent.Client
+	session               *agent.Session
+	waiting               bool
+	err                   error
+	width                 int
+	height                int
+	showAutocomplete      bool
+	autocompleteOptions   []string
+	autocompleteSelection int
+	showModelMenu         bool
+	modelMenuSelection    int
+	modelOptions          []modelOption
+	currentModel          *agent.ModelInfo
+	currentMode           mode
+	project               *agent.Project
+	cwd                   string
+	version               string
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	streamingText         string
+}
+
+// Bubbletea message types
+type responseMsg string
+type streamChunkMsg string
+type streamDoneMsg struct{}
+type toolUseMsg struct {
+	toolName string
+	toolID   string
+	status   string
+}
+type toolResultMsg struct {
+	toolName string
+	toolID   string
+	output   string
+	err      error
+}
+type sessionCreatedMsg struct {
+	session *agent.Session
+}
+type errMsg error
+type modelsLoadedMsg struct {
+	options []modelOption
+}
+
+func initialModel(client *agent.Client, project *agent.Project, cwd, version string, initialPrompt *string) model {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	m := model{
+		messages:              []message{},
+		input:                 "",
+		client:                client,
+		waiting:               false,
+		showAutocomplete:      false,
+		autocompleteOptions:   []string{},
+		autocompleteSelection: 0,
+		showModelMenu:         false,
+		modelMenuSelection:    0,
+		modelOptions:          []modelOption{},
+		currentMode:           normalMode,
+		project:               project,
+		cwd:                   cwd,
+		version:               version,
+		ctx:                   ctx,
+		cancel:                cancel,
+	}
+
+	if initialPrompt != nil && *initialPrompt != "" {
+		m.input = *initialPrompt
+	}
+
+	return m
+}
+
+func filterCommands(input string) []string {
+	if !strings.HasPrefix(input, "/") {
+		return []string{}
+	}
+
+	var matches []string
+	for _, cmd := range availableCommands {
+		if strings.HasPrefix(cmd, input) {
+			matches = append(matches, cmd)
+		}
+	}
+	return matches
+}
+
+func (m *model) updateAutocomplete() {
+	m.autocompleteOptions = filterCommands(m.input)
+	m.showAutocomplete = len(m.autocompleteOptions) > 0
+	if m.autocompleteSelection >= len(m.autocompleteOptions) {
+		m.autocompleteSelection = 0
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	// Create session and load models on startup
+	return tea.Batch(
+		m.createSession(),
+		m.loadModels(),
+	)
+}
+
+func (m model) createSession() tea.Cmd {
+	return func() tea.Msg {
+		session, err := m.client.CreateSession(m.ctx, nil)
+		if err != nil {
+			return errMsg(err)
+		}
+		return sessionCreatedMsg{session: session}
+	}
+}
+
+func (m model) loadModels() tea.Cmd {
+	return func() tea.Msg {
+		providers, err := m.client.ListProviders(m.ctx)
+		if err != nil {
+			return errMsg(err)
+		}
+
+		var options []modelOption
+		for _, provider := range providers.Providers {
+			for _, model := range provider.Models {
+				options = append(options, modelOption{
+					name:        model.Name,
+					description: fmt.Sprintf("%s · %s", provider.Name, model.ID),
+					providerID:  provider.ID,
+					modelID:     model.ID,
+				})
+			}
+		}
+		return modelsLoadedMsg{options: options}
+	}
+}
+
+func (m model) sendMessage(text string) tea.Cmd {
+	return func() tea.Msg {
+		if m.session == nil {
+			return errMsg(fmt.Errorf("no active session"))
+		}
+
+		req := &agent.PromptRequest{
+			Parts: []interface{}{
+				agent.TextPartInput{Type: "text", Text: text},
+			},
+		}
+
+		if m.currentModel != nil {
+			req.Model = m.currentModel
+		}
+
+		eventCh, errCh, err := m.client.SendMessage(m.ctx, m.session.ID, req)
+		if err != nil {
+			return errMsg(err)
+		}
+
+		// Collect all response parts
+		var textContent strings.Builder
+		var toolParts []toolUseMsg
+		var toolResults []toolResultMsg
+
+		for {
+			select {
+			case event, ok := <-eventCh:
+				if !ok {
+					// Stream ended
+					if textContent.Len() > 0 {
+						return responseMsg(textContent.String())
+					}
+					if len(toolParts) > 0 {
+						// Return first tool use - the TUI will show it
+						return toolParts[0]
+					}
+					if len(toolResults) > 0 {
+						return toolResults[0]
+					}
+					return streamDoneMsg{}
+				}
+
+				if event.Part != nil {
+					switch event.Part.Type {
+					case "text":
+						textContent.WriteString(event.Part.Text)
+					case "tool":
+						if event.Part.State != nil {
+							switch event.Part.State.Status {
+							case "pending", "running":
+								toolParts = append(toolParts, toolUseMsg{
+									toolName: event.Part.Tool,
+									toolID:   event.Part.ID,
+									status:   event.Part.State.Status,
+								})
+							case "completed":
+								output := event.Part.State.Output
+								toolResults = append(toolResults, toolResultMsg{
+									toolName: event.Part.Tool,
+									toolID:   event.Part.ID,
+									output:   output,
+								})
+							}
+						}
+					}
+				}
+
+			case err := <-errCh:
+				if err != nil {
+					return errMsg(err)
+				}
+				// Channel closed, return what we have
+				if textContent.Len() > 0 {
+					return responseMsg(textContent.String())
+				}
+				return streamDoneMsg{}
+
+			case <-m.ctx.Done():
+				return errMsg(m.ctx.Err())
+			}
+		}
+	}
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		// Always allow Ctrl+C to quit
+		if msg.Type == tea.KeyCtrlC {
+			m.cancel()
+			return m, tea.Quit
+		}
+
+		if m.waiting {
+			return m, nil
+		}
+
+		// Alt+Enter for multiline
+		if msg.Type == tea.KeyEnter && msg.Alt {
+			m.input += "\n"
+			return m, nil
+		}
+
+		// Handle model menu
+		if m.showModelMenu {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.showModelMenu = false
+				return m, nil
+			case tea.KeyEnter:
+				if len(m.modelOptions) > 0 {
+					selected := m.modelOptions[m.modelMenuSelection]
+					m.currentModel = &agent.ModelInfo{
+						ProviderID: selected.providerID,
+						ModelID:    selected.modelID,
+					}
+					m.showModelMenu = false
+					m.messages = append(m.messages, message{
+						role:    "system",
+						content: fmt.Sprintf("Switched to %s", selected.name),
+					})
+				}
+				return m, nil
+			case tea.KeyUp:
+				m.modelMenuSelection--
+				if m.modelMenuSelection < 0 {
+					m.modelMenuSelection = len(m.modelOptions) - 1
+				}
+			case tea.KeyDown:
+				m.modelMenuSelection++
+				if m.modelMenuSelection >= len(m.modelOptions) {
+					m.modelMenuSelection = 0
+				}
+			}
+			return m, nil
+		}
+
+		switch msg.Type {
+		case tea.KeyEsc:
+			if m.showAutocomplete {
+				m.showAutocomplete = false
+				return m, nil
+			}
+			m.cancel()
+			return m, tea.Quit
+
+		case tea.KeyEnter:
+			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+				m.input = m.autocompleteOptions[m.autocompleteSelection]
+				m.showAutocomplete = false
+				m.autocompleteSelection = 0
+				return m, nil
+			}
+
+			if strings.TrimSpace(m.input) == "" {
+				return m, nil
+			}
+
+			// Handle slash commands
+			switch m.input {
+			case "/model":
+				m.showModelMenu = true
+				m.input = ""
+				return m, nil
+			case "/new":
+				m.messages = []message{}
+				m.input = ""
+				return m, m.createSession()
+			case "/clear":
+				m.messages = []message{}
+				m.input = ""
+				return m, nil
+			case "/help":
+				m.messages = append(m.messages, message{
+					role:    "system",
+					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /help",
+				})
+				m.input = ""
+				return m, nil
+			}
+
+			if strings.HasPrefix(m.input, "/") {
+				m.messages = append(m.messages, message{
+					role:    "system",
+					content: "Unknown command: " + m.input,
+				})
+				m.input = ""
+				return m, nil
+			}
+
+			// Send message
+			userMsg := message{role: "user", content: m.input}
+			m.messages = append(m.messages, userMsg)
+			input := m.input
+			m.input = ""
+			m.waiting = true
+			m.streamingText = ""
+
+			return m, m.sendMessage(input)
+
+		case tea.KeyTab:
+			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+				m.input = m.autocompleteOptions[m.autocompleteSelection]
+				m.showAutocomplete = false
+				m.autocompleteSelection = 0
+			}
+
+		case tea.KeyShiftTab:
+			currentIndex := 0
+			for i, mode := range modes {
+				if mode == m.currentMode {
+					currentIndex = i
+					break
+				}
+			}
+			nextIndex := (currentIndex + 1) % len(modes)
+			m.currentMode = modes[nextIndex]
+
+		case tea.KeyUp:
+			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+				m.autocompleteSelection--
+				if m.autocompleteSelection < 0 {
+					m.autocompleteSelection = len(m.autocompleteOptions) - 1
+				}
+			}
+
+		case tea.KeyDown:
+			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+				m.autocompleteSelection++
+				if m.autocompleteSelection >= len(m.autocompleteOptions) {
+					m.autocompleteSelection = 0
+				}
+			}
+
+		case tea.KeyBackspace:
+			if len(m.input) > 0 {
+				m.input = m.input[:len(m.input)-1]
+				m.updateAutocomplete()
+			}
+
+		case tea.KeySpace:
+			m.input += " "
+			m.showAutocomplete = false
+
+		case tea.KeyRunes:
+			m.input += string(msg.Runes)
+			m.updateAutocomplete()
+		}
+
+	case sessionCreatedMsg:
+		m.session = msg.session
+		if m.input != "" {
+			// Auto-send initial prompt if provided
+			userMsg := message{role: "user", content: m.input}
+			m.messages = append(m.messages, userMsg)
+			input := m.input
+			m.input = ""
+			m.waiting = true
+			return m, m.sendMessage(input)
+		}
+
+	case modelsLoadedMsg:
+		m.modelOptions = msg.options
+		if len(m.modelOptions) > 0 {
+			// Set default model
+			m.currentModel = &agent.ModelInfo{
+				ProviderID: m.modelOptions[0].providerID,
+				ModelID:    m.modelOptions[0].modelID,
+			}
+		}
+
+	case responseMsg:
+		m.waiting = false
+		m.messages = append(m.messages, message{role: "assistant", content: string(msg)})
+
+	case streamDoneMsg:
+		m.waiting = false
+		if m.streamingText != "" {
+			m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
+			m.streamingText = ""
+		}
+
+	case toolUseMsg:
+		m.messages = append(m.messages, message{
+			role:      "assistant",
+			content:   fmt.Sprintf("Using tool: %s", msg.toolName),
+			isToolUse: true,
+			toolName:  msg.toolName,
+			toolID:    msg.toolID,
+		})
+		// Continue waiting for the tool result
+
+	case toolResultMsg:
+		m.messages = append(m.messages, message{
+			role:         "tool_result",
+			content:      msg.output,
+			isToolResult: true,
+			toolName:     msg.toolName,
+			toolID:       msg.toolID,
+			err:          msg.err,
+		})
+		// Continue the conversation - server handles tool loop
+
+	case errMsg:
+		m.waiting = false
+		m.err = msg
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+	// Handle global events from SSE stream
+	case *agent.GlobalEvent:
+		if msg.Part != nil {
+			switch msg.Part.Type {
+			case "text":
+				// Update streaming text
+				m.streamingText = msg.Part.Text
+			case "tool":
+				if msg.Part.State != nil {
+					if msg.Part.State.Status == "completed" {
+						m.messages = append(m.messages, message{
+							role:         "tool_result",
+							content:      msg.Part.State.Output,
+							isToolResult: true,
+							toolName:     msg.Part.Tool,
+							toolID:       msg.Part.ID,
+						})
+					} else if msg.Part.State.Status == "pending" || msg.Part.State.Status == "running" {
+						// Show tool being used
+						m.messages = append(m.messages, message{
+							role:      "assistant",
+							content:   fmt.Sprintf("Using tool: %s", msg.Part.Tool),
+							isToolUse: true,
+							toolName:  msg.Part.Tool,
+							toolID:    msg.Part.ID,
+						})
+					}
+				}
+			}
+		}
+		if msg.Type == "session.idle" {
+			m.waiting = false
+			if m.streamingText != "" {
+				m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
+				m.streamingText = ""
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) getModelName() string {
+	if m.currentModel != nil {
+		for _, opt := range m.modelOptions {
+			if opt.modelID == m.currentModel.ModelID {
+				return opt.name
+			}
+		}
+		return m.currentModel.ModelID
+	}
+	return "Loading..."
+}
+
+func (m model) View() string {
+	var s strings.Builder
+
+	// Display logo header when no messages
+	if len(m.messages) == 0 && !m.showModelMenu {
+		logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+		versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+		version := m.version
+		if version == "" {
+			version = "dev"
+		}
+
+		s.WriteString(logoStyle.Render(" ▐▛███▜▌") + "   " + lipgloss.NewStyle().Bold(true).Render("Agent "+version) + "\n")
+		s.WriteString(logoStyle.Render("▝▜█████▛▘") + "  " + m.getModelName() + "\n")
+		s.WriteString(logoStyle.Render("  ▘▘ ▝▝") + "    " + versionStyle.Render(m.cwd) + "\n\n")
+	}
+
+	// Model menu
+	if m.showModelMenu {
+		s.WriteString(lipgloss.NewStyle().Bold(true).Render("Switch between models") + "\n\n")
+		for i, opt := range m.modelOptions {
+			prefix := "   "
+			if i == m.modelMenuSelection {
+				prefix = " > "
+			}
+
+			checkmark := ""
+			if m.currentModel != nil && opt.modelID == m.currentModel.ModelID {
+				checkmark = " [current]"
+			}
+
+			line := fmt.Sprintf("%s%d. %-25s %s%s", prefix, i+1, opt.name, opt.description, checkmark)
+			if i == m.modelMenuSelection {
+				s.WriteString(autocompleteSelectedStyle.Render(line) + "\n")
+			} else {
+				s.WriteString(line + "\n")
+			}
+		}
+		s.WriteString("\n")
+		s.WriteString(statusStyle.Render("Press Enter to select, Esc to cancel") + "\n")
+		return s.String()
+	}
+
+	// Chat history
+	for _, msg := range m.messages {
+		if msg.role == "user" {
+			s.WriteString(promptStyle.Render("> ") + msg.content + "\n\n")
+		} else if msg.role == "system" {
+			s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(msg.content) + "\n\n")
+		} else if msg.isToolUse {
+			toolStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+			s.WriteString(toolStyle.Render("🔧 ") + msg.content + "\n")
+		} else if msg.isToolResult {
+			resultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+			content := msg.content
+			if len(content) > 200 {
+				content = content[:200] + "..."
+			}
+			s.WriteString(resultStyle.Render("  └─ ") + content + "\n\n")
+		} else {
+			s.WriteString(responseStyle.Render("⏺ ") + msg.content + "\n\n")
+		}
+	}
+
+	// Streaming text
+	if m.streamingText != "" {
+		s.WriteString(responseStyle.Render("⏺ ") + m.streamingText + "\n\n")
+	}
+
+	// Waiting indicator
+	if m.waiting && m.streamingText == "" {
+		s.WriteString(responseStyle.Render("⏺ Thinking...") + "\n\n")
+	}
+
+	// Error display
+	if m.err != nil {
+		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("✗ %v", m.err)) + "\n\n")
+	}
+
+	// Input area
+	borderLine := strings.Repeat("─", m.width)
+	if m.width == 0 {
+		borderLine = strings.Repeat("─", 80)
+	}
+	s.WriteString(borderLine + "\n")
+
+	// Display input
+	inputLines := strings.Split(m.input, "\n")
+	for i, line := range inputLines {
+		if i == 0 {
+			s.WriteString("> " + line + "\n")
+		} else {
+			s.WriteString("  " + line + "\n")
+		}
+	}
+
+	s.WriteString(borderLine + "\n")
+
+	// Status line
+	modeText := ""
+	switch m.currentMode {
+	case planMode:
+		modeText = "plan mode"
+	case bypassMode:
+		modeText = "bypass permissions"
+	default:
+		if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+			modeText = m.autocompleteOptions[m.autocompleteSelection]
+		}
+	}
+
+	statusLeft := "  ⏵⏵ " + modeText
+	s.WriteString(statusStyle.Render(statusLeft) + "\n")
+	s.WriteString(statusStyle.Render("  (shift+tab to cycle modes)") + "\n")
+
+	return s.String()
+}
+
 func main() {
+	version := Version
+	if version != "dev" && !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+
 	// Parse flags
+	prompt := flag.String("prompt", "", "Initial prompt to send")
 	backendURL := flag.String("backend", "", "Backend URL (overrides embedded server)")
 	useEmbedded := flag.Bool("embedded", true, "Use embedded server (default: true)")
 	flag.Parse()
@@ -24,13 +706,30 @@ func main() {
 	// Determine backend URL
 	url := *backendURL
 	if url == "" {
-		url = os.Getenv("BACKEND_URL")
+		url = os.Getenv("OPENCODE_SERVER")
+	}
+
+	// Check for piped stdin
+	stat, err := os.Stdin.Stat()
+	if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+		stdin, err := io.ReadAll(os.Stdin)
+		if err == nil {
+			stdinContent := strings.TrimSpace(string(stdin))
+			if stdinContent != "" {
+				if prompt == nil || *prompt == "" {
+					prompt = &stdinContent
+				} else {
+					combined := *prompt + "\n" + stdinContent
+					prompt = &combined
+				}
+			}
+		}
 	}
 
 	var serverProcess *embedded.ServerProcess
 	var cleanup func()
 
-	// If no external backend specified and embedded mode is enabled, start embedded server
+	// Start embedded server if needed
 	if url == "" && *useEmbedded {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -50,7 +749,7 @@ func main() {
 			}
 		}
 
-		// Handle signals for cleanup
+		// Signal handling
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
@@ -59,12 +758,12 @@ func main() {
 			os.Exit(0)
 		}()
 
-		fmt.Printf("Embedded server running at %s\n", url)
+		fmt.Printf("Server running at %s\n", url)
 	} else if url == "" {
 		url = "http://localhost:8000"
 	}
 
-	// Get working directory for the SDK
+	// Get working directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
@@ -80,29 +779,51 @@ func main() {
 		agent.WithTimeout(60*time.Second),
 	)
 
-	// Create app model
-	model := app.New(client)
-
-	// Create program with options
-	p := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
-
-	// Set program reference for SSE callbacks
-	model.SetProgram(p)
-
-	// Run the TUI
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	// Get project info
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	project, err := client.GetProject(ctx)
+	cancel()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting project: %v\n", err)
 		if cleanup != nil {
 			cleanup()
 		}
 		os.Exit(1)
 	}
 
-	// Cleanup on normal exit
+	// Create model
+	m := initialModel(client, project, cwd, version, prompt)
+
+	// Create program
+	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	// Subscribe to global events
+	go func() {
+		eventCh, errCh, err := client.SubscribeToEvents(m.ctx)
+		if err != nil {
+			return
+		}
+
+		for {
+			select {
+			case event := <-eventCh:
+				if event != nil {
+					p.Send(event)
+				}
+			case <-errCh:
+				return
+			case <-m.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Run
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+
+	// Cleanup
 	if cleanup != nil {
 		cleanup()
 	}

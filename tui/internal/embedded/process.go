@@ -27,12 +27,6 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 		return nil, "", fmt.Errorf("failed to find free port: %w", err)
 	}
 
-	// Find Python executable
-	pythonCmd := findPython()
-	if pythonCmd == "" {
-		return nil, "", fmt.Errorf("python not found in PATH (tried python3, python)")
-	}
-
 	// Find main.py
 	mainPy := findMainPy()
 	if mainPy == "" {
@@ -42,8 +36,8 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 	// Create a cancellable context for the process
 	procCtx, cancel := context.WithCancel(ctx)
 
-	// Start the server process
-	cmd := exec.CommandContext(procCtx, pythonCmd, mainPy)
+	// Start the server process using uv run
+	cmd := exec.CommandContext(procCtx, "uv", "run", "python", mainPy)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("PORT=%d", port),
 		"HOST=127.0.0.1",
@@ -112,16 +106,6 @@ func (s *ServerProcess) Stop() error {
 // Port returns the port the server is running on.
 func (s *ServerProcess) Port() int {
 	return s.port
-}
-
-// findPython finds the Python executable.
-func findPython() string {
-	for _, name := range []string{"python3", "python"} {
-		if path, err := exec.LookPath(name); err == nil {
-			return path
-		}
-	}
-	return ""
 }
 
 // findMainPy finds main.py relative to the executable or working directory.
