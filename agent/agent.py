@@ -6,6 +6,7 @@ minimizing custom tool code that needs to be maintained.
 """
 
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -25,7 +26,7 @@ def _get_duckduckgo_tool():
             _duckduckgo_search_tool = False  # Mark as unavailable
     return _duckduckgo_search_tool if _duckduckgo_search_tool else None
 
-from config import DEFAULT_MODEL
+from config import DEFAULT_MODEL, load_system_prompt_markdown
 from .registry import get_agent_config
 
 # Constants
@@ -79,6 +80,32 @@ Be concise but thorough. If you need to execute code to verify something works, 
 """
 
 
+def _build_system_prompt(
+    agent_config_prompt: str | None,
+    working_dir: str | None,
+) -> str:
+    """
+    Build the complete system prompt with optional markdown prepending.
+
+    Searches for CLAUDE.md or Agents.md in the working directory and parent
+    directories. If found, prepends the content to the base system prompt.
+
+    Args:
+        agent_config_prompt: Agent-specific system prompt (or None for default)
+        working_dir: Working directory for markdown file search
+
+    Returns:
+        Complete system prompt string
+    """
+    cwd = working_dir or os.getcwd()
+    markdown_content = load_system_prompt_markdown(cwd)
+    base_prompt = agent_config_prompt or SYSTEM_INSTRUCTIONS
+
+    if markdown_content:
+        return f"{markdown_content}\n\n{base_prompt}"
+    return base_prompt
+
+
 def create_mcp_servers(working_dir: str | None = None) -> list[MCPServerStdio]:
     """
     Create MCP server instances for tools.
@@ -95,11 +122,22 @@ def create_mcp_servers(working_dir: str | None = None) -> list[MCPServerStdio]:
 
     # Shell server (Python-based)
     # Provides: shell command execution
-    shell_server = MCPServerStdio(
-        'python',
-        args=['-m', 'mcp_server_shell'],
-        timeout=SHELL_SERVER_TIMEOUT_SECONDS,
-    )
+    # Check for bundled MCP shell server (from PyInstaller embedded build)
+    mcp_shell_path = os.environ.get('MCP_SHELL_SERVER_PATH')
+    if mcp_shell_path and os.path.exists(mcp_shell_path):
+        # Use bundled executable
+        shell_server = MCPServerStdio(
+            mcp_shell_path,
+            args=[],
+            timeout=SHELL_SERVER_TIMEOUT_SECONDS,
+        )
+    else:
+        # Use current Python interpreter
+        shell_server = MCPServerStdio(
+            sys.executable,
+            args=['-m', 'mcp_server_shell'],
+            timeout=SHELL_SERVER_TIMEOUT_SECONDS,
+        )
     servers.append(shell_server)
 
     # Filesystem server (Node.js-based, more mature)
@@ -150,15 +188,21 @@ async def create_agent_with_mcp(
     ddg_tool = _get_duckduckgo_tool()
     tools = [] if use_anthropic else ([ddg_tool()] if ddg_tool else [])
 
+    # Build system prompt with optional markdown content
+    system_prompt = _build_system_prompt(agent_config.system_prompt, working_dir)
+
     # Create agent with MCP toolsets
     model_name = f"anthropic:{model_id}"
-    agent = Agent(
-        model_name,
-        system_prompt=agent_config.system_prompt or SYSTEM_INSTRUCTIONS,
-        toolsets=mcp_servers,
-        builtin_tools=builtin_tools if builtin_tools else None,
-        tools=tools if tools else None,
-    )
+    agent_kwargs = {
+        "system_prompt": system_prompt,
+        "toolsets": mcp_servers,
+    }
+    if builtin_tools:
+        agent_kwargs["builtin_tools"] = builtin_tools
+    if tools:
+        agent_kwargs["tools"] = tools
+
+    agent = Agent(model_name, **agent_kwargs)
 
     # Register simple custom tools that don't need MCP
     @agent.tool_plain
@@ -204,6 +248,7 @@ def create_agent(
     model_id: str = DEFAULT_MODEL,
     api_key: str | None = None,
     agent_name: str = "build",
+    working_dir: str | None = None,
 ) -> Agent:
     """
     Create a simple agent WITHOUT MCP tools (for backwards compatibility).
@@ -215,6 +260,7 @@ def create_agent(
         model_id: Anthropic model identifier
         api_key: Optional API key (defaults to ANTHROPIC_API_KEY env var)
         agent_name: Name of the agent configuration to use
+        working_dir: Working directory for markdown file search
 
     Returns:
         Configured Pydantic AI Agent (without MCP tools)
@@ -229,10 +275,13 @@ def create_agent(
     ddg_tool = _get_duckduckgo_tool()
     tools = [] if use_anthropic else ([ddg_tool()] if ddg_tool else [])
 
+    # Build system prompt with optional markdown content
+    system_prompt = _build_system_prompt(agent_config.system_prompt, working_dir)
+
     model_name = f"anthropic:{model_id}"
     agent = Agent(
         model_name,
-        system_prompt=agent_config.system_prompt or SYSTEM_INSTRUCTIONS,
+        system_prompt=system_prompt,
         builtin_tools=builtin_tools if builtin_tools else None,
         tools=tools if tools else None,
     )
