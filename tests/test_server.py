@@ -8,7 +8,8 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server import app, sessions, session_messages, set_agent
+from server import app, set_agent
+from core.state import sessions, session_messages
 from agent.agent import create_agent
 from agent.wrapper import AgentWrapper
 
