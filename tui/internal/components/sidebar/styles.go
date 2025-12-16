@@ -102,6 +102,8 @@ func renderSidebar(m Model) string {
 		content.WriteString(renderSessionsTab(m))
 	case TabFiles:
 		content.WriteString(renderFilesTab(m))
+	case TabGit:
+		content.WriteString(renderGitTab(m))
 	case TabContext:
 		content.WriteString(renderContextTab(m))
 	default:
@@ -222,71 +224,125 @@ func renderFilesTab(m Model) string {
 	return content.String()
 }
 
-// renderContextTab renders the context/tokens tab content
+// renderContextTab renders the CLAUDE.md context tab content
 func renderContextTab(m Model) string {
 	var content strings.Builder
+	theme := styles.GetCurrentTheme()
 
-	content.WriteString(sectionHeaderStyle().Render("Context Info"))
+	// Check if we have any CLAUDE.md files
+	if !m.claudeMdContext.HasAnySource() {
+		// No CLAUDE.md found - show helpful message
+		content.WriteString(sectionHeaderStyle().Render("⚠ No CLAUDE.md found"))
+		content.WriteString("\n\n")
+
+		content.WriteString(sectionLabelStyle().Render("Create a CLAUDE.md file to give\nthe agent project-specific\ninstructions."))
+		content.WriteString("\n\n")
+
+		content.WriteString(sectionLabelStyle().Render("Searched:"))
+		content.WriteString("\n")
+
+		for _, source := range m.claudeMdContext.Sources {
+			icon := "✗"
+			iconStyle := lipgloss.NewStyle().Foreground(theme.Error)
+			path := source.Path
+			// Abbreviate path if too long
+			if len(path) > 22 {
+				path = "..." + path[len(path)-19:]
+			}
+			content.WriteString("  " + iconStyle.Render(icon) + " " + sectionValueStyle().Render(path))
+			content.WriteString("\n")
+		}
+
+		content.WriteString("\n")
+		content.WriteString(sectionLabelStyle().Render("[Press N to create one]"))
+
+		return content.String()
+	}
+
+	// CLAUDE.md found - show content
+	content.WriteString(sectionHeaderStyle().Render("📄 Project Instructions"))
 	content.WriteString("\n\n")
 
-	// Token counts
-	inputTokens := m.contextInfo.InputTokens
-	outputTokens := m.contextInfo.OutputTokens
-	totalTokens := inputTokens + outputTokens
-
-	if totalTokens > 0 {
-		content.WriteString(sectionLabelStyle().Render("Input Tokens:  "))
-		content.WriteString(sectionValueStyle().Render(formatNumber(inputTokens)))
-		content.WriteString("\n")
-
-		content.WriteString(sectionLabelStyle().Render("Output Tokens: "))
-		content.WriteString(sectionValueStyle().Render(formatNumber(outputTokens)))
-		content.WriteString("\n")
-
-		content.WriteString(sectionLabelStyle().Render("Total Tokens:  "))
-		content.WriteString(sectionValueStyle().Render(formatNumber(totalTokens)))
-		content.WriteString("\n\n")
-	} else {
-		content.WriteString(emptyStyle().Render("No token data"))
-		content.WriteString("\n\n")
+	// Show preview of content
+	preview := m.claudeMdContext.GetPreview()
+	// Render preview with proper wrapping
+	lines := strings.Split(preview, "\n")
+	maxWidth := m.width - 4
+	if maxWidth < 20 {
+		maxWidth = 20
 	}
 
-	// Context percentage
-	if m.contextInfo.ContextUsed > 0 {
-		content.WriteString(sectionLabelStyle().Render("Context Used:  "))
-		percentStr := fmt.Sprintf("%d%%", m.contextInfo.ContextUsed)
-		// Color based on usage
-		theme := styles.GetCurrentTheme()
-		percentStyle := lipgloss.NewStyle()
-		if m.contextInfo.ContextUsed > 90 {
-			percentStyle = percentStyle.Foreground(theme.Error)
-		} else if m.contextInfo.ContextUsed > 75 {
-			percentStyle = percentStyle.Foreground(theme.Warning)
+	for _, line := range lines {
+		// Basic markdown rendering for headers
+		if strings.HasPrefix(line, "# ") {
+			headerText := strings.TrimPrefix(line, "# ")
+			content.WriteString(lipgloss.NewStyle().
+				Foreground(theme.Primary).
+				Bold(true).
+				Render(headerText))
+		} else if strings.HasPrefix(line, "## ") {
+			headerText := strings.TrimPrefix(line, "## ")
+			content.WriteString(lipgloss.NewStyle().
+				Foreground(theme.Secondary).
+				Bold(true).
+				Render(headerText))
+		} else if strings.HasPrefix(line, "### ") {
+			headerText := strings.TrimPrefix(line, "### ")
+			content.WriteString(lipgloss.NewStyle().
+				Foreground(theme.TextPrimary).
+				Bold(true).
+				Render(headerText))
 		} else {
-			percentStyle = percentStyle.Foreground(theme.Success)
+			// Regular text - wrap if needed
+			if len(line) > maxWidth {
+				// Simple word wrap
+				words := strings.Fields(line)
+				currentLine := ""
+				for _, word := range words {
+					if len(currentLine)+len(word)+1 > maxWidth {
+						content.WriteString(sectionValueStyle().Render(currentLine))
+						content.WriteString("\n")
+						currentLine = word
+					} else {
+						if currentLine != "" {
+							currentLine += " "
+						}
+						currentLine += word
+					}
+				}
+				if currentLine != "" {
+					content.WriteString(sectionValueStyle().Render(currentLine))
+				}
+			} else {
+				content.WriteString(sectionValueStyle().Render(line))
+			}
 		}
-		content.WriteString(percentStyle.Render(percentStr))
-		content.WriteString("\n\n")
-	}
-
-	// Cost
-	if m.contextInfo.TotalCost > 0 {
-		content.WriteString(sectionLabelStyle().Render("Session Cost:  "))
-		content.WriteString(sectionValueStyle().Render(formatCost(m.contextInfo.TotalCost)))
-		content.WriteString("\n\n")
-	}
-
-	// Model and agent info
-	if m.contextInfo.ModelName != "" {
-		content.WriteString(sectionLabelStyle().Render("Model:         "))
-		content.WriteString(sectionValueStyle().Render(m.contextInfo.ModelName))
 		content.WriteString("\n")
 	}
-	if m.contextInfo.AgentName != "" {
-		content.WriteString(sectionLabelStyle().Render("Agent:         "))
-		content.WriteString(sectionValueStyle().Render(m.contextInfo.AgentName))
-		content.WriteString("\n")
+
+	// Footer with file info
+	content.WriteString("\n")
+	content.WriteString(sectionLabelStyle().Render("────────────────────────────────"))
+	content.WriteString("\n")
+
+	// File path
+	formattedPath := m.claudeMdContext.GetFormattedPath()
+	if len(formattedPath) > 28 {
+		formattedPath = "..." + formattedPath[len(formattedPath)-25:]
 	}
+	content.WriteString(sectionLabelStyle().Render("ℹ Loaded from: "))
+	content.WriteString(sectionValueStyle().Render(formattedPath))
+	content.WriteString("\n")
+
+	// Line count and update time
+	lineCount := m.claudeMdContext.GetLineCount()
+	updateTime := m.claudeMdContext.GetRelativeUpdateTime()
+	infoLine := fmt.Sprintf("📏 %d lines · Updated %s", lineCount, updateTime)
+	content.WriteString(sectionLabelStyle().Render(infoLine))
+	content.WriteString("\n\n")
+
+	// Help text
+	content.WriteString(sectionLabelStyle().Render("[Press Ctrl+. for full view]"))
 
 	return content.String()
 }

@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
 	"tui/internal/components/tabs"
+	"tui/internal/git"
 )
 
 // SectionState tracks which sections are expanded
@@ -33,6 +34,16 @@ const (
 	TabSessions ActiveTab = "sessions"
 	TabFiles    ActiveTab = "files"
 	TabContext  ActiveTab = "context"
+	TabGit      ActiveTab = "git"
+)
+
+// GitViewMode represents which git section is active
+type GitViewMode int
+
+const (
+	GitViewStaged GitViewMode = iota
+	GitViewUnstaged
+	GitViewUntracked
 )
 
 // Model represents the sidebar component
@@ -52,6 +63,14 @@ type Model struct {
 	contextInfo    ContextInfo
 	diffs          []agent.FileDiff
 	currentSession *agent.Session
+
+	// CLAUDE.md context
+	claudeMdContext ClaudeMdContext
+
+	// Git status tracking
+	gitStatus        *git.GitStatus
+	selectedGitIndex int
+	gitViewMode      GitViewMode
 }
 
 // New creates a new sidebar model
@@ -60,6 +79,7 @@ func New(width, height int) Model {
 	sidebarTabs := tabs.New([]tabs.Tab{
 		{ID: "sessions", Title: "Sessions", Icon: "📋"},
 		{ID: "files", Title: "Files", Icon: "📁"},
+		{ID: "git", Title: "Git", Icon: "🔀"},
 		{ID: "context", Title: "Context", Icon: "📊"},
 	})
 	sidebarTabs.SetVariant(tabs.VariantPills)
@@ -95,6 +115,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case ClaudeMdRefreshMsg:
+		m.claudeMdContext = msg.Context
+		return m, nil
+
 	case tabs.TabSelectedMsg:
 		// Handle tab selection
 		m.activeTab = ActiveTab(msg.Tab.ID)
@@ -131,16 +155,26 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.tabs.SelectTab(1)
 			return m, nil
 		case "3":
-			m.activeTab = TabContext
+			m.activeTab = TabGit
 			m.tabs.SelectTab(2)
+			return m, nil
+		case "4":
+			m.activeTab = TabContext
+			m.tabs.SelectTab(3)
 			return m, nil
 		case "up", "k":
 			if m.activeTab == TabSessions && m.selectedIndex > 0 {
 				m.selectedIndex--
 			}
+			if m.activeTab == TabGit {
+				m.navigateGitUp()
+			}
 		case "down", "j":
 			if m.activeTab == TabSessions && m.selectedIndex < len(m.sessions)-1 {
 				m.selectedIndex++
+			}
+			if m.activeTab == TabGit {
+				m.navigateGitDown()
 			}
 		case "enter":
 			// Return a message to switch sessions
@@ -148,6 +182,30 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, func() tea.Msg {
 					return SessionSelectedMsg{Session: m.sessions[m.selectedIndex]}
 				}
+			}
+			// Git tab: stage/unstage file
+			if m.activeTab == TabGit {
+				return m, m.handleGitEnter()
+			}
+		case "a":
+			// Git tab: stage all
+			if m.activeTab == TabGit {
+				return m, m.handleGitStageAll()
+			}
+		case "d":
+			// Git tab: view diff
+			if m.activeTab == TabGit {
+				return m, m.handleGitDiff()
+			}
+		case "r":
+			// Git tab: refresh
+			if m.activeTab == TabGit {
+				return m, m.handleGitRefresh()
+			}
+		case "c":
+			// Git tab: commit
+			if m.activeTab == TabGit {
+				return m, m.handleGitCommit()
 			}
 		}
 	}
@@ -169,6 +227,18 @@ func (m *Model) updateTabBadges() {
 		m.tabs.UpdateBadge("files", fmt.Sprintf("%d", len(m.diffs)))
 	} else {
 		m.tabs.UpdateBadge("files", "")
+	}
+
+	// Git tab badge - show count of changes
+	if m.gitStatus != nil && m.gitStatus.IsRepo {
+		totalChanges := len(m.gitStatus.Staged) + len(m.gitStatus.Unstaged) + len(m.gitStatus.Untracked)
+		if totalChanges > 0 {
+			m.tabs.UpdateBadge("git", fmt.Sprintf("%d", totalChanges))
+		} else {
+			m.tabs.UpdateBadge("git", "")
+		}
+	} else {
+		m.tabs.UpdateBadge("git", "")
 	}
 
 	// Context tab - show token count
@@ -272,4 +342,172 @@ func (m *Model) ToggleSection(section string) {
 	case "todos":
 		m.sections.Todos = !m.sections.Todos
 	}
+}
+
+// LoadClaudeMd loads CLAUDE.md files from standard locations
+func (m *Model) LoadClaudeMd() {
+	m.claudeMdContext = LoadClaudeMdContext()
+}
+
+// GetClaudeMdContext returns the current CLAUDE.md context
+func (m Model) GetClaudeMdContext() ClaudeMdContext {
+	return m.claudeMdContext
+}
+
+// RefreshClaudeMd reloads CLAUDE.md files
+func (m *Model) RefreshClaudeMd() tea.Cmd {
+	return func() tea.Msg {
+		return ClaudeMdRefreshMsg{
+			Context: LoadClaudeMdContext(),
+		}
+	}
+}
+
+// ClaudeMdRefreshMsg is sent when CLAUDE.md is refreshed
+type ClaudeMdRefreshMsg struct {
+	Context ClaudeMdContext
+}
+
+// SetGitStatus updates the git status
+func (m *Model) SetGitStatus(status *git.GitStatus) {
+	m.gitStatus = status
+	m.updateTabBadges()
+}
+
+// GetGitStatus returns the current git status
+func (m Model) GetGitStatus() *git.GitStatus {
+	return m.gitStatus
+}
+
+// navigateGitUp navigates up in the git file list
+func (m *Model) navigateGitUp() {
+	if m.gitStatus == nil {
+		return
+	}
+
+	totalFiles := len(m.gitStatus.Staged) + len(m.gitStatus.Unstaged) + len(m.gitStatus.Untracked)
+	if totalFiles == 0 {
+		return
+	}
+
+	if m.selectedGitIndex > 0 {
+		m.selectedGitIndex--
+		m.updateGitViewMode()
+	}
+}
+
+// navigateGitDown navigates down in the git file list
+func (m *Model) navigateGitDown() {
+	if m.gitStatus == nil {
+		return
+	}
+
+	totalFiles := len(m.gitStatus.Staged) + len(m.gitStatus.Unstaged) + len(m.gitStatus.Untracked)
+	if totalFiles == 0 {
+		return
+	}
+
+	if m.selectedGitIndex < totalFiles-1 {
+		m.selectedGitIndex++
+		m.updateGitViewMode()
+	}
+}
+
+// updateGitViewMode updates the git view mode based on selected index
+func (m *Model) updateGitViewMode() {
+	if m.gitStatus == nil {
+		return
+	}
+
+	stagedCount := len(m.gitStatus.Staged)
+	unstagedCount := len(m.gitStatus.Unstaged)
+
+	if m.selectedGitIndex < stagedCount {
+		m.gitViewMode = GitViewStaged
+	} else if m.selectedGitIndex < stagedCount+unstagedCount {
+		m.gitViewMode = GitViewUnstaged
+	} else {
+		m.gitViewMode = GitViewUntracked
+	}
+}
+
+// handleGitEnter handles the enter key in git tab (stage/unstage)
+func (m *Model) handleGitEnter() tea.Cmd {
+	if m.gitStatus == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		return GitStageToggleMsg{
+			Index:    m.selectedGitIndex,
+			ViewMode: m.gitViewMode,
+		}
+	}
+}
+
+// handleGitStageAll handles staging all files
+func (m *Model) handleGitStageAll() tea.Cmd {
+	return func() tea.Msg {
+		return GitStageAllMsg{}
+	}
+}
+
+// handleGitDiff handles viewing diff for selected file
+func (m *Model) handleGitDiff() tea.Cmd {
+	if m.gitStatus == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		return GitDiffMsg{
+			Index:    m.selectedGitIndex,
+			ViewMode: m.gitViewMode,
+		}
+	}
+}
+
+// handleGitRefresh handles refreshing git status
+func (m *Model) handleGitRefresh() tea.Cmd {
+	return func() tea.Msg {
+		return GitRefreshMsg{}
+	}
+}
+
+// handleGitCommit handles creating a commit
+func (m *Model) handleGitCommit() tea.Cmd {
+	if m.gitStatus == nil || len(m.gitStatus.Staged) == 0 {
+		return nil
+	}
+
+	return func() tea.Msg {
+		return GitCommitMsg{}
+	}
+}
+
+// Git-related messages
+
+// GitStageToggleMsg is sent to stage/unstage a file
+type GitStageToggleMsg struct {
+	Index    int
+	ViewMode GitViewMode
+}
+
+// GitStageAllMsg is sent to stage all files
+type GitStageAllMsg struct{}
+
+// GitDiffMsg is sent to view diff for a file
+type GitDiffMsg struct {
+	Index    int
+	ViewMode GitViewMode
+}
+
+// GitRefreshMsg is sent to refresh git status
+type GitRefreshMsg struct{}
+
+// GitCommitMsg is sent to create a commit
+type GitCommitMsg struct{}
+
+// GitStatusUpdatedMsg is sent when git status is updated
+type GitStatusUpdatedMsg struct {
+	Status *git.GitStatus
 }
