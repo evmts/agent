@@ -9,7 +9,6 @@ import (
 	"tui/internal/components/sidebar"
 	"tui/internal/components/spinner"
 	"tui/internal/components/toast"
-	"tui/internal/keybind"
 	"tui/internal/messages"
 )
 

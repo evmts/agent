@@ -3,10 +3,7 @@ package app
 import "github.com/williamcory/agent/sdk/agent"
 
 // Internal message types for the app
-type healthCheckMsg struct {
-	healthy bool
-	err     error
-}
+// Note: healthCheckMsg is defined in app.go
 
 type sessionCreatedMsg struct {
 	session *agent.Session
