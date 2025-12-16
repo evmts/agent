@@ -424,6 +424,84 @@ type MCPServersResponse struct {
 	Servers []MCPServer `json:"servers"`
 }
 
+// =============================================================================
+// Project Types
+// =============================================================================
+
+// Project represents project information.
+type Project struct {
+	ID       string `json:"id"`
+	Worktree string `json:"worktree"`
+	Name     string `json:"name"`
+}
+
+// =============================================================================
+// Agent Types
+// =============================================================================
+
+// Agent represents an AI agent configuration.
+type Agent struct {
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Mode        string    `json:"mode"` // "normal" or "subagent"
+	Model       ModelInfo `json:"model"`
+}
+
+// =============================================================================
+// Provider/Model Types
+// =============================================================================
+
+// Provider represents an AI provider with its models.
+type Provider struct {
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Models []Model `json:"models"`
+}
+
+// Model represents an AI model.
+type Model struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ProvidersResponse is the response from the providers endpoint.
+type ProvidersResponse struct {
+	Providers []Provider     `json:"providers"`
+	Default   map[string]int `json:"default"`
+}
+
+// =============================================================================
+// Config Types
+// =============================================================================
+
+// Keybinds contains keyboard shortcut configuration.
+type Keybinds struct {
+	Leader string `json:"leader"`
+}
+
+// TuiConfig contains TUI-specific settings.
+type TuiConfig struct {
+	ScrollSpeed int `json:"scrollSpeed"`
+}
+
+// Config represents application configuration.
+type Config struct {
+	Theme    string    `json:"theme"`
+	Model    string    `json:"model"`
+	Keybinds Keybinds  `json:"keybinds"`
+	Tui      TuiConfig `json:"tui"`
+}
+
+// =============================================================================
+// Command Types
+// =============================================================================
+
+// Command represents a slash command.
+type Command struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 // Helper functions
 
 // Now returns the current time as a Unix timestamp (float64).

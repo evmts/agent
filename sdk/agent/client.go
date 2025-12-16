@@ -631,3 +631,68 @@ func (c *Client) GetMCPServers(ctx context.Context) (*MCPServersResponse, error)
 
 	return &result, nil
 }
+
+// =============================================================================
+// Project
+// =============================================================================
+
+// GetProject retrieves the current project information.
+func (c *Client) GetProject(ctx context.Context) (*Project, error) {
+	var result Project
+	if err := c.doRequest(ctx, http.MethodGet, "/project/current", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// =============================================================================
+// Agents
+// =============================================================================
+
+// ListAgents returns all available agents.
+func (c *Client) ListAgents(ctx context.Context) ([]Agent, error) {
+	var result []Agent
+	if err := c.doRequest(ctx, http.MethodGet, "/agent", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// =============================================================================
+// Config
+// =============================================================================
+
+// GetConfig retrieves the application configuration.
+func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
+	var result Config
+	if err := c.doRequest(ctx, http.MethodGet, "/config", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// =============================================================================
+// Providers
+// =============================================================================
+
+// ListProviders returns all available AI providers and their models.
+func (c *Client) ListProviders(ctx context.Context) (*ProvidersResponse, error) {
+	var result ProvidersResponse
+	if err := c.doRequest(ctx, http.MethodGet, "/app/providers", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// =============================================================================
+// Commands
+// =============================================================================
+
+// ListCommands returns all available slash commands.
+func (c *Client) ListCommands(ctx context.Context) ([]Command, error) {
+	var result []Command
+	if err := c.doRequest(ctx, http.MethodGet, "/command", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
