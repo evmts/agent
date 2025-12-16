@@ -1,6 +1,11 @@
 package app
 
-import "strings"
+import (
+	"strings"
+
+	"tui/internal/config"
+	"tui/internal/notification"
+)
 
 // copyToClipboard copies text to system clipboard
 func copyToClipboard(text string) error {
@@ -37,4 +42,32 @@ func extractCodeBlocks(text string) string {
 	}
 
 	return strings.Join(result, "\n\n")
+}
+
+// convertNotificationPreferences converts config.NotificationPreferences to notification.NotificationConfig
+func convertNotificationPreferences(prefs config.NotificationPreferences) notification.NotificationConfig {
+	var soundType notification.SoundType
+	switch prefs.SoundType {
+	case "bell":
+		soundType = notification.SoundBell
+	case "chime":
+		soundType = notification.SoundChime
+	case "custom":
+		soundType = notification.SoundCustom
+	case "visual":
+		soundType = notification.SoundBell // Will use visual flash mode
+	default:
+		soundType = notification.SoundBell
+	}
+
+	return notification.NotificationConfig{
+		Enabled:              prefs.Enabled,
+		SoundType:            soundType,
+		Volume:               prefs.Volume,
+		CustomPath:           prefs.CustomPath,
+		VisualFlash:          prefs.SoundType == "visual",
+		NotifyOnComplete:     prefs.NotifyOnComplete,
+		NotifyOnError:        prefs.NotifyOnError,
+		NotifyOnConfirmation: prefs.NotifyOnConfirmation,
+	}
 }
