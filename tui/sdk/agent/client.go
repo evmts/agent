@@ -264,3 +264,12 @@ func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	}
 	return &result, nil
 }
+
+// GetMCPServers retrieves the list of MCP servers and their status.
+func (c *Client) GetMCPServers(ctx context.Context) (*MCPServersResponse, error) {
+	var result MCPServersResponse
+	if err := c.doRequest(ctx, http.MethodGet, "/mcp/servers", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
