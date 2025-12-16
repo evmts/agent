@@ -11,18 +11,22 @@ const (
 	ActionClearChat       Action = "clear_chat"
 	ActionToggleSidebar   Action = "toggle_sidebar"
 	ActionShowHelp        Action = "show_help"
+	ActionShowShortcuts   Action = "show_shortcuts"
 	ActionShowModels      Action = "show_models"
 	ActionCycleTheme      Action = "cycle_theme"
 	ActionShowAgents      Action = "show_agents"
 	ActionToggleMarkdown  Action = "toggle_markdown"
 	ActionToggleThinking  Action = "toggle_thinking"
-	ActionToggleMouse     Action = "toggle_mouse"
-	ActionShowCommands    Action = "show_commands"
+	ActionToggleMouse          Action = "toggle_mouse"
+	ActionToggleCompact        Action = "toggle_compact"
+	ActionToggleCompactExpand  Action = "toggle_compact_expand"
+	ActionShowCommands         Action = "show_commands"
 	ActionToggleTimestamp Action = "toggle_timestamps"
 	ActionToggleToolInfo  Action = "toggle_tool_info"
 	ActionShowThemes      Action = "show_themes"
 	ActionShowStatus      Action = "show_status"
 	ActionShowSettings    Action = "show_settings"
+	ActionShowMCP         Action = "show_mcp"
 
 	// Session actions
 	ActionForkSession     Action = "fork_session"
@@ -51,8 +55,16 @@ const (
 	ActionFocusInput Action = "focus_input"
 	ActionOpenEditor Action = "open_editor"
 
+	// Search
+	ActionSearch     Action = "search"
+	ActionSearchNext Action = "search_next"
+	ActionSearchPrev Action = "search_prev"
+
 	// Permissions mode
 	ActionCyclePermissions Action = "cycle_permissions"
+
+	// Interrupt handling
+	ActionResume Action = "resume"
 
 	// None for unknown/unbound keys
 	ActionNone Action = ""
