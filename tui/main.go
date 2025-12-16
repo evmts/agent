@@ -804,21 +804,24 @@ func (m model) View() string {
 
 	s.WriteString(borderLine + "\n")
 
-	// Status line
+	// Status line with colored mode indicator
 	modeText := ""
+	var modeStyle lipgloss.Style
 	switch m.currentMode {
 	case planMode:
 		modeText = "plan mode"
+		modeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // Green
 	case bypassMode:
 		modeText = "bypass permissions"
+		modeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // Red
 	default:
+		modeStyle = statusStyle
 		if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
 			modeText = m.autocompleteOptions[m.autocompleteSelection]
 		}
 	}
 
-	statusLeft := "  ⏵⏵ " + modeText
-	s.WriteString(statusStyle.Render(statusLeft) + "\n")
+	s.WriteString(statusStyle.Render("  ⏵⏵ ") + modeStyle.Render(modeText) + "\n")
 	s.WriteString(statusStyle.Render("  (shift+tab to cycle modes)") + "\n")
 
 	return s.String()
