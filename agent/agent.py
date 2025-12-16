@@ -33,8 +33,8 @@ from .registry import get_agent_config
 # Constants
 SHELL_SERVER_TIMEOUT_SECONDS = 60
 FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
-THINKING_BUDGET_TOKENS = 10000  # Extended thinking budget for better reasoning
-MAX_OUTPUT_TOKENS = 16000  # Must be greater than thinking budget
+THINKING_BUDGET_TOKENS = 60000  # Extended thinking budget (higher than Claude Code's default 32k)
+MAX_OUTPUT_TOKENS = 64000  # Must be greater than thinking budget
 
 
 def get_anthropic_model_settings(enable_thinking: bool = True) -> AnthropicModelSettings:
