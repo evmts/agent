@@ -118,6 +118,17 @@ def load_config(project_root: Path | None = None) -> Config:
     return Config(**config_data)
 
 
+def get_working_directory() -> str:
+    """
+    Get the working directory from environment or default to cwd.
+
+    Returns:
+        The working directory path as a string
+    """
+    import os
+    return os.environ.get("WORKING_DIR", os.getcwd())
+
+
 @lru_cache(maxsize=1)
 def get_config(project_root: Path | None = None) -> Config:
     """
