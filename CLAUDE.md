@@ -169,6 +169,21 @@ zig build run-dev
 
 ## Style Guide
 
+### No Magic Constants
+- Never use magic constants (hardcoded literal values) directly in code
+- Always define constants with descriptive names in `SCREAMING_CASE`
+- Place constants at module level, near the top of the file
+- Example:
+```python
+# Good
+DEFAULT_PORT = 8000
+DEFAULT_HOST = "0.0.0.0"
+port = int(os.environ.get("PORT", str(DEFAULT_PORT)))
+
+# Bad
+port = int(os.environ.get("PORT", "8000"))
+```
+
 ### Python
 - Type hints required
 - Async functions for I/O

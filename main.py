@@ -11,8 +11,12 @@ from fastapi import FastAPI
 from agent import create_mcp_wrapper, create_simple_wrapper
 from server import app, set_agent
 
+# Constants
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_HOST = "0.0.0.0"
+DEFAULT_PORT = 8000
+DEFAULT_USE_MCP = True
 
-# Global wrapper reference for cleanup
 _wrapper_context = None
 _wrapper = None
 
@@ -22,9 +26,9 @@ async def lifespan(app: FastAPI):
     """Manage MCP wrapper lifecycle with FastAPI lifespan."""
     global _wrapper_context, _wrapper
 
-    model_id = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+    model_id = os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL)
     working_dir = os.environ.get("WORKING_DIR", os.getcwd())
-    use_mcp = os.environ.get("USE_MCP", "true").lower() == "true"
+    use_mcp = os.environ.get("USE_MCP", str(DEFAULT_USE_MCP).lower()).lower() == "true"
 
     print(f"Starting agent server...")
     print(f"Using model: {model_id}")
@@ -32,7 +36,6 @@ async def lifespan(app: FastAPI):
     print(f"MCP enabled: {use_mcp}")
 
     if use_mcp:
-        # Use MCP wrapper with proper lifecycle management
         print("Initializing MCP servers...")
         _wrapper_context = create_mcp_wrapper(
             model_id=model_id,
@@ -42,7 +45,6 @@ async def lifespan(app: FastAPI):
         set_agent(_wrapper)
         print("MCP servers ready")
     else:
-        # Use simple wrapper without MCP
         print("Using simple wrapper (no MCP)")
         _wrapper = create_simple_wrapper(model_id=model_id)
         set_agent(_wrapper)
@@ -56,14 +58,13 @@ async def lifespan(app: FastAPI):
         print("MCP servers stopped")
 
 
-# Apply lifespan to the app
 app.router.lifespan_context = lifespan
 
 
 def main() -> None:
     """Start server with MCP support."""
-    host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8000"))
+    host = os.environ.get("HOST", DEFAULT_HOST)
+    port = int(os.environ.get("PORT", str(DEFAULT_PORT)))
 
     print(f"Server will listen on {host}:{port}")
     uvicorn.run(app, host=host, port=port)

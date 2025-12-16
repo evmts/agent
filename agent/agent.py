@@ -15,6 +15,11 @@ from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 from .registry import get_agent_config
 
+# Constants
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
+SHELL_SERVER_TIMEOUT_SECONDS = 60
+FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
+
 
 def _is_anthropic_model(model_id: str) -> bool:
     """Check if the model is an Anthropic/Claude model."""
@@ -69,7 +74,7 @@ def create_mcp_servers(working_dir: str | None = None) -> list[MCPServerStdio]:
     shell_server = MCPServerStdio(
         'python',
         args=['-m', 'mcp_server_shell'],
-        timeout=60,
+        timeout=SHELL_SERVER_TIMEOUT_SECONDS,
     )
     servers.append(shell_server)
 
@@ -78,7 +83,7 @@ def create_mcp_servers(working_dir: str | None = None) -> list[MCPServerStdio]:
     filesystem_server = MCPServerStdio(
         'npx',
         args=['-y', '@modelcontextprotocol/server-filesystem', cwd],
-        timeout=30,
+        timeout=FILESYSTEM_SERVER_TIMEOUT_SECONDS,
     )
     servers.append(filesystem_server)
 
@@ -87,7 +92,7 @@ def create_mcp_servers(working_dir: str | None = None) -> list[MCPServerStdio]:
 
 @asynccontextmanager
 async def create_agent_with_mcp(
-    model_id: str = "claude-sonnet-4-20250514",
+    model_id: str = DEFAULT_MODEL,
     agent_name: str = "build",
     working_dir: str | None = None,
 ) -> AsyncIterator[Agent]:
@@ -177,7 +182,7 @@ async def create_agent_with_mcp(
 
 
 def create_agent(
-    model_id: str = "claude-sonnet-4-20250514",
+    model_id: str = DEFAULT_MODEL,
     api_key: str | None = None,
     agent_name: str = "build",
 ) -> Agent:

@@ -1,3 +1,6 @@
+// There is currently no zig in this project
+// We just use build.zig because it's essentially a better version of a MAKEFILE
+// Run zig build --help to see all the available commands
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {

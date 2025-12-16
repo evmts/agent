@@ -19,7 +19,7 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
-from .agent import create_agent_with_mcp, create_agent
+from .agent import create_agent_with_mcp, create_agent, DEFAULT_MODEL
 
 
 @dataclass
@@ -146,7 +146,7 @@ class AgentWrapper:
 
 @asynccontextmanager
 async def create_mcp_wrapper(
-    model_id: str = "claude-sonnet-4-20250514",
+    model_id: str = DEFAULT_MODEL,
     agent_name: str = "build",
     working_dir: str | None = None,
 ) -> AsyncIterator[AgentWrapper]:
@@ -177,7 +177,7 @@ async def create_mcp_wrapper(
 
 
 def create_simple_wrapper(
-    model_id: str = "claude-sonnet-4-20250514",
+    model_id: str = DEFAULT_MODEL,
     agent_name: str = "build",
 ) -> AgentWrapper:
     """
