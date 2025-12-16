@@ -65,8 +65,30 @@ func (m *Model) AddShellOutput(output string) {
 func (m *Model) updateContent() {
 	var content strings.Builder
 
-	for i, msg := range m.messages {
-		content.WriteString(msg.RenderWithOptions(m.width, m.showThinking))
+	// Determine which messages to render based on compact mode
+	startIdx := 0
+	hiddenCount := 0
+
+	if m.compactMode && !m.compactExpanded && len(m.messages) > m.compactCount {
+		// Show only the last N messages
+		startIdx = len(m.messages) - m.compactCount
+		hiddenCount = startIdx
+
+		// Render compact header for hidden messages
+		content.WriteString(renderCompactHeader(hiddenCount, m.width, false))
+	} else if m.compactMode && m.compactExpanded && len(m.messages) > m.compactCount {
+		// Show all messages with expanded header
+		hiddenCount = len(m.messages) - m.compactCount
+		content.WriteString(renderCompactHeader(hiddenCount, m.width, true))
+	}
+
+	// Render messages with search highlighting
+	for i := startIdx; i < len(m.messages); i++ {
+		// Determine if this message contains the current match
+		currentMatchIdx := m.search.GetMatchMessageIndex()
+		isCurrentMatchMessage := m.search.Active && currentMatchIdx == i
+
+		content.WriteString(m.messages[i].RenderWithSearch(m.width, m.showThinking, m.search.Query, isCurrentMatchMessage))
 		if i < len(m.messages)-1 {
 			content.WriteString("\n")
 		}

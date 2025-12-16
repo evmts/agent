@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
+	"tui/internal/components/progress"
 	"tui/internal/styles"
 )
 
@@ -17,6 +18,23 @@ const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 )
+
+// Token threshold constants for color coding
+const (
+	TOKEN_THRESHOLD_WARNING = 100000 // Yellow warning at 100k tokens
+	TOKEN_THRESHOLD_ERROR   = 180000 // Red error at 180k tokens
+)
+
+// formatTokenCount formats token count with k suffix for thousands
+func formatTokenCount(count int) string {
+	if count < 1000 {
+		return fmt.Sprintf("%d", count)
+	}
+	if count < 1000000 {
+		return fmt.Sprintf("%.1fk", float64(count)/1000.0)
+	}
+	return fmt.Sprintf("%.1fM", float64(count)/1000000.0)
+}
 
 // MessageOptions contains rendering options
 type MessageOptions struct {
@@ -49,12 +67,22 @@ func (m Message) RenderWithOptions(width int, showThinking bool) string {
 	return m.RenderWithFullOptions(width, opts)
 }
 
-// RenderWithFullOptions renders a message with full options control
-func (m Message) RenderWithFullOptions(width int, opts MessageOptions) string {
+// RenderWithSearch renders a message with search highlighting
+func (m Message) RenderWithSearch(width int, showThinking bool, searchQuery string, isCurrentMatch bool) string {
+	opts := MessageOptions{
+		ShowThinking:   showThinking,
+		ShowTimestamps: false,
+		ExpandedTools:  make(map[string]bool),
+	}
+	return m.renderWithSearchInternal(width, opts, searchQuery, isCurrentMatch)
+}
+
+// renderWithSearchInternal renders a message with search highlighting
+func (m Message) renderWithSearchInternal(width int, opts MessageOptions, searchQuery string, isCurrentMatch bool) string {
 	var sb strings.Builder
 	theme := styles.GetCurrentTheme()
 
-	// Build header line with role + optional timestamp
+	// Build header line with role + optional timestamp + token info
 	var headerParts []string
 
 	switch m.Role {
@@ -75,7 +103,97 @@ func (m Message) RenderWithFullOptions(width int, opts MessageOptions) string {
 		headerParts = append(headerParts, timestampStyle.Render(formatMessageTime(m.Timestamp)))
 	}
 
+	// Join the basic header parts
 	sb.WriteString(strings.Join(headerParts, " "))
+
+	// Add token info for assistant messages on the same line (right-aligned)
+	if m.Role == RoleAssistant && m.Info != nil {
+		tokenInfo := formatTokenInfo(m.Info.Tokens, m.Info.Cost, theme)
+		if tokenInfo != "" {
+			// Calculate space needed to right-align token info
+			headerText := strings.Join(headerParts, " ")
+			// Remove ANSI codes for accurate length calculation
+			headerLen := lipgloss.Width(headerText)
+			tokenInfoLen := lipgloss.Width(tokenInfo)
+
+			// Add padding to push token info to the right
+			// Leave some margin from the right edge
+			padding := width - headerLen - tokenInfoLen - 2
+			if padding > 0 {
+				sb.WriteString(strings.Repeat(" ", padding))
+			}
+			sb.WriteString(tokenInfo)
+		}
+	}
+
+	sb.WriteString("\n")
+
+	// Render all parts with search highlighting
+	for i, part := range m.Parts {
+		partView := renderPartWithSearch(part, width-4, opts, i, searchQuery, isCurrentMatch)
+		if partView != "" {
+			sb.WriteString(partView)
+			sb.WriteString("\n")
+		}
+	}
+
+	// Add streaming cursor
+	if m.IsStreaming {
+		sb.WriteString(styles.StreamingCursor().Render("▊"))
+	}
+
+	return sb.String()
+}
+
+// RenderWithFullOptions renders a message with full options control
+func (m Message) RenderWithFullOptions(width int, opts MessageOptions) string {
+	var sb strings.Builder
+	theme := styles.GetCurrentTheme()
+
+	// Build header line with role + optional timestamp + token info
+	var headerParts []string
+
+	switch m.Role {
+	case RoleUser:
+		headerParts = append(headerParts, styles.UserLabel().Render("You"))
+	case RoleAssistant:
+		headerParts = append(headerParts, styles.AssistantLabel().Render("Assistant"))
+		// Add model info if available
+		if m.Info != nil && m.Info.ModelID != "" {
+			modelStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+			headerParts = append(headerParts, modelStyle.Render(fmt.Sprintf("(%s)", m.Info.ModelID)))
+		}
+	}
+
+	// Add timestamp if enabled
+	if opts.ShowTimestamps && !m.Timestamp.IsZero() {
+		timestampStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		headerParts = append(headerParts, timestampStyle.Render(formatMessageTime(m.Timestamp)))
+	}
+
+	// Join the basic header parts
+	sb.WriteString(strings.Join(headerParts, " "))
+
+	// Add token info for assistant messages on the same line (right-aligned)
+	if m.Role == RoleAssistant && m.Info != nil {
+		tokenInfo := formatTokenInfo(m.Info.Tokens, m.Info.Cost, theme)
+		if tokenInfo != "" {
+			// Calculate space needed to right-align token info
+			headerText := strings.Join(headerParts, " ")
+			// Remove ANSI codes for accurate length calculation
+			headerLen := lipgloss.Width(headerText)
+			tokenInfoLen := lipgloss.Width(tokenInfo)
+
+			// Add padding to push token info to the right
+			// Leave some margin from the right edge
+			padding := width - headerLen - tokenInfoLen - 2
+			if padding > 0 {
+				sb.WriteString(strings.Repeat(" ", padding))
+			}
+			sb.WriteString(tokenInfo)
+		}
+	}
+
 	sb.WriteString("\n")
 
 	// Count tool parts for collapsible display
@@ -129,6 +247,22 @@ func renderPartWithOptions(part agent.Part, width int, opts MessageOptions, inde
 		return renderReasoningPart(part, width, opts.ShowThinking)
 	case part.IsTool():
 		return renderToolPartEnhanced(part, width, opts, index)
+	case part.IsFile():
+		return renderFilePart(part, width)
+	default:
+		return ""
+	}
+}
+
+// renderPartWithSearch renders a part with search highlighting
+func renderPartWithSearch(part agent.Part, width int, opts MessageOptions, index int, searchQuery string, isCurrentMatch bool) string {
+	switch {
+	case part.IsText():
+		return renderTextPartWithSearch(part, width, searchQuery, isCurrentMatch)
+	case part.IsReasoning():
+		return renderReasoningPartWithSearch(part, width, opts.ShowThinking, searchQuery, isCurrentMatch)
+	case part.IsTool():
+		return renderToolPartWithSearch(part, width, opts, index, searchQuery, isCurrentMatch)
 	case part.IsFile():
 		return renderFilePart(part, width)
 	default:
@@ -279,11 +413,19 @@ func renderToolPartEnhanced(part agent.Part, width int, opts MessageOptions, ind
 			}
 		}
 	} else if state.Status == "running" {
-		// Show running state summary
-		summaryStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
-		result.WriteString("\n")
-		result.WriteString(treeStyle.Render(treeChar + " "))
-		result.WriteString(summaryStyle.Render("Running..."))
+		// Show progress if available
+		if state.Progress != nil && state.Progress.Type != agent.ProgressNone {
+			result.WriteString("\n")
+			result.WriteString(treeStyle.Render(treeChar + " "))
+			progressBar := progress.RenderToolProgress(*state.Progress, width)
+			result.WriteString(progressBar)
+		} else {
+			// Show generic running state
+			summaryStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+			result.WriteString("\n")
+			result.WriteString(treeStyle.Render(treeChar + " "))
+			result.WriteString(summaryStyle.Render("Running..."))
+		}
 	}
 
 	return result.String()
@@ -469,14 +611,21 @@ func renderToolPart(part agent.Part, width int) string {
 
 // renderFilePart renders file attachments
 func renderFilePart(part agent.Part, width int) string {
-	fileStyle := lipgloss.NewStyle().
-		Foreground(styles.GetCurrentTheme().Secondary).
-		Bold(true)
-
 	name := "File"
 	if part.Filename != nil {
 		name = *part.Filename
 	}
+
+	// Check if this is an image file
+	if IsImageMimeType(part.Mime) {
+		// Try to render image inline
+		return RenderImage(part.URL, part.Mime, name, width)
+	}
+
+	// For non-image files, show as attachment
+	fileStyle := lipgloss.NewStyle().
+		Foreground(styles.GetCurrentTheme().Secondary).
+		Bold(true)
 
 	return fileStyle.Render(fmt.Sprintf("📎 %s (%s)", name, part.Mime))
 }
@@ -532,6 +681,64 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+// formatTokensWithColor formats token count with color based on threshold
+func formatTokensWithColor(count int, theme *styles.Theme) string {
+	formatted := formatTokenCount(count)
+	style := lipgloss.NewStyle()
+
+	switch {
+	case count > 50000: // Error threshold
+		style = style.Foreground(theme.Error)
+	case count > 10000: // Warning threshold
+		style = style.Foreground(theme.Warning)
+	default:
+		style = style.Foreground(theme.Muted)
+	}
+
+	return style.Render("↑ " + formatted + " tokens")
+}
+
+// formatCost formats a cost value with appropriate precision
+func formatCost(cost float64) string {
+	if cost < 0.01 {
+		return fmt.Sprintf("$%.4f", cost)
+	}
+	return fmt.Sprintf("$%.3f", cost)
+}
+
+// formatTokenInfo creates a formatted token info string for message header
+func formatTokenInfo(tokens *agent.TokenInfo, cost float64, theme *styles.Theme) string {
+	if tokens == nil {
+		return ""
+	}
+
+	var parts []string
+
+	// Calculate total tokens
+	totalTokens := tokens.Input + tokens.Output + tokens.Reasoning
+
+	if totalTokens > 0 {
+		// Add token count with color
+		tokenStr := formatTokensWithColor(totalTokens, theme)
+		parts = append(parts, tokenStr)
+	}
+
+	// Add cost if non-zero
+	if cost > 0 {
+		costStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		costStr := costStyle.Render(formatCost(cost))
+		parts = append(parts, costStr)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// Join with middle dot separator
+	separator := lipgloss.NewStyle().Foreground(theme.Muted).Render(" · ")
+	return separator + strings.Join(parts, separator)
+}
+
 // ChatItem represents a renderable item in the chat
 type ChatItem interface {
 	Render(width int) string
@@ -545,4 +752,248 @@ func HelpText() string {
 	return lipgloss.NewStyle().
 		Foreground(styles.GetCurrentTheme().Muted).
 		Render("Enter: send • Ctrl+C: quit • Ctrl+N: new session")
+}
+
+// renderCompactHeader renders the collapsed messages header
+func renderCompactHeader(hiddenCount int, width int, expanded bool) string {
+	theme := styles.GetCurrentTheme()
+
+	// Arrow indicator (▶ when collapsed, ▼ when expanded)
+	var arrow string
+	if expanded {
+		arrow = "▼"
+	} else {
+		arrow = "▶"
+	}
+
+	arrowStyle := lipgloss.NewStyle().
+		Foreground(theme.Accent).
+		Bold(true)
+
+	// Message text
+	messageStyle := lipgloss.NewStyle().
+		Foreground(theme.TextSecondary).
+		Italic(true)
+
+	var messageText string
+	if hiddenCount == 1 {
+		messageText = "1 earlier message"
+	} else {
+		messageText = fmt.Sprintf("%d earlier messages", hiddenCount)
+	}
+
+	// Hint text
+	hintStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted)
+
+	var hintText string
+	if expanded {
+		hintText = "(press E to collapse)"
+	} else {
+		hintText = "(press E to expand)"
+	}
+
+	// Build the header line
+	header := arrowStyle.Render(arrow+" ") +
+		messageStyle.Render(messageText+" ") +
+		hintStyle.Render(hintText)
+
+	// Add border
+	borderStyle := lipgloss.NewStyle().
+		Foreground(theme.Border).
+		Width(width)
+
+	borderLine := borderStyle.Render(strings.Repeat("─", width))
+
+	return header + "\n" + borderLine + "\n"
+}
+
+// renderTextPartWithSearch renders text with search highlighting
+func renderTextPartWithSearch(part agent.Part, width int, searchQuery string, isCurrentMatch bool) string {
+	content := part.Text
+	if content == "" {
+		return ""
+	}
+
+	theme := styles.GetCurrentTheme()
+
+	// Check for code blocks and add copy indicator
+	hasCodeBlock := strings.Contains(content, "```")
+
+	// Render markdown using shared renderer
+	rendered := RenderMarkdown(content)
+	content = strings.TrimSpace(rendered)
+
+	// Apply search highlighting
+	if searchQuery != "" {
+		content = HighlightMatches(content, searchQuery, isCurrentMatch)
+	}
+
+	// Add code block indicator if present
+	if hasCodeBlock {
+		copyHint := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Italic(true).
+			Render("  [Code block - select to copy]")
+		content = content + "\n" + copyHint
+	}
+
+	return styles.AssistantMessage().Width(width).Render(content)
+}
+
+// renderReasoningPartWithSearch renders thinking/reasoning content with search highlighting
+func renderReasoningPartWithSearch(part agent.Part, width int, showThinking bool, searchQuery string, isCurrentMatch bool) string {
+	if part.Text == "" {
+		return ""
+	}
+
+	theme := styles.GetCurrentTheme()
+
+	// If showThinking is false, show collapsed indicator
+	if !showThinking {
+		collapsedStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Italic(true)
+		symbolStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted)
+		hintStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted)
+
+		return symbolStyle.Render("∴ ") + collapsedStyle.Render("Thought ") + hintStyle.Render("(ctrl+o to show thinking)")
+	}
+
+	// Show expanded thinking with search highlighting
+	symbolStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted)
+	headerStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Italic(true)
+	header := symbolStyle.Render("∴ ") + headerStyle.Render("Thinking...")
+
+	// Apply search highlighting to content
+	thinkingText := part.Text
+	if searchQuery != "" {
+		thinkingText = HighlightMatches(thinkingText, searchQuery, isCurrentMatch)
+	}
+
+	// Content style - dimmed and italic
+	contentStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Italic(true).
+		PaddingLeft(2).
+		Width(width - 4)
+	content := contentStyle.Render(thinkingText)
+
+	return header + "\n" + content
+}
+
+// renderToolPartWithSearch renders tool with search highlighting
+func renderToolPartWithSearch(part agent.Part, width int, opts MessageOptions, index int, searchQuery string, isCurrentMatch bool) string {
+	if part.State == nil {
+		return ""
+	}
+
+	theme := styles.GetCurrentTheme()
+	state := part.State
+
+	// Status indicator
+	var status string
+	var statusStyle lipgloss.Style
+
+	switch state.Status {
+	case "pending":
+		status = "○"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	case "running":
+		status = "●"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Warning)
+	case "completed":
+		status = "●"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Success)
+	case "failed":
+		status = "✗"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Error)
+	default:
+		status = "○"
+		statusStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	}
+
+	// Format tool name with parentheses
+	toolNameStyle := lipgloss.NewStyle().
+		Foreground(theme.Success).
+		Bold(true)
+
+	inputStr := formatToolInputForHeader(part.Tool, state.Input)
+	if state.Title != nil && *state.Title != "" {
+		inputStr = *state.Title
+	}
+
+	// Apply search highlighting to tool name and input
+	toolDisplay := part.Tool + "(" + inputStr + ")"
+	if searchQuery != "" {
+		toolDisplay = HighlightMatches(toolDisplay, searchQuery, isCurrentMatch)
+	}
+
+	header := fmt.Sprintf("%s %s", statusStyle.Render(status), toolNameStyle.Render(toolDisplay))
+
+	var result strings.Builder
+	result.WriteString(header)
+
+	// Tree branch character for child items
+	treeChar := "└"
+	treeStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	// Show output summary with search highlighting
+	if state.Status == "completed" && state.Output != "" {
+		output := state.Output
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+
+		// Format output summary
+		summary := formatToolOutputSummary(part.Tool, state.Input, output, lines)
+		if summary != "" {
+			summaryStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+			result.WriteString("\n")
+			result.WriteString(treeStyle.Render(treeChar + " "))
+			result.WriteString(summaryStyle.Render(summary))
+		}
+
+		// For tools that list files, show file paths with highlighting
+		if (part.Tool == "Glob" || part.Tool == "Grep" || part.Tool == "Search") && len(lines) > 0 {
+			maxFiles := 10
+			fileStyle := lipgloss.NewStyle().Foreground(theme.Success)
+			for i, line := range lines {
+				if i >= maxFiles {
+					result.WriteString("\n")
+					moreStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+					result.WriteString(moreStyle.Render(fmt.Sprintf("  ... and %d more files", len(lines)-maxFiles)))
+					break
+				}
+				if strings.TrimSpace(line) != "" {
+					result.WriteString("\n")
+					result.WriteString("  ")
+					lineText := strings.TrimSpace(line)
+					if searchQuery != "" {
+						lineText = HighlightMatches(lineText, searchQuery, isCurrentMatch)
+					}
+					result.WriteString(fileStyle.Render(lineText))
+				}
+			}
+		}
+	} else if state.Status == "running" {
+		// Show progress if available
+		if state.Progress != nil && state.Progress.Type != agent.ProgressNone {
+			result.WriteString("\n")
+			result.WriteString(treeStyle.Render(treeChar + " "))
+			progressBar := progress.RenderToolProgress(*state.Progress, width)
+			result.WriteString(progressBar)
+		} else {
+			// Show generic running state
+			summaryStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+			result.WriteString("\n")
+			result.WriteString(treeStyle.Render(treeChar + " "))
+			result.WriteString(summaryStyle.Render("Running..."))
+		}
+	}
+
+	return result.String()
 }
