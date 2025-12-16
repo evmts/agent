@@ -19,6 +19,9 @@ import (
 
 var Version = "dev"
 
+// Spinner frames for animation
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 // Styles
 var (
 	promptStyle = lipgloss.NewStyle().
@@ -89,12 +92,18 @@ type model struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	streamingText         string
+	spinnerFrame          int
+	program               *tea.Program
+	seenToolIDs           map[string]bool // Track tools we've displayed
 }
 
 // Bubbletea message types
 type responseMsg string
-type streamChunkMsg string
+type streamChunkMsg struct {
+	text string
+}
 type streamDoneMsg struct{}
+type spinnerTickMsg struct{}
 type toolUseMsg struct {
 	toolName string
 	toolID   string
@@ -113,6 +122,7 @@ type errMsg error
 type modelsLoadedMsg struct {
 	options []modelOption
 }
+type messageStartedMsg struct{}
 
 func initialModel(client *agent.Client, project *agent.Project, cwd, version string, initialPrompt *string) model {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,6 +144,7 @@ func initialModel(client *agent.Client, project *agent.Project, cwd, version str
 		version:               version,
 		ctx:                   ctx,
 		cancel:                cancel,
+		seenToolIDs:           make(map[string]bool),
 	}
 
 	if initialPrompt != nil && *initialPrompt != "" {
@@ -205,6 +216,12 @@ func (m model) loadModels() tea.Cmd {
 	}
 }
 
+func spinnerTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
 func (m model) sendMessage(text string) tea.Cmd {
 	return func() tea.Msg {
 		if m.session == nil {
@@ -221,73 +238,15 @@ func (m model) sendMessage(text string) tea.Cmd {
 			req.Model = m.currentModel
 		}
 
-		eventCh, errCh, err := m.client.SendMessage(m.ctx, m.session.ID, req)
+		// Start the request - don't block waiting for response
+		// The global event stream will handle streaming updates
+		_, _, err := m.client.SendMessage(m.ctx, m.session.ID, req)
 		if err != nil {
 			return errMsg(err)
 		}
 
-		// Collect all response parts
-		var textContent strings.Builder
-		var toolParts []toolUseMsg
-		var toolResults []toolResultMsg
-
-		for {
-			select {
-			case event, ok := <-eventCh:
-				if !ok {
-					// Stream ended
-					if textContent.Len() > 0 {
-						return responseMsg(textContent.String())
-					}
-					if len(toolParts) > 0 {
-						// Return first tool use - the TUI will show it
-						return toolParts[0]
-					}
-					if len(toolResults) > 0 {
-						return toolResults[0]
-					}
-					return streamDoneMsg{}
-				}
-
-				if event.Part != nil {
-					switch event.Part.Type {
-					case "text":
-						textContent.WriteString(event.Part.Text)
-					case "tool":
-						if event.Part.State != nil {
-							switch event.Part.State.Status {
-							case "pending", "running":
-								toolParts = append(toolParts, toolUseMsg{
-									toolName: event.Part.Tool,
-									toolID:   event.Part.ID,
-									status:   event.Part.State.Status,
-								})
-							case "completed":
-								output := event.Part.State.Output
-								toolResults = append(toolResults, toolResultMsg{
-									toolName: event.Part.Tool,
-									toolID:   event.Part.ID,
-									output:   output,
-								})
-							}
-						}
-					}
-				}
-
-			case err := <-errCh:
-				if err != nil {
-					return errMsg(err)
-				}
-				// Channel closed, return what we have
-				if textContent.Len() > 0 {
-					return responseMsg(textContent.String())
-				}
-				return streamDoneMsg{}
-
-			case <-m.ctx.Done():
-				return errMsg(m.ctx.Err())
-			}
-		}
+		// Return immediately - global events will stream the response
+		return messageStartedMsg{}
 	}
 }
 
@@ -404,8 +363,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input = ""
 			m.waiting = true
 			m.streamingText = ""
+			m.spinnerFrame = 0
+			m.seenToolIDs = make(map[string]bool)
 
-			return m, m.sendMessage(input)
+			return m, tea.Batch(m.sendMessage(input), spinnerTick())
 
 		case tea.KeyTab:
 			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
@@ -456,6 +417,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateAutocomplete()
 		}
 
+	case spinnerTickMsg:
+		if m.waiting {
+			m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
+			return m, spinnerTick()
+		}
+
+	case messageStartedMsg:
+		// Message send initiated, spinner already running
+		return m, nil
+
 	case sessionCreatedMsg:
 		m.session = msg.session
 		if m.input != "" {
@@ -465,7 +436,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			input := m.input
 			m.input = ""
 			m.waiting = true
-			return m, m.sendMessage(input)
+			m.spinnerFrame = 0
+			m.seenToolIDs = make(map[string]bool)
+			return m, tea.Batch(m.sendMessage(input), spinnerTick())
 		}
 
 	case modelsLoadedMsg:
@@ -527,23 +500,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.streamingText = msg.Part.Text
 			case "tool":
 				if msg.Part.State != nil {
-					if msg.Part.State.Status == "completed" {
-						m.messages = append(m.messages, message{
-							role:         "tool_result",
-							content:      msg.Part.State.Output,
-							isToolResult: true,
-							toolName:     msg.Part.Tool,
-							toolID:       msg.Part.ID,
-						})
-					} else if msg.Part.State.Status == "pending" || msg.Part.State.Status == "running" {
-						// Show tool being used
-						m.messages = append(m.messages, message{
-							role:      "assistant",
-							content:   fmt.Sprintf("Using tool: %s", msg.Part.Tool),
-							isToolUse: true,
-							toolName:  msg.Part.Tool,
-							toolID:    msg.Part.ID,
-						})
+					toolKey := msg.Part.ID + ":" + msg.Part.State.Status
+					if !m.seenToolIDs[toolKey] {
+						m.seenToolIDs[toolKey] = true
+						if msg.Part.State.Status == "completed" {
+							m.messages = append(m.messages, message{
+								role:         "tool_result",
+								content:      msg.Part.State.Output,
+								isToolResult: true,
+								toolName:     msg.Part.Tool,
+								toolID:       msg.Part.ID,
+							})
+						} else if msg.Part.State.Status == "pending" || msg.Part.State.Status == "running" {
+							// Show tool being used
+							m.messages = append(m.messages, message{
+								role:      "assistant",
+								content:   fmt.Sprintf("Using tool: %s", msg.Part.Tool),
+								isToolUse: true,
+								toolName:  msg.Part.Tool,
+								toolID:    msg.Part.ID,
+							})
+						}
 					}
 				}
 			}
@@ -554,6 +531,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
 				m.streamingText = ""
 			}
+			// Reset seen tools for next message
+			m.seenToolIDs = make(map[string]bool)
 		}
 	}
 
@@ -637,14 +616,16 @@ func (m model) View() string {
 		}
 	}
 
-	// Streaming text
+	// Streaming text with spinner
 	if m.streamingText != "" {
-		s.WriteString(responseStyle.Render("⏺ ") + m.streamingText + "\n\n")
+		spinner := spinnerFrames[m.spinnerFrame]
+		s.WriteString(responseStyle.Render(spinner+" ") + m.streamingText + "\n\n")
 	}
 
-	// Waiting indicator
+	// Waiting indicator with animated spinner
 	if m.waiting && m.streamingText == "" {
-		s.WriteString(responseStyle.Render("⏺ Thinking...") + "\n\n")
+		spinner := spinnerFrames[m.spinnerFrame]
+		s.WriteString(responseStyle.Render(spinner+" Thinking...") + "\n\n")
 	}
 
 	// Error display
