@@ -12,22 +12,24 @@ pub fn build(b: *std.Build) void {
     build_tui_step.dependOn(&build_tui_cmd.step);
 
     // ==========================================================
-    // Run TUI: Build and run the TUI
+    // Run TUI: Build and run the TUI (connects to external server)
     // ==========================================================
-    const run_tui_step = b.step("run-tui", "Build and run the TUI");
+    const run_tui_step = b.step("run-tui", "Build and run TUI (connects to localhost:8000)");
     const run_tui_build = b.addSystemCommand(&.{ "go", "build", "-C", "tui", "-o", "../agent-tui", "." });
-    const run_tui_cmd = b.addSystemCommand(&.{"./agent-tui"});
+    // Use exec to replace shell process, ensuring proper TTY passthrough
+    const run_tui_cmd = b.addSystemCommand(&.{ "sh", "-c", "exec ./agent-tui --embedded=false" });
     run_tui_cmd.step.dependOn(&run_tui_build.step);
     run_tui_step.dependOn(&run_tui_cmd.step);
 
     // ==========================================================
-    // Run: Start server and TUI together (default)
+    // Run: Build and run TUI with embedded Python server (default)
     // ==========================================================
-    const run_step = b.step("run", "Start server and TUI");
+    const run_step = b.step("run", "Build and run TUI with embedded server");
     const run_tui_build_default = b.addSystemCommand(&.{ "go", "build", "-C", "tui", "-o", "../agent-tui", "." });
-    const run_both_cmd = b.addSystemCommand(&.{ "sh", "-c", ".venv/bin/python main.py & sleep 2 && ./agent-tui; kill %1 2>/dev/null" });
-    run_both_cmd.step.dependOn(&run_tui_build_default.step);
-    run_step.dependOn(&run_both_cmd.step);
+    // Use exec to replace shell process, ensuring proper TTY passthrough
+    const run_cmd = b.addSystemCommand(&.{ "sh", "-c", "exec ./agent-tui --embedded" });
+    run_cmd.step.dependOn(&run_tui_build_default.step);
+    run_step.dependOn(&run_cmd.step);
 
     // ==========================================================
     // Run Server: Start just the Python server
