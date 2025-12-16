@@ -155,16 +155,16 @@ func (m Model) forkFromMessage(sessionID, messageID string) tea.Cmd {
 	}
 }
 
-// detectGitBranch detects the current git branch
+// detectGitBranch detects the current git branch and refreshes git status
 func (m Model) detectGitBranch() tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 		output, err := cmd.Output()
-		if err != nil {
-			// Not in a git repo or git not available
-			return gitBranchMsg{branch: ""}
+		branch := ""
+		if err == nil {
+			branch = strings.TrimSpace(string(output))
 		}
-		branch := strings.TrimSpace(string(output))
+		// Return a message that will trigger both branch update and git status refresh
 		return gitBranchMsg{branch: branch}
 	}
 }
