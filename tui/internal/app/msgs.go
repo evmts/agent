@@ -1,6 +1,9 @@
 package app
 
-import "github.com/williamcory/agent/sdk/agent"
+import (
+	"github.com/williamcory/agent/sdk/agent"
+	"tui/internal/config"
+)
 
 // Internal message types for the app
 // Note: healthCheckMsg is defined in app.go
@@ -48,3 +51,17 @@ type editorResultMsg struct {
 	content string
 	err     error
 }
+
+type resumeCheckMsg struct {
+	hasSession bool
+	info       *config.LastSessionInfo
+	preference config.ResumePreference
+}
+
+type resumeLoadSessionMsg struct {
+	sessionID string
+}
+
+type resumeCreateNewSessionMsg struct{}
+
+type resumeShowSessionListMsg struct{}

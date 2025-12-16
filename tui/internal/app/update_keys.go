@@ -11,12 +11,28 @@ import (
 
 // handleKeyMsg handles all keyboard input
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If there's a shortcuts overlay, handle it first
+	if m.HasShortcutsOverlay() {
+		var cmd tea.Cmd
+		m.shortcutsOverlay, cmd = m.shortcutsOverlay.Update(msg)
+		if !m.shortcutsOverlay.IsVisible() {
+			m.CloseShortcutsOverlay()
+		}
+		return m, cmd
+	}
+
 	// If there's an active dialog, handle it first
 	if m.HasActiveDialog() {
 		return m.handleDialogKeyMsg(msg)
 	}
 
 	action := m.keyMap.Get(msg.String())
+
+	// Handle shortcuts overlay action
+	if action == keybind.ActionShowShortcuts {
+		m.ShowShortcutsOverlay()
+		return m, nil
+	}
 
 	// Handle help action
 	if action == keybind.ActionShowHelp {
@@ -60,6 +76,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle MCP browser action
+	if action == keybind.ActionShowMCP {
+		return m, m.loadMCPServers()
+	}
+
 	// Handle permissions cycle action (Claude Code style)
 	if action == keybind.ActionCyclePermissions {
 		m.cyclePermissionsMode()
@@ -98,20 +119,34 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle cancel/escape - always check streaming state first
+	// Handle cancel/escape - check search state first, then streaming state
 	if action == keybind.ActionCancel {
+		// If search is active, close search
+		if m.chat.IsSearchActive() {
+			m.chat.DeactivateSearch()
+			return m, nil
+		}
 		if m.state == StateStreaming && m.cancel != nil {
 			// Check for double-escape (within 500ms)
 			now := time.Now()
 			if now.Sub(m.lastEscapeTime) < 500*time.Millisecond {
-				// Double escape - cancel immediately
+				// Double escape - cancel immediately and capture interrupt context
+				ctx := m.captureInterruptContext()
+				m.interruptContext = &ctx
+				m.lastInterruptTime = now
+
 				m.cancel()
 				m.state = StateIdle
 				m.spinner.Stop()
 				m.chat.EndAssistantMessage()
 				m.inputFocused = true
 				m.lastEscapeTime = time.Time{} // Reset
-				return m, m.input.Focus()
+
+				// Show interrupt notification
+				return m, tea.Batch(
+					m.input.Focus(),
+					m.ShowToast("Interrupted: "+ctx.Description, toast.ToastWarning, 3*time.Second),
+				)
 			}
 			// First escape - show hint and record time
 			m.lastEscapeTime = now
@@ -138,9 +173,72 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle submit
 	if action == keybind.ActionSubmit && m.inputFocused {
+		// If search is active, submit updates the search query
+		if m.chat.IsSearchActive() {
+			query := m.input.Value()
+			m.chat.UpdateSearchQuery(query)
+			return m, nil
+		}
 		if m.state == StateIdle && m.session != nil && m.input.Value() != "" {
 			return m.sendMessage()
 		}
+	}
+
+	// Handle search action
+	if action == keybind.ActionSearch && !m.inputFocused {
+		if !m.chat.IsEmpty() {
+			m.chat.ActivateSearch()
+			m.input.SetValue("")
+			m.inputFocused = true
+			return m, m.input.Focus()
+		}
+		return m, m.ShowToast("No messages to search", toast.ToastInfo, 2*time.Second)
+	}
+
+	// Handle search navigation (only when search is active)
+	if m.chat.IsSearchActive() {
+		switch action {
+		case keybind.ActionSearchNext:
+			m.chat.SearchNext()
+			return m, nil
+		case keybind.ActionSearchPrev:
+			m.chat.SearchPrev()
+			return m, nil
+		}
+	}
+
+	// Handle code block navigation (only when not typing)
+	if !m.inputFocused {
+		switch action {
+		case keybind.ActionNextCodeBlock:
+			if m.chat.NextCodeBlock() {
+				return m, m.ShowToast("Next code block", toast.ToastInfo, 1*time.Second)
+			}
+			return m, m.ShowToast("No more code blocks", toast.ToastInfo, 1*time.Second)
+		case keybind.ActionPrevCodeBlock:
+			if m.chat.PrevCodeBlock() {
+				return m, m.ShowToast("Previous code block", toast.ToastInfo, 1*time.Second)
+			}
+			return m, m.ShowToast("No previous code blocks", toast.ToastInfo, 1*time.Second)
+		case keybind.ActionCopyCodeBlock:
+			if block := m.chat.GetCurrentCodeBlock(); block != nil {
+				return m, m.copyCodeBlock(block.Content)
+			}
+			return m, m.ShowToast("No code block selected", toast.ToastInfo, 2*time.Second)
+		}
+	}
+
+	// Handle resume action (only when we have an interrupt context)
+	if action == keybind.ActionResume && !m.inputFocused {
+		if m.interruptContext != nil && m.interruptContext.CanResume {
+			// Set input to "please continue" to resume
+			m.input.SetValue("please continue")
+			m.inputFocused = true
+			// Clear the interrupt context
+			m.interruptContext = nil
+			return m, m.input.Focus()
+		}
+		return m, m.ShowToast("No interrupted operation to resume", toast.ToastInfo, 2*time.Second)
 	}
 
 	// Handle actions that require idle state
@@ -199,6 +297,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmd, m.ShowToast("Mouse mode "+status, toast.ToastInfo, 3*time.Second))
 
+		case keybind.ActionToggleCompact:
+			m.chat.ToggleCompact()
+			status := "disabled"
+			if m.chat.IsCompactMode() {
+				status = "enabled"
+			}
+			return m, m.ShowToast("Compact view "+status, toast.ToastInfo, 2*time.Second)
+
 		case keybind.ActionShowDiff:
 			if m.session != nil {
 				return m, m.loadSessionDiff(m.session.ID)
@@ -244,6 +350,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case keybind.ActionScrollToBottom:
 			m.chat.ScrollToBottom()
+			return m, nil
+		case keybind.ActionToggleCompactExpand:
+			// Only works when compact mode is enabled
+			if m.chat.IsCompactMode() {
+				m.chat.ToggleCompactExpansion()
+			}
 			return m, nil
 		}
 	}
@@ -332,6 +444,20 @@ func (m Model) handleDialogKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case *dialog.RenameDialog:
+		var cmd tea.Cmd
+		m.activeDialog, cmd = d.Update(msg)
+		if !m.activeDialog.IsVisible() {
+			m.CloseDialog()
+		}
+		return m, cmd
+	case *dialog.ResumeDialog:
+		var cmd tea.Cmd
+		m.activeDialog, cmd = d.Update(msg)
+		if !m.activeDialog.IsVisible() {
+			m.CloseDialog()
+		}
+		return m, cmd
+	case *dialog.MCPDialog:
 		var cmd tea.Cmd
 		m.activeDialog, cmd = d.Update(msg)
 		if !m.activeDialog.IsVisible() {

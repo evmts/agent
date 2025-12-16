@@ -135,6 +135,36 @@ func (m Model) View() string {
 	}
 	sections = append(sections, chatView)
 
+	// Search overlay (shown above input when active)
+	if m.chat.IsSearchActive() {
+		searchOverlay := chat.RenderSearchOverlay(m.getSearchState(), contentWidth)
+		sections = append(sections, searchOverlay)
+	}
+
+	// Interrupt banner - show if we have an interrupt context
+	if m.interruptContext != nil {
+		// Convert interrupt context to InterruptInfo for rendering
+		info := chat.InterruptInfo{
+			Timestamp:   m.interruptContext.Timestamp,
+			Operation:   m.interruptContext.Operation.String(),
+			Description: m.interruptContext.Description,
+			PartialText: m.interruptContext.PartialText,
+			TokensUsed:  m.interruptContext.TokensUsed,
+		}
+
+		// Add progress information for tool operations
+		if m.interruptContext.Operation == OpToolExecution && m.interruptContext.ToolName != "" {
+			info.Progress = fmt.Sprintf("Tool: %s", m.interruptContext.ToolName)
+		}
+
+		bannerWidth := contentWidth
+		if bannerWidth > 100 {
+			bannerWidth = 100
+		}
+		interruptBanner := chat.RenderInterruptedBanner(info, bannerWidth)
+		sections = append(sections, "\n"+interruptBanner)
+	}
+
 	// Task status (Claude Code style) - shown during streaming
 	if m.state == StateStreaming || m.currentTask != "" {
 		taskStatus := m.renderTaskStatus(contentWidth)
@@ -202,7 +232,13 @@ func (m Model) View() string {
 	// If there's an active dialog, overlay it on top of everything
 	if m.HasActiveDialog() {
 		dialogView := m.activeDialog.Render(m.width, m.height)
-		return dialog.Overlay(baseView, dialogView, m.width, m.height)
+		baseView = dialog.Overlay(baseView, dialogView, m.width, m.height)
+	}
+
+	// If there's a shortcuts overlay, overlay it on top of everything (including dialogs)
+	if m.HasShortcutsOverlay() {
+		shortcutsView := m.shortcutsOverlay.Render(m.width, m.height)
+		return dialog.Overlay(baseView, shortcutsView, m.width, m.height)
 	}
 
 	return baseView
@@ -294,7 +330,7 @@ func (m Model) renderStatusBar(width int) string {
 	theme := styles.GetCurrentTheme()
 
 	// Claude Code style status bar:
-	// Line 1: >> permissions mode (hint)                    token count
+	// Line 1: >> permissions mode (hint)                    [compact mode indicator] token count
 	// Line 2: version info
 
 	// Left section: Permissions mode with >> indicator
@@ -311,10 +347,26 @@ func (m Model) renderStatusBar(width int) string {
 
 	leftSide := arrowStyle.Render("▶▶ ") + permStyle.Render(permText+" on") + hintStyle.Render(" (shift+tab to cycle)")
 
-	// Right section: Token count
+	// Right section: Compact mode indicator + Token count
+	var rightParts []string
+
+	// Add compact mode indicator if enabled
+	if m.chat.IsCompactMode() {
+		compactStyle := lipgloss.NewStyle().
+			Foreground(theme.Accent).
+			Background(theme.CodeBackground).
+			Padding(0, 1).
+			Bold(true)
+		rightParts = append(rightParts, compactStyle.Render("COMPACT"))
+	}
+
+	// Token count
 	totalTokens := m.totalInputTokens + m.totalOutputTokens
 	tokenStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-	rightSide := tokenStyle.Render(fmt.Sprintf("%s tokens", formatTokens(totalTokens)))
+	rightParts = append(rightParts, tokenStyle.Render(fmt.Sprintf("%s tokens", formatTokens(totalTokens))))
+
+	// Join right side parts
+	rightSide := strings.Join(rightParts, " ")
 
 	// Calculate spacing
 	leftWidth := ansi.PrintableRuneWidth(leftSide)

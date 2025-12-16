@@ -5,11 +5,14 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/williamcory/agent/sdk/agent"
 	"tui/internal/components/dialog"
 	"tui/internal/components/sidebar"
 	"tui/internal/components/spinner"
 	"tui/internal/components/toast"
+	"tui/internal/config"
 	"tui/internal/messages"
+	"tui/internal/notification"
 )
 
 // Update handles all application messages
@@ -49,9 +52,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case healthCheckMsg:
 		if msg.healthy {
-			// Mark as connected and create a new session on startup
+			// Mark as connected but don't create session yet - wait for resume check
 			m.connected = true
-			return m, tea.Batch(m.createSession(), m.detectGitBranch())
+			return m, m.detectGitBranch()
 		} else {
 			m.state = StateError
 			m.connected = false
@@ -60,9 +63,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case resumeCheckMsg:
+		// Handle resume session check result
+		if !msg.hasSession || msg.info == nil {
+			// No session to resume, create a new one
+			return m, m.createSession()
+		}
+
+		// We have a session to potentially resume
+		switch msg.preference {
+		case config.ResumeAlwaysContinue:
+			// Auto-resume the session
+			m.state = StateLoading
+			return m, m.loadExistingSession(msg.info.SessionID)
+		case config.ResumeAlwaysNew:
+			// Auto-create new session
+			return m, m.createSession()
+		default:
+			// Show resume dialog to ask user
+			m.ShowResumeDialog(msg.info)
+			return m, nil
+		}
+
+	case dialog.ResumeSelectedMsg:
+		// Handle user's resume choice
+		if msg.RememberPreference {
+			// Save the preference (async, ignore errors)
+			go func() {
+				_ = config.SetResumePreference(msg.Preference)
+			}()
+		}
+
+		switch msg.Action {
+		case dialog.ResumeContinue:
+			// Load the previous session
+			m.state = StateLoading
+			return m, m.loadExistingSession(msg.SessionID)
+		case dialog.ResumeNew:
+			// Create a new session
+			return m, m.createSession()
+		case dialog.ResumeSelect:
+			// Show session list
+			return m, tea.Batch(
+				m.loadSessions(),
+				func() tea.Msg {
+					return showSessionListMsg{}
+				},
+			)
+		default:
+			// Cancel - just create a new session
+			return m, m.createSession()
+		}
+
+	case resumeLoadSessionMsg:
+		m.state = StateLoading
+		return m, m.loadExistingSession(msg.sessionID)
+
+	case resumeCreateNewSessionMsg:
+		return m, m.createSession()
+
+	case resumeShowSessionListMsg:
+		return m, tea.Batch(
+			m.loadSessions(),
+			func() tea.Msg {
+				return showSessionListMsg{}
+			},
+		)
+
 	case gitBranchMsg:
 		m.gitBranch = msg.branch
-		return m, nil
+		// Also refresh git status when we detect the branch
+		return m, m.refreshGitStatus()
 
 	case sessionCreatedMsg:
 		m.session = msg.session
@@ -70,6 +141,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner.Stop()
 		m.inputFocused = true
 		m.sidebar.SetCurrentSession(msg.session)
+
+		// If there are messages in this session (i.e., we resumed), load them
+		// Otherwise, just focus input for a new session
+		if msg.session != nil {
+			// Check if this is a resumed session by seeing if we have message data
+			// For resumed sessions, we need to load the messages
+			return m, tea.Batch(
+				m.loadSessionMessages(msg.session.ID),
+				m.input.Focus(),
+			)
+		}
 		return m, m.input.Focus()
 
 	case messagesLoadedMsg:
@@ -87,6 +169,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadSessionMessages(msg.Session.ID)
 		}
 		return m, nil
+
+	case sidebar.GitStatusUpdatedMsg:
+		// Update git status in sidebar
+		m.sidebar.SetGitStatus(msg.Status)
+		return m, nil
+
+	case sidebar.GitRefreshMsg:
+		// Refresh git status
+		return m, m.refreshGitStatus()
+
+	case sidebar.GitStageToggleMsg:
+		// Stage/unstage a file
+		return m, m.handleGitStageToggle(msg)
+
+	case sidebar.GitStageAllMsg:
+		// Stage all files
+		return m, m.handleGitStageAll()
+
+	case sidebar.GitDiffMsg:
+		// View diff for a file
+		return m, m.handleGitDiff(msg)
+
+	case sidebar.GitCommitMsg:
+		// Show commit dialog
+		return m, m.handleGitCommit()
+
+	case gitErrorMsg:
+		// Handle git operation errors
+		return m, m.ShowToast(msg.err.Error(), toast.ToastError, 3*time.Second)
+
+	case gitDiffViewMsg:
+		// Show diff view (for now, just show a toast)
+		// TODO: Implement a proper diff view dialog
+		return m, m.ShowToast(fmt.Sprintf("Viewing diff for %s", msg.file), toast.ToastInfo, 2*time.Second)
+
+	case gitCommitDialogMsg:
+		// TODO: Show commit dialog to get message
+		// For now, just show a toast
+		return m, m.ShowToast("Commit dialog not yet implemented", toast.ToastInfo, 2*time.Second)
+
+	case gitCommitSuccessMsg:
+		// Commit successful, refresh git status
+		return m, tea.Batch(
+			m.ShowToast(fmt.Sprintf("Committed: %s", msg.message), toast.ToastSuccess, 3*time.Second),
+			m.refreshGitStatus(),
+		)
 
 	case sessionsLoadedMsg:
 		m.sidebar.SetSessions(msg.sessions)
@@ -189,6 +317,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Just closed, nothing to do
 		return m, nil
 
+	case mcpServersLoadedMsg:
+		if msg.err != nil {
+			return m, m.ShowToast("Failed to load MCP servers: "+msg.err.Error(), toast.ToastError, 3*time.Second)
+		}
+		// Update the MCP dialog with loaded servers
+		if servers, ok := msg.servers.([]agent.MCPServer); ok {
+			m.mcpDialog.SetServers(servers)
+			m.ShowMCPDialog()
+		}
+		return m, nil
+
 	case sessionRenamedMsg:
 		m.session = msg.session
 		m.sidebar.SetCurrentSession(msg.session)
@@ -269,6 +408,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateIdle
 		m.spinner.Stop()
 		m.inputFocused = true
+
+		// Save current session info after message completes
+		m.saveCurrentSessionInfo()
+
+		// Play completion notification
+		go notification.NotifyComplete(m.notificationConfig)
+
 		return m, m.input.Focus()
 
 	case messages.ErrorMsg:
@@ -277,14 +423,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner.Stop()
 		m.chat.EndAssistantMessage()
 		m.inputFocused = true
+
+		// Play error notification
+		go notification.NotifyError(m.notificationConfig)
+
 		return m, m.input.Focus()
 	}
 
 	// Update child components when idle and focused
 	if m.state == StateIdle && m.inputFocused {
 		var cmd tea.Cmd
+		prevValue := m.input.Value()
 		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
+
+		// If search is active and input changed, update search
+		if m.chat.IsSearchActive() && m.input.Value() != prevValue {
+			m.chat.UpdateSearchQuery(m.input.Value())
+		}
 	}
 
 	// Update sidebar if visible

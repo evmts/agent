@@ -13,7 +13,9 @@ import (
 	"tui/internal/components/sidebar"
 	"tui/internal/components/spinner"
 	"tui/internal/components/toast"
+	"tui/internal/config"
 	"tui/internal/keybind"
+	"tui/internal/notification"
 )
 
 // State represents the application state
@@ -25,6 +27,44 @@ const (
 	StateError
 	StateLoading
 )
+
+// OperationType represents the type of operation that can be interrupted
+type OperationType int
+
+const (
+	OpThinking OperationType = iota
+	OpGenerating
+	OpToolExecution
+	OpToolWaiting
+)
+
+// String returns the string representation of the operation type
+func (op OperationType) String() string {
+	switch op {
+	case OpThinking:
+		return "Thinking"
+	case OpGenerating:
+		return "Generating response"
+	case OpToolExecution:
+		return "Executing tool"
+	case OpToolWaiting:
+		return "Waiting for tool"
+	default:
+		return "Unknown"
+	}
+}
+
+// InterruptContext captures the state when an operation is interrupted
+type InterruptContext struct {
+	Timestamp   time.Time
+	Operation   OperationType
+	Description string
+	ToolName    string
+	ToolInput   map[string]interface{}
+	PartialText string
+	TokensUsed  int
+	CanResume   bool
+}
 
 // SharedState holds state that needs to be shared between model copies
 type SharedState struct {
@@ -67,7 +107,9 @@ type Model struct {
 	inputFocused bool
 
 	// Dialog support
-	activeDialog dialog.Dialog
+	activeDialog     dialog.Dialog
+	shortcutsOverlay *dialog.ShortcutsOverlay
+	mcpDialog        *dialog.MCPDialog
 
 	// Token tracking
 	totalInputTokens  int
@@ -100,30 +142,50 @@ type Model struct {
 	nextTask        string    // Next task in queue
 	taskStartTime   time.Time // When the current task started
 	taskTokensUsed  int       // Tokens used for current task
+
+	// Interrupt tracking
+	currentOperation  OperationType
+	interruptContext  *InterruptContext
+	lastInterruptTime time.Time
+
+	// Notification configuration
+	notificationConfig notification.NotificationConfig
 }
 
 // New creates a new application model
 func New(client *agent.Client) Model {
+	// Load notification preferences
+	prefs, err := config.LoadPreferences()
+	var notifConfig notification.NotificationConfig
+	if err != nil {
+		// Use defaults if loading fails
+		notifConfig = notification.DefaultNotificationConfig()
+	} else {
+		notifConfig = convertNotificationPreferences(prefs.Notifications)
+	}
+
 	return Model{
-		chat:             chat.New(80, 20),
-		input:            input.New(80),
-		sidebar:          sidebar.New(30, 20),
-		toast:            toast.New(),
-		spinner:          spinner.New(spinner.StyleDots),
-		client:           client,
-		shared:           &SharedState{},
-		state:            StateLoading,
-		ready:            false,
-		keyMap:           keybind.DefaultKeyMap(),
-		inputFocused:     false,
-		currentAgent:     "build",           // Default agent
-		mouseEnabled:     true,              // Mouse mode enabled by default
-		maxContextTokens: 200000,            // Default Claude context window
-		provider:         "Anthropic",       // Default provider
-		connected:        false,
-		permissionsMode:  "bypass",          // Claude Code style: bypass, ask, deny
-		appVersion:       "1.0.0",           // Version info
-		latestVersion:    "1.0.0",
+		chat:               chat.New(80, 20),
+		input:              input.New(80),
+		sidebar:            sidebar.New(30, 20),
+		toast:              toast.New(),
+		spinner:            spinner.New(spinner.StyleDots),
+		client:             client,
+		shared:             &SharedState{},
+		state:              StateLoading,
+		ready:              false,
+		keyMap:             keybind.DefaultKeyMap(),
+		inputFocused:       false,
+		mcpDialog:          dialog.NewMCPDialog(),
+		currentAgent:       "build",           // Default agent
+		mouseEnabled:       true,              // Mouse mode enabled by default
+		maxContextTokens:   200000,            // Default Claude context window
+		provider:           "Anthropic",       // Default provider
+		connected:          false,
+		permissionsMode:    "bypass",          // Claude Code style: bypass, ask, deny
+		appVersion:         "1.0.0",           // Version info
+		latestVersion:      "1.0.0",
+		notificationConfig: notifConfig,
 	}
 }
 
@@ -135,12 +197,15 @@ func (m *Model) SetProgram(p *tea.Program) {
 // Init initializes the application
 func (m Model) Init() tea.Cmd {
 	m.spinner.SetMessage("Connecting...")
+	// Load CLAUDE.md context on startup
+	m.sidebar.LoadClaudeMd()
 	return tea.Batch(
 		m.input.Init(),
 		m.chat.Init(),
 		m.sidebar.Init(),
 		m.spinner.Start(),
 		m.checkHealth(),
+		m.checkResumeSession(),
 	)
 }
 
@@ -176,6 +241,8 @@ func (m *Model) ShowModelDialog() {
 // ShowConfirm shows a confirmation dialog
 func (m *Model) ShowConfirm(message string, onConfirm, onCancel tea.Cmd) {
 	m.activeDialog = dialog.NewConfirmDialog(message, onConfirm, onCancel)
+	// Play confirmation notification
+	go notification.NotifyConfirmation(m.notificationConfig)
 }
 
 // ShowAgentDialog shows the agent selection dialog
@@ -291,6 +358,32 @@ func (m *Model) ShowRenameDialog() {
 	}
 }
 
+// ShowResumeDialog shows the resume session dialog
+func (m *Model) ShowResumeDialog(info *config.LastSessionInfo) {
+	m.activeDialog = dialog.NewResumeDialog(info)
+}
+
+// ShowContextDialog shows the CLAUDE.md context dialog
+func (m *Model) ShowContextDialog() {
+	context := m.sidebar.GetClaudeMdContext()
+	m.activeDialog = dialog.NewContextDialog(context)
+}
+
+// ShowShortcutsOverlay shows the keyboard shortcuts overlay
+func (m *Model) ShowShortcutsOverlay() {
+	m.shortcutsOverlay = dialog.NewShortcutsOverlay(m.keyMap, m.inputFocused, m.HasActiveDialog())
+}
+
+// CloseShortcutsOverlay closes the shortcuts overlay
+func (m *Model) CloseShortcutsOverlay() {
+	m.shortcutsOverlay = nil
+}
+
+// HasShortcutsOverlay returns true if the shortcuts overlay is visible
+func (m *Model) HasShortcutsOverlay() bool {
+	return m.shortcutsOverlay != nil && m.shortcutsOverlay.IsVisible()
+}
+
 // GetLastMessageInfo returns the ID and role of the last message in the chat
 func (m *Model) GetLastMessageInfo() (string, bool) {
 	return m.chat.GetLastMessageInfo()
@@ -329,4 +422,90 @@ func (m *Model) ClearTask() {
 	m.nextTask = ""
 	m.taskStartTime = time.Time{}
 	m.taskTokensUsed = 0
+}
+
+// captureInterruptContext captures the current operation state for interrupt handling
+func (m *Model) captureInterruptContext() InterruptContext {
+	ctx := InterruptContext{
+		Timestamp: time.Now(),
+		CanResume: true,
+		TokensUsed: m.totalOutputTokens,
+	}
+
+	// Check if we're currently executing a tool
+	if tool := m.chat.GetCurrentTool(); tool != nil {
+		ctx.Operation = OpToolExecution
+		ctx.ToolName = tool.Tool
+		if tool.State != nil {
+			ctx.ToolInput = tool.State.Input
+			ctx.Description = formatToolDescription(tool.Tool, tool.State.Input)
+		} else {
+			ctx.Description = "Executing " + tool.Tool
+		}
+		return ctx
+	}
+
+	// Check if we're in thinking mode
+	if m.chat.IsThinking() {
+		ctx.Operation = OpThinking
+		ctx.Description = "Thinking about the response"
+		ctx.PartialText = m.chat.GetPartialThinking()
+		return ctx
+	}
+
+	// Otherwise we're generating text
+	ctx.Operation = OpGenerating
+	ctx.Description = "Generating response"
+	ctx.PartialText = m.chat.GetPartialText()
+
+	return ctx
+}
+
+// formatToolDescription creates a human-readable description of a tool operation
+func formatToolDescription(toolName string, input map[string]interface{}) string {
+	if input == nil {
+		return "Executing " + toolName
+	}
+
+	switch toolName {
+	case "Read":
+		if path, ok := input["file_path"].(string); ok {
+			return "Reading " + path
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			return "Running: " + cmd
+		}
+	case "Glob":
+		if pattern, ok := input["pattern"].(string); ok {
+			return "Searching for files matching " + pattern
+		}
+	case "Grep":
+		if pattern, ok := input["pattern"].(string); ok {
+			return "Searching for pattern: " + pattern
+		}
+	case "Edit":
+		if path, ok := input["file_path"].(string); ok {
+			return "Editing " + path
+		}
+	case "Write":
+		if path, ok := input["file_path"].(string); ok {
+			return "Writing to " + path
+		}
+	case "WebFetch":
+		if url, ok := input["url"].(string); ok {
+			return "Fetching " + url
+		}
+	case "WebSearch":
+		if query, ok := input["query"].(string); ok {
+			return "Searching for: " + query
+		}
+	}
+
+	return "Executing " + toolName
+}
+
+// getSearchState returns the chat's search state for rendering
+func (m Model) getSearchState() chat.SearchState {
+	return m.chat.GetSearchState()
 }
