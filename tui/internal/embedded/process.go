@@ -42,8 +42,8 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 		fmt.Sprintf("PORT=%d", port),
 		"HOST=127.0.0.1",
 	)
-	cmd.Stdout = nil // Suppress output
-	cmd.Stderr = nil
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	// Set platform-specific process attributes
 	setProcAttr(cmd)
