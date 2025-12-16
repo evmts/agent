@@ -35,14 +35,14 @@ pub fn build(b: *std.Build) void {
     // Run Server: Start just the Python server
     // ==========================================================
     const run_server_step = b.step("run-server", "Start just the Python server");
-    const run_server_cmd = b.addSystemCommand(&.{ ".venv/bin/python", "main.py" });
+    const run_server_cmd = b.addSystemCommand(&.{ "uv", "run", "python", "main.py" });
     run_server_step.dependOn(&run_server_cmd.step);
 
     // ==========================================================
     // Test: Run Python tests
     // ==========================================================
     const test_step = b.step("test", "Run Python tests");
-    const test_cmd = b.addSystemCommand(&.{ ".venv/bin/pytest" });
+    const test_cmd = b.addSystemCommand(&.{ "uv", "run", "pytest" });
     test_step.dependOn(&test_cmd.step);
 
     // ==========================================================
