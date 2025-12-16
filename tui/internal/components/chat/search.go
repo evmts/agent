@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // SearchState represents the current search state

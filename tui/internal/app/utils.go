@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"tui/internal/config"
-	"tui/internal/notification"
+	"github.com/williamcory/agent/tui/internal/config"
+	"github.com/williamcory/agent/tui/internal/notification"
 )
 
 // copyToClipboard copies text to system clipboard

@@ -2,7 +2,7 @@ package tabs
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // ActiveTabStyle returns the style for active tabs

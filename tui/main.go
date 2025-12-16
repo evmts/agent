@@ -11,8 +11,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/app"
-	"tui/internal/embedded"
+	"github.com/williamcory/agent/tui/internal/app"
+	"github.com/williamcory/agent/tui/internal/embedded"
 )
 
 func main() {

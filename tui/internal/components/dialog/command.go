@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/keybind"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/keybind"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // Command represents a command in the palette

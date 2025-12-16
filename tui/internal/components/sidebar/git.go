@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/git"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/git"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // InterruptInfo contains information about an interrupted operation

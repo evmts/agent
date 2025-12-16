@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/keybind"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/keybind"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // ShortcutsOverlay displays a quick-reference keyboard shortcuts overlay

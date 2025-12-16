@@ -6,7 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // RenameConfirmedMsg is sent when a rename is confirmed

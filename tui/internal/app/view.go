@@ -7,10 +7,10 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/ansi"
-	"tui/internal/components/chat"
-	"tui/internal/components/dialog"
-	"tui/internal/components/progress"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/components/chat"
+	"github.com/williamcory/agent/tui/internal/components/dialog"
+	"github.com/williamcory/agent/tui/internal/components/progress"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // formatTokens formats token count for display

@@ -6,7 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // SelectMode defines how sections can be expanded

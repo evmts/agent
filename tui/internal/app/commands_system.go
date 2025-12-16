@@ -10,8 +10,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"tui/internal/clipboard"
-	"tui/internal/components/toast"
+	"github.com/williamcory/agent/tui/internal/clipboard"
+	"github.com/williamcory/agent/tui/internal/components/toast"
 )
 
 // executeShellCommand executes a shell command and returns the result

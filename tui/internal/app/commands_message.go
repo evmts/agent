@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/components/toast"
-	"tui/internal/messages"
+	"github.com/williamcory/agent/tui/internal/components/toast"
+	"github.com/williamcory/agent/tui/internal/messages"
 )
 
 // sendMessage sends the current input to the backend

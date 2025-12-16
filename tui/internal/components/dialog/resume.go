@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/config"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/config"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // ResumeAction represents the action chosen from the resume dialog

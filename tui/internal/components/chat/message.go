@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/components/progress"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/components/progress"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // Role represents who sent the message

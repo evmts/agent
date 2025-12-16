@@ -2,7 +2,7 @@ package input
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // Container wraps the input area

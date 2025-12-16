@@ -2,7 +2,7 @@ package toast
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // renderToast renders a single toast notification

@@ -2,7 +2,7 @@ package app
 
 import (
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/config"
+	"github.com/williamcory/agent/tui/internal/config"
 )
 
 // Internal message types for the app

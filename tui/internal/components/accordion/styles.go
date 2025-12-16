@@ -2,7 +2,7 @@ package accordion
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // HeaderStyle returns the style for section headers

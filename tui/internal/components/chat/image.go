@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
-	"tui/internal/terminal"
+	"github.com/williamcory/agent/tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/terminal"
 )
 
 // Image display constants

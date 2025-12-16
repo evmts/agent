@@ -5,8 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/components/tabs"
-	"tui/internal/git"
+	"github.com/williamcory/agent/tui/internal/components/tabs"
+	"github.com/williamcory/agent/tui/internal/git"
 )
 
 // SectionState tracks which sections are expanded

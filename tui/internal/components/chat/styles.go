@@ -2,7 +2,7 @@ package chat
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // ChatContainer is the style for the overall chat container

@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/messages"
+	"github.com/williamcory/agent/tui/internal/messages"
 )
 
 // createSession creates a new session

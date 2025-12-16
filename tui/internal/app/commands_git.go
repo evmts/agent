@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"tui/internal/components/sidebar"
-	"tui/internal/components/toast"
-	"tui/internal/git"
+	"github.com/williamcory/agent/tui/internal/components/sidebar"
+	"github.com/williamcory/agent/tui/internal/components/toast"
+	"github.com/williamcory/agent/tui/internal/git"
 )
 
 // refreshGitStatus refreshes the git status in the background

@@ -2,7 +2,7 @@ package spinner
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // SpinnerStyle returns the default spinner style

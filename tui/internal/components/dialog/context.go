@@ -5,8 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"tui/internal/components/sidebar"
-	"tui/internal/styles"
+	"github.com/williamcory/agent/tui/internal/components/sidebar"
+	"github.com/williamcory/agent/tui/internal/styles"
 )
 
 // ContextDialog displays the full CLAUDE.md context

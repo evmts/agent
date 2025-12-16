@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"tui/internal/config"
-	"tui/internal/messages"
+	"github.com/williamcory/agent/tui/internal/config"
+	"github.com/williamcory/agent/tui/internal/messages"
 )
 
 // checkResumeSession checks if there's a session to resume

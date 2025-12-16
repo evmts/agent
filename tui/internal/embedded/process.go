@@ -7,18 +7,18 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 )
 
-// ServerProcess manages the lifecycle of the embedded Python server.
+// ServerProcess manages the lifecycle of the Python server.
 type ServerProcess struct {
-	cmd        *exec.Cmd
-	binaryPath string
-	port       int
-	cancel     context.CancelFunc
+	cmd    *exec.Cmd
+	port   int
+	cancel context.CancelFunc
 }
 
-// StartServer extracts and starts the embedded Python server.
+// StartServer starts the Python server.
 // Returns the server process handle and URL.
 func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 	// Find an available port
@@ -27,17 +27,23 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 		return nil, "", fmt.Errorf("failed to find free port: %w", err)
 	}
 
-	// Extract the server binary
-	binaryPath, err := ExtractServer()
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to extract server: %w", err)
+	// Find Python executable
+	pythonCmd := findPython()
+	if pythonCmd == "" {
+		return nil, "", fmt.Errorf("python not found in PATH (tried python3, python)")
+	}
+
+	// Find main.py
+	mainPy := findMainPy()
+	if mainPy == "" {
+		return nil, "", fmt.Errorf("main.py not found (checked relative to executable and working directory)")
 	}
 
 	// Create a cancellable context for the process
 	procCtx, cancel := context.WithCancel(ctx)
 
 	// Start the server process
-	cmd := exec.CommandContext(procCtx, binaryPath)
+	cmd := exec.CommandContext(procCtx, pythonCmd, mainPy)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("PORT=%d", port),
 		"HOST=127.0.0.1",
@@ -49,7 +55,6 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 	setProcAttr(cmd)
 
 	if err := cmd.Start(); err != nil {
-		CleanupServer(binaryPath)
 		cancel()
 		return nil, "", fmt.Errorf("failed to start server: %w", err)
 	}
@@ -59,20 +64,18 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 	// Wait for the server to be ready
 	if err := waitForServer(serverURL, 30*time.Second); err != nil {
 		cmd.Process.Kill()
-		CleanupServer(binaryPath)
 		cancel()
 		return nil, "", fmt.Errorf("server failed to start: %w", err)
 	}
 
 	return &ServerProcess{
-		cmd:        cmd,
-		binaryPath: binaryPath,
-		port:       port,
-		cancel:     cancel,
+		cmd:    cmd,
+		port:   port,
+		cancel: cancel,
 	}, serverURL, nil
 }
 
-// Stop gracefully stops the server process and cleans up.
+// Stop gracefully stops the server process.
 func (s *ServerProcess) Stop() error {
 	if s == nil {
 		return nil
@@ -103,13 +106,56 @@ func (s *ServerProcess) Stop() error {
 		}
 	}
 
-	// Clean up the extracted binary
-	return CleanupServer(s.binaryPath)
+	return nil
 }
 
 // Port returns the port the server is running on.
 func (s *ServerProcess) Port() int {
 	return s.port
+}
+
+// findPython finds the Python executable.
+func findPython() string {
+	for _, name := range []string{"python3", "python"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// findMainPy finds main.py relative to the executable or working directory.
+func findMainPy() string {
+	// Check relative to executable
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		candidates := []string{
+			filepath.Join(dir, "..", "main.py"),
+			filepath.Join(dir, "main.py"),
+		}
+		for _, p := range candidates {
+			if _, err := os.Stat(p); err == nil {
+				abs, _ := filepath.Abs(p)
+				return abs
+			}
+		}
+	}
+
+	// Check relative to working directory
+	if cwd, err := os.Getwd(); err == nil {
+		candidates := []string{
+			filepath.Join(cwd, "main.py"),
+			filepath.Join(cwd, "..", "main.py"),
+		}
+		for _, p := range candidates {
+			if _, err := os.Stat(p); err == nil {
+				abs, _ := filepath.Abs(p)
+				return abs
+			}
+		}
+	}
+
+	return ""
 }
 
 // findFreePort returns an available TCP port.

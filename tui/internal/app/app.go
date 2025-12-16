@@ -7,15 +7,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/components/chat"
-	"tui/internal/components/dialog"
-	"tui/internal/components/input"
-	"tui/internal/components/sidebar"
-	"tui/internal/components/spinner"
-	"tui/internal/components/toast"
-	"tui/internal/config"
-	"tui/internal/keybind"
-	"tui/internal/notification"
+	"github.com/williamcory/agent/tui/internal/components/chat"
+	"github.com/williamcory/agent/tui/internal/components/dialog"
+	"github.com/williamcory/agent/tui/internal/components/input"
+	"github.com/williamcory/agent/tui/internal/components/sidebar"
+	"github.com/williamcory/agent/tui/internal/components/spinner"
+	"github.com/williamcory/agent/tui/internal/components/toast"
+	"github.com/williamcory/agent/tui/internal/config"
+	"github.com/williamcory/agent/tui/internal/keybind"
+	"github.com/williamcory/agent/tui/internal/notification"
 )
 
 // State represents the application state

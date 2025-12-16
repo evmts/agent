@@ -6,13 +6,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/williamcory/agent/sdk/agent"
-	"tui/internal/components/dialog"
-	"tui/internal/components/sidebar"
-	"tui/internal/components/spinner"
-	"tui/internal/components/toast"
-	"tui/internal/config"
-	"tui/internal/messages"
-	"tui/internal/notification"
+	"github.com/williamcory/agent/tui/internal/components/dialog"
+	"github.com/williamcory/agent/tui/internal/components/sidebar"
+	"github.com/williamcory/agent/tui/internal/components/spinner"
+	"github.com/williamcory/agent/tui/internal/components/toast"
+	"github.com/williamcory/agent/tui/internal/config"
+	"github.com/williamcory/agent/tui/internal/messages"
+	"github.com/williamcory/agent/tui/internal/notification"
 )
 
 // Update handles all application messages

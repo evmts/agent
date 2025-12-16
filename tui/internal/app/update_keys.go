@@ -4,9 +4,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"tui/internal/components/dialog"
-	"tui/internal/components/toast"
-	"tui/internal/keybind"
+	"github.com/williamcory/agent/tui/internal/components/dialog"
+	"github.com/williamcory/agent/tui/internal/components/toast"
+	"github.com/williamcory/agent/tui/internal/keybind"
 )
 
 // handleKeyMsg handles all keyboard input
