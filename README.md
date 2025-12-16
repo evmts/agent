@@ -48,9 +48,7 @@ git clone https://github.com/williamcory/agent.git
 cd agent
 
 # Install Python dependencies
-pip install -e .
-# Or with uv:
-uv pip install -e .
+uv venv && source .venv/bin/activate && uv pip install -e .
 ```
 
 ### Running the Server

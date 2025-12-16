@@ -6,7 +6,6 @@ This file provides context for AI assistants working on this codebase.
 
 Claude Agent is an AI agent platform with:
 - **Python backend** (FastAPI) - OpenCode-compatible REST API
-- **Go TUI client** (Bubbletea) - Terminal interface
 - **Go SDK** - Client library for the API
 - **Snapshot system** - Git-based file state tracking
 
@@ -18,8 +17,7 @@ Claude Agent is an AI agent platform with:
 - SSE-Starlette for streaming
 - asyncio for async operations
 
-### Go (TUI & SDK)
-- Bubbletea for terminal UI
+### Go (SDK)
 - Standard library for HTTP client
 
 ## Development Commands
@@ -37,32 +35,17 @@ pytest
 pytest tests/test_agent/test_tools/
 ```
 
-### Go (using Zig build system)
+### Zig Build System
 
 ```bash
-# Build unified binary (PyInstaller + Go)
-zig build
-
-# Run unified TUI (includes embedded server)
+# Run server (default)
 zig build run
-
-# Run with external backend (for development)
-zig build run-dev
-
-# Build Go TUI only (no PyInstaller)
-zig build build-go
-
-# Build Python server only
-zig build pyinstaller
 
 # Run tests
 zig build test
 
-# Format code
-zig build fmt
-
-# Run linter
-zig build lint
+# Build standalone server binary
+zig build pyinstaller
 
 # Clean build artifacts
 zig build clean
@@ -86,8 +69,7 @@ zig build deps
 | `snapshot/snapshot.py` | Git-based snapshot system |
 | `sdk/agent/client.go` | Go SDK HTTP client |
 | `sdk/agent/types.go` | OpenCode type definitions |
-| `tui/internal/app/` | TUI application logic |
-| `build.zig` | Zig build system (root) |
+| `build.zig` | Zig build system |
 
 ## Environment Variables
 
@@ -153,27 +135,16 @@ Event types:
 
 ## Common Tasks
 
-### Running the Full Stack
+### Running the Server
 
 ```bash
-# Option 1: Unified binary (server embedded in TUI)
-export ANTHROPIC_API_KEY="your-key"
-zig build run
-
-# Option 2: Separate processes (for development)
-# Terminal 1: Start server
 export ANTHROPIC_API_KEY="your-key"
 python main.py
-
-# Terminal 2: Start TUI with external backend
-zig build run-dev
 ```
 
 ### Debugging
 
 - Server logs to stdout
-- TUI debug: Check `tui/internal/app/update.go` and `update_keys.go` for message handling
-- TUI commands: See `commands_*.go` files for session, message, dialog, and system commands
 - SDK: Use `-v` flag with go test for verbose output
 
 ## Style Guide
