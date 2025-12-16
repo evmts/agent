@@ -15,25 +15,8 @@ import git
 from git import Repo
 
 if TYPE_CHECKING:
+    from core.models.file_diff import FileDiff
     from git.objects.tree import Tree
-
-
-class FileDiff:
-    """Represents changes to a single file."""
-
-    def __init__(
-        self,
-        file: str,
-        before: str,
-        after: str,
-        additions: int,
-        deletions: int,
-    ):
-        self.file = file
-        self.before = before
-        self.after = after
-        self.additions = additions
-        self.deletions = deletions
 
 
 class Snapshot:
@@ -201,6 +184,9 @@ class Snapshot:
         Returns:
             list[FileDiff]: Detailed diff information for each changed file
         """
+        # Import at runtime to avoid circular dependency
+        from core.models.file_diff import FileDiff
+
         self._ensure_init()
         repo = self.repo
 
