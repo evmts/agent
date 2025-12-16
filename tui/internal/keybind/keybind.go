@@ -60,22 +60,22 @@ func (km *KeyMap) AddWithCategory(key string, description string, action Action,
 func categorizeAction(action Action) ShortcutCategory {
 	switch action {
 	case ActionScrollUp, ActionScrollDown, ActionPageUp, ActionPageDown,
-		ActionScrollToTop, ActionScrollToBottom:
+		ActionScrollToTop, ActionScrollToBottom, ActionNextCodeBlock, ActionPrevCodeBlock:
 		return CategoryNavigation
 	case ActionNewSession, ActionForkSession, ActionRevertSession,
 		ActionRenameSession, ActionSessionList, ActionShowDiff:
 		return CategorySession
 	case ActionToggleSidebar, ActionToggleMarkdown, ActionToggleThinking,
-		ActionToggleMouse, ActionToggleCompact, ActionCycleTheme:
+		ActionToggleMouse, ActionToggleCompact, ActionToggleCompactExpand, ActionCycleTheme:
 		return CategoryView
 	case ActionCopyMessage, ActionCopyTranscript, ActionUndoMessage,
-		ActionShowContextMenu, ActionCyclePermissions:
+		ActionShowContextMenu, ActionCyclePermissions, ActionCopyCodeBlock:
 		return CategoryActions
 	case ActionSubmit, ActionCancel, ActionFocusInput, ActionOpenEditor,
 		ActionSearch, ActionSearchNext, ActionSearchPrev:
 		return CategoryInput
 	case ActionShowHelp, ActionShowModels, ActionShowAgents, ActionShowCommands,
-		ActionShowThemes, ActionShowStatus, ActionShowSettings, ActionShowShortcuts, ActionShowMCP:
+		ActionShowThemes, ActionShowStatus, ActionShowSettings, ActionShowShortcuts, ActionShowMCP, ActionShowContext:
 		return CategoryDialogs
 	default:
 		return CategoryActions
@@ -132,6 +132,7 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("T", "Select theme", ActionShowThemes)
 	km.Add("ctrl+,", "Open settings", ActionShowSettings)
 	km.Add("ctrl+i", "Show status", ActionShowStatus)
+	km.Add("ctrl+.", "Show CLAUDE.md context", ActionShowContext)
 	km.Add("F2", "Rename session", ActionRenameSession)
 
 	// Session actions
@@ -146,6 +147,11 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("n", "Next search match", ActionSearchNext)
 	km.Add("N", "Previous search match", ActionSearchPrev)
 
+	// Code block navigation
+	km.Add("]", "Next code block", ActionNextCodeBlock)
+	km.Add("[", "Previous code block", ActionPrevCodeBlock)
+	km.Add("c", "Copy selected code block", ActionCopyCodeBlock)
+
 	// Navigation
 	km.Add("pgup", "Scroll up one page", ActionPageUp)
 	km.Add("pgdown", "Scroll down one page", ActionPageDown)
@@ -158,6 +164,7 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("g", "Jump to first message", ActionScrollToTop)
 	km.Add("G", "Jump to last message", ActionScrollToBottom)
 	km.Add("/", "Focus input (search)", ActionFocusInput)
+	km.Add("E", "Toggle compact expand/collapse", ActionToggleCompactExpand)
 
 	// Input control
 	km.Add("enter", "Submit message", ActionSubmit)

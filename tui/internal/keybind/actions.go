@@ -27,6 +27,7 @@ const (
 	ActionShowStatus      Action = "show_status"
 	ActionShowSettings    Action = "show_settings"
 	ActionShowMCP         Action = "show_mcp"
+	ActionShowContext     Action = "show_context"
 
 	// Session actions
 	ActionForkSession     Action = "fork_session"
@@ -59,6 +60,11 @@ const (
 	ActionSearch     Action = "search"
 	ActionSearchNext Action = "search_next"
 	ActionSearchPrev Action = "search_prev"
+
+	// Code block navigation
+	ActionNextCodeBlock Action = "next_code_block"
+	ActionPrevCodeBlock Action = "prev_code_block"
+	ActionCopyCodeBlock Action = "copy_code_block"
 
 	// Permissions mode
 	ActionCyclePermissions Action = "cycle_permissions"

@@ -76,6 +76,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle context dialog action
+	if action == keybind.ActionShowContext {
+		m.ShowContextDialog()
+		return m, nil
+	}
+
 	// Handle MCP browser action
 	if action == keybind.ActionShowMCP {
 		return m, m.loadMCPServers()
@@ -437,6 +443,13 @@ func (m Model) handleDialogKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case *dialog.SettingsDialog:
+		var cmd tea.Cmd
+		m.activeDialog, cmd = d.Update(msg)
+		if !m.activeDialog.IsVisible() {
+			m.CloseDialog()
+		}
+		return m, cmd
+	case *dialog.ContextDialog:
 		var cmd tea.Cmd
 		m.activeDialog, cmd = d.Update(msg)
 		if !m.activeDialog.IsVisible() {
