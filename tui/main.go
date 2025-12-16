@@ -366,8 +366,9 @@ func buildMessageWithFiles(text string, attachments []fileAttachment) string {
 		if att.err != nil {
 			sb.WriteString(fmt.Sprintf("<!-- Error reading %s: %v -->\n\n", att.path, att.err))
 		} else if att.skipped {
-			sb.WriteString(fmt.Sprintf("<!-- Skipped %s: file too large (%s > %s) -->\n\n",
-				att.path, formatFileSize(att.fileSize), formatFileSize(maxFileSize)))
+			// For large files, tell the LLM about it but don't include contents
+			sb.WriteString(fmt.Sprintf("File: %s (LARGE FILE - %s)\n", att.path, formatFileSize(att.fileSize)))
+			sb.WriteString("This file is too large to include in full. Use grep/search tools to find specific content. Be frugal with tokens.\n\n")
 		} else {
 			// Format like Claude Code does
 			sb.WriteString(fmt.Sprintf("File: %s\n```\n%s\n```\n\n", att.path, att.content))
