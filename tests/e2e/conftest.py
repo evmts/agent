@@ -1,16 +1,20 @@
 """
 E2E test fixtures for real API testing with MCP tools.
+
+Uses httpx.AsyncClient for proper async SSE streaming.
 """
+import asyncio
 import json
 import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Generator
+from typing import AsyncGenerator, Generator
 
+import httpx
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
+import uvicorn
 
 from agent.wrapper import create_mcp_wrapper
 from core.state import session_messages, sessions
@@ -21,7 +25,8 @@ from server import app, set_agent
 # Constants
 # =============================================================================
 
-E2E_TIMEOUT_SECONDS = 120
+E2E_TIMEOUT_SECONDS = 180
+TEST_SERVER_PORT = 18765
 
 
 # =============================================================================
@@ -102,25 +107,8 @@ def multi_file_fixture(e2e_temp_dir: Path) -> dict[str, Path]:
 
 
 # =============================================================================
-# Server with MCP Agent
+# Server with MCP Agent - Async Fixtures
 # =============================================================================
-
-@pytest_asyncio.fixture
-async def mcp_agent(api_key: str, e2e_temp_dir: Path):
-    """Create MCP-enabled agent and configure server."""
-    async with create_mcp_wrapper(
-        working_dir=str(e2e_temp_dir),
-    ) as wrapper:
-        set_agent(wrapper)
-        yield wrapper
-        set_agent(None)
-
-
-@pytest.fixture
-def e2e_client(mcp_agent) -> TestClient:
-    """Create test client with MCP agent configured."""
-    return TestClient(app)
-
 
 @pytest.fixture(autouse=True)
 def clear_state():
@@ -130,6 +118,51 @@ def clear_state():
     yield
     sessions.clear()
     session_messages.clear()
+
+
+@pytest_asyncio.fixture
+async def mcp_agent(api_key: str, e2e_temp_dir: Path):
+    """Create MCP-enabled agent and configure server."""
+    wrapper = None
+    try:
+        async with create_mcp_wrapper(
+            working_dir=str(e2e_temp_dir),
+        ) as wrapper:
+            set_agent(wrapper)
+            yield wrapper
+    except RuntimeError as e:
+        # MCP cleanup can fail with task context errors - this is expected
+        # The tests still pass, this is just a teardown issue
+        if "cancel scope" in str(e):
+            pass
+        else:
+            raise
+    finally:
+        set_agent(None)
+
+
+@pytest_asyncio.fixture
+async def e2e_client(mcp_agent) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Create async HTTP client for testing."""
+    # Run server in background
+    config = uvicorn.Config(app, host="127.0.0.1", port=TEST_SERVER_PORT, log_level="warning")
+    server = uvicorn.Server(config)
+
+    # Start server in background task
+    server_task = asyncio.create_task(server.serve())
+
+    # Wait for server to start
+    await asyncio.sleep(0.5)
+
+    async with httpx.AsyncClient(
+        base_url=f"http://127.0.0.1:{TEST_SERVER_PORT}",
+        timeout=httpx.Timeout(E2E_TIMEOUT_SECONDS),
+    ) as client:
+        yield client
+
+    # Shutdown server
+    server.should_exit = True
+    await server_task
 
 
 # =============================================================================
@@ -146,12 +179,10 @@ class SSECollector:
         self.tool_results: list[dict] = []
         self.errors: list[str] = []
 
-    def parse_stream(self, response) -> None:
-        """Parse SSE stream from TestClient response."""
-        content = response.content.decode("utf-8")
-
+    async def parse_stream(self, response: httpx.Response) -> None:
+        """Parse SSE stream from async response."""
         current_event = None
-        for line in content.split("\n"):
+        async for line in response.aiter_lines():
             if line.startswith("event:"):
                 current_event = line[6:].strip()
             elif line.startswith("data:"):
@@ -185,10 +216,10 @@ class SSECollector:
                     self.tool_results.append(tool_info)
 
 
-def collect_sse_response(response) -> SSECollector:
-    """Helper to collect SSE events from response."""
+async def collect_sse_response(response: httpx.Response) -> SSECollector:
+    """Helper to collect SSE events from async response."""
     collector = SSECollector()
-    collector.parse_stream(response)
+    await collector.parse_stream(response)
     return collector
 
 

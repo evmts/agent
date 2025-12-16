@@ -11,9 +11,10 @@ from .conftest import collect_sse_response
 class TestTodoWrite:
     """Test todowrite functionality."""
 
-    def test_create_todo_list(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_create_todo_list(self, e2e_client, e2e_temp_dir):
         """Agent creates a todo list with specific items."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Todo Test",
@@ -28,21 +29,23 @@ class TestTodoWrite:
 
 Use the todowrite tool to save this list."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
 
         # Verify todowrite was called
         tool_names = [tc["tool"] for tc in collector.tool_calls]
         assert "todowrite" in tool_names
 
-    def test_create_single_todo(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_create_single_todo(self, e2e_client, e2e_temp_dir):
         """Agent creates a single todo item."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Single Todo Test",
@@ -57,12 +60,13 @@ Use the todowrite tool to save this list."""
 
 Use the todowrite tool."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         tool_names = [tc["tool"] for tc in collector.tool_calls]
         assert "todowrite" in tool_names
 
@@ -72,9 +76,10 @@ Use the todowrite tool."""
 class TestTodoRead:
     """Test todoread functionality."""
 
-    def test_read_todo_list(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_read_todo_list(self, e2e_client, e2e_temp_dir):
         """Agent reads back the todo list it created."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Todo Read Test",
@@ -88,26 +93,30 @@ class TestTodoRead:
 - status: 'pending'
 
 Use the todowrite tool."""
-        e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": create_prompt}]},
-        )
+        ) as response:
+            await collect_sse_response(response)
 
         # Then read them back
         read_prompt = """Read the current todo list using the todoread tool.
 Tell me what items are in it."""
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": read_prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         tool_names = [tc["tool"] for tc in collector.tool_calls]
         assert "todoread" in tool_names
 
-    def test_read_empty_todo_list(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_read_empty_todo_list(self, e2e_client, e2e_temp_dir):
         """Agent reads an empty todo list."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Empty Todo Test",
@@ -118,12 +127,13 @@ Tell me what items are in it."""
         prompt = """Read the current todo list using the todoread tool.
 Tell me if there are any items."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         # Should call todoread even for empty list
         tool_names = [tc["tool"] for tc in collector.tool_calls]
         assert "todoread" in tool_names

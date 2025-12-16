@@ -11,9 +11,10 @@ from .conftest import assert_file_contains, assert_file_exact, collect_sse_respo
 class TestMultiStepWorkflows:
     """Test complex workflows requiring multiple tool calls."""
 
-    def test_read_modify_verify(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_read_modify_verify(self, e2e_client, fixture_file, e2e_temp_dir):
         """Agent reads file, modifies it, and verifies the change."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Multi-step Test",
@@ -29,12 +30,12 @@ class TestMultiStepWorkflows:
 
 The final file content should be exactly: 5 + 5 = 10"""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
-
-        collector = collect_sse_response(response)
+        ) as response:
+            collector = await collect_sse_response(response)
 
         # Should have multiple tool calls
         assert len(collector.tool_calls) >= 2
@@ -42,9 +43,10 @@ The final file content should be exactly: 5 + 5 = 10"""
         # File should be updated
         assert_file_contains(fixture_file, "5 + 5 = 10")
 
-    def test_create_and_read_file(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_create_and_read_file(self, e2e_client, e2e_temp_dir):
         """Agent creates a file and reads it back."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Create Read Test",
@@ -61,21 +63,23 @@ The final file content should be exactly: 5 + 5 = 10"""
 
 The file must contain exactly: {content}"""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
 
         # File should exist with correct content
         assert target_file.exists()
         assert_file_contains(target_file, content)
 
-    def test_search_and_read(self, e2e_client, multi_file_fixture, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_search_and_read(self, e2e_client, multi_file_fixture, e2e_temp_dir):
         """Agent searches for a file and reads its content."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Search Read Test",
@@ -88,20 +92,22 @@ The file must contain exactly: {content}"""
 2. Read its content
 3. Tell me what function is defined in it"""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         combined = collector.final_text + str(collector.tool_results)
 
         # Should find the hello function
         assert "hello" in combined.lower()
 
-    def test_shell_and_file_workflow(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_shell_and_file_workflow(self, e2e_client, e2e_temp_dir):
         """Agent runs shell command and writes output to file."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Shell File Test",
@@ -117,12 +123,13 @@ The file must contain exactly: {content}"""
 2. Create a file at {output_file} containing the output of that command
 3. The file should contain: {marker}"""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
 
         # Should have called shell and write
@@ -138,9 +145,10 @@ The file must contain exactly: {content}"""
 class TestConditionalWorkflows:
     """Test workflows with conditional logic."""
 
-    def test_check_and_update(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_check_and_update(self, e2e_client, fixture_file, e2e_temp_dir):
         """Agent checks file content and updates based on what it finds."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Conditional Test",
@@ -154,22 +162,24 @@ If it doesn't contain '??', leave it unchanged.
 
 The file currently contains '5 + 5 = ??', so you should update it."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
 
         # File should be updated
         assert_file_contains(fixture_file, "ANSWER_FOUND")
 
-    def test_list_count_report(
+    @pytest.mark.asyncio
+    async def test_list_count_report(
         self, e2e_client, multi_file_fixture, e2e_temp_dir
     ):
         """Agent lists files, counts them, and reports."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Count Test",
@@ -181,12 +191,13 @@ The file currently contains '5 + 5 = ??', so you should update it."""
 Count how many .txt files there are.
 Tell me the exact count."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         combined = collector.final_text
 
         # Should mention the count (we have 3 txt files: file1.txt, file2.txt, file3.txt)

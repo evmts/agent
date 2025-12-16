@@ -12,10 +12,11 @@ from .conftest import assert_file_contains, assert_file_exact, collect_sse_respo
 class TestFileRead:
     """Test file reading capabilities."""
 
-    def test_read_known_file(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_read_known_file(self, e2e_client, fixture_file, e2e_temp_dir):
         """Agent reads a file and reports its exact content."""
         # Create session
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Test Read",
@@ -28,12 +29,12 @@ class TestFileRead:
 Reply with ONLY the exact file content, nothing else.
 No explanations, no formatting, just the raw content."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
-
-        collector = collect_sse_response(response)
+        ) as response:
+            collector = await collect_sse_response(response)
 
         # Assert tool was called and content returned
         assert len(collector.errors) == 0
@@ -47,9 +48,10 @@ No explanations, no formatting, just the raw content."""
 class TestFileWrite:
     """Test file writing capabilities."""
 
-    def test_update_file_arithmetic(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_update_file_arithmetic(self, e2e_client, fixture_file, e2e_temp_dir):
         """Agent updates file: replace '5 + 5 = ??' with '5 + 5 = 10'."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Test Write",
@@ -63,20 +65,22 @@ Replace the ENTIRE content with exactly: 5 + 5 = 10
 Do not add any other content, newlines, or formatting.
 The file should contain ONLY the text: 5 + 5 = 10"""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
 
         # Assert file was updated correctly
         assert_file_exact(fixture_file, "5 + 5 = 10")
 
-    def test_create_new_file(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_create_new_file(self, e2e_client, e2e_temp_dir):
         """Agent creates a new file with specific content."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Test Create",
@@ -92,12 +96,13 @@ The file content must be exactly: {expected_content}
 No extra text, no newlines, no formatting.
 Just the exact text: {expected_content}"""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
 
         assert target_file.exists()
@@ -109,11 +114,12 @@ Just the exact text: {expected_content}"""
 class TestListDirectory:
     """Test directory listing capabilities."""
 
-    def test_list_files_in_directory(
+    @pytest.mark.asyncio
+    async def test_list_files_in_directory(
         self, e2e_client, multi_file_fixture, e2e_temp_dir
     ):
         """Agent lists files and returns specific file names."""
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Test List",
@@ -125,12 +131,12 @@ class TestListDirectory:
 Tell me the names of all files you find.
 Include file1.txt, file2.txt, and code.py in your response if they exist."""
 
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
-
-        collector = collect_sse_response(response)
+        ) as response:
+            collector = await collect_sse_response(response)
 
         # Check that expected files are mentioned
         combined_output = collector.final_text + str(collector.tool_results)

@@ -11,12 +11,13 @@ from .conftest import collect_sse_response
 class TestSessionCreate:
     """Test session creation."""
 
-    def test_create_session_and_send_message(
+    @pytest.mark.asyncio
+    async def test_create_session_and_send_message(
         self, e2e_client, fixture_file, e2e_temp_dir
     ):
         """Create session and send a message successfully."""
         # Create session
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "E2E Session",
@@ -28,12 +29,13 @@ class TestSessionCreate:
 
         # Send a simple message
         prompt = f"Read {fixture_file} and tell me what it contains."
-        response = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session['id']}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            collector = await collect_sse_response(response)
 
-        collector = collect_sse_response(response)
         assert len(collector.errors) == 0
         # Should have some response
         assert len(collector.events) > 0
@@ -44,10 +46,11 @@ class TestSessionCreate:
 class TestSessionFork:
     """Test session forking functionality."""
 
-    def test_fork_preserves_history(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_fork_preserves_history(self, e2e_client, fixture_file, e2e_temp_dir):
         """Forked session preserves message history."""
         # Create original session
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Original",
@@ -57,13 +60,15 @@ class TestSessionFork:
 
         # Send a message
         prompt = f"Read the file {fixture_file} and tell me its content."
-        e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt}]},
-        )
+        ) as response:
+            await collect_sse_response(response)
 
         # Fork the session
-        fork_resp = e2e_client.post(
+        fork_resp = await e2e_client.post(
             f"/session/{session_id}/fork",
             json={"messageID": None},
         )
@@ -74,7 +79,7 @@ class TestSessionFork:
         assert "(fork)" in forked_session["title"]
 
         # Verify forked session has messages
-        messages_resp = e2e_client.get(f"/session/{forked_session['id']}/message")
+        messages_resp = await e2e_client.get(f"/session/{forked_session['id']}/message")
         assert len(messages_resp.json()) > 0
 
 
@@ -83,10 +88,11 @@ class TestSessionFork:
 class TestSessionRevert:
     """Test session revert functionality."""
 
-    def test_revert_sets_revert_info(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_revert_sets_revert_info(self, e2e_client, fixture_file, e2e_temp_dir):
         """Reverting session sets revert metadata."""
         # Create session
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Revert Test",
@@ -96,28 +102,30 @@ class TestSessionRevert:
 
         # Send first message
         prompt1 = f"Read {fixture_file}"
-        resp1 = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt1}]},
-        )
-        collect_sse_response(resp1)
+        ) as response:
+            await collect_sse_response(response)
 
         # Get the first message ID for revert
-        messages_resp = e2e_client.get(f"/session/{session_id}/message")
+        messages_resp = await e2e_client.get(f"/session/{session_id}/message")
         messages = messages_resp.json()
         assert len(messages) >= 1
         first_msg_id = messages[0]["info"]["id"]
 
         # Send second message
         prompt2 = "What is 2 + 2?"
-        resp2 = e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": prompt2}]},
-        )
-        collect_sse_response(resp2)
+        ) as response:
+            await collect_sse_response(response)
 
         # Revert to first message
-        revert_resp = e2e_client.post(
+        revert_resp = await e2e_client.post(
             f"/session/{session_id}/revert",
             json={"messageID": first_msg_id},
         )
@@ -134,10 +142,11 @@ class TestSessionRevert:
 class TestSessionDelete:
     """Test session deletion."""
 
-    def test_delete_session(self, e2e_client, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_delete_session(self, e2e_client, e2e_temp_dir):
         """Deleting session removes it completely."""
         # Create session
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Delete Test",
@@ -146,17 +155,19 @@ class TestSessionDelete:
         session_id = session_resp.json()["id"]
 
         # Send a message to make it non-empty
-        e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": "Hello"}]},
-        )
+        ) as response:
+            await collect_sse_response(response)
 
         # Delete it
-        delete_resp = e2e_client.delete(f"/session/{session_id}")
+        delete_resp = await e2e_client.delete(f"/session/{session_id}")
         assert delete_resp.status_code == 200
 
         # Verify it's gone
-        get_resp = e2e_client.get(f"/session/{session_id}")
+        get_resp = await e2e_client.get(f"/session/{session_id}")
         assert get_resp.status_code == 404
 
 
@@ -165,10 +176,11 @@ class TestSessionDelete:
 class TestSessionUnrevert:
     """Test session unrevert functionality."""
 
-    def test_unrevert_clears_revert_info(self, e2e_client, fixture_file, e2e_temp_dir):
+    @pytest.mark.asyncio
+    async def test_unrevert_clears_revert_info(self, e2e_client, fixture_file, e2e_temp_dir):
         """Unreverting session clears revert metadata."""
         # Create session
-        session_resp = e2e_client.post(
+        session_resp = await e2e_client.post(
             "/session",
             json={
                 "title": "Unrevert Test",
@@ -177,23 +189,25 @@ class TestSessionUnrevert:
         session_id = session_resp.json()["id"]
 
         # Send message
-        e2e_client.post(
+        async with e2e_client.stream(
+            "POST",
             f"/session/{session_id}/message",
             json={"parts": [{"type": "text", "text": f"Read {fixture_file}"}]},
-        )
+        ) as response:
+            await collect_sse_response(response)
 
         # Get message ID
-        messages_resp = e2e_client.get(f"/session/{session_id}/message")
+        messages_resp = await e2e_client.get(f"/session/{session_id}/message")
         first_msg_id = messages_resp.json()[0]["info"]["id"]
 
         # Revert
-        e2e_client.post(
+        await e2e_client.post(
             f"/session/{session_id}/revert",
             json={"messageID": first_msg_id},
         )
 
         # Unrevert
-        unrevert_resp = e2e_client.post(f"/session/{session_id}/unrevert")
+        unrevert_resp = await e2e_client.post(f"/session/{session_id}/unrevert")
         assert unrevert_resp.status_code == 200
 
         session = unrevert_resp.json()
