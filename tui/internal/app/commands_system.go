@@ -10,6 +10,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"tui/internal/clipboard"
+	"tui/internal/components/toast"
 )
 
 // executeShellCommand executes a shell command and returns the result
@@ -104,4 +106,15 @@ func readTempFile() (string, error) {
 	os.Unsetenv("CLAUDE_TEMP_FILE")
 
 	return strings.TrimSpace(string(content)), nil
+}
+
+// copyCodeBlock copies code block content to clipboard
+func (m Model) copyCodeBlock(content string) tea.Cmd {
+	return func() tea.Msg {
+		err := clipboard.Copy(content)
+		if err != nil {
+			return m.ShowToast("Failed to copy: "+err.Error(), toast.ToastError, 3*time.Second)()
+		}
+		return m.ShowToast("Copied to clipboard!", toast.ToastSuccess, 2*time.Second)()
+	}
 }
