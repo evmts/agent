@@ -12,6 +12,7 @@ from typing import AsyncIterator
 
 from pydantic_ai import Agent, WebSearchTool
 from pydantic_ai.mcp import MCPServerStdio
+from pydantic_ai.models.anthropic import AnthropicModelSettings
 
 # Lazy import - duckduckgo is optional
 _duckduckgo_search_tool = None
@@ -32,6 +33,27 @@ from .registry import get_agent_config
 # Constants
 SHELL_SERVER_TIMEOUT_SECONDS = 60
 FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
+THINKING_BUDGET_TOKENS = 10000  # Extended thinking budget for better reasoning
+
+
+def get_anthropic_model_settings(enable_thinking: bool = True) -> AnthropicModelSettings:
+    """Get Anthropic model settings with optional extended thinking.
+
+    Args:
+        enable_thinking: Whether to enable extended thinking (default True)
+
+    Returns:
+        AnthropicModelSettings configured for the agent
+    """
+    settings: AnthropicModelSettings = {}
+
+    if enable_thinking:
+        settings['anthropic_thinking'] = {
+            'type': 'enabled',
+            'budget_tokens': THINKING_BUDGET_TOKENS,
+        }
+
+    return settings
 
 
 def _is_anthropic_model(model_id: str) -> bool:

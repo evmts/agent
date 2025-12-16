@@ -20,7 +20,7 @@ from pydantic_ai.messages import (
 )
 
 from config import DEFAULT_MODEL
-from .agent import create_agent_with_mcp, create_agent
+from .agent import create_agent_with_mcp, create_agent, get_anthropic_model_settings
 
 
 @dataclass
@@ -50,6 +50,7 @@ class AgentWrapper:
         self,
         user_text: str,
         session_id: str | None = None,
+        enable_thinking: bool = True,
     ) -> AsyncIterator[StreamEvent]:
         """
         Stream agent response, yielding events compatible with server.py.
@@ -60,14 +61,20 @@ class AgentWrapper:
         Args:
             user_text: The user's input message
             session_id: Optional session ID for context
+            enable_thinking: Enable extended thinking for better reasoning (default True)
 
         Yields:
             StreamEvent objects with text deltas, tool calls, and tool results
         """
         final_result = None
 
+        # Get model settings with optional extended thinking
+        model_settings = get_anthropic_model_settings(enable_thinking=enable_thinking)
+
         async for event in self.agent.run_stream_events(
-            user_text, message_history=self._message_history
+            user_text,
+            message_history=self._message_history,
+            model_settings=model_settings,
         ):
             if isinstance(event, PartStartEvent):
                 # A new part is starting - could be text or tool call
