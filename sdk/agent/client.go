@@ -93,6 +93,11 @@ func Bool(b bool) *bool {
 	return &b
 }
 
+// Int creates an int pointer (helper for optional fields).
+func Int(i int) *int {
+	return &i
+}
+
 // addDirectoryParam adds the directory query parameter if set.
 func (c *Client) addDirectoryParam(u *url.URL) {
 	if c.directory != nil {
