@@ -123,6 +123,9 @@ type modelsLoadedMsg struct {
 	options []modelOption
 }
 type messageStartedMsg struct{}
+type setProgramMsg struct {
+	program *tea.Program
+}
 
 func initialModel(client *agent.Client, project *agent.Project, cwd, version string, initialPrompt *string) model {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -222,7 +225,38 @@ func spinnerTick() tea.Cmd {
 	})
 }
 
-func (m model) sendMessage(text string) tea.Cmd {
+// Timeout for waiting - reset if no activity for this duration
+const streamTimeout = 5 * time.Minute
+
+func timeoutTick() tea.Cmd {
+	return tea.Tick(streamTimeout, func(t time.Time) tea.Msg {
+		return streamTimeoutMsg{}
+	})
+}
+
+type streamTimeoutMsg struct{}
+
+// streamTextMsg is sent when streaming text is updated
+type streamTextUpdateMsg struct {
+	text string
+}
+
+// streamToolMsg is sent when a tool event occurs
+type streamToolStartMsg struct {
+	toolName string
+	toolID   string
+}
+
+type streamToolCompleteMsg struct {
+	toolName string
+	toolID   string
+	output   string
+}
+
+// streamCompleteMsg is sent when the stream is done
+type streamCompleteMsg struct{}
+
+func (m model) sendMessage(text string, p *tea.Program) tea.Cmd {
 	return func() tea.Msg {
 		if m.session == nil {
 			return errMsg(fmt.Errorf("no active session"))
@@ -238,14 +272,72 @@ func (m model) sendMessage(text string) tea.Cmd {
 			req.Model = m.currentModel
 		}
 
-		// Start the request - don't block waiting for response
-		// The global event stream will handle streaming updates
-		_, _, err := m.client.SendMessage(m.ctx, m.session.ID, req)
+		// Get the per-message event stream
+		eventCh, errCh, err := m.client.SendMessage(m.ctx, m.session.ID, req)
 		if err != nil {
 			return errMsg(err)
 		}
 
-		// Return immediately - global events will stream the response
+		// Process events in a goroutine and send updates to the TUI
+		go func() {
+			var currentText strings.Builder
+			seenTools := make(map[string]bool)
+
+			for {
+				select {
+				case event, ok := <-eventCh:
+					if !ok {
+						// Channel closed - stream complete
+						p.Send(streamCompleteMsg{})
+						return
+					}
+
+					if event.Part != nil {
+						switch event.Part.Type {
+						case "text":
+							currentText.Reset()
+							currentText.WriteString(event.Part.Text)
+							p.Send(streamTextUpdateMsg{text: currentText.String()})
+
+						case "tool":
+							if event.Part.State != nil {
+								toolKey := event.Part.ID + ":" + event.Part.State.Status
+								if !seenTools[toolKey] {
+									seenTools[toolKey] = true
+
+									switch event.Part.State.Status {
+									case "pending", "running":
+										p.Send(streamToolStartMsg{
+											toolName: event.Part.Tool,
+											toolID:   event.Part.ID,
+										})
+									case "completed":
+										p.Send(streamToolCompleteMsg{
+											toolName: event.Part.Tool,
+											toolID:   event.Part.ID,
+											output:   event.Part.State.Output,
+										})
+									}
+								}
+							}
+						}
+					}
+
+				case err, ok := <-errCh:
+					if ok && err != nil {
+						p.Send(errMsg(err))
+					}
+					p.Send(streamCompleteMsg{})
+					return
+
+				case <-m.ctx.Done():
+					p.Send(errMsg(m.ctx.Err()))
+					return
+				}
+			}
+		}()
+
+		// Return immediately - the goroutine handles streaming
 		return messageStartedMsg{}
 	}
 }
@@ -365,8 +457,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamingText = ""
 			m.spinnerFrame = 0
 			m.seenToolIDs = make(map[string]bool)
+			m.err = nil // Clear previous errors
 
-			return m, tea.Batch(m.sendMessage(input), spinnerTick())
+			if m.program == nil {
+				m.err = fmt.Errorf("program not initialized")
+				m.waiting = false
+				return m, nil
+			}
+
+			return m, tea.Batch(m.sendMessage(input, m.program), spinnerTick(), timeoutTick())
 
 		case tea.KeyTab:
 			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
@@ -427,9 +526,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Message send initiated, spinner already running
 		return m, nil
 
+	case setProgramMsg:
+		m.program = msg.program
+		return m, nil
+
 	case sessionCreatedMsg:
 		m.session = msg.session
-		if m.input != "" {
+		if m.input != "" && m.program != nil {
 			// Auto-send initial prompt if provided
 			userMsg := message{role: "user", content: m.input}
 			m.messages = append(m.messages, userMsg)
@@ -438,7 +541,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.waiting = true
 			m.spinnerFrame = 0
 			m.seenToolIDs = make(map[string]bool)
-			return m, tea.Batch(m.sendMessage(input), spinnerTick())
+			return m, tea.Batch(m.sendMessage(input, m.program), spinnerTick(), timeoutTick())
 		}
 
 	case modelsLoadedMsg:
@@ -486,6 +589,55 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.waiting = false
 		m.err = msg
+
+	case streamTextUpdateMsg:
+		// Update streaming text as it arrives
+		m.streamingText = msg.text
+
+	case streamToolStartMsg:
+		// Tool execution started
+		toolKey := msg.toolID + ":start"
+		if !m.seenToolIDs[toolKey] {
+			m.seenToolIDs[toolKey] = true
+			m.messages = append(m.messages, message{
+				role:      "assistant",
+				content:   fmt.Sprintf("Using tool: %s", msg.toolName),
+				isToolUse: true,
+				toolName:  msg.toolName,
+				toolID:    msg.toolID,
+			})
+		}
+
+	case streamToolCompleteMsg:
+		// Tool execution completed
+		toolKey := msg.toolID + ":complete"
+		if !m.seenToolIDs[toolKey] {
+			m.seenToolIDs[toolKey] = true
+			m.messages = append(m.messages, message{
+				role:         "tool_result",
+				content:      msg.output,
+				isToolResult: true,
+				toolName:     msg.toolName,
+				toolID:       msg.toolID,
+			})
+		}
+
+	case streamCompleteMsg:
+		// Stream completed
+		m.waiting = false
+		if m.streamingText != "" {
+			m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
+			m.streamingText = ""
+		}
+		m.seenToolIDs = make(map[string]bool)
+
+	case streamTimeoutMsg:
+		// Timeout while waiting - reset state
+		if m.waiting {
+			m.waiting = false
+			m.err = fmt.Errorf("request timed out after %v", streamTimeout)
+			m.streamingText = ""
+		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -778,7 +930,14 @@ func main() {
 	// Create program
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
-	// Subscribe to global events
+	// Send program pointer to model immediately after creation
+	go func() {
+		// Small delay to ensure program is ready
+		time.Sleep(10 * time.Millisecond)
+		p.Send(setProgramMsg{program: p})
+	}()
+
+	// Subscribe to global events (for session.idle fallback)
 	go func() {
 		eventCh, errCh, err := client.SubscribeToEvents(m.ctx)
 		if err != nil {
