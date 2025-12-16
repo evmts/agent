@@ -106,6 +106,9 @@ func DefaultKeyMap() *KeyMap {
 	km.Add("enter", "Submit message", ActionSubmit)
 	km.Add("esc", "Cancel/close", ActionCancel)
 
+	// Permissions mode
+	km.Add("shift+tab", "Cycle permissions mode", ActionCyclePermissions)
+
 	return km
 }
 

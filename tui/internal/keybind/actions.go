@@ -51,6 +51,9 @@ const (
 	ActionFocusInput Action = "focus_input"
 	ActionOpenEditor Action = "open_editor"
 
+	// Permissions mode
+	ActionCyclePermissions Action = "cycle_permissions"
+
 	// None for unknown/unbound keys
 	ActionNone Action = ""
 )

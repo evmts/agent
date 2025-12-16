@@ -151,9 +151,21 @@ func (m *Model) acceptSuggestion(sug *Suggestion) {
 	}
 }
 
-// View renders the input component
+// View renders the input component - Claude Code style with simple > prompt
 func (m Model) View() string {
-	inputView := styles.InputBorder().Width(m.width - 2).Render(m.textarea.View())
+	theme := styles.GetCurrentTheme()
+
+	// Claude Code style: simple ">" prompt
+	promptStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Bold(true)
+	prompt := promptStyle.Render("> ")
+
+	// Get textarea content
+	textareaView := m.textarea.View()
+
+	// Combine prompt with input
+	inputView := lipgloss.JoinHorizontal(lipgloss.Top, prompt, textareaView)
 
 	// Show autocomplete dropdown if active
 	if m.autocomplete.IsActive() {

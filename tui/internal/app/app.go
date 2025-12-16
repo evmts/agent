@@ -87,6 +87,19 @@ type Model struct {
 
 	// Double-escape interrupt tracking
 	lastEscapeTime time.Time
+
+	// Permissions mode - Claude Code style (bypass permissions, ask, etc.)
+	permissionsMode string
+
+	// Version info
+	appVersion    string
+	latestVersion string
+
+	// Task tracking - Claude Code style
+	currentTask     string    // Current active task description
+	nextTask        string    // Next task in queue
+	taskStartTime   time.Time // When the current task started
+	taskTokensUsed  int       // Tokens used for current task
 }
 
 // New creates a new application model
@@ -103,11 +116,14 @@ func New(client *agent.Client) Model {
 		ready:            false,
 		keyMap:           keybind.DefaultKeyMap(),
 		inputFocused:     false,
-		currentAgent:     "build",    // Default agent
-		mouseEnabled:     true,       // Mouse mode enabled by default
-		maxContextTokens: 200000,     // Default Claude context window
-		provider:         "Anthropic", // Default provider
+		currentAgent:     "build",           // Default agent
+		mouseEnabled:     true,              // Mouse mode enabled by default
+		maxContextTokens: 200000,            // Default Claude context window
+		provider:         "Anthropic",       // Default provider
 		connected:        false,
+		permissionsMode:  "bypass",          // Claude Code style: bypass, ask, deny
+		appVersion:       "1.0.0",           // Version info
+		latestVersion:    "1.0.0",
 	}
 }
 
@@ -278,4 +294,39 @@ func (m *Model) ShowRenameDialog() {
 // GetLastMessageInfo returns the ID and role of the last message in the chat
 func (m *Model) GetLastMessageInfo() (string, bool) {
 	return m.chat.GetLastMessageInfo()
+}
+
+// cyclePermissionsMode cycles through permissions modes (bypass -> ask -> deny -> bypass)
+func (m *Model) cyclePermissionsMode() {
+	switch m.permissionsMode {
+	case "bypass":
+		m.permissionsMode = "ask"
+	case "ask":
+		m.permissionsMode = "deny"
+	case "deny":
+		m.permissionsMode = "bypass"
+	default:
+		m.permissionsMode = "bypass"
+	}
+}
+
+// SetCurrentTask sets the current task for display
+func (m *Model) SetCurrentTask(task string) {
+	m.currentTask = task
+	if task != "" && m.taskStartTime.IsZero() {
+		m.taskStartTime = time.Now()
+	}
+}
+
+// SetNextTask sets the next task for display
+func (m *Model) SetNextTask(task string) {
+	m.nextTask = task
+}
+
+// ClearTask clears the current task
+func (m *Model) ClearTask() {
+	m.currentTask = ""
+	m.nextTask = ""
+	m.taskStartTime = time.Time{}
+	m.taskTokensUsed = 0
 }

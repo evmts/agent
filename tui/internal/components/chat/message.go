@@ -194,7 +194,8 @@ func renderTextPartEnhanced(part agent.Part, width int) string {
 	return styles.AssistantMessage().Width(width).Render(content)
 }
 
-// renderToolPartEnhanced renders tool with better formatting
+// renderToolPartEnhanced renders tool with Claude Code style formatting
+// Uses tree structure with └ character for child results
 func renderToolPartEnhanced(part agent.Part, width int, opts MessageOptions, index int) string {
 	if part.State == nil {
 		return ""
@@ -203,7 +204,7 @@ func renderToolPartEnhanced(part agent.Part, width int, opts MessageOptions, ind
 	theme := styles.GetCurrentTheme()
 	state := part.State
 
-	// Status indicator with better icons
+	// Status indicator - Claude Code style
 	var status string
 	var statusStyle lipgloss.Style
 
@@ -215,99 +216,197 @@ func renderToolPartEnhanced(part agent.Part, width int, opts MessageOptions, ind
 		status = "●"
 		statusStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 	case "completed":
-		status = "✓"
+		status = "●"
 		statusStyle = lipgloss.NewStyle().Foreground(theme.Success)
 	case "failed":
 		status = "✗"
 		statusStyle = lipgloss.NewStyle().Foreground(theme.Error)
 	default:
-		status = "?"
+		status = "○"
 		statusStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 	}
 
-	// Format tool name with better styling
+	// Format tool name with parentheses - Claude Code style: ToolName(argument)
 	toolNameStyle := lipgloss.NewStyle().
-		Foreground(theme.Accent).
+		Foreground(theme.Success).
 		Bold(true)
-	toolName := toolNameStyle.Render(part.Tool)
 
-	// Input description
-	inputStr := formatToolInput(part.Tool, state.Input)
+	inputStr := formatToolInputForHeader(part.Tool, state.Input)
 	if state.Title != nil && *state.Title != "" {
 		inputStr = *state.Title
 	}
-	inputStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-	inputDisplay := inputStyle.Render(inputStr)
 
-	// Build header
-	header := fmt.Sprintf("%s %s %s", statusStyle.Render(status), toolName, inputDisplay)
+	// Format as: ● ToolName(argument)
+	header := fmt.Sprintf("%s %s", statusStyle.Render(status), toolNameStyle.Render(part.Tool+"("+inputStr+")"))
 
-	// Tool container style
-	toolContainerStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Border).
-		BorderLeft(true).
-		BorderRight(false).
-		BorderTop(false).
-		BorderBottom(false).
-		PaddingLeft(1).
-		Width(width - 2)
+	var result strings.Builder
+	result.WriteString(header)
 
-	// Show output if completed
+	// Tree branch character for child items (└)
+	treeChar := "└"
+	treeStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	// Show output summary in tree format
 	if state.Status == "completed" && state.Output != "" {
 		output := state.Output
+		lines := strings.Split(strings.TrimSpace(output), "\n")
 
-		// Truncate long output with "Show more" indicator
-		maxLines := 5
-		lines := strings.Split(output, "\n")
-		truncated := false
-		if len(lines) > maxLines {
-			lines = lines[:maxLines]
-			truncated = true
-		}
-		output = strings.Join(lines, "\n")
-
-		// Limit total length
-		if len(output) > 500 {
-			output = output[:500]
-			truncated = true
+		// Format output summary based on tool type
+		summary := formatToolOutputSummary(part.Tool, state.Input, output, lines)
+		if summary != "" {
+			summaryStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+			result.WriteString("\n")
+			result.WriteString(treeStyle.Render(treeChar + " "))
+			result.WriteString(summaryStyle.Render(summary))
 		}
 
-		outputStyle := lipgloss.NewStyle().
-			Foreground(theme.Muted).
-			Width(width - 8)
-
-		outputView := outputStyle.Render(output)
-
-		if truncated {
-			moreStyle := lipgloss.NewStyle().
-				Foreground(theme.Accent).
-				Italic(true)
-			outputView += "\n" + moreStyle.Render("  ... (output truncated)")
+		// For tools that list files (Glob, Grep), show file paths
+		if (part.Tool == "Glob" || part.Tool == "Grep" || part.Tool == "Search") && len(lines) > 0 {
+			maxFiles := 10
+			fileStyle := lipgloss.NewStyle().Foreground(theme.Success)
+			for i, line := range lines {
+				if i >= maxFiles {
+					result.WriteString("\n")
+					moreStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+					result.WriteString(moreStyle.Render(fmt.Sprintf("  ... and %d more files", len(lines)-maxFiles)))
+					break
+				}
+				if strings.TrimSpace(line) != "" {
+					result.WriteString("\n")
+					result.WriteString("  ")
+					result.WriteString(fileStyle.Render(strings.TrimSpace(line)))
+				}
+			}
 		}
-
-		content := header + "\n" + outputView
-		return toolContainerStyle.Render(content)
+	} else if state.Status == "running" {
+		// Show running state summary
+		summaryStyle := lipgloss.NewStyle().Foreground(theme.Muted).Italic(true)
+		result.WriteString("\n")
+		result.WriteString(treeStyle.Render(treeChar + " "))
+		result.WriteString(summaryStyle.Render("Running..."))
 	}
 
-	return toolContainerStyle.Render(header)
+	return result.String()
 }
 
-// renderReasoningPart renders thinking/reasoning content
+// formatToolInputForHeader formats tool input for the header display
+func formatToolInputForHeader(tool string, input map[string]interface{}) string {
+	if input == nil {
+		return ""
+	}
+
+	switch tool {
+	case "Read":
+		if path, ok := input["file_path"].(string); ok {
+			return truncate(path, 60)
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			// Show first line only for bash commands
+			lines := strings.Split(cmd, "\n")
+			return truncate(lines[0], 50)
+		}
+	case "Glob":
+		if pattern, ok := input["pattern"].(string); ok {
+			return fmt.Sprintf("pattern: %q", truncate(pattern, 40))
+		}
+	case "Grep", "Search":
+		if pattern, ok := input["pattern"].(string); ok {
+			return fmt.Sprintf("pattern: %q", truncate(pattern, 40))
+		}
+	case "Edit":
+		if path, ok := input["file_path"].(string); ok {
+			return truncate(path, 60)
+		}
+	case "Write":
+		if path, ok := input["file_path"].(string); ok {
+			return truncate(path, 60)
+		}
+	case "WebFetch":
+		if url, ok := input["url"].(string); ok {
+			return truncate(url, 50)
+		}
+	case "WebSearch":
+		if query, ok := input["query"].(string); ok {
+			return fmt.Sprintf("query: %q", truncate(query, 40))
+		}
+	case "Task":
+		if desc, ok := input["description"].(string); ok {
+			return truncate(desc, 50)
+		}
+	}
+
+	return ""
+}
+
+// formatToolOutputSummary creates a summary line for tool output
+func formatToolOutputSummary(tool string, input map[string]interface{}, output string, lines []string) string {
+	switch tool {
+	case "Read":
+		lineCount := len(lines)
+		return fmt.Sprintf("Read %d lines", lineCount)
+	case "Glob":
+		return fmt.Sprintf("Found %d files", len(lines))
+	case "Grep", "Search":
+		return fmt.Sprintf("Found %d files", len(lines))
+	case "Bash":
+		if len(output) == 0 {
+			return "Command completed"
+		}
+		return fmt.Sprintf("%d lines of output", len(lines))
+	case "Edit":
+		return "Edit applied"
+	case "Write":
+		return "File written"
+	case "WebFetch":
+		return fmt.Sprintf("Fetched %d bytes", len(output))
+	case "WebSearch":
+		return fmt.Sprintf("Found %d results", len(lines))
+	default:
+		if len(output) > 0 {
+			return fmt.Sprintf("%d lines of output", len(lines))
+		}
+		return "Completed"
+	}
+}
+
+// renderReasoningPart renders thinking/reasoning content - Claude Code style
 func renderReasoningPart(part agent.Part, width int, showThinking bool) string {
 	if part.Text == "" {
 		return ""
 	}
 
-	// If showThinking is false, show collapsed indicator
+	theme := styles.GetCurrentTheme()
+
+	// If showThinking is false, show collapsed indicator - Claude Code style
 	if !showThinking {
-		return ThinkingCollapsed().Render("[Thinking hidden - press Ctrl+T to show]")
+		// Claude Code style: ∴ Thought for Xs (ctrl+o to show thinking)
+		collapsedStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted).
+			Italic(true)
+		symbolStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted)
+		hintStyle := lipgloss.NewStyle().
+			Foreground(theme.Muted)
+
+		return symbolStyle.Render("∴ ") + collapsedStyle.Render("Thought ") + hintStyle.Render("(ctrl+o to show thinking)")
 	}
 
-	// Style for reasoning - dimmed and italic
-	reasoningStyle := ThinkingContainer()
-	header := ThinkingHeader().Render("Thinking...")
-	content := reasoningStyle.Width(width - 4).Render(part.Text)
+	// Show expanded thinking - Claude Code style
+	symbolStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted)
+	headerStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Italic(true)
+	header := symbolStyle.Render("∴ ") + headerStyle.Render("Thinking...")
+
+	// Content style - dimmed and italic
+	contentStyle := lipgloss.NewStyle().
+		Foreground(theme.Muted).
+		Italic(true).
+		PaddingLeft(2).
+		Width(width - 4)
+	content := contentStyle.Render(part.Text)
 
 	return header + "\n" + content
 }

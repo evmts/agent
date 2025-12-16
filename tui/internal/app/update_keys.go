@@ -60,6 +60,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle permissions cycle action (Claude Code style)
+	if action == keybind.ActionCyclePermissions {
+		m.cyclePermissionsMode()
+		return m, m.ShowToast("Permissions: "+m.permissionsMode, toast.ToastInfo, 2*time.Second)
+	}
+
 	// Handle rename session action
 	if action == keybind.ActionRenameSession {
 		if m.session != nil {

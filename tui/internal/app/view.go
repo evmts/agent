@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/ansi"
@@ -22,12 +23,84 @@ func formatTokens(count int) string {
 	return fmt.Sprintf("%.1fM", float64(count)/1000000)
 }
 
+// formatDuration formats a duration for display (e.g., "3m 30s")
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	minutes := int(d.Minutes())
+	seconds := int(d.Seconds()) % 60
+	if seconds == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm %ds", minutes, seconds)
+}
+
 // formatCost formats cost for display
 func formatCost(cost float64) string {
 	if cost >= 1.0 {
 		return fmt.Sprintf("$%.2f", cost)
 	}
 	return fmt.Sprintf("$%.4f", cost)
+}
+
+// renderTaskStatus renders the current task status in Claude Code style
+// Format: * Task description... (esc to interrupt · ctrl+t to show todos · 3m 30s · ↑ 5.0k tokens)
+//         └ Next: Next task description
+func (m Model) renderTaskStatus(width int) string {
+	if m.currentTask == "" && m.state != StateStreaming {
+		return ""
+	}
+
+	theme := styles.GetCurrentTheme()
+	var result strings.Builder
+
+	// Current task line with red asterisk
+	asteriskStyle := lipgloss.NewStyle().Foreground(theme.Error).Bold(true)
+	taskStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary)
+	hintStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	// Calculate task duration
+	var duration time.Duration
+	if !m.taskStartTime.IsZero() {
+		duration = time.Since(m.taskStartTime)
+	}
+
+	// Build the task line
+	taskText := m.currentTask
+	if taskText == "" && m.state == StateStreaming {
+		taskText = "Processing..."
+	}
+
+	result.WriteString(asteriskStyle.Render("* "))
+	result.WriteString(taskStyle.Render(taskText))
+
+	// Add hints in parentheses
+	hints := []string{
+		"esc to interrupt",
+		"ctrl+t to show todos",
+	}
+	if duration > 0 {
+		hints = append(hints, formatDuration(duration))
+	}
+	if m.taskTokensUsed > 0 {
+		hints = append(hints, fmt.Sprintf("↑ %s tokens", formatTokens(m.taskTokensUsed)))
+	}
+
+	if len(hints) > 0 {
+		result.WriteString(hintStyle.Render(" (" + strings.Join(hints, " · ") + ")"))
+	}
+
+	// Next task line with tree character
+	if m.nextTask != "" {
+		result.WriteString("\n")
+		treeStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+		nextStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+		result.WriteString(treeStyle.Render("└ "))
+		result.WriteString(nextStyle.Render("Next: " + m.nextTask))
+	}
+
+	return result.String()
 }
 
 // View renders the application
@@ -61,6 +134,14 @@ func (m Model) View() string {
 		chatView = welcomeStyle.Render(chat.WelcomeText)
 	}
 	sections = append(sections, chatView)
+
+	// Task status (Claude Code style) - shown during streaming
+	if m.state == StateStreaming || m.currentTask != "" {
+		taskStatus := m.renderTaskStatus(contentWidth)
+		if taskStatus != "" {
+			sections = append(sections, taskStatus)
+		}
+	}
 
 	// Input area
 	if m.state == StateStreaming {
@@ -208,121 +289,69 @@ func (m Model) renderHeader(width int) string {
 	return headerLine + "\n" + border + "\n"
 }
 
-// renderStatusBar renders the enhanced status bar at the bottom
+// renderStatusBar renders the status bar in Claude Code style
 func (m Model) renderStatusBar(width int) string {
 	theme := styles.GetCurrentTheme()
 
-	// Left section: Model, Agent, Git branch
-	var leftParts []string
+	// Claude Code style status bar:
+	// Line 1: >> permissions mode (hint)                    token count
+	// Line 2: version info
 
-	// Model name with icon
-	if m.currentModel != "" {
-		modelStyle := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
-		leftParts = append(leftParts, modelStyle.Render("⚡ "+m.currentModel))
-	}
-
-	// Agent name
-	if m.currentAgent != "" {
-		agentStyle := lipgloss.NewStyle().
-			Foreground(theme.TextSecondary).
-			Background(theme.CodeBackground).
-			Padding(0, 1)
-		leftParts = append(leftParts, agentStyle.Render(m.currentAgent))
-	}
-
-	// Git branch (if available)
-	if m.gitBranch != "" {
-		branchStyle := lipgloss.NewStyle().Foreground(theme.Warning)
-		leftParts = append(leftParts, branchStyle.Render(" "+m.gitBranch))
-	}
-
-	// Center section: State with spinner
-	var stateText string
-	var stateStyle lipgloss.Style
-	switch m.state {
-	case StateIdle:
-		stateText = "● Ready"
-		stateStyle = lipgloss.NewStyle().Foreground(theme.Success)
-	case StateStreaming:
-		spinnerFrame := m.spinner.Frame()
-		stateText = spinnerFrame + " Streaming"
-		stateStyle = lipgloss.NewStyle().Foreground(theme.Warning)
-	case StateLoading:
-		spinnerFrame := m.spinner.Frame()
-		stateText = spinnerFrame + " Loading"
-		stateStyle = lipgloss.NewStyle().Foreground(theme.Info)
-	case StateError:
-		errMsg := "Error"
-		if m.err != nil {
-			errMsg = m.err.Error()
-			if len(errMsg) > 30 {
-				errMsg = errMsg[:27] + "..."
-			}
-		}
-		stateText = "✕ " + errMsg
-		stateStyle = lipgloss.NewStyle().Foreground(theme.Error)
-	}
-
-	// Right section: Context-sensitive keybind hints
-	var rightParts []string
-
+	// Left section: Permissions mode with >> indicator
+	arrowStyle := lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)
+	permStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
 	hintStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
 
-	switch m.state {
-	case StateStreaming:
-		// Show cancel hint during streaming
-		rightParts = append(rightParts, hintStyle.Render("Press ")+keyStyle.Render("Ctrl+C")+hintStyle.Render(" to cancel"))
-	case StateIdle:
-		// Show context-sensitive hints
-		if m.HasActiveDialog() {
-			rightParts = append(rightParts, keyStyle.Render("Esc")+hintStyle.Render(" close"))
-		} else if m.sidebar.IsVisible() {
-			rightParts = append(rightParts, keyStyle.Render("Tab")+hintStyle.Render(" switch"))
-			rightParts = append(rightParts, keyStyle.Render("Ctrl+/")+hintStyle.Render(" hide"))
-		} else {
-			rightParts = append(rightParts, keyStyle.Render("?")+hintStyle.Render(" help"))
-			rightParts = append(rightParts, keyStyle.Render("Ctrl+K")+hintStyle.Render(" cmd"))
-		}
-	default:
-		// Show basic hints
-		rightParts = append(rightParts, keyStyle.Render("?")+hintStyle.Render(" help"))
+	permText := "bypass permissions"
+	if m.permissionsMode == "ask" {
+		permText = "ask permissions"
+	} else if m.permissionsMode == "deny" {
+		permText = "deny permissions"
 	}
 
-	// Build the status bar with proper spacing
-	separatorStyle := lipgloss.NewStyle().Foreground(theme.Border)
-	separator := separatorStyle.Render(" │ ")
+	leftSide := arrowStyle.Render("▶▶ ") + permStyle.Render(permText+" on") + hintStyle.Render(" (shift+tab to cycle)")
 
-	leftSide := strings.Join(leftParts, separator)
-	centerSection := stateStyle.Render(stateText)
-	rightSide := strings.Join(rightParts, " ")
+	// Right section: Token count
+	totalTokens := m.totalInputTokens + m.totalOutputTokens
+	tokenStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	rightSide := tokenStyle.Render(fmt.Sprintf("%s tokens", formatTokens(totalTokens)))
 
-	// Calculate widths
+	// Calculate spacing
 	leftWidth := ansi.PrintableRuneWidth(leftSide)
-	centerWidth := ansi.PrintableRuneWidth(centerSection)
 	rightWidth := ansi.PrintableRuneWidth(rightSide)
-
-	// Distribute spacing
-	totalContent := leftWidth + centerWidth + rightWidth
-	totalSpacing := width - totalContent - 4 // Leave some margin
-	if totalSpacing < 2 {
-		totalSpacing = 2
+	spacing := width - leftWidth - rightWidth - 2
+	if spacing < 1 {
+		spacing = 1
 	}
-	leftSpacing := totalSpacing / 2
-	rightSpacing := totalSpacing - leftSpacing
 
-	// Add a subtle top border
-	borderStyle := lipgloss.NewStyle().Foreground(theme.Border)
-	topBorder := borderStyle.Render(strings.Repeat("─", width))
+	statusLine1 := leftSide + strings.Repeat(" ", spacing) + rightSide
 
-	statusLine := leftSide + strings.Repeat(" ", leftSpacing) + centerSection + strings.Repeat(" ", rightSpacing) + rightSide
+	// Line 2: Version info (Claude Code style)
+	versionStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	dotStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	versionInfo := ""
+	if m.appVersion != "" {
+		versionInfo = versionStyle.Render("version: "+m.appVersion) +
+			dotStyle.Render(" · ") +
+			versionStyle.Render("latest: "+m.latestVersion)
+	}
+
+	// Right-align version info
+	versionWidth := ansi.PrintableRuneWidth(versionInfo)
+	versionSpacing := width - versionWidth - 2
+	if versionSpacing < 0 {
+		versionSpacing = 0
+	}
+
+	statusLine2 := strings.Repeat(" ", versionSpacing) + versionInfo
 
 	// Apply container style
 	statusStyle := lipgloss.NewStyle().
 		Width(width).
 		MaxWidth(width)
 
-	return topBorder + "\n" + statusStyle.Render(statusLine)
+	return statusStyle.Render(statusLine1) + "\n" + statusStyle.Render(statusLine2)
 }
 
 // overlayToasts overlays toast notifications in the top-right corner
