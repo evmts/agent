@@ -3,9 +3,11 @@ package progress
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/williamcory/agent/sdk/agent"
 	"tui/internal/styles"
 )
 
@@ -321,4 +323,133 @@ func formatNumber(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%.1fM", float64(n)/1000000)
+}
+
+// RenderToolProgress renders a progress bar for a tool execution.
+func RenderToolProgress(progress agent.ToolProgress, width int) string {
+	theme := styles.GetCurrentTheme()
+
+	switch progress.Type {
+	case agent.ProgressCount:
+		return renderCountProgress(progress, width, theme)
+	case agent.ProgressBytes:
+		return renderBytesProgress(progress, width, theme)
+	case agent.ProgressTime:
+		return renderTimeProgress(progress, theme)
+	case agent.ProgressIndeterminate:
+		return renderIndeterminateProgress(theme)
+	default:
+		return ""
+	}
+}
+
+// renderCountProgress renders count-based progress (e.g., files, lines).
+func renderCountProgress(progress agent.ToolProgress, width int, theme *styles.Theme) string {
+	pct := progress.Percentage()
+	barWidth := width - 15 // Leave space for percentage and count
+
+	if barWidth < 10 {
+		barWidth = 10
+	}
+
+	filled := int(float64(barWidth) * pct / 100)
+	if filled > barWidth {
+		filled = barWidth
+	}
+	empty := barWidth - filled
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
+
+	barStyle := lipgloss.NewStyle().Foreground(theme.Success)
+	pctStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	countStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	count := fmt.Sprintf("(%d/%d %s)", progress.Current, progress.Total, progress.Unit)
+
+	return fmt.Sprintf("[%s] %s %s",
+		barStyle.Render(bar),
+		pctStyle.Render(fmt.Sprintf("%3.0f%%", pct)),
+		countStyle.Render(count))
+}
+
+// renderBytesProgress renders byte-based progress with size display.
+func renderBytesProgress(progress agent.ToolProgress, width int, theme *styles.Theme) string {
+	pct := progress.Percentage()
+	barWidth := width - 25 // Leave space for percentage and size
+
+	if barWidth < 10 {
+		barWidth = 10
+	}
+
+	filled := int(float64(barWidth) * pct / 100)
+	if filled > barWidth {
+		filled = barWidth
+	}
+	empty := barWidth - filled
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
+
+	barStyle := lipgloss.NewStyle().Foreground(theme.Success)
+	pctStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	sizeStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	currentSize := formatBytes(progress.Current)
+	totalSize := formatBytes(progress.Total)
+	size := fmt.Sprintf("(%s / %s)", currentSize, totalSize)
+
+	// Add ETA if available
+	eta := progress.ETA()
+	etaStr := ""
+	if eta > 0 {
+		etaStr = fmt.Sprintf(" ETA: %s", formatDuration(eta))
+	}
+
+	return fmt.Sprintf("[%s] %s %s%s",
+		barStyle.Render(bar),
+		pctStyle.Render(fmt.Sprintf("%3.0f%%", pct)),
+		sizeStyle.Render(size),
+		sizeStyle.Render(etaStr))
+}
+
+// renderTimeProgress renders elapsed time only.
+func renderTimeProgress(progress agent.ToolProgress, theme *styles.Theme) string {
+	elapsed := progress.ElapsedSeconds()
+	timeStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	return timeStyle.Render(fmt.Sprintf("(%.1fs elapsed)", elapsed))
+}
+
+// renderIndeterminateProgress renders a spinner for unknown progress.
+func renderIndeterminateProgress(theme *styles.Theme) string {
+	spinnerStyle := lipgloss.NewStyle().Foreground(theme.Warning)
+	return spinnerStyle.Render("●")
+}
+
+// formatBytes formats bytes in human-readable format.
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// formatDuration formats duration in human-readable format.
+func formatDuration(seconds float64) string {
+	d := time.Duration(seconds * float64(time.Second))
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
+	if d < time.Hour {
+		minutes := int(d.Minutes())
+		secs := int(d.Seconds()) - minutes*60
+		return fmt.Sprintf("%dm%ds", minutes, secs)
+	}
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) - hours*60
+	return fmt.Sprintf("%dh%dm", hours, minutes)
 }

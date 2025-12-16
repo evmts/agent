@@ -87,6 +87,7 @@ func buildCommandList(keyMap *keybind.KeyMap) []Command {
 		// Agent commands
 		{ID: "agent.select", Title: "Select Agent", Description: "Choose a different agent", Category: "Agent", Action: keybind.ActionShowAgents, Keybind: actionKeybinds[keybind.ActionShowAgents]},
 		{ID: "agent.model", Title: "Select Model", Description: "Choose a different AI model", Category: "Agent", Action: keybind.ActionShowModels, Keybind: actionKeybinds[keybind.ActionShowModels]},
+		{ID: "agent.mcp", Title: "MCP Servers", Description: "View connected MCP servers and tools", Category: "Agent", Action: keybind.ActionShowMCP, Keybind: actionKeybinds[keybind.ActionShowMCP]},
 
 		// Input commands
 		{ID: "input.editor", Title: "Open Editor", Description: "Edit in external editor", Category: "Input", Action: keybind.ActionOpenEditor, Keybind: actionKeybinds[keybind.ActionOpenEditor]},
