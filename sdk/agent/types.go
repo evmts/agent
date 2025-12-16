@@ -171,6 +171,60 @@ type ReasoningPart struct {
 	Time      PartTime `json:"time"`
 }
 
+// ToolProgress represents progress information for a tool execution.
+type ToolProgress struct {
+	Type        ProgressType `json:"type"`
+	Current     int64        `json:"current"`
+	Total       int64        `json:"total"`
+	Unit        string       `json:"unit"`        // "lines", "files", "bytes"
+	StartTime   float64      `json:"startTime"`   // Unix timestamp
+	LastUpdate  float64      `json:"lastUpdate"`  // Unix timestamp
+	BytesPerSec float64      `json:"bytesPerSec"` // For ETA calculation
+}
+
+// ProgressType represents the type of progress indicator.
+type ProgressType string
+
+const (
+	ProgressNone          ProgressType = "none"
+	ProgressCount         ProgressType = "count"         // X of Y items
+	ProgressBytes         ProgressType = "bytes"         // X of Y bytes
+	ProgressTime          ProgressType = "time"          // Elapsed time only
+	ProgressIndeterminate ProgressType = "indeterminate" // Spinner only
+)
+
+// Percentage returns the progress as a percentage (0-100).
+func (p ToolProgress) Percentage() float64 {
+	if p.Total == 0 {
+		return 0
+	}
+	pct := (float64(p.Current) / float64(p.Total)) * 100
+	if pct > 100 {
+		pct = 100
+	}
+	return pct
+}
+
+// ETA calculates estimated time remaining in seconds.
+func (p ToolProgress) ETA() float64 {
+	if p.BytesPerSec == 0 || p.Current == 0 || p.Total == 0 {
+		return 0
+	}
+	remaining := p.Total - p.Current
+	return float64(remaining) / p.BytesPerSec
+}
+
+// ElapsedSeconds returns the elapsed time in seconds.
+func (p ToolProgress) ElapsedSeconds() float64 {
+	if p.StartTime == 0 {
+		return 0
+	}
+	if p.LastUpdate > 0 {
+		return p.LastUpdate - p.StartTime
+	}
+	return Now() - p.StartTime
+}
+
 // ToolState represents the state of a tool execution.
 type ToolState struct {
 	Status   string                 `json:"status"` // "pending", "running", "completed"
@@ -180,6 +234,7 @@ type ToolState struct {
 	Title    *string                `json:"title,omitempty"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 	Time     *PartTime              `json:"time,omitempty"`
+	Progress *ToolProgress          `json:"progress,omitempty"`
 }
 
 // ToolPart represents a tool use/result.
@@ -331,6 +386,42 @@ type RevertRequest struct {
 type HealthResponse struct {
 	Status          string `json:"status"`
 	AgentConfigured bool   `json:"agent_configured"`
+}
+
+// MCP Server types
+
+// MCPServerStatus represents the connection status of an MCP server.
+type MCPServerStatus string
+
+const (
+	MCPStatusConnected    MCPServerStatus = "connected"
+	MCPStatusDisconnected MCPServerStatus = "disconnected"
+	MCPStatusError        MCPServerStatus = "error"
+	MCPStatusConnecting   MCPServerStatus = "connecting"
+)
+
+// MCPTool represents a tool provided by an MCP server.
+type MCPTool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"inputSchema"`
+	Examples    []string               `json:"examples,omitempty"`
+}
+
+// MCPServer represents an MCP server and its available tools.
+type MCPServer struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Status      MCPServerStatus `json:"status"`
+	URL         string          `json:"url,omitempty"`
+	Tools       []MCPTool       `json:"tools"`
+	LastError   string          `json:"lastError,omitempty"`
+	ConnectedAt *float64        `json:"connectedAt,omitempty"`
+}
+
+// MCPServersResponse is the response from the MCP servers endpoint.
+type MCPServersResponse struct {
+	Servers []MCPServer `json:"servers"`
 }
 
 // Helper functions

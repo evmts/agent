@@ -594,3 +594,35 @@ func (c *Client) SubscribeToEvents(ctx context.Context) (<-chan *GlobalEvent, <-
 
 	return globalCh, globalErrCh, nil
 }
+
+// GetMCPServers retrieves the list of MCP servers and their status.
+func (c *Client) GetMCPServers(ctx context.Context) (*MCPServersResponse, error) {
+	u, err := url.Parse(c.baseURL + "/mcp/servers")
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	c.addDirectoryParam(u)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result MCPServersResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &result, nil
+}
