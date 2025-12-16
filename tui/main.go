@@ -260,10 +260,15 @@ type streamCompleteMsg struct{}
 
 // fileAttachment represents a file to include in context
 type fileAttachment struct {
-	path    string
-	content string
-	err     error
+	path     string
+	content  string
+	err      error
+	skipped  bool   // true if file was skipped due to size
+	fileSize int64  // size of file in bytes
 }
+
+// Maximum file size to auto-include (100KB)
+const maxFileSize = 100 * 1024
 
 // parseFileReferences extracts @filename patterns from text
 // Returns the cleaned text and list of file paths
@@ -300,17 +305,56 @@ func parseFileReferences(text string, cwd string) (string, []string) {
 }
 
 // readFileAttachments reads files and returns their contents
+// Files larger than maxFileSize are skipped
 func readFileAttachments(paths []string) []fileAttachment {
 	var attachments []fileAttachment
 	for _, path := range paths {
+		// Check file size first
+		info, err := os.Stat(path)
+		if err != nil {
+			attachments = append(attachments, fileAttachment{
+				path: path,
+				err:  err,
+			})
+			continue
+		}
+
+		fileSize := info.Size()
+
+		// Skip files that are too large
+		if fileSize > maxFileSize {
+			attachments = append(attachments, fileAttachment{
+				path:     path,
+				skipped:  true,
+				fileSize: fileSize,
+			})
+			continue
+		}
+
+		// Read the file
 		content, err := os.ReadFile(path)
 		attachments = append(attachments, fileAttachment{
-			path:    path,
-			content: string(content),
-			err:     err,
+			path:     path,
+			content:  string(content),
+			err:      err,
+			fileSize: fileSize,
 		})
 	}
 	return attachments
+}
+
+// formatFileSize returns a human-readable file size
+func formatFileSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 // buildMessageWithFiles constructs a message with file contents prepended
@@ -321,6 +365,9 @@ func buildMessageWithFiles(text string, attachments []fileAttachment) string {
 	for _, att := range attachments {
 		if att.err != nil {
 			sb.WriteString(fmt.Sprintf("<!-- Error reading %s: %v -->\n\n", att.path, att.err))
+		} else if att.skipped {
+			sb.WriteString(fmt.Sprintf("<!-- Skipped %s: file too large (%s > %s) -->\n\n",
+				att.path, formatFileSize(att.fileSize), formatFileSize(maxFileSize)))
 		} else {
 			// Format like Claude Code does
 			sb.WriteString(fmt.Sprintf("File: %s\n```\n%s\n```\n\n", att.path, att.content))
