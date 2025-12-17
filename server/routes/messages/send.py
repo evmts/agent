@@ -3,6 +3,7 @@ Send message endpoint with streaming.
 """
 
 import json
+import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,6 +14,8 @@ from core import NotFoundError, send_message
 from ...event_bus import get_event_bus
 from ...requests import PromptRequest
 from ...state import get_agent
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -44,9 +47,17 @@ async def send_message_route(
                 }
         except NotFoundError:
             # Can't raise HTTPException in generator, yield error event
+            logger.warning("Session not found during streaming: %s", sessionID)
             yield {
                 "event": "error",
                 "data": json.dumps({"error": "Session not found"}),
+            }
+        except Exception as e:
+            # Log unexpected errors during streaming
+            logger.exception("Error during message streaming for session %s", sessionID)
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": str(e)}),
             }
 
     return EventSourceResponse(stream_response())
