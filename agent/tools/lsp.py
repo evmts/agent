@@ -12,12 +12,14 @@ import json
 import os
 import shutil
 from dataclasses import dataclass, field
+from enum import IntEnum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 # Constants
 LSP_INIT_TIMEOUT_SECONDS = 5.0
 LSP_REQUEST_TIMEOUT_SECONDS = 2.0
+LSP_DIAGNOSTICS_TIMEOUT_SECONDS = 5.0  # Longer timeout for diagnostics
 LSP_MAX_CLIENTS = 10
 
 # Language server configurations
@@ -45,17 +47,109 @@ LSP_SERVERS: dict[str, dict[str, Any]] = {
 }
 
 # Extension to language ID mapping for LSP
+# Comprehensive mapping matching OpenCode's LANGUAGE_EXTENSIONS
 EXTENSION_TO_LANGUAGE: dict[str, str] = {
+    # Python
     ".py": "python",
     ".pyi": "python",
+    # TypeScript/JavaScript
     ".ts": "typescript",
     ".tsx": "typescriptreact",
     ".js": "javascript",
     ".jsx": "javascriptreact",
     ".mjs": "javascript",
     ".cjs": "javascript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    # Go
     ".go": "go",
+    # Rust
     ".rs": "rust",
+    # Java
+    ".java": "java",
+    # C/C++
+    ".c": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".hh": "cpp",
+    ".hxx": "cpp",
+    # C#
+    ".cs": "csharp",
+    # Ruby
+    ".rb": "ruby",
+    # PHP
+    ".php": "php",
+    # Swift
+    ".swift": "swift",
+    # Kotlin
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    # Scala
+    ".scala": "scala",
+    # R
+    ".r": "r",
+    ".R": "r",
+    # Lua
+    ".lua": "lua",
+    # Dart
+    ".dart": "dart",
+    # Zig
+    ".zig": "zig",
+    ".zon": "zig",
+    # Shell
+    ".sh": "shellscript",
+    ".bash": "shellscript",
+    ".zsh": "shellscript",
+    # Config/Data
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".json": "json",
+    ".jsonc": "jsonc",
+    ".xml": "xml",
+    ".toml": "toml",
+    ".ini": "ini",
+    # Web
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".sass": "sass",
+    ".less": "less",
+    # Documentation
+    ".md": "markdown",
+    ".markdown": "markdown",
+    # Database
+    ".sql": "sql",
+    # Docker
+    ".dockerfile": "dockerfile",
+    "Dockerfile": "dockerfile",
+    # Make
+    "Makefile": "makefile",
+    ".makefile": "makefile",
+    ".mk": "makefile",
+    # Elixir
+    ".ex": "elixir",
+    ".exs": "elixir",
+    # Erlang
+    ".erl": "erlang",
+    # Haskell
+    ".hs": "haskell",
+    # OCaml
+    ".ml": "ocaml",
+    ".mli": "ocaml",
+    # F#
+    ".fs": "fsharp",
+    ".fsx": "fsharp",
+    # Clojure
+    ".clj": "clojure",
+    ".cljs": "clojurescript",
+    # Vue
+    ".vue": "vue",
+    # Svelte
+    ".svelte": "svelte",
 }
 
 
@@ -123,6 +217,101 @@ class HoverResult:
     contents: str
     range: Range | None = None
     language: str = ""
+
+
+class DiagnosticSeverity(IntEnum):
+    """LSP diagnostic severity levels."""
+    ERROR = 1
+    WARNING = 2
+    INFO = 3
+    HINT = 4
+
+
+@dataclass
+class Diagnostic:
+    """A single diagnostic from an LSP server.
+
+    Attributes:
+        range: Location of the diagnostic in the file
+        severity: Error, warning, info, or hint
+        message: The diagnostic message
+        source: Name of the source (e.g., "typescript", "pylsp")
+        code: Optional diagnostic code
+    """
+    range: Range
+    severity: DiagnosticSeverity
+    message: str
+    source: str = ""
+    code: str | int | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Diagnostic":
+        """Parse Diagnostic from LSP JSON."""
+        range_data = data.get("range", {"start": {"line": 0, "character": 0},
+                                         "end": {"line": 0, "character": 0}})
+        severity = DiagnosticSeverity(data.get("severity", DiagnosticSeverity.ERROR))
+        return cls(
+            range=Range.from_dict(range_data),
+            severity=severity,
+            message=data.get("message", ""),
+            source=data.get("source", ""),
+            code=data.get("code"),
+        )
+
+    def pretty_format(self) -> str:
+        """Format diagnostic as human-readable string."""
+        severity_names = {
+            DiagnosticSeverity.ERROR: "ERROR",
+            DiagnosticSeverity.WARNING: "WARN",
+            DiagnosticSeverity.INFO: "INFO",
+            DiagnosticSeverity.HINT: "HINT",
+        }
+        severity_str = severity_names.get(self.severity, "ERROR")
+        # Convert to 1-based for display
+        line = self.range.start.line + 1
+        col = self.range.start.character + 1
+        source_str = f"[{self.source}] " if self.source else ""
+        return f"{severity_str} {source_str}[{line}:{col}] {self.message}"
+
+
+@dataclass
+class DiagnosticsResult:
+    """Result from a diagnostics request."""
+    file_path: str
+    diagnostics: list[Diagnostic]
+    error_count: int = 0
+    warning_count: int = 0
+    info_count: int = 0
+    hint_count: int = 0
+
+    @classmethod
+    def from_diagnostics(cls, file_path: str, diagnostics: list[Diagnostic]) -> "DiagnosticsResult":
+        """Create result and compute counts."""
+        error_count = sum(1 for d in diagnostics if d.severity == DiagnosticSeverity.ERROR)
+        warning_count = sum(1 for d in diagnostics if d.severity == DiagnosticSeverity.WARNING)
+        info_count = sum(1 for d in diagnostics if d.severity == DiagnosticSeverity.INFO)
+        hint_count = sum(1 for d in diagnostics if d.severity == DiagnosticSeverity.HINT)
+        return cls(
+            file_path=file_path,
+            diagnostics=diagnostics,
+            error_count=error_count,
+            warning_count=warning_count,
+            info_count=info_count,
+            hint_count=hint_count,
+        )
+
+    def format_output(self) -> str:
+        """Format diagnostics as human-readable string."""
+        if not self.diagnostics:
+            return f"No diagnostics found for {self.file_path}"
+
+        lines = [f"Diagnostics for {self.file_path}:"]
+        lines.append(f"\nSummary: {self.error_count} errors, {self.warning_count} warnings\n")
+
+        for diag in self.diagnostics:
+            lines.append(f"  {diag.pretty_format()}")
+
+        return "\n".join(lines)
 
 
 @dataclass
@@ -246,8 +435,18 @@ class LSPConnection:
         self.writer = writer
         self._request_id = 0
         self._pending_requests: dict[int, asyncio.Future[dict]] = {}
+        self._notification_handlers: dict[str, Callable[[dict], None]] = {}
         self._response_task: asyncio.Task | None = None
         self._closed = False
+
+    def on_notification(self, method: str, handler: Callable[[dict], None]) -> None:
+        """Register a handler for a notification method.
+
+        Args:
+            method: LSP notification method name (e.g., "textDocument/publishDiagnostics")
+            handler: Callback function that receives the params dict
+        """
+        self._notification_handlers[method] = handler
 
     async def start_response_listener(self) -> None:
         """Start background task to listen for responses."""
@@ -264,7 +463,10 @@ class LSPConnection:
 
                     # Check if this is a response (has id but no method)
                     msg_id = message.get("id")
-                    if msg_id is not None and "method" not in message:
+                    method = message.get("method")
+
+                    if msg_id is not None and method is None:
+                        # This is a response to a request
                         future = self._pending_requests.pop(msg_id, None)
                         if future and not future.done():
                             if "error" in message:
@@ -273,7 +475,16 @@ class LSPConnection:
                                 )
                             else:
                                 future.set_result(message.get("result"))
-                    # Ignore notifications and requests from server
+                    elif method is not None and msg_id is None:
+                        # This is a notification from the server
+                        handler = self._notification_handlers.get(method)
+                        if handler:
+                            try:
+                                handler(message.get("params", {}))
+                            except Exception:
+                                # Don't let handler errors crash the listener
+                                pass
+                    # Ignore requests from server (method + id) - we don't handle those
                 except asyncio.CancelledError:
                     break
                 except Exception:
@@ -417,6 +628,11 @@ class LSPClient:
         self._initialized = False
         self._open_files: set[str] = set()
 
+        # Diagnostic storage
+        self._diagnostics: dict[str, list[Diagnostic]] = {}  # file_path -> diagnostics
+        self._diagnostics_lock = asyncio.Lock()
+        self._diagnostics_events: dict[str, asyncio.Event] = {}  # file_path -> event
+
     @classmethod
     async def create(
         cls,
@@ -475,6 +691,9 @@ class LSPClient:
         # Create client
         client = cls(server_id, root, connection)
 
+        # Set up notification handlers
+        client._setup_handlers()
+
         # Initialize
         try:
             await client.initialize(init_options)
@@ -483,6 +702,38 @@ class LSPClient:
             raise LSPInitializationError(f"Failed to initialize LSP server: {e}")
 
         return client
+
+    def _setup_handlers(self) -> None:
+        """Set up notification handlers for the connection."""
+        self.connection.on_notification(
+            "textDocument/publishDiagnostics",
+            self._handle_publish_diagnostics,
+        )
+
+    def _handle_publish_diagnostics(self, params: dict) -> None:
+        """Handle textDocument/publishDiagnostics notification.
+
+        Args:
+            params: Notification params with uri and diagnostics array
+        """
+        uri = params.get("uri", "")
+        # Convert file:// URI to path
+        if uri.startswith("file://"):
+            file_path = uri[7:]
+        else:
+            file_path = uri
+
+        raw_diagnostics = params.get("diagnostics", [])
+        diagnostics = [Diagnostic.from_dict(d) for d in raw_diagnostics]
+
+        # Use sync approach since this is called from async context
+        # The lock and event are asyncio primitives but we can't await here
+        # Store directly - thread-safe due to GIL for simple dict operations
+        self._diagnostics[file_path] = diagnostics
+
+        # Signal any waiters
+        if file_path in self._diagnostics_events:
+            self._diagnostics_events[file_path].set()
 
     async def initialize(self, init_options: dict | None = None) -> dict:
         """Send initialize request and initialized notification.
@@ -611,6 +862,123 @@ class LSPClient:
 
         return HoverResult(contents=contents, range=hover_range, language=language)
 
+    async def workspace_symbol(self, query: str) -> list[dict[str, Any]]:
+        """Search for symbols across the workspace.
+
+        Args:
+            query: Search query string
+
+        Returns:
+            List of symbol information dicts with name, kind, location
+        """
+        params = {"query": query}
+        result = await self.connection.send_request("workspace/symbol", params)
+
+        if result is None:
+            return []
+
+        # Parse result as list of SymbolInformation
+        symbols = []
+        for item in result:
+            symbol = {
+                "name": item.get("name", ""),
+                "kind": item.get("kind", 0),
+                "location": item.get("location", {}),
+            }
+            if "containerName" in item:
+                symbol["containerName"] = item["containerName"]
+            symbols.append(symbol)
+
+        return symbols
+
+    async def document_symbol(self, file_path: str) -> list[dict[str, Any]]:
+        """Get symbols defined in a document.
+
+        Args:
+            file_path: Path to source file
+
+        Returns:
+            List of document symbol dicts with name, kind, range, children
+        """
+        # Ensure file is open
+        await self.open_file(file_path)
+
+        params = {
+            "textDocument": {
+                "uri": f"file://{file_path}",
+            }
+        }
+
+        result = await self.connection.send_request("textDocument/documentSymbol", params)
+
+        if result is None:
+            return []
+
+        # Result can be DocumentSymbol[] or SymbolInformation[]
+        # Both have name and kind fields
+        return result if isinstance(result, list) else []
+
+    async def wait_for_diagnostics(
+        self,
+        file_path: str,
+        timeout: float = LSP_DIAGNOSTICS_TIMEOUT_SECONDS,
+    ) -> list[Diagnostic]:
+        """Wait for diagnostics to be published for a file.
+
+        Opens the file if not already open, then waits for the server
+        to publish diagnostics via textDocument/publishDiagnostics.
+
+        Args:
+            file_path: Path to file
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            List of diagnostics for the file
+        """
+        # Create event for this file
+        event = asyncio.Event()
+        self._diagnostics_events[file_path] = event
+
+        try:
+            # Open file to trigger diagnostics
+            was_open = file_path in self._open_files
+            await self.open_file(file_path)
+
+            # If file was already open, diagnostics might already be stored
+            if was_open and file_path in self._diagnostics:
+                return self._diagnostics.get(file_path, [])
+
+            # Wait for diagnostics notification
+            try:
+                await asyncio.wait_for(event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                # Return whatever we have (might be empty)
+                pass
+
+            return self._diagnostics.get(file_path, [])
+        finally:
+            # Clean up event
+            self._diagnostics_events.pop(file_path, None)
+
+    def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
+        """Get current diagnostics for a file without waiting.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            List of diagnostics (may be empty if not yet received)
+        """
+        return self._diagnostics.get(file_path, [])
+
+    def get_all_diagnostics(self) -> dict[str, list[Diagnostic]]:
+        """Get all stored diagnostics.
+
+        Returns:
+            Dict mapping file paths to their diagnostics
+        """
+        return dict(self._diagnostics)
+
     async def close(self) -> None:
         """Shutdown server gracefully."""
         if self._initialized:
@@ -733,6 +1101,25 @@ class LSPManager:
                     pass
             self._clients.clear()
 
+    def get_all_diagnostics(self) -> dict[str, list[Diagnostic]]:
+        """Get aggregated diagnostics from all active clients.
+
+        Returns:
+            Dict mapping file paths to lists of diagnostics,
+            aggregated across all LSP clients.
+        """
+        result: dict[str, list[Diagnostic]] = {}
+
+        for client in self._clients:
+            client_diagnostics = client.get_all_diagnostics()
+            for file_path, diags in client_diagnostics.items():
+                if file_path in result:
+                    result[file_path].extend(diags)
+                else:
+                    result[file_path] = list(diags)
+
+        return result
+
 
 # --- Public API ---
 
@@ -837,6 +1224,262 @@ async def hover(file_path: str, line: int, character: int) -> dict[str, Any]:
         return {
             "success": False,
             "error": str(e),
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {e}",
+        }
+
+
+async def diagnostics(
+    file_path: str,
+    timeout: float = LSP_DIAGNOSTICS_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Get diagnostics (errors, warnings, hints) for a file.
+
+    Opens the file in the language server and waits for diagnostics
+    to be published via textDocument/publishDiagnostics.
+
+    Args:
+        file_path: Absolute path to the source file
+        timeout: Maximum time to wait for diagnostics in seconds
+
+    Returns:
+        dict with:
+            - success: bool
+            - file_path: str
+            - diagnostics: list of formatted diagnostic strings
+            - error_count: int
+            - warning_count: int
+            - summary: str human-readable summary
+            - error: str error message if success=False
+    """
+    # Validate file exists
+    if not os.path.isfile(file_path):
+        return {
+            "success": False,
+            "error": f"File not found: {file_path}",
+        }
+
+    # Check if we have a server for this file type
+    server_info = get_server_for_file(file_path)
+    if server_info is None:
+        ext = Path(file_path).suffix
+        supported = ", ".join(
+            ext for config in LSP_SERVERS.values() for ext in config["extensions"]
+        )
+        return {
+            "success": False,
+            "error": f"No LSP server available for '{ext}' files. Supported: {supported}",
+        }
+
+    try:
+        manager = await get_lsp_manager()
+        client = await manager.get_client(file_path)
+
+        if client is None:
+            return {
+                "success": False,
+                "error": "Failed to get LSP client",
+            }
+
+        # Wait for diagnostics
+        diag_list = await client.wait_for_diagnostics(file_path, timeout=timeout)
+
+        # Create result
+        result = DiagnosticsResult.from_diagnostics(file_path, diag_list)
+
+        return {
+            "success": True,
+            "file_path": file_path,
+            "diagnostics": [d.pretty_format() for d in result.diagnostics],
+            "error_count": result.error_count,
+            "warning_count": result.warning_count,
+            "info_count": result.info_count,
+            "hint_count": result.hint_count,
+            "summary": f"{result.error_count} errors, {result.warning_count} warnings",
+            "formatted_output": result.format_output(),
+        }
+
+    except LSPServerNotFoundError as e:
+        server_id = server_info[0]
+        install_hints = {
+            "python": "pip install python-lsp-server",
+            "typescript": "npm install -g typescript-language-server typescript",
+            "go": "go install golang.org/x/tools/gopls@latest",
+            "rust": "rustup component add rust-analyzer",
+        }
+        hint = install_hints.get(server_id, "")
+        error_msg = str(e)
+        if hint:
+            error_msg += f" Install with: {hint}"
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+    except LSPTimeoutError as e:
+        return {
+            "success": False,
+            "error": f"LSP request timed out: {e}",
+        }
+
+    except LSPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {e}",
+        }
+
+
+async def touch_file(
+    file_path: str,
+    wait_for_diagnostics: bool = True,
+    timeout: float = LSP_DIAGNOSTICS_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Open a file in the LSP server and optionally wait for diagnostics.
+
+    This is useful for pre-checking a file before making edits to understand
+    its current state (errors, warnings, etc.).
+
+    Args:
+        file_path: Absolute path to the source file
+        wait_for_diagnostics: Whether to wait for diagnostics after opening
+        timeout: Maximum time to wait for diagnostics in seconds
+
+    Returns:
+        dict with:
+            - success: bool
+            - file_path: str
+            - diagnostics: list of diagnostic dicts (if wait_for_diagnostics=True)
+            - error_count: int
+            - warning_count: int
+            - error: str error message if success=False
+    """
+    # Validate file exists
+    if not os.path.isfile(file_path):
+        return {
+            "success": False,
+            "error": f"File not found: {file_path}",
+        }
+
+    # Check if we have a server for this file type
+    server_info = get_server_for_file(file_path)
+    if server_info is None:
+        ext = Path(file_path).suffix
+        supported = ", ".join(
+            ext for config in LSP_SERVERS.values() for ext in config["extensions"]
+        )
+        return {
+            "success": False,
+            "error": f"No LSP server available for '{ext}' files. Supported: {supported}",
+        }
+
+    try:
+        manager = await get_lsp_manager()
+        client = await manager.get_client(file_path)
+
+        if client is None:
+            return {
+                "success": False,
+                "error": "Failed to get LSP client",
+            }
+
+        # Open file
+        await client.open_file(file_path)
+
+        if wait_for_diagnostics:
+            # Wait for diagnostics
+            diag_list = await client.wait_for_diagnostics(file_path, timeout=timeout)
+            result = DiagnosticsResult.from_diagnostics(file_path, diag_list)
+
+            return {
+                "success": True,
+                "file_path": file_path,
+                "diagnostics": [d.pretty_format() for d in result.diagnostics],
+                "error_count": result.error_count,
+                "warning_count": result.warning_count,
+                "summary": f"{result.error_count} errors, {result.warning_count} warnings",
+            }
+        else:
+            return {
+                "success": True,
+                "file_path": file_path,
+                "message": "File opened in LSP server",
+            }
+
+    except LSPServerNotFoundError as e:
+        server_id = server_info[0]
+        install_hints = {
+            "python": "pip install python-lsp-server",
+            "typescript": "npm install -g typescript-language-server typescript",
+            "go": "go install golang.org/x/tools/gopls@latest",
+            "rust": "rustup component add rust-analyzer",
+        }
+        hint = install_hints.get(server_id, "")
+        error_msg = str(e)
+        if hint:
+            error_msg += f" Install with: {hint}"
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+    except LSPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {e}",
+        }
+
+
+async def get_all_diagnostics_summary() -> dict[str, Any]:
+    """Get aggregated diagnostics from all active LSP clients.
+
+    Returns all diagnostics currently stored across all language servers,
+    aggregated by file path.
+
+    Returns:
+        dict with:
+            - success: bool
+            - diagnostics: dict mapping file paths to list of diagnostic strings
+            - total_errors: int
+            - total_warnings: int
+            - file_count: int
+            - error: str error message if success=False
+    """
+    try:
+        manager = await get_lsp_manager()
+        all_diags = manager.get_all_diagnostics()
+
+        # Format diagnostics and count totals
+        formatted: dict[str, list[str]] = {}
+        total_errors = 0
+        total_warnings = 0
+
+        for file_path, diags in all_diags.items():
+            formatted[file_path] = [d.pretty_format() for d in diags]
+            total_errors += sum(1 for d in diags if d.severity == DiagnosticSeverity.ERROR)
+            total_warnings += sum(1 for d in diags if d.severity == DiagnosticSeverity.WARNING)
+
+        return {
+            "success": True,
+            "diagnostics": formatted,
+            "total_errors": total_errors,
+            "total_warnings": total_warnings,
+            "file_count": len(all_diags),
         }
 
     except Exception as e:

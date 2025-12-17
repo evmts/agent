@@ -16,6 +16,9 @@ from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 
 from .browser_client import get_browser_client
+from .tools.lsp import diagnostics as lsp_diagnostics_impl
+from .tools.lsp import hover as lsp_hover_impl
+from .tools.lsp import touch_file as lsp_touch_file_impl
 
 # Lazy import - duckduckgo is optional
 _duckduckgo_search_tool = None
@@ -404,6 +407,64 @@ async def create_agent_with_mcp(
             return "Browser not connected. Ensure the Plue app is running with a browser tab open."
         except httpx.TimeoutException:
             return "Browser operation timed out."
+
+    # LSP hover tool for type information
+    @agent.tool_plain
+    async def hover(file_path: str, line: int, character: int) -> str:
+        """Get type information and documentation for a symbol at a position.
+
+        Use this to understand function signatures, type annotations, and
+        documentation for code symbols. Useful for debugging type errors
+        and understanding code semantics.
+
+        Args:
+            file_path: Absolute path to the source file
+            line: 0-based line number
+            character: 0-based character offset within the line
+        """
+        result = await lsp_hover_impl(file_path, line, character)
+        if result.get("success"):
+            return result.get("contents", "No hover information available")
+        return f"Error: {result.get('error', 'Unknown error')}"
+
+    # LSP diagnostics tool for errors and warnings
+    @agent.tool_plain
+    async def get_diagnostics(file_path: str, timeout: float = 5.0) -> str:
+        """Get diagnostics (errors, warnings, hints) for a file.
+
+        Use this to check for type errors, syntax errors, and other issues
+        in code before attempting fixes. Returns formatted diagnostic info
+        with severity, line/column, and message.
+
+        Args:
+            file_path: Absolute path to the source file
+            timeout: Maximum time to wait for diagnostics (default 5s)
+        """
+        result = await lsp_diagnostics_impl(file_path, timeout=timeout)
+        if result.get("success"):
+            return result.get("formatted_output", "No diagnostics found")
+        return f"Error: {result.get('error', 'Unknown error')}"
+
+    # LSP touch file tool to pre-check files before editing
+    @agent.tool_plain
+    async def check_file_errors(file_path: str, timeout: float = 3.0) -> str:
+        """Check a file for errors before editing.
+
+        Opens the file in the language server and waits for diagnostics.
+        Use this to understand the current error state before making changes.
+
+        Args:
+            file_path: Absolute path to the source file
+            timeout: Maximum time to wait for diagnostics (default 3s)
+        """
+        result = await lsp_touch_file_impl(file_path, wait_for_diagnostics=True, timeout=timeout)
+        if result.get("success"):
+            summary = result.get("summary", "")
+            diagnostics = result.get("diagnostics", [])
+            if not diagnostics:
+                return f"No errors found in {file_path}"
+            return f"{summary}\n" + "\n".join(f"  {d}" for d in diagnostics)
+        return f"Error: {result.get('error', 'Unknown error')}"
 
     # Use async context manager to properly manage MCP server lifecycles
     async with agent:

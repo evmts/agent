@@ -84,6 +84,7 @@ Be concise but thorough. If you need to execute code to verify something works, 
             "ls": True,
             "fetch": True,
             "web": True,
+            "lsp": True,
         },
         allowed_shell_patterns=None,  # All commands allowed
     ),
@@ -118,6 +119,7 @@ Be efficient and thorough in your parallel execution strategy.""",
             "ls": True,
             "fetch": True,
             "web": True,
+            "lsp": True,
         },
         allowed_shell_patterns=None,  # All commands allowed
     ),
@@ -158,6 +160,7 @@ You CANNOT write files or execute arbitrary code. Provide clear plans for others
             "ls": True,
             "fetch": True,
             "web": True,
+            "lsp": True,      # Read-only, useful for planning
         },
         # Only allow safe, read-only shell commands
         allowed_shell_patterns=[
@@ -221,6 +224,7 @@ Prioritize breadth-first exploration to give users a quick understanding before 
             "ls": True,
             "fetch": False,   # No web access, focus on local code
             "web": False,
+            "lsp": True,      # Useful for type exploration
         },
         allowed_shell_patterns=[
             r"^ls\s+.*",
