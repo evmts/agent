@@ -1,4 +1,4 @@
-"""LSP tools for the agent."""
+"""Tools for the agent."""
 
 from .lsp import (
     Diagnostic,
@@ -10,8 +10,13 @@ from .lsp import (
     hover,
     touch_file,
 )
+from .multiedit import (
+    MULTIEDIT_DESCRIPTION,
+    multiedit,
+)
 
 __all__ = [
+    # LSP tools
     "Diagnostic",
     "DiagnosticSeverity",
     "DiagnosticsResult",
@@ -20,4 +25,7 @@ __all__ = [
     "get_lsp_manager",
     "hover",
     "touch_file",
+    # Edit tools
+    "multiedit",
+    "MULTIEDIT_DESCRIPTION",
 ]

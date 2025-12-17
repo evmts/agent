@@ -19,6 +19,7 @@ from .browser_client import get_browser_client
 from .tools.lsp import diagnostics as lsp_diagnostics_impl
 from .tools.lsp import hover as lsp_hover_impl
 from .tools.lsp import touch_file as lsp_touch_file_impl
+from .tools.multiedit import multiedit as multiedit_impl
 from .tools.web_fetch import fetch_url
 
 # Lazy import - duckduckgo is optional
@@ -65,9 +66,11 @@ def _truncate_long_lines(content: str, max_line_length: int = MAX_LINE_LENGTH) -
     original_length = len(content)
 
     for line in lines:
-        if len(line) > max_line_length:
+        # Check line length without the newline character
+        line_without_newline = line.rstrip('\r\n')
+        if len(line_without_newline) > max_line_length:
             # Truncate the line and add indicator
-            truncated_lines.append(line[:max_line_length] + "...\n")
+            truncated_lines.append(line_without_newline[:max_line_length] + "...\n")
             was_truncated = True
         else:
             truncated_lines.append(line)
@@ -128,8 +131,8 @@ def _validate_todos(todos: list[dict]) -> list[dict]:
 
 
 SYSTEM_INSTRUCTIONS = """You are a helpful coding assistant with access to tools for:
-- Executing shell commands (via shell tool)
-- Reading and writing files (via filesystem tools)
+- Executing shell commands (via shell tool) - output truncated at 30,000 characters
+- Reading and writing files (via filesystem tools) - lines truncated at 2,000 characters
 - Managing todo lists for task tracking
 - Searching the web for up-to-date information
 
@@ -138,6 +141,11 @@ When helping users, prefer to:
 2. Make targeted changes rather than rewriting entire files
 3. Explain what you're doing and why
 4. Verify changes work correctly
+
+Important output limits:
+- Shell command output is automatically truncated at 30,000 characters to prevent context overflow
+- File read operations truncate individual lines at 2,000 characters
+- If output is truncated, metadata will indicate the original length
 
 Be concise but thorough. If you need to execute code to verify something works, do so.
 """
@@ -498,6 +506,50 @@ async def create_agent_with_mcp(
             return f"{summary}\n" + "\n".join(f"  {d}" for d in diagnostics)
         return f"Error: {result.get('error', 'Unknown error')}"
 
+    # Custom file read tool with line truncation
+    @agent.tool_plain
+    async def read_file_safe(file_path: str, offset: int = 0, limit: int = DEFAULT_READ_LIMIT) -> str:
+        """Read a file with automatic line truncation to prevent context overflow.
+
+        This tool reads files and truncates lines longer than 2000 characters
+        to prevent overwhelming the context window. Use the MCP read_text_file
+        tool if you need the full untruncated content.
+
+        Args:
+            file_path: Absolute path to the file to read
+            offset: Line number to start reading from (0-based, default 0)
+            limit: Maximum number of lines to read (default 2000)
+
+        Returns:
+            File content with long lines truncated, or error message
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                # Read all lines
+                all_lines = f.readlines()
+
+                # Apply offset and limit
+                lines_to_read = all_lines[offset:offset + limit] if limit > 0 else all_lines[offset:]
+
+                # Join lines and check for truncation
+                content = ''.join(lines_to_read)
+                truncated_content, was_truncated, original_length = _truncate_long_lines(content)
+
+                # Add metadata if truncated
+                if was_truncated:
+                    truncated_content += f"\n\n[Note: Some lines were truncated. Original content length: {original_length} chars, Max line length: {MAX_LINE_LENGTH} chars]"
+
+                return truncated_content
+
+        except FileNotFoundError:
+            return f"Error: File not found: {file_path}"
+        except PermissionError:
+            return f"Error: Permission denied: {file_path}"
+        except UnicodeDecodeError:
+            return f"Error: File is not a text file or uses unsupported encoding: {file_path}"
+        except Exception as e:
+            return f"Error reading file: {str(e)}"
+
     # Custom web fetch tool with size limits
     @agent.tool_plain
     async def web_fetch(url: str, timeout: float = 30.0) -> str:
@@ -521,6 +573,34 @@ async def create_agent_with_mcp(
             return f"Error: {str(e)}"
         except Exception as e:
             return f"Error: Unexpected error fetching URL: {str(e)}"
+
+    # MultiEdit tool for atomic multi-file edits
+    @agent.tool_plain
+    async def multiedit(file_path: str, edits: list[dict]) -> str:
+        """Perform multiple find-and-replace operations on a single file atomically.
+
+        All edits are validated before any are applied. Each edit operates on
+        the result of the previous edit, allowing dependent changes.
+
+        For single edits, use a 1-element edits array.
+
+        Args:
+            file_path: Absolute path to file to modify
+            edits: Array of edit operations, each with:
+                - old_string: Text to replace (empty creates file on first edit)
+                - new_string: Replacement text
+                - replace_all: (optional) Replace all occurrences (default: false)
+
+        Returns:
+            Success message with edit count, or error with details
+        """
+        cwd = working_dir or os.getcwd()
+        result = await multiedit_impl(file_path, edits, working_dir=cwd)
+        if result.get("success"):
+            edit_count = result.get("edit_count", 0)
+            rel_path = result.get("file_path", file_path)
+            return f"Applied {edit_count} edit(s) to {rel_path}"
+        return f"Error: {result.get('error', 'Unknown error')}"
 
     # Use async context manager to properly manage MCP server lifecycles
     async with agent:
@@ -562,12 +642,15 @@ def create_agent(
     system_prompt = _build_system_prompt(agent_config.system_prompt, working_dir)
 
     model_name = f"anthropic:{model_id}"
-    agent = Agent(
-        model_name,
-        system_prompt=system_prompt,
-        builtin_tools=builtin_tools if builtin_tools else None,
-        tools=tools if tools else None,
-    )
+    agent_kwargs = {
+        "system_prompt": system_prompt,
+    }
+    if builtin_tools:
+        agent_kwargs["builtin_tools"] = builtin_tools
+    if tools:
+        agent_kwargs["tools"] = tools
+
+    agent = Agent(model_name, **agent_kwargs)
 
     # Register simple todo tools
     @agent.tool_plain

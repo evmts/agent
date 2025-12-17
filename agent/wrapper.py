@@ -4,6 +4,7 @@ Wrapper that adapts Pydantic AI streaming to the server.py expected interface.
 Uses run_stream_events() to get proper tool call events during streaming.
 Supports MCP-based agents with proper lifecycle management.
 """
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
@@ -21,6 +22,9 @@ from pydantic_ai.messages import (
 
 from config import DEFAULT_MODEL
 from .agent import create_agent_with_mcp, create_agent, get_anthropic_model_settings
+from .tools.filesystem import set_current_session_id, mark_file_read, check_file_writable
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -67,6 +71,13 @@ class AgentWrapper:
             StreamEvent objects with text deltas, tool calls, and tool results
         """
         final_result = None
+        tool_call_count = 0
+
+        logger.debug("Starting agent stream for session %s", session_id)
+
+        # Set session ID for file safety tracking
+        if session_id:
+            set_current_session_id(session_id)
 
         # Get model settings with optional extended thinking
         model_settings = get_anthropic_model_settings(enable_thinking=enable_thinking)
@@ -107,6 +118,18 @@ class AgentWrapper:
                 except Exception:
                     args = {}
 
+                # Enforce read-before-write for write_file tool
+                if tool_name == "write_file" and session_id:
+                    path = args.get("path")
+                    if path:
+                        try:
+                            check_file_writable(path)
+                        except ValueError as e:
+                            logger.warning("File safety check failed for %s: %s", path, e)
+
+                tool_call_count += 1
+                logger.debug("Tool call: %s", tool_name)
+
                 yield StreamEvent(
                     event_type="tool_call",
                     tool_name=tool_name,
@@ -142,6 +165,8 @@ class AgentWrapper:
         # Update message history after completion
         if final_result:
             self._message_history = list(final_result.result.all_messages())
+
+        logger.debug("Agent stream complete: %d tool calls", tool_call_count)
 
     def reset_history(self) -> None:
         """Clear conversation history for new session."""
