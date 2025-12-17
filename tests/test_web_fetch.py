@@ -10,10 +10,32 @@ Tests verify:
 
 import pytest
 import httpx
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 from agent.tools.web_fetch import fetch_url
 from core.constants import MAX_RESPONSE_SIZE
+
+
+def create_mock_client(mock_head_response, mock_stream_response):
+    """Helper to create a properly mocked httpx.AsyncClient."""
+    mock_client = Mock()  # Use Mock instead of AsyncMock to avoid coroutine issues
+
+    # Mock head() to return the response directly
+    async def mock_head(*args, **kwargs):
+        return mock_head_response
+    mock_client.head = mock_head
+
+    # Create proper async context manager for stream()
+    mock_stream = MagicMock()
+    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream_response)
+    mock_stream.__aexit__ = AsyncMock(return_value=None)
+
+    # Make stream() a regular function that returns the context manager
+    def mock_stream_fn(*args, **kwargs):
+        return mock_stream
+    mock_client.stream = mock_stream_fn
+
+    return mock_client
 
 
 class TestWebFetchSizeLimit:
@@ -58,11 +80,10 @@ class TestWebFetchSizeLimit:
 
         mock_stream_response.aiter_bytes = aiter_bytes_mock
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            mock_client_instance.head.return_value = mock_head_response
-            mock_client_instance.stream.return_value.__aenter__.return_value = mock_stream_response
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
+            mock_client = create_mock_client(mock_head_response, mock_stream_response)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             with pytest.raises(ValueError, match="response too large \\(exceeds 5MB limit\\)"):
                 await fetch_url("https://example.com/streaming-large-file")
@@ -90,11 +111,10 @@ class TestWebFetchSizeLimit:
 
         mock_stream_response.aiter_bytes = aiter_bytes_mock
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            mock_client_instance.head.return_value = mock_head_response
-            mock_client_instance.stream.return_value.__aenter__.return_value = mock_stream_response
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
+            mock_client = create_mock_client(mock_head_response, mock_stream_response)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             result = await fetch_url("https://example.com/small-file")
             assert result == content.decode("utf-8")
@@ -121,11 +141,10 @@ class TestWebFetchSizeLimit:
 
         mock_stream_response.aiter_bytes = aiter_bytes_mock
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            mock_client_instance.head.return_value = mock_head_response
-            mock_client_instance.stream.return_value.__aenter__.return_value = mock_stream_response
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
+            mock_client = create_mock_client(mock_head_response, mock_stream_response)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             result = await fetch_url("https://example.com/exactly-5mb")
             assert len(result) == MAX_RESPONSE_SIZE
@@ -165,10 +184,28 @@ class TestWebFetchSizeLimit:
     @pytest.mark.asyncio
     async def test_timeout_handling(self):
         """Test timeout handling."""
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            mock_client_instance.head.side_effect = httpx.TimeoutException("Timeout")
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
+            mock_client = Mock()
+
+            async def mock_head_timeout(*args, **kwargs):
+                raise httpx.TimeoutException("Timeout")
+            mock_client.head = mock_head_timeout
+
+            # The timeout will be caught and GET will be attempted
+            # Make GET also timeout
+            mock_stream_response = Mock()
+            mock_stream_response.headers = {}  # Empty headers to avoid get() issues
+            mock_stream_response.raise_for_status = Mock(
+                side_effect=httpx.TimeoutException("Timeout")
+            )
+
+            mock_stream = MagicMock()
+            mock_stream.__aenter__ = AsyncMock(return_value=mock_stream_response)
+            mock_stream.__aexit__ = AsyncMock(return_value=None)
+            mock_client.stream = lambda *args, **kwargs: mock_stream
+
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             with pytest.raises(httpx.TimeoutException, match="Request timed out"):
                 await fetch_url("https://example.com/slow", timeout=1.0)
@@ -180,24 +217,32 @@ class TestWebFetchSizeLimit:
         mock_response.status_code = 404
         mock_response.reason_phrase = "Not Found"
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
             # HEAD request succeeds
             mock_head_response = Mock()
             mock_head_response.headers = {}
-            mock_client_instance.head.return_value = mock_head_response
 
-            # GET request fails
-            mock_stream_response = AsyncMock()
+            # GET request fails - use Mock instead of AsyncMock for response
+            mock_stream_response = Mock()
             mock_stream_response.status_code = 404
             mock_stream_response.reason_phrase = "Not Found"
-            mock_stream_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-                "404", request=Mock(), response=mock_response
+            mock_stream_response.headers = {}  # Empty headers dict
+            mock_stream_response.raise_for_status = Mock(
+                side_effect=httpx.HTTPStatusError(
+                    "404", request=Mock(), response=mock_response
+                )
             )
 
-            mock_client_instance.stream.return_value.__aenter__.return_value = mock_stream_response
+            # Create async iterator for bytes
+            async def aiter_bytes_mock():
+                # This will never be reached because raise_for_status will raise
+                if False:
+                    yield
+            mock_stream_response.aiter_bytes = aiter_bytes_mock
+
+            mock_client = create_mock_client(mock_head_response, mock_stream_response)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             with pytest.raises(ValueError, match="HTTP error 404"):
                 await fetch_url("https://example.com/not-found")
@@ -223,11 +268,10 @@ class TestWebFetchSizeLimit:
 
         mock_stream_response.aiter_bytes = aiter_bytes_mock
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            mock_client_instance.head.return_value = mock_head_response
-            mock_client_instance.stream.return_value.__aenter__.return_value = mock_stream_response
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
+            mock_client = create_mock_client(mock_head_response, mock_stream_response)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             result = await fetch_url("https://example.com/unicode")
             assert result == "Hello, 世界!"
@@ -250,11 +294,10 @@ class TestWebFetchSizeLimit:
 
         mock_stream_response.aiter_bytes = aiter_bytes_mock
 
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_client_instance = AsyncMock()
-            mock_client.return_value.__aenter__.return_value = mock_client_instance
-            mock_client_instance.head.return_value = mock_head_response
-            mock_client_instance.stream.return_value.__aenter__.return_value = mock_stream_response
+        with patch("agent.tools.web_fetch.httpx.AsyncClient") as mock_client_cls:
+            mock_client = create_mock_client(mock_head_response, mock_stream_response)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
 
             result = await fetch_url("https://example.com/no-length")
             assert result == content.decode("utf-8")
