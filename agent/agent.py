@@ -19,6 +19,7 @@ from .browser_client import get_browser_client
 from .tools.lsp import diagnostics as lsp_diagnostics_impl
 from .tools.lsp import hover as lsp_hover_impl
 from .tools.lsp import touch_file as lsp_touch_file_impl
+from .tools.web_fetch import fetch_url
 
 # Lazy import - duckduckgo is optional
 _duckduckgo_search_tool = None
@@ -41,6 +42,37 @@ SHELL_SERVER_TIMEOUT_SECONDS = 60
 FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
 THINKING_BUDGET_TOKENS = 60000  # Extended thinking budget (higher than Claude Code's default 32k)
 MAX_OUTPUT_TOKENS = 64000  # Must be greater than thinking budget
+
+# Tool output truncation constants
+MAX_BASH_OUTPUT_LENGTH = 30000
+MAX_LINE_LENGTH = 2000
+DEFAULT_READ_LIMIT = 2000
+
+
+def _truncate_long_lines(content: str, max_line_length: int = MAX_LINE_LENGTH) -> tuple[str, bool, int]:
+    """Truncate long lines in content to prevent context overflow.
+
+    Args:
+        content: The text content to process
+        max_line_length: Maximum allowed length per line
+
+    Returns:
+        Tuple of (truncated_content, was_truncated, original_length)
+    """
+    lines = content.splitlines(keepends=True)
+    truncated_lines = []
+    was_truncated = False
+    original_length = len(content)
+
+    for line in lines:
+        if len(line) > max_line_length:
+            # Truncate the line and add indicator
+            truncated_lines.append(line[:max_line_length] + "...\n")
+            was_truncated = True
+        else:
+            truncated_lines.append(line)
+
+    return ''.join(truncated_lines), was_truncated, original_length
 
 
 def get_anthropic_model_settings(enable_thinking: bool = True) -> AnthropicModelSettings:
@@ -465,6 +497,30 @@ async def create_agent_with_mcp(
                 return f"No errors found in {file_path}"
             return f"{summary}\n" + "\n".join(f"  {d}" for d in diagnostics)
         return f"Error: {result.get('error', 'Unknown error')}"
+
+    # Custom web fetch tool with size limits
+    @agent.tool_plain
+    async def web_fetch(url: str, timeout: float = 30.0) -> str:
+        """Fetch content from a URL with a 5MB size limit.
+
+        This tool enforces a 5MB size limit to prevent memory exhaustion
+        and protect against malicious servers streaming infinite data.
+
+        Args:
+            url: URL to fetch (must start with http:// or https://)
+            timeout: Request timeout in seconds (default: 30)
+
+        Returns:
+            Response content as string
+        """
+        try:
+            return await fetch_url(url, timeout=timeout)
+        except ValueError as e:
+            return f"Error: {str(e)}"
+        except httpx.TimeoutException as e:
+            return f"Error: {str(e)}"
+        except Exception as e:
+            return f"Error: Unexpected error fetching URL: {str(e)}"
 
     # Use async context manager to properly manage MCP server lifecycles
     async with agent:
