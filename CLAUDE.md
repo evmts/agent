@@ -1,175 +1,69 @@
 # Claude Agent - Development Guidelines
 
-This file provides context for AI assistants working on this codebase.
+AI agent platform with Python backend (FastAPI), Go SDK/TUI, and Git-based snapshot system.
 
-## Project Overview
-
-Claude Agent is an AI agent platform with:
-- **Python backend** (FastAPI) - OpenCode-compatible REST API
-- **Go SDK** - Client library for the API
-- **Snapshot system** - Git-based file state tracking
-
-## Technology Stack
-
-### Python (Backend)
-- FastAPI for REST API
-- Pydantic AI for agent framework
-- SSE-Starlette for streaming
-- asyncio for async operations
-
-### Go (SDK)
-- Standard library for HTTP client
-
-## Development Commands
-
-### Python
-
-```bash
-# Run server
-python main.py
-
-# Run tests
-pytest
-
-# Run specific tests
-pytest tests/test_agent/test_tools/
-```
-
-### Zig Build System
-
-```bash
-# Run server (default)
-zig build run
-
-# Run tests
-zig build test
-
-# Build standalone server binary
-zig build pyinstaller
-
-# Clean build artifacts
-zig build clean
-
-# Update dependencies
-zig build deps
-```
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `main.py` | Server entry point with MCP lifecycle |
-| `server/app.py` | FastAPI app setup & CORS config |
-| `server/routes/` | API route handlers (sessions, messages, events) |
-| `agent/agent.py` | Agent creation with MCP tools |
-| `agent/wrapper.py` | Streaming adapter for server |
-| `agent/registry.py` | Agent configurations & tool permissions |
-| `config/` | Configuration loading & defaults |
-| `core/` | Core models, sessions, events, state |
-| `snapshot/snapshot.py` | Git-based snapshot system |
-| `sdk/agent/client.go` | Go SDK HTTP client |
-| `sdk/agent/types.go` | OpenCode type definitions |
-| `build.zig` | Zig build system |
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Required - Claude API key | - |
-| `ANTHROPIC_MODEL` | Model ID | `claude-sonnet-4-20250514` |
-| `HOST` | Server host | `0.0.0.0` |
-| `PORT` | Server port | `8000` |
-| `CORS_ORIGINS` | Allowed origins | `*` |
-| `USE_MCP` | Enable MCP tool servers | `true` |
-| `WORKING_DIR` | Working directory for filesystem ops | Current directory |
-
-## Code Patterns
-
-### Adding a New Tool
-
-Tools are registered directly in `agent/agent.py` using the `@agent.tool_plain` decorator:
-
-```python
-# Inside create_agent_with_mcp() or create_agent():
-@agent.tool_plain
-async def my_tool(param: str) -> str:
-    """Tool description.
-
-    Args:
-        param: Description of the parameter
-    """
-    # Implementation
-    return result
-```
-
-For shell/filesystem operations, use MCP servers (configured in `create_mcp_servers()`).
-For custom tools that don't need MCP, add them with the decorator pattern above.
-
-### API Endpoints
-
-Follow OpenCode spec pattern:
-- Session CRUD: `/session`, `/session/{id}`
-- Messages: `/session/{id}/message`
-- Actions: `/session/{id}/abort`, `/session/{id}/fork`, etc.
-
-### SSE Events
-
-Event types:
-- `session.created`, `session.updated`, `session.deleted`
-- `message.updated`
-- `part.updated`
-
-## Security Considerations
-
-- **Shell execution**: MCP shell server with configurable timeouts
-- **File operations**: MCP filesystem server scoped to working directory
-- **Agent permissions**: Tool permissions per agent via `agent/registry.py`
-- **CORS**: Configurable via `CORS_ORIGINS` env var
-- **Timeouts**: MCP servers have configurable timeouts (60s shell, 30s filesystem)
-
-## Testing Guidelines
-
-- Write async tests with `@pytest.mark.asyncio`
-- Test both success and error paths
-- Mock external services (API calls, file system)
-
-## Common Tasks
-
-### Running the Server
+## Quick Start
 
 ```bash
 export ANTHROPIC_API_KEY="your-key"
-python main.py
+python main.py  # or: zig build run
 ```
 
-### Debugging
+## Key Commands
 
-- Server logs to stdout
-- SDK: Use `-v` flag with go test for verbose output
+| Command | Purpose |
+|---------|---------|
+| `python main.py` | Run server |
+| `pytest` | Run all tests |
+| `pytest tests/e2e/` | Run E2E tests |
+| `zig build run` | Run via Zig |
+| `zig build test` | Test via Zig |
 
-## Style Guide
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | - | Required - Claude API key |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Model ID |
+| `HOST` | `0.0.0.0` | Server host |
+| `PORT` | `8000` | Server port |
+| `WORKING_DIR` | cwd | Working directory |
+
+## Global Style Guide
 
 ### No Magic Constants
-- Never use magic constants (hardcoded literal values) directly in code
-- Always define constants with descriptive names in `SCREAMING_CASE`
-- Place constants at module level, near the top of the file
-- Example:
 ```python
-# Good
+# Good - constants at module level
 DEFAULT_PORT = 8000
-DEFAULT_HOST = "0.0.0.0"
 port = int(os.environ.get("PORT", str(DEFAULT_PORT)))
 
-# Bad
+# Bad - hardcoded literals
 port = int(os.environ.get("PORT", "8000"))
 ```
 
 ### Python
-- Type hints required
-- Async functions for I/O
-- Docstrings for public functions
+- Type hints required on all functions
+- Async for I/O operations
+- Docstrings on public functions
 
 ### Go
 - Standard gofmt formatting
 - Godoc comments for exports
-- Error handling explicit
+- Explicit error handling
+
+## Skills Reference
+
+See `.claude/skills/` for detailed guidance on specific topics:
+
+| Skill | Topics |
+|-------|--------|
+| [configuration.md](.claude/skills/configuration.md) | Config system, env vars, JSONC |
+| [python-backend.md](.claude/skills/python-backend.md) | FastAPI server, routes, SSE |
+| [api-development.md](.claude/skills/api-development.md) | OpenCode API spec, endpoints |
+| [agent-system.md](.claude/skills/agent-system.md) | Agent creation, registry, MCP |
+| [tools-development.md](.claude/skills/tools-development.md) | Adding new tools, patterns |
+| [lsp-integration.md](.claude/skills/lsp-integration.md) | LSP hover, diagnostics |
+| [browser-tools.md](.claude/skills/browser-tools.md) | Browser automation |
+| [snapshot-system.md](.claude/skills/snapshot-system.md) | Git snapshots, revert |
+| [testing.md](.claude/skills/testing.md) | pytest, fixtures, E2E |
+| [go-development.md](.claude/skills/go-development.md) | SDK client, TUI |
