@@ -54,3 +54,4 @@ dist/
 # Zig build cache
 .zig-cache/
 zig-out/
+*.a

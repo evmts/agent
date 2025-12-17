@@ -1,0 +1,5 @@
+module CGhostty {
+    header "ghostty.h"
+    link "ghostty"
+    export *
+}
