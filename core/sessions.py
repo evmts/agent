@@ -5,6 +5,7 @@ Provides functions for managing sessions including CRUD operations,
 forking, reverting, and diff computation.
 """
 
+import logging
 import time
 
 from .events import Event, EventBus
@@ -24,6 +25,8 @@ from .state import (
     session_snapshot_history,
     sessions,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -73,6 +76,8 @@ async def create_session(
 
     # Initialize snapshot tracking
     init_snapshot(session.id, directory)
+
+    logger.info("Session created: %s", session.id)
 
     await event_bus.publish(
         Event(type="session.created", properties={"info": session.model_dump()})
@@ -161,6 +166,8 @@ async def delete_session(session_id: str, event_bus: EventBus) -> bool:
     if session_id not in sessions:
         raise NotFoundError("Session", session_id)
 
+    logger.info("Deleting session: %s", session_id)
+
     session = sessions.pop(session_id)
     session_messages.pop(session_id, None)
     cleanup_snapshots(session_id)
@@ -193,6 +200,7 @@ def abort_session(session_id: str) -> bool:
         raise NotFoundError("Session", session_id)
 
     if session_id in active_tasks:
+        logger.info("Aborting session task: %s", session_id)
         active_tasks[session_id].cancel()
         del active_tasks[session_id]
 
@@ -283,6 +291,8 @@ async def fork_session(
             break
     session_messages[new_session.id] = messages_to_copy.copy()
 
+    logger.info("Forked session %s -> %s", session_id, new_session.id)
+
     await event_bus.publish(
         Event(type="session.created", properties={"info": new_session.model_dump()})
     )
@@ -328,9 +338,11 @@ async def revert_session(
 
     # Restore files if we have a valid snapshot
     if target_hash:
+        logger.info("Reverting session %s to snapshot %s", session_id, target_hash[:8])
         try:
             restore_snapshot(session_id, target_hash)
         except Exception as e:
+            logger.error("Failed to restore snapshot for session %s: %s", session_id, e)
             raise InvalidOperationError(f"Failed to restore snapshot: {e}")
 
     session.revert = RevertInfo(

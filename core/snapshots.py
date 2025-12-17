@@ -31,6 +31,7 @@ def init_snapshot(session_id: str, directory: str) -> str | None:
     try:
         initial_hash = snapshot.track()
         session_snapshot_history[session_id] = [initial_hash]
+        logger.debug("Snapshot initialized for session %s: %s", session_id, initial_hash[:8])
         return initial_hash
     except Exception as e:
         logger.debug("Failed to initialize snapshot for session %s: %s", session_id, e)
@@ -52,7 +53,9 @@ def track_snapshot(session_id: str) -> str | None:
     if not snapshot:
         return None
     try:
-        return snapshot.track()
+        commit_hash = snapshot.track()
+        logger.debug("Snapshot tracked for session %s: %s", session_id, commit_hash[:8])
+        return commit_hash
     except Exception as e:
         logger.debug("Failed to track snapshot for session %s: %s", session_id, e)
         return None
@@ -144,6 +147,7 @@ def restore_snapshot(session_id: str, target_hash: str) -> None:
     if not snapshot:
         raise NotFoundError("session snapshot", session_id)
 
+    logger.info("Restoring snapshot %s for session %s", target_hash[:8], session_id)
     snapshot.restore(target_hash)
 
 

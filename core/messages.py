@@ -5,6 +5,7 @@ Provides functions for managing messages including listing, retrieving,
 and streaming responses from the agent.
 """
 
+import logging
 import os
 import time
 from typing import Any, AsyncGenerator, Protocol
@@ -19,6 +20,8 @@ from .snapshots import (
     track_snapshot,
 )
 from .state import session_messages, sessions
+
+logger = logging.getLogger(__name__)
 
 
 class Agent(Protocol):
@@ -110,6 +113,8 @@ async def send_message(
     if session_id not in sessions:
         raise NotFoundError("Session", session_id)
 
+    logger.info("Processing message for session %s", session_id)
+    message_start_time = time.perf_counter()
     now = time.time()
 
     # Create user message
@@ -238,6 +243,7 @@ async def send_message(
 
                 elif event_type == "tool_call":
                     # Tool invocation started
+                    logger.info("Tool call: %s", event.tool_name)
                     tool_part_id = gen_id("prt_")
                     tool_part = {
                         "id": tool_part_id,
@@ -294,6 +300,7 @@ async def send_message(
                 asst_msg["parts"].append(tool_part)
 
         except Exception as e:
+            logger.exception("Error during agent streaming for session %s", session_id)
             error_part_id = gen_id("prt_")
             error_part = {
                 "id": error_part_id,
@@ -311,6 +318,7 @@ async def send_message(
 
     # Capture step finish snapshot and compute diff
     if step_start_hash:
+        logger.debug("Tracking finish snapshot for session %s", session_id)
         step_finish_hash = track_snapshot(session_id)
         if step_finish_hash:
             append_snapshot_history(session_id, step_finish_hash)
@@ -320,6 +328,7 @@ async def send_message(
                 session_id, step_start_hash, step_finish_hash
             )
             if changed_files:
+                logger.debug("Computing diff: %d files changed", len(changed_files))
                 diffs = compute_diff(session_id, step_start_hash, step_finish_hash)
                 sessions[session_id].summary = SessionSummary(
                     additions=sum(d.additions for d in diffs),
@@ -327,8 +336,20 @@ async def send_message(
                     files=len(diffs),
                     diffs=diffs,
                 )
+                logger.info(
+                    "Session %s: %d files changed (+%d/-%d)",
+                    session_id,
+                    len(diffs),
+                    sum(d.additions for d in diffs),
+                    sum(d.deletions for d in diffs),
+                )
 
     # Update session timestamp
     sessions[session_id].time.updated = time.time()
+
+    message_duration_ms = (time.perf_counter() - message_start_time) * 1000
+    logger.info(
+        "Message complete for session %s (%.1fms)", session_id, message_duration_ms
+    )
 
     yield Event(type="message.updated", properties={"info": asst_msg["info"]})
