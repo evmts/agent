@@ -1,13 +1,33 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 struct AgentApp: App {
     @StateObject private var appState = AppState()
 
+    init() {
+        #if os(macOS)
+        // Activate the app so it takes keyboard focus from the launching terminal
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .onAppear {
+                    #if os(macOS)
+                    // Ensure window is key and frontmost
+                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.windows.first?.makeKeyAndOrderFront(nil)
+                    #endif
+                }
         }
         .commands {
             CommandGroup(replacing: .newItem) {
