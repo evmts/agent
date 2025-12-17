@@ -53,6 +53,20 @@ pub fn build(b: *std.Build) void {
     test_go_step.dependOn(&test_go_cmd.step);
 
     // ==========================================================
+    // Swift App: Build SwiftUI app
+    // ==========================================================
+    const swift_app_step = b.step("swift-app", "Build SwiftUI app");
+    const swift_build_cmd = b.addSystemCommand(&.{ "sh", "-c", "cd AgentApp && swift build" });
+    swift_app_step.dependOn(&swift_build_cmd.step);
+
+    // ==========================================================
+    // Run Swift App: Build and run SwiftUI app
+    // ==========================================================
+    const run_swift_step = b.step("run-swift", "Build and run SwiftUI app");
+    const run_swift_cmd = b.addSystemCommand(&.{ "sh", "-c", "cd AgentApp && swift run" });
+    run_swift_step.dependOn(&run_swift_cmd.step);
+
+    // ==========================================================
     // Clean: Remove all build artifacts
     // ==========================================================
     const clean_step = b.step("clean", "Remove all build artifacts");
@@ -62,6 +76,7 @@ pub fn build(b: *std.Build) void {
         "build",
         "dist",
         "agent-tui",
+        "AgentApp/.build",
         "*.spec",
     });
     clean_step.dependOn(&clean_cmd.step);
