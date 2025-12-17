@@ -10,9 +10,12 @@ import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+import httpx
 from pydantic_ai import Agent, WebSearchTool
 from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.models.anthropic import AnthropicModelSettings
+
+from .browser_client import get_browser_client
 
 # Lazy import - duckduckgo is optional
 _duckduckgo_search_tool = None
@@ -263,6 +266,144 @@ async def create_agent_with_mcp(
             lines.append(f"{i}. {status_icon} {todo.get('content', '')}")
 
         return "\n".join(lines)
+
+    # Browser automation tools (connect to Swift app's browser API)
+    @agent.tool_plain
+    async def browser_snapshot(
+        include_hidden: bool = False,
+        max_depth: int = 50,
+    ) -> str:
+        """Take accessibility snapshot of browser page. Returns text tree with element refs.
+
+        The snapshot shows the page structure with clickable/interactive elements
+        labeled with refs like 'e1', 'e2', etc. Use these refs with other browser tools.
+
+        Args:
+            include_hidden: Include hidden elements in snapshot
+            max_depth: Maximum depth of element tree to traverse
+        """
+        try:
+            client = get_browser_client()
+            result = await client.snapshot(include_hidden, max_depth)
+            if result.get("success"):
+                return result.get("text_tree", "Empty snapshot")
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
+
+    @agent.tool_plain
+    async def browser_click(ref: str) -> str:
+        """Click an element by its ref (e.g., 'e1', 'e23').
+
+        Use browser_snapshot first to see available elements and their refs.
+
+        Args:
+            ref: Element reference from snapshot (e.g., 'e1')
+        """
+        try:
+            client = get_browser_client()
+            result = await client.click(ref)
+            if result.get("success"):
+                return f"Clicked element {ref}"
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
+
+    @agent.tool_plain
+    async def browser_type(ref: str, text: str, clear: bool = False) -> str:
+        """Type text into an input element.
+
+        Args:
+            ref: Element reference from snapshot (e.g., 'e5')
+            text: Text to type into the element
+            clear: Whether to clear existing content first
+        """
+        try:
+            client = get_browser_client()
+            result = await client.type_text(ref, text, clear)
+            if result.get("success"):
+                return f"Typed into element {ref}"
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
+
+    @agent.tool_plain
+    async def browser_scroll(direction: str = "down", amount: int = 300) -> str:
+        """Scroll the browser page.
+
+        Args:
+            direction: Scroll direction - 'up', 'down', 'left', or 'right'
+            amount: Scroll amount in pixels
+        """
+        try:
+            client = get_browser_client()
+            result = await client.scroll(direction, amount)
+            if result.get("success"):
+                return f"Scrolled {direction} by {amount}px"
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
+
+    @agent.tool_plain
+    async def browser_extract(ref: str) -> str:
+        """Extract text content from an element.
+
+        Args:
+            ref: Element reference from snapshot (e.g., 'e10')
+        """
+        try:
+            client = get_browser_client()
+            result = await client.extract_text(ref)
+            if result.get("success"):
+                return result.get("text", "")
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
+
+    @agent.tool_plain
+    async def browser_screenshot() -> str:
+        """Take a screenshot of the browser page.
+
+        Returns base64-encoded PNG image data.
+        """
+        try:
+            client = get_browser_client()
+            result = await client.screenshot()
+            if result.get("success"):
+                return result.get("image_base64", "")
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
+
+    @agent.tool_plain
+    async def browser_navigate(url: str) -> str:
+        """Navigate the browser to a URL.
+
+        Args:
+            url: URL to navigate to (e.g., 'https://example.com')
+        """
+        try:
+            client = get_browser_client()
+            result = await client.navigate(url)
+            if result.get("success"):
+                return f"Navigated to {url}"
+            return f"Error: {result.get('error', 'Unknown error')}"
+        except httpx.ConnectError:
+            return "Browser not connected. Ensure the Plue app is running with a browser tab open."
+        except httpx.TimeoutException:
+            return "Browser operation timed out."
 
     # Use async context manager to properly manage MCP server lifecycles
     async with agent:
