@@ -14,12 +14,36 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0")
     ],
     targets: [
+        // C library target for libghostty
+        .systemLibrary(
+            name: "CGhostty",
+            path: "Libraries",
+            pkgConfig: nil,
+            providers: []
+        ),
         .executableTarget(
             name: "AgentApp",
             dependencies: [
-                .product(name: "SwiftTerm", package: "SwiftTerm")
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
+                "CGhostty"
             ],
-            path: "AgentApp"
+            path: "AgentApp",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L\(Context.packageDirectory)/Libraries",
+                    "-lghostty"
+                ]),
+                .linkedFramework("Metal"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("IOKit"),
+                .linkedFramework("AppKit"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("Security"),
+                .linkedFramework("Carbon"),
+                .linkedLibrary("c++")
+            ]
         )
     ]
 )
