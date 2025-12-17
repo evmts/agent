@@ -1,342 +1,236 @@
 import SwiftUI
 
-struct ContentView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var showingSidebar = true
-    @State private var inputText = ""
+struct PlueContentView: View {
+    @Binding var appState: PlueAppState
+    @State private var previousTab: TabType = .agent
 
-    var body: some View {
-        NavigationSplitView {
-            SidebarView()
-        } detail: {
-            MainContentView()
-        }
-        .task {
-            await appState.loadSessions()
-        }
+    private func handleEvent(_ event: PlueEvent) {
+        PlueCore.shared.handleEvent(event)
     }
-}
-
-struct SidebarView: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        List(selection: $appState.currentSessionID) {
-            Section("Sessions") {
-                ForEach(appState.sessions) { session in
-                    NavigationLink(value: session.id) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(session.title)
-                                .font(.headline)
-                            Text(session.formattedDate)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Agent")
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    Task {
-                        await appState.createSession()
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
-        }
-        .overlay {
-            if appState.sessions.isEmpty {
-                ContentUnavailableView {
-                    Label("No Sessions", systemImage: "terminal")
-                } description: {
-                    Text("Create a new session to get started")
-                } actions: {
-                    Button("New Session") {
-                        Task {
-                            await appState.createSession()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-        }
-    }
-}
-
-struct MainContentView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var showingTerminal = true
-
-    var body: some View {
-        Group {
-            if appState.currentSessionID != nil {
-                VSplitView {
-                    ChatView()
-
-                    if showingTerminal {
-                        #if os(macOS)
-                        TerminalView(workingDirectory: nil)
-                            .frame(minHeight: 200)
-                        #else
-                        Text("Terminal not available on iOS")
-                            .frame(minHeight: 200)
-                        #endif
-                    }
-                }
-                .toolbar {
-                    ToolbarItem {
-                        Button {
-                            showingTerminal.toggle()
-                        } label: {
-                            Image(systemName: showingTerminal ? "terminal.fill" : "terminal")
-                        }
-                        .help(showingTerminal ? "Hide Terminal" : "Show Terminal")
-                    }
-                }
-            } else {
-                ContentUnavailableView {
-                    Label("Select a Session", systemImage: "sidebar.left")
-                } description: {
-                    Text("Choose a session from the sidebar or create a new one")
-                }
-            }
-        }
-    }
-}
-
-struct ChatView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var messages: [MessageWithParts] = []
-    @State private var inputText = ""
-    @State private var isLoading = false
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(messages) { message in
-                            MessageView(message: message)
-                                .id(message.info.id)
-                        }
+            // Custom Title Bar with Tabs
+            CustomTitleBar(
+                selectedTab: Binding(
+                    get: { appState.currentTab },
+                    set: { newTab in handleEvent(.tabSwitched(newTab)) }
+                ),
+                currentTheme: appState.currentTheme,
+                onThemeToggle: { handleEvent(.themeToggled) }
+            )
 
-                        if isLoading {
-                            HStack {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Thinking...")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding()
-                            .id("loading")
-                        }
+            // Main Content Area
+            ZStack {
+                Rectangle()
+                    .fill(DesignSystem.Colors.background(for: appState.currentTheme))
+                    .ignoresSafeArea()
+
+                Group {
+                    switch appState.currentTab {
+                    case .agent:
+                        AgentChatView(appState: appState)
+                            .transition(.opacity)
+                    case .terminal:
+                        TerminalTabView()
+                            .transition(.opacity)
+                    case .editor:
+                        EditorTabView(appState: appState)
+                            .transition(.opacity)
                     }
-                    .padding()
                 }
-                .onChange(of: messages.count) { _, _ in
-                    withAnimation {
-                        proxy.scrollTo(messages.last?.info.id ?? "loading", anchor: .bottom)
-                    }
+                .animation(DesignSystem.Animation.tabSwitch, value: appState.currentTab)
+            }
+        }
+        .background(DesignSystem.Colors.background(for: appState.currentTheme))
+        .preferredColorScheme(appState.currentTheme == .dark ? .dark : .light)
+    }
+}
+
+// MARK: - Custom Title Bar
+
+struct CustomTitleBar: View {
+    @Binding var selectedTab: TabType
+    let currentTheme: DesignSystem.Theme
+    let onThemeToggle: () -> Void
+    @State private var isHovered = false
+
+    #if os(macOS)
+    private let windowActions: [WindowAction] = [.close, .minimize, .maximize]
+    private let windowActionColors: [Color] = [.red, .yellow, .green]
+    #endif
+
+    var body: some View {
+        HStack(spacing: 0) {
+            #if os(macOS)
+            // Window Controls (Traffic Lights)
+            HStack(spacing: 8) {
+                ForEach(0..<3) { i in
+                    CustomWindowButton(action: windowActions[i], color: windowActionColors[i])
+                        .opacity(isHovered ? 1.0 : 0.4)
+                        .animation(.easeInOut(duration: 0.15), value: isHovered)
                 }
             }
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
+            .frame(height: 40)
+            .onHover { hover in isHovered = hover }
 
             Divider()
+                .frame(width: 1, height: 16)
+                .background(DesignSystem.Colors.border(for: currentTheme))
+                .padding(.horizontal, 4)
+            #endif
 
-            HStack(spacing: 12) {
-                TextField("Message...", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...5)
-                    .onSubmit {
-                        sendMessage()
-                    }
-
-                Button {
-                    sendMessage()
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-            }
-            .padding()
-            .background(.bar)
-        }
-    }
-
-    private func sendMessage() {
-        guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let text = inputText
-        inputText = ""
-        isLoading = true
-
-        Task {
-            // TODO: Send message via AgentClient
-            // For now, just add a mock response
-            let userMessage = MessageWithParts(
-                info: Message(
-                    id: UUID().uuidString,
-                    sessionID: appState.currentSessionID ?? "",
-                    role: "user",
-                    time: MessageTime(created: Date().timeIntervalSince1970, updated: Date().timeIntervalSince1970)
-                ),
-                parts: [Part(id: UUID().uuidString, sessionID: appState.currentSessionID ?? "", messageID: "", type: "text", text: text)]
-            )
-            messages.append(userMessage)
-            isLoading = false
-        }
-    }
-}
-
-struct MessageView: View {
-    let message: MessageWithParts
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: message.info.role == "user" ? "person.fill" : "cpu")
-                .font(.title3)
-                .foregroundStyle(message.info.role == "user" ? .blue : .purple)
-                .frame(width: 32, height: 32)
-                .background(message.info.role == "user" ? Color.blue.opacity(0.1) : Color.purple.opacity(0.1))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(message.info.role == "user" ? "You" : "Agent")
-                    .font(.headline)
-
-                ForEach(message.parts) { part in
-                    PartView(part: part)
+            // Tab Buttons
+            HStack(spacing: 2) {
+                ForEach(TabType.allCases, id: \.self) { tab in
+                    TabButton(tab: tab, selectedTab: $selectedTab, theme: currentTheme)
                 }
             }
+            .padding(.horizontal, 4)
 
             Spacer()
-        }
-        .padding()
-        .background(message.info.role == "user" ? Color.clear : Color.secondary.opacity(0.05))
-        .cornerRadius(12)
-    }
-}
 
-struct PartView: View {
-    let part: Part
-
-    var body: some View {
-        switch part.type {
-        case "text":
-            Text(part.text ?? "")
-                .textSelection(.enabled)
-        case "tool":
-            ToolPartView(part: part)
-        case "reasoning":
-            DisclosureGroup {
-                Text(part.text ?? "")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } label: {
-                Label("Thinking", systemImage: "brain")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            // Theme Toggle
+            Button(action: onThemeToggle) {
+                Image(systemName: currentTheme == .dark ? "sun.max.fill" : "moon.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DesignSystem.Colors.textSecondary(for: currentTheme))
+                    .padding(6)
+                    .background(
+                        Circle()
+                            .fill(DesignSystem.Colors.surface(for: currentTheme))
+                    )
+                    .overlay(
+                        Circle()
+                            .strokeBorder(DesignSystem.Colors.border(for: currentTheme), lineWidth: 0.5)
+                    )
             }
-        default:
-            Text(part.text ?? "Unknown part type: \(part.type)")
-                .foregroundStyle(.secondary)
+            .buttonStyle(PlainButtonStyle())
+            .help("Toggle theme")
+            .padding(.trailing, 12)
+        }
+        .frame(height: 40)
+        .background(
+            ZStack {
+                DesignSystem.Colors.background(for: currentTheme)
+                Rectangle().fill(.ultraThinMaterial)
+                VStack {
+                    Spacer()
+                    Divider().background(DesignSystem.Colors.border(for: currentTheme))
+                }
+            }
+        )
+    }
+}
+
+// MARK: - Tab Button
+
+struct TabButton: View {
+    let tab: TabType
+    @Binding var selectedTab: TabType
+    let theme: DesignSystem.Theme
+    @State private var isHovered = false
+
+    private var isSelected: Bool { selectedTab == tab }
+
+    var body: some View {
+        Button(action: {
+            withAnimation(DesignSystem.Animation.tabSwitch) {
+                selectedTab = tab
+            }
+        }) {
+            VStack(spacing: 4) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 16, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                Text(tab.title)
+                    .font(.system(size: 10, weight: .regular))
+            }
+            .frame(width: 70, height: 40)
+            .foregroundColor(
+                isSelected ? DesignSystem.Colors.primary :
+                isHovered ? DesignSystem.Colors.textPrimary(for: theme) :
+                DesignSystem.Colors.textSecondary(for: theme)
+            )
+            .background(
+                ZStack {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(DesignSystem.Colors.primary.opacity(0.1))
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(DesignSystem.Colors.primary.opacity(0.2), lineWidth: 0.5)
+                    } else if isHovered {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(DesignSystem.Colors.surface(for: theme).opacity(0.5))
+                    }
+                }
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onHover { hover in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hover
+            }
         }
     }
 }
 
-struct ToolPartView: View {
-    let part: Part
+// MARK: - Terminal Tab View
+
+struct TerminalTabView: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            #if os(macOS)
+            TerminalView()
+            #else
+            Text("Terminal not available on iOS")
+                .foregroundColor(DesignSystem.Colors.textSecondary)
+            #endif
+        }
+    }
+}
+
+// MARK: - Editor Tab View
+
+struct EditorTabView: View {
+    let appState: PlueAppState
+    @State private var content: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 0) {
+            // Editor toolbar
             HStack {
-                Image(systemName: "hammer.fill")
-                    .foregroundStyle(.orange)
-                Text(part.tool ?? "Tool")
-                    .font(.callout.bold())
+                Text("Editor")
+                    .font(DesignSystem.Typography.titleMedium)
+                    .foregroundColor(DesignSystem.Colors.textPrimary(for: appState.currentTheme))
 
                 Spacer()
 
-                if let state = part.state {
-                    StatusBadge(status: state.status)
+                if appState.editorState.hasUnsavedChanges {
+                    Text("Unsaved changes")
+                        .font(DesignSystem.Typography.labelSmall)
+                        .foregroundColor(DesignSystem.Colors.warning)
                 }
             }
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.vertical, DesignSystem.Spacing.sm)
+            .background(DesignSystem.Colors.surface(for: appState.currentTheme))
 
-            if let state = part.state, let output = state.output, !output.isEmpty {
-                Text(output)
-                    .font(.system(.caption, design: .monospaced))
-                    .padding(8)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(6)
-            }
-        }
-        .padding()
-        .background(Color.orange.opacity(0.05))
-        .cornerRadius(8)
-    }
-}
+            Divider()
 
-struct StatusBadge: View {
-    let status: String
-
-    var color: Color {
-        switch status {
-        case "completed": return .green
-        case "running": return .blue
-        case "pending": return .orange
-        default: return .gray
-        }
-    }
-
-    var body: some View {
-        Text(status.capitalized)
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.2))
-            .foregroundStyle(color)
-            .cornerRadius(4)
-    }
-}
-
-struct SettingsView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var serverURL: String = ""
-
-    var body: some View {
-        Form {
-            Section("Server") {
-                TextField("Server URL", text: $serverURL)
-                    .onAppear {
-                        serverURL = appState.serverURL
-                    }
-
-                HStack {
-                    Circle()
-                        .fill(appState.isConnected ? .green : .red)
-                        .frame(width: 8, height: 8)
-                    Text(appState.isConnected ? "Connected" : "Disconnected")
-                        .foregroundStyle(.secondary)
+            // Editor content
+            TextEditor(text: $content)
+                .font(DesignSystem.Typography.monoMedium)
+                .scrollContentBackground(.hidden)
+                .background(DesignSystem.Colors.background(for: appState.currentTheme))
+                .onAppear {
+                    content = appState.editorState.content
                 }
-
-                Button("Connect") {
-                    appState.updateServerURL(serverURL)
-                    Task {
-                        await appState.loadSessions()
-                    }
+                .onChange(of: content) { _, newValue in
+                    PlueCore.shared.handleEvent(.editorContentChanged(newValue))
                 }
-            }
         }
-        .padding()
-        .frame(width: 400, height: 200)
     }
 }
-
-// Preview in Xcode:
-// ContentView()
-//     .environmentObject(AppState())

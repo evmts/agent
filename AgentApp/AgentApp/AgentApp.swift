@@ -5,11 +5,10 @@ import AppKit
 
 @main
 struct AgentApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appStateContainer = AppStateContainer()
 
     init() {
         #if os(macOS)
-        // Activate the app so it takes keyboard focus from the launching terminal
         DispatchQueue.main.async {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
@@ -19,72 +18,135 @@ struct AgentApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appState)
+            PlueContentView(appState: $appStateContainer.appState)
+                .frame(minWidth: 900, minHeight: 600)
+                .background(DesignSystem.Colors.background)
                 .onAppear {
                     #if os(macOS)
-                    // Ensure window is key and frontmost
-                    NSApp.activate(ignoringOtherApps: true)
-                    NSApp.windows.first?.makeKeyAndOrderFront(nil)
+                    configureWindow()
                     #endif
                 }
         }
+        #if os(macOS)
+        .windowStyle(.hiddenTitleBar)
+        #endif
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Session") {
-                    Task {
-                        await appState.createSession()
-                    }
+                Button("New Conversation") {
+                    appStateContainer.handleEvent(.agentNewConversation)
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }
         }
-        #if os(macOS)
-        Settings {
-            SettingsView()
-                .environmentObject(appState)
-        }
-        #endif
     }
+
+    #if os(macOS)
+    private func configureWindow() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        window.backgroundColor = NSColor(DesignSystem.Colors.background(for: appStateContainer.appState.currentTheme))
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.isMovableByWindowBackground = true
+        window.appearance = NSAppearance(named: appStateContainer.appState.currentTheme == .dark ? .darkAqua : .aqua)
+        window.minSize = NSSize(width: 800, height: 600)
+
+        // Hide standard buttons (we have custom ones)
+        window.standardWindowButton(.closeButton)?.alphaValue = 0
+        window.standardWindowButton(.miniaturizeButton)?.alphaValue = 0
+        window.standardWindowButton(.zoomButton)?.alphaValue = 0
+    }
+    #endif
 }
 
-@MainActor
-class AppState: ObservableObject {
-    @Published var sessions: [Session] = []
-    @Published var currentSessionID: String?
-    @Published var isConnected: Bool = false
-    @Published var serverURL: String = "http://localhost:8000"
+// MARK: - State Container
 
-    private var client: AgentClient?
+class AppStateContainer: ObservableObject {
+    @Published var appState = PlueAppState.initial
+    private let core = PlueCore.shared
 
     init() {
-        self.client = AgentClient(baseURL: serverURL)
-    }
-
-    func updateServerURL(_ url: String) {
-        self.serverURL = url
-        self.client = AgentClient(baseURL: url)
-    }
-
-    func createSession() async {
-        guard let client = client else { return }
-        do {
-            let session = try await client.createSession(title: "New Session")
-            sessions.append(session)
-            currentSessionID = session.id
-        } catch {
-            print("Failed to create session: \(error)")
+        core.subscribe { [weak self] newState in
+            DispatchQueue.main.async {
+                self?.appState = newState
+            }
         }
     }
 
-    func loadSessions() async {
-        guard let client = client else { return }
-        do {
-            sessions = try await client.listSessions()
-            isConnected = true
-        } catch {
-            isConnected = false
-            print("Failed to load sessions: \(error)")
+    func handleEvent(_ event: PlueEvent) {
+        core.handleEvent(event)
+    }
+}
+
+// MARK: - Window Controls
+
+#if os(macOS)
+enum WindowAction {
+    case close, minimize, maximize
+}
+
+struct CustomWindowButton: View {
+    let action: WindowAction
+    let color: Color
+    @State private var isHovered = false
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: performAction) {
+            ZStack {
+                Circle()
+                    .fill(color)
+                    .frame(width: 12, height: 12)
+
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(isPressed ? 0 : 0.3),
+                                Color.clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 0,
+                            endRadius: 8
+                        )
+                    )
+                    .frame(width: 12, height: 12)
+
+                if isHovered {
+                    iconForAction
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(.black.opacity(0.6))
+                }
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovered = hovering
+            }
+        }
+        .scaleEffect(isPressed ? 0.9 : 1.0)
+    }
+
+    @ViewBuilder
+    private var iconForAction: some View {
+        switch action {
+        case .close:
+            Image(systemName: "xmark").scaleEffect(0.8)
+        case .minimize:
+            Image(systemName: "minus")
+        case .maximize:
+            Image(systemName: "plus").scaleEffect(0.9)
+        }
+    }
+
+    private func performAction() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        switch action {
+        case .close: window.close()
+        case .minimize: window.miniaturize(nil)
+        case .maximize: window.zoom(nil)
         }
     }
 }
+#endif
