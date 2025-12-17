@@ -7,6 +7,8 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.middleware import RequestLoggingMiddleware
+
 
 # =============================================================================
 # Constants
@@ -47,3 +49,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request logging middleware (added after CORS so it runs first)
+app.add_middleware(RequestLoggingMiddleware)
