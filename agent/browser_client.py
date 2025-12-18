@@ -231,3 +231,25 @@ def get_browser_client() -> BrowserClient:
     if _browser_client is None:
         _browser_client = BrowserClient()
     return _browser_client
+
+
+async def is_browser_available() -> bool:
+    """Check if the Plue browser app is running and accessible.
+    
+    Makes a quick HTTP request to the browser API status endpoint
+    to determine if the browser tools should be enabled.
+    
+    Returns:
+        True if browser API is reachable, False otherwise
+    """
+    try:
+        client = get_browser_client()
+        # Use a short timeout for the availability check
+        async with httpx.AsyncClient(
+            base_url=client.base_url,
+            timeout=2.0,  # Quick timeout for availability check
+        ) as quick_client:
+            response = await quick_client.get("/browser/status")
+            return response.status_code == 200
+    except (httpx.ConnectError, httpx.TimeoutException, Exception):
+        return False
