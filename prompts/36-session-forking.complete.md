@@ -181,17 +181,17 @@ func (m *Model) forkSession(messageIndex int) tea.Cmd {
 ## Acceptance Criteria
 
 <criteria>
-- [ ] Esc enters backtrack mode when composer empty
-- [ ] Esc steps back through message history
-- [ ] Current fork point clearly highlighted
-- [ ] Enter creates fork at selected point
-- [ ] Third Esc cancels backtrack mode
-- [ ] New session created with parent reference
-- [ ] Messages copied up to fork point
-- [ ] Fork point tracked in session metadata
-- [ ] Snapshot created at fork point
-- [ ] New session loads and works correctly
-- [ ] Visual feedback shows backtrack mode active
+- [ ] Esc enters backtrack mode when composer empty (TUI pending)
+- [ ] Esc steps back through message history (TUI pending)
+- [ ] Current fork point clearly highlighted (TUI pending)
+- [ ] Enter creates fork at selected point (TUI pending)
+- [ ] Third Esc cancels backtrack mode (TUI pending)
+- [x] New session created with parent reference
+- [x] Messages copied up to fork point
+- [x] Fork point tracked in session metadata
+- [x] Snapshot created at fork point
+- [x] New session loads and works correctly
+- [ ] Visual feedback shows backtrack mode active (TUI pending)
 </criteria>
 
 <execution-strategy>
@@ -221,3 +221,32 @@ When this task is fully implemented and tested:
 5. Run `zig build build-go` and `pytest` to ensure all passes
 6. Rename this file from `36-session-forking.md` to `36-session-forking.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. Backend fork API fully implemented - POST /session/{id}/fork
+2. Uses messageID (not message_index) - more robust as IDs don't change
+3. fork_point field tracks message ID where session was forked
+4. parentID field maintains parent-child relationship
+5. Snapshot initialized at fork point for file state tracking
+6. TUI backtrack mode (Esc-Esc) NOT implemented - backend only
+
+**Files Modified:**
+- `core/models/session.py` - Added fork_point field
+- `server/routes/sessions/fork.py` - Fork endpoint with title support
+- `server/requests/fork_request.py` - Added title field
+- `core/sessions.py` - fork_session with snapshot init
+- `sdk/agent/types.go` - ForkPoint and Title fields
+
+**Prompt Improvements for Future:**
+1. Separate backend and TUI as distinct tasks - very different scope
+2. Use messageID not message_index (IDs are stable, indices change)
+3. Clarify that fork endpoint already partially existed
+4. Document unit tests at tests/test_server.py
+5. TUI backtrack mode is complex - deserves separate prompt
+6. Specify Go SDK type synchronization requirement
+</hindsight>

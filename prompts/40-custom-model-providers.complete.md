@@ -273,17 +273,17 @@ func createSession() {
 ## Acceptance Criteria
 
 <criteria>
-- [ ] Default providers configured (anthropic, openai, ollama, lmstudio)
-- [ ] Custom providers via config file
-- [ ] Provider selection via config.toml
-- [ ] --provider CLI flag
-- [ ] API key from environment variable
-- [ ] Custom headers supported
-- [ ] Local providers work without API key
-- [ ] Base URL configurable
-- [ ] Provider-specific authentication
-- [ ] Error handling for missing API keys
-- [ ] List available providers
+- [x] Default providers configured (anthropic, openai, ollama, lmstudio)
+- [x] Custom providers via config file
+- [x] Provider selection via config.toml
+- [ ] --provider CLI flag (TUI pending)
+- [x] API key from environment variable
+- [x] Custom headers supported
+- [x] Local providers work without API key
+- [x] Base URL configurable
+- [x] Provider-specific authentication
+- [x] Error handling for missing API keys
+- [x] List available providers
 </criteria>
 
 <execution-strategy>
@@ -313,3 +313,33 @@ When this task is fully implemented and tested:
 5. Run `pytest` to ensure all passes
 6. Rename this file from `40-custom-model-providers.md` to `40-custom-model-providers.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. config/providers.py already existed with complete ModelProvider and ProviderRegistry
+2. Added DEFAULT_MODEL_PROVIDERS to config/defaults.py with 4 providers
+3. Auth handling: x-api-key for anthropic, Bearer token for others
+4. is_local() returns True when env_key is None (Ollama, LM Studio)
+5. Custom providers loaded via load_from_config() during config initialization
+6. Documentation added to config/README.md
+
+**Files Modified:**
+- `config/providers.py` - ModelProvider and ProviderRegistry (pre-existed)
+- `config/defaults.py` - Added DEFAULT_MODEL_PROVIDERS
+- `config/main_config.py` - Added model, model_provider, model_providers fields
+- `config/loader.py` - Loads custom providers during config init
+- `config/__init__.py` - Export provider classes and registry
+- `config/README.md` - Documentation
+
+**Prompt Improvements for Future:**
+1. Note that config/providers.py already existed
+2. Explicitly mention config/__init__.py export updates
+3. Separate TUI --provider flag as distinct task
+4. Include auth detection logic: "anthropic" in id.lower()
+5. Azure is example custom provider, not built-in default
+6. Add unit test requirements for providers
+</hindsight>

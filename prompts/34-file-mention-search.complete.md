@@ -206,17 +206,17 @@ func (idx *FileIndex) Search(query string) []FileMatch {
 ## Acceptance Criteria
 
 <criteria>
-- [ ] Typing `@` in composer opens file search overlay
-- [ ] Fuzzy matching finds files by partial name
-- [ ] Results sorted by relevance score
-- [ ] Up/Down arrows navigate results
-- [ ] Tab or Enter inserts selected file path
-- [ ] Esc closes search without insertion
-- [ ] Typing continues to refine search
-- [ ] Works with large codebases (1000+ files)
-- [ ] Respects .gitignore when using git ls-files
-- [ ] Shows file directory for disambiguation
-- [ ] Search is case-insensitive
+- [x] Typing `@` in composer opens file search overlay
+- [x] Fuzzy matching finds files by partial name
+- [x] Results sorted by relevance score
+- [x] Up/Down arrows navigate results
+- [x] Tab or Enter inserts selected file path
+- [x] Esc closes search without insertion
+- [x] Typing continues to refine search
+- [x] Works with large codebases (1000+ files)
+- [x] Respects .gitignore when using git ls-files
+- [x] Shows file directory for disambiguation
+- [x] Search is case-insensitive
 </criteria>
 
 <execution-strategy>
@@ -245,3 +245,27 @@ When this task is fully implemented and tested:
 4. Run `zig build build-go` to ensure compilation succeeds
 5. Rename this file from `34-file-mention-search.md` to `34-file-mention-search.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. filesearch.go already existed with FileIndex, fuzzyScore, and Scan methods
+2. Just needed to wire up rendering and keyboard handling in main.go
+3. Uses git ls-files for git repos (respects .gitignore), fallback to filesystem walk
+4. Background scanning in goroutine to avoid blocking TUI startup
+5. Fuzzy scoring: +3 consecutive, +2 word boundary, penalties for long paths
+
+**Files Modified:**
+- `tui/filesearch.go` - File indexing and fuzzy matching (pre-existed)
+- `tui/main.go` - Added rendering, keyboard navigation, detectFileSearch integration
+
+**Prompt Improvements for Future:**
+1. Prompt specified wrong file paths (`tui/internal/components/`) - actual structure is flat (`tui/`)
+2. filesearch.go already existed - prompt should check for existing implementations
+3. Build command is `go build` or `zig build tui`, not `zig build build-go`
+4. detectFileSearch needs to be called on every keystroke, not just on @
+5. Consider mentioning wrapping behavior for navigation (up from 0 goes to last)
+</hindsight>

@@ -134,17 +134,17 @@ type ExecOutput struct {
 ## Acceptance Criteria
 
 <criteria>
-- [ ] `agent exec "prompt"` runs agent non-interactively
-- [ ] Prompt accepted from argument, stdin, or file
-- [ ] Default output shows only final assistant message
-- [ ] `--full` shows all messages including tool calls
-- [ ] `--json` outputs structured JSON
-- [ ] `--stream` outputs real-time streaming events
-- [ ] `--timeout` properly cancels after specified duration
-- [ ] Exit codes reflect success/failure appropriately
-- [ ] Signal handling (Ctrl+C) works correctly
-- [ ] Works in headless/non-TTY environments
-- [ ] Error messages go to stderr, results to stdout
+- [x] `agent exec "prompt"` runs agent non-interactively
+- [x] Prompt accepted from argument, stdin, or file
+- [x] Default output shows only final assistant message
+- [x] `--full` shows all messages including tool calls
+- [x] `--json` outputs structured JSON
+- [x] `--stream` outputs real-time streaming events
+- [x] `--timeout` properly cancels after specified duration
+- [x] Exit codes reflect success/failure appropriately
+- [x] Signal handling (Ctrl+C) works correctly
+- [x] Works in headless/non-TTY environments
+- [x] Error messages go to stderr, results to stdout
 </criteria>
 
 <execution-strategy>
@@ -174,3 +174,29 @@ When this task is fully implemented and tested:
 5. Test in CI-like environment (non-TTY)
 6. Rename this file from `30-exec-command.md` to `30-exec-command.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. Files `exec.go` and `output.go` already existed with substantial implementations - the prompt should check for pre-existing code first
+2. The embedded server log pollution was a critical issue - when using embedded server with `--quiet`, server stdout/stderr must be redirected to `/dev/null`
+3. Text accumulation for `--full` mode is essential - streaming events should be accumulated and only added as complete messages, not per-fragment
+4. The `--no-tools` flag requires backend API support that wasn't implemented - marked as documented/unsupported with user warning
+
+**Files Modified:**
+- `tui/main.go` - Added subcommand routing for exec/e/help/version
+- `tui/exec.go` - Fixed text accumulation, added quiet mode to embedded server
+- `tui/output.go` - Output formatting (pre-existed)
+- `tui/internal/embedded/process.go` - Added StartServerWithLoggerQuiet() for log suppression
+
+**Prompt Improvements for Future:**
+1. Add note about checking if implementation files already exist
+2. Clarify embedded vs external backend behavior differences
+3. Specify that `--no-tools` requires backend changes (agent tool filtering)
+4. Add explicit build command: `cd tui && go build` (not `zig build build-go`)
+5. Document that streaming output should use newline-delimited JSON with no server log pollution
+6. Consider adding integration test examples for CI/CD verification
+</hindsight>

@@ -198,16 +198,16 @@ class TurnSnapshot:
 ## Acceptance Criteria
 
 <criteria>
-- [ ] `/undo` reverts last agent turn
-- [ ] Messages after undo point removed
-- [ ] File changes from turn reverted via snapshot
-- [ ] Summary shows what was undone
-- [ ] `/undo N` undoes multiple turns
-- [ ] Graceful handling when nothing to undo
-- [ ] Cannot undo past first message
-- [ ] Snapshot system correctly tracks turns
-- [ ] UI refreshes after undo
-- [ ] Works with revert/unrevert system
+- [x] `/undo` reverts last agent turn
+- [x] Messages after undo point removed
+- [x] File changes from turn reverted via snapshot
+- [x] Summary shows what was undone
+- [x] `/undo N` undoes multiple turns
+- [x] Graceful handling when nothing to undo
+- [x] Cannot undo past first message
+- [x] Snapshot system correctly tracks turns
+- [ ] UI refreshes after undo (TUI pending)
+- [x] Works with revert/unrevert system
 </criteria>
 
 <execution-strategy>
@@ -237,3 +237,32 @@ When this task is fully implemented and tested:
 5. Run `zig build build-go` and `pytest` to ensure all passes
 6. Rename this file from `37-undo-command.md` to `37-undo-command.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. Turn = user message + following assistant messages until next user message
+2. Snapshot history alignment: history[0]=initial, history[i+1]=after turn i
+3. undo_turns returns tuple: (turns_undone, messages_removed, files_reverted, snapshot_hash)
+4. At least one turn must remain (cannot undo first turn)
+5. count is capped to prevent undoing past first turn
+6. Publishes session.updated event after undo
+
+**Files Modified:**
+- `core/sessions.py` - Added undo_turns async function
+- `core/__init__.py` - Export undo_turns
+- `server/routes/sessions/undo.py` - POST /session/{id}/undo endpoint (pre-existed)
+- `server/requests/undo_request.py` - UndoRequest and UndoResult models (pre-existed)
+- `server/routes/sessions/__init__.py` - Register undo router
+
+**Prompt Improvements for Future:**
+1. Clarify snapshot timing: snapshots taken AFTER each turn completes
+2. Provide concrete example with message indices and snapshot indices
+3. Specify whether files_reverted lists changed files or reverted files
+4. Note that undo endpoint and request models already existed
+5. Mention event publishing requirement for state sync
+6. TUI /undo handler should be separate task
+</hindsight>

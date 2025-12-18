@@ -194,16 +194,16 @@ func formatDiff(raw string) string {
 ## Acceptance Criteria
 
 <criteria>
-- [ ] `/diff` shows all pending changes
-- [ ] Staged and unstaged changes included
-- [ ] Untracked files shown with preview
-- [ ] `/diff --staged` shows only staged
-- [ ] `/diff --stat` shows summary only
-- [ ] `/diff <file>` shows specific file
-- [ ] Color-coded additions/deletions
-- [ ] Pager for long output
-- [ ] "No changes" message when clean
-- [ ] Works in non-git directories (graceful error)
+- [x] `/diff` shows all pending changes
+- [x] Staged and unstaged changes included
+- [x] Untracked files shown with preview
+- [x] `/diff --staged` shows only staged
+- [x] `/diff --stat` shows summary only
+- [x] `/diff <file>` shows specific file
+- [x] Color-coded additions/deletions
+- [x] Pager for long output (uses viewport scrolling)
+- [x] "No changes" message when clean
+- [x] Works in non-git directories (graceful error)
 </criteria>
 
 <execution-strategy>
@@ -232,3 +232,31 @@ When this task is fully implemented and tested:
 4. Run `zig build build-go` to ensure compilation succeeds
 5. Rename this file from `38-diff-command.md` to `38-diff-command.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. Uses `git diff --color=always` for native git coloring instead of manual parsing
+2. Viewport scrolling (arrow keys, PgUp/PgDown) instead of modal pager - better UX
+3. File headers formatted with bold blue styling: ═══ filename ═══
+4. Untracked files shown with green "(new file)" when no diff exists
+5. Disables color when using --stat for clean summary output
+
+**Files Modified:**
+- `tui/main.go` - Added /diff command handler and helper functions
+  - handleDiffCommand() - Main handler
+  - runGitDiff() - Execute git diff with args
+  - getUntrackedFiles() - Get untracked via git ls-files
+  - formatUntrackedFiles() - Green styled output
+  - formatDiff() - Clean up headers and noise
+
+**Prompt Improvements for Future:**
+1. Don't need separate diff/view.go file - inline helpers work fine
+2. Viewport is better than modal pager for TUI context
+3. Use git's native --color=always instead of manual lipgloss styling
+4. Note that --stat disables color output
+5. Clarify that default /diff shows both staged AND unstaged (combine)
+</hindsight>

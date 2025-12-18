@@ -152,16 +152,16 @@ func runApply(cmd *cobra.Command, args []string) error {
 ## Acceptance Criteria
 
 <criteria>
-- [ ] `agent apply` applies latest session diff
-- [ ] `--session <ID>` applies diff from specific session
-- [ ] `--dry-run` shows changes without applying
-- [ ] `--reverse` unapplies the diff
-- [ ] `--check` validates diff can be applied
-- [ ] `--3way` enables 3-way merge for conflicts
-- [ ] Success message shows summary of changes
-- [ ] Error handling for conflicts and missing files
-- [ ] Works with both staged and unstaged changes
-- [ ] Exit codes reflect git apply results
+- [x] `agent apply` applies latest session diff
+- [x] `--session <ID>` applies diff from specific session
+- [x] `--dry-run` shows changes without applying
+- [x] `--reverse` unapplies the diff
+- [x] `--check` validates diff can be applied
+- [x] `--3way` enables 3-way merge for conflicts
+- [x] Success message shows summary of changes
+- [x] Error handling for conflicts and missing files
+- [x] Works with both staged and unstaged changes
+- [x] Exit codes reflect git apply results
 </criteria>
 
 <execution-strategy>
@@ -190,3 +190,26 @@ When this task is fully implemented and tested:
 4. Test conflict handling and error cases
 5. Rename this file from `31-apply-diff-command.md` to `31-apply-diff-command.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. The apply.go file already existed with most of the implementation - only needed routing in main.go
+2. **Critical Bug Fixed:** The original `generateUnifiedDiffBody` function used a naive algorithm that just deleted all lines and added all new lines. This doesn't create valid unified diffs that git apply can use.
+3. Fixed by using `github.com/aymanbagabas/go-udiff` library (already a project dependency) to generate proper unified diffs with context lines
+
+**Files Modified:**
+- `tui/main.go` - Added subcommand routing for apply/a, updated help text
+- `tui/apply.go` - Fixed diff generation using go-udiff library
+
+**Prompt Improvements for Future:**
+1. **Critical:** Explicitly require using a proper diff library (go-udiff) instead of manual string manipulation - manual diff generation is error-prone and doesn't handle edge cases
+2. Note that trailing newline handling is subtle and should be handled by the diff library
+3. Add test cases for: new files, deleted files, modified files, files with/without trailing newlines
+4. Mention that the backend needs a `/session/{id}/diff` endpoint returning FileDiff objects
+5. Clarify whether apply.go needs embedded server support like exec.go does
+6. Add edge case handling requirements: no sessions, empty sessions, git not installed
+</hindsight>
