@@ -53,8 +53,8 @@ from .registry import get_agent_config
 # Constants
 SHELL_SERVER_TIMEOUT_SECONDS = 60
 FILESYSTEM_SERVER_TIMEOUT_SECONDS = 30
-THINKING_BUDGET_TOKENS = 60000  # Extended thinking budget (higher than Claude Code's default 32k)
-MAX_OUTPUT_TOKENS = 64000  # Must be greater than thinking budget
+THINKING_BUDGET_TOKENS = 50000  # Extended thinking budget (must be < MAX_OUTPUT_TOKENS)
+MAX_OUTPUT_TOKENS = 64000  # Max output tokens for Claude models
 
 # Tool output truncation constants
 MAX_BASH_OUTPUT_LENGTH = 30000

@@ -90,19 +90,21 @@ class AgentWrapper:
         # Add reasoning effort if specified
         if reasoning_effort:
             # Map reasoning_effort to thinking budget
+            # Max output tokens for Claude models
+            MAX_OUTPUT_TOKENS = 64000
             reasoning_budgets = {
                 "minimal": 10000,
                 "low": 30000,
-                "medium": 60000,
-                "high": 100000,
+                "medium": 50000,  # Leave room for output within 64k limit
+                "high": 54000,    # Max thinking budget (64k - 10k buffer)
             }
-            budget = reasoning_budgets.get(reasoning_effort, 60000)
+            budget = reasoning_budgets.get(reasoning_effort, 50000)
             model_settings['anthropic_thinking'] = {
                 'type': 'enabled',
                 'budget_tokens': budget,
             }
-            # Ensure max_tokens is always greater than thinking budget
-            model_settings['max_tokens'] = max(budget + 10000, 64000)
+            # Ensure max_tokens is always greater than thinking budget, but capped at model limit
+            model_settings['max_tokens'] = min(max(budget + 10000, 64000), MAX_OUTPUT_TOKENS)
 
         # Prepare run_stream_events kwargs
         run_kwargs = {
