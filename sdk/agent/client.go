@@ -41,6 +41,7 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	directory  *string // Optional directory query param
+	logger     *Logger
 }
 
 // ClientOption configures the client.
@@ -67,6 +68,13 @@ func WithTimeout(d time.Duration) ClientOption {
 	}
 }
 
+// WithLogger sets the logger for the client.
+func WithLogger(l *Logger) ClientOption {
+	return func(client *Client) {
+		client.logger = l
+	}
+}
+
 // NewClient creates a new SDK client.
 func NewClient(baseURL string, opts ...ClientOption) *Client {
 	c := &Client{
@@ -74,10 +82,15 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		logger: GetLogger(), // Use default logger
 	}
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	if c.logger.IsEnabled() {
+		c.logger.Debug("client initialized", "baseURL", c.baseURL)
 	}
 
 	return c
@@ -127,6 +140,8 @@ func (c *Client) buildURL(path string, queryParams ...map[string]string) string 
 
 // doRequest performs an HTTP request and decodes the JSON response.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
+	reqLog := c.logger.StartRequest(method, path)
+
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -149,26 +164,34 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		reqLog.Error(err)
 		return fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+		err := fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+		reqLog.Error(err)
+		return err
 	}
 
 	if result != nil {
 		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+			reqLog.Error(err)
 			return fmt.Errorf("decode response: %w", err)
 		}
 	}
 
+	reqLog.Success(resp.StatusCode)
 	return nil
 }
 
 // doSSERequest performs an SSE streaming request.
 func (c *Client) doSSERequest(ctx context.Context, method, path string, body interface{}) (<-chan *Event, <-chan error, error) {
+	c.logger.Debug("SSE stream starting", "method", method, "path", path)
+	startTime := time.Now()
+
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -195,23 +218,29 @@ func (c *Client) doSSERequest(ctx context.Context, method, path string, body int
 	sseClient := &http.Client{}
 	resp, err := sseClient.Do(req)
 	if err != nil {
+		c.logger.Error("SSE connection failed", "path", path, "error", err.Error())
 		return nil, nil, fmt.Errorf("do request: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		c.logger.Error("SSE request failed", "path", path, "status", resp.StatusCode)
 		return nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	c.logger.Info("SSE stream connected", "path", path)
+
 	eventCh := make(chan *Event, 100)
 	errCh := make(chan error, 1)
+	logger := c.logger // capture for goroutine
 
 	go func() {
 		defer close(eventCh)
 		defer close(errCh)
 		defer resp.Body.Close()
 
+		eventCount := 0
 		reader := bufio.NewReader(resp.Body)
 		var eventType string
 		var dataLines []string
@@ -219,6 +248,7 @@ func (c *Client) doSSERequest(ctx context.Context, method, path string, body int
 		for {
 			select {
 			case <-ctx.Done():
+				logger.Debug("SSE stream cancelled", "path", path, "events", eventCount)
 				errCh <- ctx.Err()
 				return
 			default:
@@ -227,7 +257,11 @@ func (c *Client) doSSERequest(ctx context.Context, method, path string, body int
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if err != io.EOF {
+					logger.Warn("SSE stream error", "path", path, "error", err.Error())
 					errCh <- err
+				} else {
+					duration := time.Since(startTime)
+					logger.Info("SSE stream completed", "path", path, "events", eventCount, "duration_ms", duration.Milliseconds())
 				}
 				return
 			}
@@ -247,6 +281,8 @@ func (c *Client) doSSERequest(ctx context.Context, method, path string, body int
 						if event.Type == "" {
 							event.Type = eventType
 						}
+						eventCount++
+						logger.Debug("SSE event received", "type", event.Type, "count", eventCount)
 						eventCh <- &event
 					}
 					eventType = ""
