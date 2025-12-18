@@ -55,6 +55,8 @@ class AgentWrapper:
         user_text: str,
         session_id: str | None = None,
         enable_thinking: bool = True,
+        model_id: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """
         Stream agent response, yielding events compatible with server.py.
@@ -66,6 +68,8 @@ class AgentWrapper:
             user_text: The user's input message
             session_id: Optional session ID for context
             enable_thinking: Enable extended thinking for better reasoning (default True)
+            model_id: Optional model ID to override the agent's default model
+            reasoning_effort: Optional reasoning effort level (minimal, low, medium, high)
 
         Yields:
             StreamEvent objects with text deltas, tool calls, and tool results
@@ -73,20 +77,44 @@ class AgentWrapper:
         final_result = None
         tool_call_count = 0
 
-        logger.debug("Starting agent stream for session %s", session_id)
+        logger.debug("Starting agent stream for session %s with model=%s, reasoning_effort=%s",
+                    session_id, model_id, reasoning_effort)
 
         # Set session ID for file safety tracking
         if session_id:
             set_current_session_id(session_id)
 
-        # Get model settings with optional extended thinking
+        # Build model settings
         model_settings = get_anthropic_model_settings(enable_thinking=enable_thinking)
 
-        async for event in self.agent.run_stream_events(
-            user_text,
-            message_history=self._message_history,
-            model_settings=model_settings,
-        ):
+        # Add reasoning effort if specified
+        if reasoning_effort:
+            # Map reasoning_effort to thinking budget
+            reasoning_budgets = {
+                "minimal": 10000,
+                "low": 30000,
+                "medium": 60000,
+                "high": 100000,
+            }
+            budget = reasoning_budgets.get(reasoning_effort, 60000)
+            model_settings['anthropic_thinking'] = {
+                'type': 'enabled',
+                'budget_tokens': budget,
+            }
+            # Ensure max_tokens is always greater than thinking budget
+            model_settings['max_tokens'] = max(budget + 10000, 64000)
+
+        # Prepare run_stream_events kwargs
+        run_kwargs = {
+            'message_history': self._message_history,
+            'model_settings': model_settings,
+        }
+
+        # Override model if specified
+        if model_id:
+            run_kwargs['model'] = f'anthropic:{model_id}'
+
+        async for event in self.agent.run_stream_events(user_text, **run_kwargs):
             if isinstance(event, PartStartEvent):
                 # A new part is starting - could be text or tool call
                 pass
