@@ -109,6 +109,8 @@ type model struct {
 	viewport              viewport.Model  // Scrollable viewport for messages
 	viewportReady         bool            // Whether viewport has been initialized
 	autoScroll            bool            // Auto-scroll to bottom on new content
+	lastContentLen        int             // Track content length to detect changes
+	manualScrollOffset    int             // Manual scroll offset when not auto-scrolling
 	// File search fields
 	showFileSearch      bool
 	fileSearchStartPos  int
@@ -193,7 +195,7 @@ func initialModel(client *agent.Client, project *agent.Project, cwd, version str
 		inputHistory:          []string{},
 		historyIndex:          -1,
 		savedInput:            "",
-		mouseEnabled:          true, // Mouse enabled by default for scroll
+		mouseEnabled:          false, // Mouse disabled by default for native text selection
 	}
 
 	if initialPrompt != nil && *initialPrompt != "" {
@@ -1248,7 +1250,6 @@ func (m model) View() string {
 
 	// Use viewport only when content exceeds available space
 	if m.viewportReady && contentLines > availableHeight {
-		// Set content and auto-scroll if needed
 		m.viewport.SetContent(content)
 		if m.autoScroll {
 			m.viewport.GotoBottom()
@@ -1702,9 +1703,9 @@ func main() {
 	// Create model
 	m := initialModel(client, project, cwd, version, prompt)
 
-	// Create program with mouse support for scrolling
-	// Note: Use Shift+click to select text when mouse mode is enabled
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Create program without mouse capture to allow native text selection
+	// Use arrow keys, Page Up/Down, Home/End to scroll
+	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	// Send program pointer to model immediately after creation
 	go func() {
