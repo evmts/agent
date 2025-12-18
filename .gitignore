@@ -56,3 +56,6 @@ dist/
 zig-out/
 *.a
 AgentApp/Libraries/libghostty.a
+
+# Code analysis and documentation
+codex/
