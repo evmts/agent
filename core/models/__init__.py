@@ -6,6 +6,7 @@ These are the core data structures used throughout the application.
 
 from .compaction_info import CompactionInfo, CompactionResult
 from .file_diff import FileDiff
+from .ghost_commit_info import GhostCommitInfo
 from .message import AssistantMessage, Message, UserMessage
 from .message_time import MessageTime
 from .model_info import ModelInfo
@@ -33,6 +34,7 @@ __all__ = [
     "RevertInfo",
     "CompactionInfo",
     "CompactionResult",
+    "GhostCommitInfo",
     "Session",
     # Provider info
     "ModelInfo",

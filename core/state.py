@@ -6,12 +6,15 @@ In a production system, this could be replaced with a database-backed implementa
 """
 
 import asyncio
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from snapshot import Snapshot
 from agent.tools.file_time import FileTimeTracker
 
 from .models import Session
+
+if TYPE_CHECKING:
+    from .snapshots import GhostCommitManager
 
 
 # =============================================================================
@@ -43,6 +46,13 @@ session_subtasks: dict[str, list[dict[str, Any]]] = {}  # sessionID -> list of s
 # =============================================================================
 
 session_file_trackers: dict[str, FileTimeTracker] = {}  # sessionID -> FileTimeTracker
+
+
+# =============================================================================
+# Ghost Commit Management
+# =============================================================================
+
+session_ghost_commits: dict[str, "GhostCommitManager"] = {}  # sessionID -> GhostCommitManager
 
 
 def get_file_tracker(session_id: str) -> FileTimeTracker:

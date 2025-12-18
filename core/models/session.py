@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from .compaction_info import CompactionInfo
+from .ghost_commit_info import GhostCommitInfo
 from .revert_info import RevertInfo
 from .session_summary import SessionSummary
 from .session_time import SessionTime
@@ -38,4 +39,8 @@ class Session(BaseModel):
     reasoning_effort: str | None = Field(
         default=None,
         description="Reasoning effort level: minimal, low, medium, or high"
+    )
+    ghost_commit: GhostCommitInfo | None = Field(
+        default=None,
+        description="Ghost commit tracking information for this session"
     )

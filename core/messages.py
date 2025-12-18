@@ -11,6 +11,7 @@ import time
 from typing import Any, AsyncGenerator, Protocol
 
 from config.defaults import DEFAULT_AUTO_COMPACT_TOKEN_LIMIT
+from config.features import feature_manager
 from config.skills import expand_skill_references, get_skill_registry
 from .compaction import should_auto_compact, compact_conversation
 from .events import Event, EventBus
@@ -22,7 +23,7 @@ from .snapshots import (
     get_changed_files,
     track_snapshot,
 )
-from .state import session_messages, sessions
+from .state import session_messages, sessions, session_ghost_commits
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +384,45 @@ async def send_message(
 
     # Update session timestamp
     sessions[session_id].time.updated = time.time()
+
+    # Create ghost commit if enabled
+    if feature_manager.is_enabled("ghost_commit"):
+        ghost_manager = session_ghost_commits.get(session_id)
+        if ghost_manager:
+            session = sessions[session_id]
+            # Increment turn number
+            if session.ghost_commit:
+                session.ghost_commit.turn_number += 1
+                turn_number = session.ghost_commit.turn_number
+            else:
+                turn_number = 1
+
+            # Extract summary from first text part if available
+            summary = ""
+            if text_content:
+                # Use first line or first 50 chars as summary
+                first_line = text_content.split("\n")[0]
+                summary = first_line[:50] if len(first_line) > 50 else first_line
+
+            # Create ghost commit
+            commit_hash = ghost_manager.create_ghost_commit(turn_number, summary)
+            if commit_hash:
+                # Update session ghost_commit info
+                if not session.ghost_commit:
+                    from .models import GhostCommitInfo
+                    session.ghost_commit = GhostCommitInfo(enabled=True)
+                session.ghost_commit.commit_refs.append(commit_hash)
+                session.ghost_commit.turn_number = turn_number
+
+                # Yield ghost commit event
+                yield Event(
+                    type="ghost_commit.created",
+                    properties={
+                        "turn": turn_number,
+                        "commit": commit_hash,
+                        "summary": summary
+                    }
+                )
 
     message_duration_ms = (time.perf_counter() - message_start_time) * 1000
     logger.info(

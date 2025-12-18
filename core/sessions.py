@@ -8,12 +8,14 @@ forking, reverting, and diff computation.
 import logging
 import time
 
-from config.defaults import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
+from config.defaults import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, GHOST_COMMIT_CONFIG
+from config.features import feature_manager
 
 from .events import Event, EventBus
 from .exceptions import InvalidOperationError, NotFoundError
 from .models import (
     FileDiff,
+    GhostCommitInfo,
     RevertInfo,
     Session,
     SessionSummary,
@@ -26,12 +28,14 @@ from .snapshots import (
     get_changed_files,
     init_snapshot,
     restore_snapshot,
+    GhostCommitManager,
 )
 from .state import (
     active_tasks,
     session_messages,
     session_snapshot_history,
     sessions,
+    session_ghost_commits,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,6 +93,13 @@ async def create_session(
 
     # Initialize snapshot tracking
     init_snapshot(session.id, directory)
+
+    # Initialize ghost commit manager if enabled
+    if feature_manager.is_enabled("ghost_commit"):
+        ghost_manager = GhostCommitManager(directory, session.id)
+        session_ghost_commits[session.id] = ghost_manager
+        session.ghost_commit = GhostCommitInfo(enabled=True, turn_number=0, commit_refs=[])
+        logger.info("Ghost commits enabled for session %s", session.id)
 
     if bypass_mode:
         logger.warning("⚠️  Session created in BYPASS MODE: %s - All permission checks disabled", session.id)
@@ -195,6 +206,13 @@ async def delete_session(session_id: str, event_bus: EventBus) -> bool:
     session = sessions.pop(session_id)
     session_messages.pop(session_id, None)
     cleanup_snapshots(session_id)
+
+    # Cleanup ghost commits if enabled
+    ghost_manager = session_ghost_commits.pop(session_id, None)
+    if ghost_manager:
+        squash = GHOST_COMMIT_CONFIG.get("squash_on_close", False)
+        ghost_manager.cleanup_ghost_commits(squash=squash)
+        logger.info("Ghost commits cleaned up for session %s (squash=%s)", session_id, squash)
 
     await event_bus.publish(
         Event(type="session.deleted", properties={"info": session.model_dump()})
