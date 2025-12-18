@@ -16,19 +16,40 @@ DETAILED_FORMAT = (
 
 # Environment variable names
 LOG_LEVEL_ENV = "LOG_LEVEL"
+DISABLE_LOGGING_ENV = "DISABLE_LOGGING"
 
 # Default values
 DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_DISABLE_LOGGING = False
 
 T = TypeVar("T")
 
 
-def setup_logging(level: Optional[str] = None) -> None:
+def setup_logging(level: Optional[str] = None, disabled: Optional[bool] = None) -> None:
     """Configure logging for the entire application.
 
     Args:
         level: Log level override. If not provided, uses LOG_LEVEL env var or INFO.
+        disabled: If True, disables all logging output. If not provided, uses
+            DISABLE_LOGGING env var. Set to True when running embedded (e.g., with TUI)
+            to prevent log output from interfering with the terminal UI.
     """
+    # Check if logging should be disabled (for embedded/TUI mode)
+    if disabled is None:
+        disabled = (
+            os.environ.get(DISABLE_LOGGING_ENV, str(DEFAULT_DISABLE_LOGGING)).lower()
+            == "true"
+        )
+
+    if disabled:
+        # Disable all logging by setting root logger to use NullHandler
+        logging.basicConfig(force=True, handlers=[logging.NullHandler()])
+        logging.getLogger().handlers = [logging.NullHandler()]
+        # Also silence uvicorn completely
+        logging.getLogger("uvicorn").handlers = [logging.NullHandler()]
+        logging.getLogger("uvicorn").propagate = False
+        return
+
     level_name = (level or os.environ.get(LOG_LEVEL_ENV, DEFAULT_LOG_LEVEL)).upper()
     log_level = getattr(logging, level_name, logging.INFO)
 

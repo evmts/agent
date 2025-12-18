@@ -13,7 +13,7 @@ from config import DEFAULT_MODEL
 from core.permissions import PermissionChecker, PermissionStore
 from server import app, set_agent, set_permission_checker
 from server.event_bus import get_event_bus
-from server.logging_config import setup_logging
+from server.logging_config import DISABLE_LOGGING_ENV, setup_logging
 
 # Initialize logging before anything else
 setup_logging()
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 DEFAULT_USE_MCP = True
+DEFAULT_DISABLE_LOGGING = False
 
 _wrapper_context = None
 _wrapper = None
@@ -80,9 +81,18 @@ def main() -> None:
     """Start server with MCP support."""
     host = os.environ.get("HOST", DEFAULT_HOST)
     port = int(os.environ.get("PORT", str(DEFAULT_PORT)))
+    disable_logging = (
+        os.environ.get(DISABLE_LOGGING_ENV, str(DEFAULT_DISABLE_LOGGING)).lower()
+        == "true"
+    )
 
     logger.info("Server listening on %s:%d", host, port)
-    uvicorn.run(app, host=host, port=port)
+
+    # When logging is disabled (embedded/TUI mode), disable uvicorn's logging
+    if disable_logging:
+        uvicorn.run(app, host=host, port=port, log_config=None, access_log=False)
+    else:
+        uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

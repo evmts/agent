@@ -60,6 +60,7 @@ func StartServerWithLoggerQuiet(ctx context.Context, logger *agent.Logger, quiet
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("PORT=%d", port),
 		"HOST=127.0.0.1",
+		"DISABLE_LOGGING=true",
 	)
 
 	// In quiet mode (exec command), redirect server output to /dev/null

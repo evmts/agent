@@ -34,6 +34,32 @@ Please be respectful and constructive in all interactions. We welcome contributo
    export ANTHROPIC_API_KEY="your-api-key"
    ```
 
+### Logging Configuration
+
+The Python backend logs to stdout by default. When running the server embedded with the TUI, logging must be disabled to prevent terminal corruption.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DISABLE_LOGGING` | `false` | Set to `true` to disable all logging output |
+| `LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+
+**Running modes:**
+
+- **Standalone** (default): Logging enabled, useful for development and debugging
+  ```bash
+  python main.py  # Logs to stdout
+  ```
+
+- **Embedded with TUI**: Disable logging to prevent interference with terminal UI
+  ```bash
+  DISABLE_LOGGING=true python main.py
+  ```
+
+- **Debug mode**: Enable verbose logging for troubleshooting
+  ```bash
+  LOG_LEVEL=DEBUG python main.py
+  ```
+
 ## Development Workflow
 
 ### Branching Strategy
