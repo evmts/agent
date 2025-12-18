@@ -101,6 +101,13 @@ type model struct {
 	viewport              viewport.Model  // Scrollable viewport for messages
 	viewportReady         bool            // Whether viewport has been initialized
 	autoScroll            bool            // Auto-scroll to bottom on new content
+	// File search fields
+	showFileSearch      bool
+	fileSearchStartPos  int
+	fileSearchQuery     string
+	fileSearchResults   []FileMatch
+	fileSearchSelection int
+	fileIndex           *FileIndex
 }
 
 // Bubbletea message types
@@ -136,6 +143,11 @@ type setProgramMsg struct {
 func initialModel(client *agent.Client, project *agent.Project, cwd, version string, initialPrompt *string) model {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Initialize file index
+	fileIndex := &FileIndex{}
+	// Scan files in the background - don't block startup
+	go fileIndex.Scan(cwd)
+
 	m := model{
 		messages:              []message{},
 		input:                 "",
@@ -155,6 +167,10 @@ func initialModel(client *agent.Client, project *agent.Project, cwd, version str
 		cancel:                cancel,
 		seenToolIDs:           make(map[string]bool),
 		autoScroll:            true, // Auto-scroll to bottom by default
+		fileIndex:             fileIndex,
+		showFileSearch:        false,
+		fileSearchResults:     []FileMatch{},
+		fileSearchSelection:   0,
 	}
 
 	if initialPrompt != nil && *initialPrompt != "" {
@@ -1050,13 +1066,69 @@ func (m model) View() string {
 	return s.String()
 }
 
+func printUsage() {
+	fmt.Fprintf(os.Stderr, `agent - AI agent CLI
+
+Usage:
+  agent [OPTIONS]              Start interactive TUI
+  agent exec [OPTIONS] [PROMPT] Run agent non-interactively
+  agent e [OPTIONS] [PROMPT]   Alias for exec
+  agent help                   Show this help
+  agent version                Show version
+
+Interactive Mode Options:
+  --prompt TEXT      Initial prompt to send
+  --backend URL      Backend URL (overrides embedded server)
+  --embedded         Use embedded server (default: true)
+
+Exec Command Options:
+  -f, --file FILE    Read prompt from file
+  -m, --model MODEL  Model to use
+  -C, --cd DIR       Working directory
+  --timeout SECONDS  Timeout in seconds (0 = no timeout)
+  --full             Include all messages in output
+  --json             Output in JSON format
+  --stream           Stream output in real-time
+  --no-tools         Disable tool execution
+  -q, --quiet        Suppress status messages
+
+Examples:
+  agent                                    Start interactive TUI
+  agent exec "List all files"              Run non-interactively
+  echo "List files" | agent exec           Read from stdin
+  agent exec -f prompt.txt --json          Read from file, JSON output
+  agent exec --timeout 300 --stream "task" With timeout and streaming
+
+Environment Variables:
+  ANTHROPIC_API_KEY  Required - Claude API key
+  OPENCODE_SERVER    Backend server URL
+  LOG_LEVEL          Logging level (debug, info, warn, error)
+`)
+}
+
 func main() {
 	version := Version
 	if version != "dev" && !strings.HasPrefix(version, "v") {
 		version = "v" + version
 	}
 
-	// Parse flags
+	// Check for subcommands before parsing flags
+	args := os.Args[1:]
+	if len(args) > 0 {
+		switch args[0] {
+		case "exec", "e":
+			// Run non-interactive exec command
+			os.Exit(execCommand(args[1:]))
+		case "help", "--help", "-h":
+			printUsage()
+			os.Exit(0)
+		case "version", "--version", "-v":
+			fmt.Println("agent", version)
+			os.Exit(0)
+		}
+	}
+
+	// Parse flags for interactive TUI mode
 	prompt := flag.String("prompt", "", "Initial prompt to send")
 	backendURL := flag.String("backend", "", "Backend URL (overrides embedded server)")
 	useEmbedded := flag.Bool("embedded", true, "Use embedded server (default: true)")
