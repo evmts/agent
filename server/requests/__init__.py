@@ -9,6 +9,7 @@ from .fork_request import ForkRequest
 from .part_input import FilePartInput, PartInput, TextPartInput
 from .prompt_request import PromptRequest
 from .revert_request import RevertRequest
+from .undo_request import UndoRequest, UndoResult
 from .update_session_request import UpdateSessionRequest
 
 __all__ = [
@@ -17,6 +18,8 @@ __all__ = [
     "UpdateSessionRequest",
     "ForkRequest",
     "RevertRequest",
+    "UndoRequest",
+    "UndoResult",
     # Message requests
     "TextPartInput",
     "FilePartInput",

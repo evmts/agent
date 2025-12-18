@@ -9,7 +9,9 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
+from config import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
 from core import NotFoundError, send_message
+from core.state import sessions
 
 from ...event_bus import get_event_bus
 from ...requests import PromptRequest
@@ -29,6 +31,35 @@ async def send_message_route(
 
     async def stream_response() -> AsyncGenerator[dict, None]:
         try:
+            # Get session to access model settings
+            session = sessions.get(sessionID)
+            if not session:
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": "Session not found"}),
+                }
+                return
+
+            # Determine model_id: request.model.modelID > session.model > DEFAULT_MODEL
+            model_id = DEFAULT_MODEL
+            provider_id = "default"
+            if request.model:
+                model_id = request.model.modelID
+                provider_id = request.model.providerID
+            elif session.model:
+                model_id = session.model
+                provider_id = "anthropic"
+
+            # Get reasoning_effort from session settings (no request override currently)
+            reasoning_effort = session.reasoning_effort or DEFAULT_REASONING_EFFORT
+
+            logger.info(
+                "Processing message for session %s with model=%s, reasoning_effort=%s",
+                sessionID,
+                model_id,
+                reasoning_effort,
+            )
+
             async for event in send_message(
                 session_id=sessionID,
                 parts=request.parts,
@@ -36,8 +67,9 @@ async def send_message_route(
                 event_bus=get_event_bus(),
                 message_id=request.messageID,
                 agent_name=request.agent or "default",
-                model_id=request.model.modelID if request.model else "default",
-                provider_id=request.model.providerID if request.model else "default",
+                model_id=model_id,
+                provider_id=provider_id,
+                reasoning_effort=reasoning_effort,
             ):
                 yield {
                     "event": event.type,

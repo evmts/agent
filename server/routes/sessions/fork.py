@@ -23,6 +23,7 @@ async def fork_session_route(
             session_id=sessionID,
             event_bus=get_event_bus(),
             message_id=request.messageID,
+            title=request.title,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
