@@ -49,6 +49,7 @@ class CommandRegistry:
         """
         self.prompts_dir = prompts_dir or Path.home() / ".agent" / "prompts"
         self._commands: dict[str, CustomCommand] = {}
+        self._loaded = False
 
     def load_commands(self) -> None:
         """Load all custom commands from the prompts directory."""
@@ -57,6 +58,7 @@ class CommandRegistry:
         if not self.prompts_dir.exists():
             logger.debug(f"Creating prompts directory: {self.prompts_dir}")
             self.prompts_dir.mkdir(parents=True, exist_ok=True)
+            self._loaded = True
             return
 
         logger.debug(f"Loading commands from: {self.prompts_dir}")
@@ -70,6 +72,7 @@ class CommandRegistry:
                 logger.warning(f"Failed to parse command {cmd_file}: {e}")
 
         logger.info(f"Loaded {len(self._commands)} custom commands")
+        self._loaded = True
 
     def _parse_command_file(self, path: Path) -> Optional[CustomCommand]:
         """
@@ -133,6 +136,8 @@ class CommandRegistry:
         Returns:
             CustomCommand instance or None if not found
         """
+        if not self._loaded:
+            self.load_commands()
         return self._commands.get(name)
 
     def list_commands(self) -> list[CustomCommand]:
@@ -142,7 +147,15 @@ class CommandRegistry:
         Returns:
             List of all loaded custom commands
         """
+        if not self._loaded:
+            self.load_commands()
         return list(self._commands.values())
+
+    def reload(self) -> None:
+        """Force reload of all commands from disk."""
+        logger.info("Reloading commands from disk")
+        self._loaded = False
+        self.load_commands()
 
     def expand_command(
         self,
@@ -164,6 +177,9 @@ class CommandRegistry:
         Raises:
             ValueError: If required arguments are missing
         """
+        if not self._loaded:
+            self.load_commands()
+
         command = self.get_command(name)
         if not command:
             return None
