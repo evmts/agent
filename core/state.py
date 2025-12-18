@@ -35,6 +35,7 @@ session_snapshot_history: dict[str, list[str]] = {}  # sessionID -> [tree SHA ha
 # =============================================================================
 
 active_tasks: dict[str, asyncio.Task[Any]] = {}  # sessionID -> running task
+session_subtasks: dict[str, list[dict[str, Any]]] = {}  # sessionID -> list of subtask results
 
 
 # =============================================================================

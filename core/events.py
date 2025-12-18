@@ -17,6 +17,14 @@ class Event(BaseModel):
     properties: dict[str, Any]
 
 
+# Event type constants for task delegation
+TASK_STARTED = "task.started"
+TASK_COMPLETED = "task.completed"
+TASK_FAILED = "task.failed"
+TASK_TIMEOUT = "task.timeout"
+TASK_CANCELLED = "task.cancelled"
+
+
 class EventBus(Protocol):
     """Abstract interface for publishing events."""
 
