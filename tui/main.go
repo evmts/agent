@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
+	"github.com/williamcory/agent/tui/internal/clipboard"
 	"github.com/williamcory/agent/tui/internal/embedded"
 )
 
@@ -53,6 +54,11 @@ type message struct {
 	isToolUse    bool
 	isToolResult bool
 	err          error
+}
+
+type imageAttachment struct {
+	path     string // Path to temp file
+	filename string // Display name
 }
 
 type modelOption struct {
@@ -109,6 +115,7 @@ type model struct {
 	fileSearchResults   []FileMatch
 	fileSearchSelection int
 	fileIndex           *FileIndex
+	imageAttachments    []imageAttachment // Images to send with message
 }
 
 // Bubbletea message types
@@ -139,6 +146,10 @@ type modelsLoadedMsg struct {
 type messageStartedMsg struct{}
 type setProgramMsg struct {
 	program *tea.Program
+}
+type imagePastedMsg struct {
+	path     string
+	filename string
 }
 
 func initialModel(client *agent.Client, project *agent.Project, cwd, version string, initialPrompt *string) model {
@@ -418,10 +429,38 @@ func (m model) sendMessage(text string, p *tea.Program) tea.Cmd {
 		// Build the full message with file contents
 		fullMessage := buildMessageWithFiles(cleanedText, attachments)
 
+		// Build parts array with text and images
+		parts := []interface{}{
+			agent.TextPartInput{Type: "text", Text: fullMessage},
+		}
+
+		// Add image attachments
+		for _, img := range m.imageAttachments {
+			// Determine MIME type from extension
+			mime := "image/png"
+			ext := strings.ToLower(filepath.Ext(img.path))
+			switch ext {
+			case ".jpg", ".jpeg":
+				mime = "image/jpeg"
+			case ".gif":
+				mime = "image/gif"
+			case ".webp":
+				mime = "image/webp"
+			}
+
+			// Convert local path to file:// URL
+			fileURL := "file://" + img.path
+
+			parts = append(parts, agent.FilePartInput{
+				Type:     "file",
+				Mime:     mime,
+				URL:      fileURL,
+				Filename: &img.filename,
+			})
+		}
+
 		req := &agent.PromptRequest{
-			Parts: []interface{}{
-				agent.TextPartInput{Type: "text", Text: fullMessage},
-			},
+			Parts: parts,
 		}
 
 		if m.currentModel != nil {
@@ -498,6 +537,43 @@ func (m model) sendMessage(text string, p *tea.Program) tea.Cmd {
 	}
 }
 
+// cleanupImageAttachments removes temp files and clears attachments
+func (m *model) cleanupImageAttachments() {
+	for _, img := range m.imageAttachments {
+		// Only delete files in temp directory
+		if strings.HasPrefix(img.path, os.TempDir()) {
+			os.Remove(img.path)
+		}
+	}
+	m.imageAttachments = nil
+}
+
+// handleImagePaste attempts to paste an image from clipboard
+func (m model) handleImagePaste() tea.Cmd {
+	return func() tea.Msg {
+		// Try to get image from clipboard
+		img, err := clipboard.GetImage()
+		if err != nil || img == nil {
+			// No image in clipboard, not an error - just ignore
+			return nil
+		}
+
+		// Save to temp file
+		path, err := img.SaveToTemp()
+		if err != nil {
+			return errMsg(fmt.Errorf("failed to save image: %w", err))
+		}
+
+		// Generate a nice filename
+		filename := filepath.Base(path)
+
+		return imagePastedMsg{
+			path:     path,
+			filename: filename,
+		}
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -552,6 +628,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.Type {
+		case tea.KeyCtrlV:
+			// Handle Ctrl+V for image paste
+			return m, m.handleImagePaste()
+
 		case tea.KeyEsc:
 			if m.showFileSearch {
 				m.showFileSearch = false
@@ -647,6 +727,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+			// Note: Image attachments will be cleared after the message completes
+			// to allow the sendMessage goroutine to access them
 			return m, tea.Batch(m.sendMessage(input, m.program), spinnerTick(), timeoutTick())
 
 		case tea.KeyTab:
@@ -766,6 +848,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.program = msg.program
 		return m, nil
 
+	case imagePastedMsg:
+		// Add image attachment
+		m.imageAttachments = append(m.imageAttachments, imageAttachment{
+			path:     msg.path,
+			filename: msg.filename,
+		})
+		return m, nil
+
 	case sessionCreatedMsg:
 		m.session = msg.session
 		if m.input != "" && m.program != nil {
@@ -866,6 +956,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamingText = ""
 		}
 		m.seenToolIDs = make(map[string]bool)
+		// Clean up temp image files
+		m.cleanupImageAttachments()
 
 	case streamTimeoutMsg:
 		// Timeout while waiting - reset state
@@ -1068,6 +1160,14 @@ func (m model) View() string {
 		borderLine = strings.Repeat("─", 80)
 	}
 	s.WriteString(borderLine + "\n")
+
+	// Display image attachments
+	if len(m.imageAttachments) > 0 {
+		attachStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+		for _, img := range m.imageAttachments {
+			s.WriteString(attachStyle.Render("📎 " + img.filename) + "\n")
+		}
+	}
 
 	// Display input
 	inputLines := strings.Split(m.input, "\n")
