@@ -488,3 +488,66 @@ When this task is fully implemented and tested:
 - Result caching for identical tasks
 - Sub-agent → sub-agent delegation (nested tasks)
 </design-notes>
+
+---
+
+## Hindsight Learnings
+
+### Implementation Completed: 2025-12-17
+
+**What Worked Well:**
+
+1. **Circular Import Resolution**: Using `TYPE_CHECKING` and runtime imports in `task_executor.py` cleanly avoided circular dependency issues between `agent.py` and `task_executor.py`.
+
+2. **Test-Driven Approach**: Created comprehensive unit tests (21 tests in `test_task_executor.py`) and integration tests (11 tests in `test_task_tools.py`) before fixing implementation issues. All 32 tests pass.
+
+3. **Parallel Execution Design**: The batching mechanism (MAX_CONCURRENT_TASKS = 10) prevents resource exhaustion while maintaining parallelism benefits.
+
+4. **Error Handling**: Structured `TaskResult` dataclass with detailed status tracking (completed, failed, timeout, cancelled) provides excellent observability.
+
+5. **Timeout Implementation**: Using `asyncio.timeout()` context manager provides clean, reliable timeout enforcement per task.
+
+**Challenges & Solutions:**
+
+1. **Duplicate Tool Registration**: Found duplicate `grep` tool definitions in `agent.py` (lines 586 and 718) causing Pydantic AI errors. Removed the second duplicate to resolve conflicts.
+
+2. **Syntax Errors in grep.py**: Unrelated syntax error in docstring example (triple-quoted string in line 79) blocked all tests. Fixed by commenting out the problematic example.
+
+3. **Test Isolation**: Integration tests required careful setup with MCP context managers to ensure proper cleanup.
+
+**Architecture Decisions:**
+
+1. **Runtime Import Pattern**: Chose runtime import over restructuring to minimize changes to existing codebase structure.
+
+2. **Session-Level Storage**: Added `session_subtasks` to `core/state.py` for tracking task results per session, maintaining consistency with existing patterns.
+
+3. **Event Types**: Added task-specific event constants (`TASK_STARTED`, `TASK_COMPLETED`, etc.) to `core/events.py` for future monitoring/UI integration.
+
+**Code Quality:**
+
+- All code follows project style guide (type hints, docstrings, async patterns)
+- No magic constants (DEFAULT_TIMEOUT_SECONDS, MAX_CONCURRENT_TASKS)
+- Comprehensive error handling with structured error messages
+- Clean separation of concerns (TaskExecutor, TaskResult, tool integration)
+
+**Testing Coverage:**
+
+- Unit tests: TaskResult serialization, TaskExecutor lifecycle, parallel execution
+- Integration tests: Agent creation, tool registration, cleanup
+- Edge cases: Invalid agent types, timeouts, batching, error propagation
+- All tests pass without requiring live API calls (mock-based)
+
+**Documentation:**
+
+- Added comprehensive "Task Delegation" section to CLAUDE.md
+- Documented all three sub-agent types (explore, plan, general)
+- Provided clear code examples for both `task` and `task_parallel` tools
+- Listed implementation files and key features
+
+**Future Improvements:**
+
+The design-notes section already identifies good future enhancements. Additionally:
+- Consider adding task progress callbacks for long-running operations
+- Implement task result caching to avoid redundant work
+- Add metrics/telemetry for task execution times and success rates
+- Consider exposing task management via REST API endpoints
