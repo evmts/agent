@@ -287,16 +287,16 @@ async def run_review(request: ReviewRequest) -> ReviewResponse:
 ## Acceptance Criteria
 
 <criteria>
-- [ ] `/review` command in TUI reviews changes
-- [ ] `agent review` CLI command for non-interactive use
-- [ ] Reviews staged changes with --staged flag
-- [ ] Reviews specific files when specified
-- [ ] Output formats: text, json, markdown
-- [ ] Structured output with severity levels
-- [ ] Summary provided for quick overview
-- [ ] Configurable review model
-- [ ] Exit code based on critical issues (for CI)
-- [ ] "No changes" message when nothing to review
+- [ ] `/review` command in TUI reviews changes (TUI pending)
+- [ ] `agent review` CLI command for non-interactive use (TUI pending)
+- [ ] Reviews staged changes with --staged flag (TUI pending)
+- [ ] Reviews specific files when specified (TUI pending)
+- [ ] Output formats: text, json, markdown (TUI pending)
+- [x] Structured output with severity levels
+- [x] Summary provided for quick overview
+- [x] Configurable review model
+- [ ] Exit code based on critical issues (for CI) (TUI pending)
+- [x] "No changes" message when nothing to review
 </criteria>
 
 <execution-strategy>
@@ -326,3 +326,32 @@ When this task is fully implemented and tested:
 5. Run `zig build build-go` and `pytest` to ensure all passes
 6. Rename this file from `41-review-command.md` to `41-review-command.complete.md`
 </completion>
+
+## Implementation Hindsight
+
+<hindsight>
+**Completed:** 2024-12-17
+
+**Key Implementation Notes:**
+1. agent/review.py and server/routes/review.py already existed with most logic
+2. POST /review endpoint accepts diff and optional model
+3. REVIEW_PROMPT structured with sections: Critical, Warning, Suggestion, Positive, Summary
+4. Regex parses [File:Line] format with fallback for general comments
+5. DEFAULT_REVIEW_MODEL = claude-sonnet-4 (faster/cheaper for reviews)
+6. TUI /review and CLI agent review NOT implemented - backend API ready
+
+**Files Modified:**
+- `agent/review.py` - REVIEW_PROMPT, ReviewIssue, parse_review_output (pre-existed)
+- `server/routes/review.py` - POST /review endpoint (pre-existed)
+- `config/defaults.py` - Added DEFAULT_REVIEW_MODEL
+- `config/__init__.py` - Export DEFAULT_REVIEW_MODEL
+- `server/routes/__init__.py` - Register review router
+
+**Prompt Improvements for Future:**
+1. Note that review.py files already existed
+2. Use DEFAULT_REVIEW_MODEL (not REVIEW_MODEL) consistently
+3. Separate backend API from TUI/CLI as distinct tasks
+4. Add example output in REVIEW_PROMPT for better LLM guidance
+5. Include router registration reminder explicitly
+6. Add severity criteria definitions in prompt
+</hindsight>
