@@ -8,6 +8,8 @@ forking, reverting, and diff computation.
 import logging
 import time
 
+from config.defaults import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
+
 from .events import Event, EventBus
 from .exceptions import InvalidOperationError, NotFoundError
 from .models import (
@@ -18,7 +20,13 @@ from .models import (
     SessionTime,
     gen_id,
 )
-from .snapshots import cleanup_snapshots, compute_diff, init_snapshot, restore_snapshot
+from .snapshots import (
+    cleanup_snapshots,
+    compute_diff,
+    get_changed_files,
+    init_snapshot,
+    restore_snapshot,
+)
 from .state import (
     active_tasks,
     session_messages,
@@ -73,6 +81,8 @@ async def create_session(
         time=SessionTime(created=now, updated=now),
         parentID=parent_id,
         bypass_mode=bypass_mode,
+        model=DEFAULT_MODEL,
+        reasoning_effort=DEFAULT_REASONING_EFFORT,
     )
     sessions[session.id] = session
     session_messages[session.id] = []
@@ -124,15 +134,19 @@ async def update_session(
     event_bus: EventBus,
     title: str | None = None,
     archived: float | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> Session:
     """
-    Update a session's title or archived status.
+    Update a session's title, archived status, model, or reasoning effort.
 
     Args:
         session_id: The session ID
         event_bus: EventBus for publishing events
         title: New title (optional)
         archived: Archived timestamp (optional)
+        model: Model ID to use (optional)
+        reasoning_effort: Reasoning effort level (optional)
 
     Returns:
         The updated session
@@ -146,6 +160,10 @@ async def update_session(
         session.title = title
     if archived is not None:
         session.time.archived = archived
+    if model is not None:
+        session.model = model
+    if reasoning_effort is not None:
+        session.reasoning_effort = reasoning_effort
     session.time.updated = time.time()
     sessions[session_id] = session
 
@@ -260,6 +278,7 @@ async def fork_session(
     session_id: str,
     event_bus: EventBus,
     message_id: str | None = None,
+    title: str | None = None,
 ) -> Session:
     """
     Fork a session at a specific message.
@@ -268,6 +287,7 @@ async def fork_session(
         session_id: The session ID to fork
         event_bus: EventBus for publishing events
         message_id: Optional message ID to fork at
+        title: Optional title for the new session
 
     Returns:
         The new forked session
@@ -282,10 +302,11 @@ async def fork_session(
         id=gen_id("ses_"),
         projectID=parent.projectID,
         directory=parent.directory,
-        title=f"{parent.title} (fork)",
+        title=title or f"{parent.title} (fork)",
         version=parent.version,
         time=SessionTime(created=now, updated=now),
         parentID=session_id,
+        fork_point=message_id,
     )
     sessions[new_session.id] = new_session
 
@@ -297,7 +318,10 @@ async def fork_session(
             break
     session_messages[new_session.id] = messages_to_copy.copy()
 
-    logger.info("Forked session %s -> %s", session_id, new_session.id)
+    # Initialize snapshot at fork point
+    init_snapshot(new_session.id, parent.directory)
+
+    logger.info("Forked session %s -> %s at message %s", session_id, new_session.id, message_id or "latest")
 
     await event_bus.publish(
         Event(type="session.created", properties={"info": new_session.model_dump()})
@@ -401,3 +425,114 @@ def update_session_summary(session_id: str, summary: SessionSummary) -> None:
     if session_id in sessions:
         sessions[session_id].summary = summary
         sessions[session_id].time.updated = time.time()
+
+
+async def undo_turns(
+    session_id: str,
+    event_bus: EventBus,
+    count: int = 1,
+) -> tuple[int, int, list[str], str | None]:
+    """
+    Undo the last N turns in a session, reverting both messages and files.
+
+    A turn consists of a user message followed by all assistant messages until
+    the next user message.
+
+    Args:
+        session_id: The session ID
+        event_bus: EventBus for publishing events
+        count: Number of turns to undo (must be >= 1)
+
+    Returns:
+        Tuple of (turns_undone, messages_removed, files_reverted, snapshot_restored)
+
+    Raises:
+        NotFoundError: If the session is not found
+        InvalidOperationError: If restore fails
+    """
+    session = get_session(session_id)
+    messages = session_messages.get(session_id, [])
+    history = session_snapshot_history.get(session_id, [])
+
+    if not messages:
+        return (0, 0, [], None)
+
+    # Find turn boundaries (user messages are turn starts)
+    turn_starts = [i for i, m in enumerate(messages) if m["info"]["role"] == "user"]
+
+    # Can't undo if we only have one turn or less
+    if len(turn_starts) < 2:
+        return (0, 0, [], None)
+
+    # Calculate actual number of turns we can undo
+    undo_count = min(count, len(turn_starts) - 1)
+
+    # Find the message index to revert to (start of the turn to remove)
+    # If we have turns at indices [0, 5, 10] and we undo 1 turn, we remove turn starting at index 10
+    # undo_point is the index of the first message to remove
+    undo_point = turn_starts[-undo_count]
+
+    # Get snapshot to restore (the one BEFORE this turn started)
+    # The snapshot history is: [initial, after_turn1, after_turn2, ...]
+    # turn_starts[i] corresponds to history[i] (snapshot before turn i) or history[i+1] (after turn i)
+    # We want the snapshot from BEFORE the turn at undo_point started
+    # That's the snapshot after the previous turn, which is at history index matching the turn index
+    snapshot_hash: str | None = None
+    files_reverted: list[str] = []
+
+    # Find which turn number we're undoing to
+    turn_index = len(turn_starts) - undo_count - 1
+    # We want the snapshot after that turn (history[turn_index + 1])
+    # But history[0] is initial, so history[i+1] is after turn i
+    snapshot_index = turn_index + 1
+
+    if snapshot_index < len(history):
+        snapshot_hash = history[snapshot_index]
+
+        # Revert files to that snapshot
+        if snapshot_hash:
+            logger.info(
+                "Undoing %d turn(s) for session %s, reverting to snapshot %s",
+                undo_count,
+                session_id,
+                snapshot_hash[:8],
+            )
+            try:
+                restore_snapshot(session_id, snapshot_hash)
+
+                # Get list of files that were changed
+                if undo_point < len(history) - 1:
+                    files_reverted = get_changed_files(
+                        session_id, snapshot_hash, history[-1]
+                    )
+            except Exception as e:
+                logger.error("Failed to restore snapshot for session %s: %s", session_id, e)
+                raise InvalidOperationError(f"Failed to restore snapshot: {e}")
+
+    # Calculate how many messages we're removing
+    messages_removed = len(messages) - undo_point
+
+    # Truncate messages at undo point
+    session_messages[session_id] = messages[:undo_point]
+
+    # Truncate snapshot history to match
+    if session_id in session_snapshot_history:
+        session_snapshot_history[session_id] = history[: snapshot_index + 1]
+
+    # Update session timestamp
+    session.time.updated = time.time()
+    sessions[session_id] = session
+
+    logger.info(
+        "Undo complete for session %s: %d turn(s), %d message(s) removed, %d file(s) reverted",
+        session_id,
+        undo_count,
+        messages_removed,
+        len(files_reverted),
+    )
+
+    await event_bus.publish(
+        Event(type="session.updated", properties={"info": session.model_dump()})
+    )
+
+    return (undo_count, messages_removed, files_reverted, snapshot_hash)

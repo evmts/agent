@@ -13,7 +13,7 @@ import signal
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 
 # Constants
@@ -234,7 +234,7 @@ class PTYManager:
         session.last_activity = time.time()
         return result
 
-    def get_process_status(self, session_id: str) -> dict[str, any]:
+    def get_process_status(self, session_id: str) -> dict[str, Any]:
         """Get the status of a PTY session's process.
 
         Args:
@@ -328,7 +328,7 @@ class PTYManager:
             except KeyError:
                 pass
 
-    def list_sessions(self) -> list[dict[str, any]]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """List all active sessions.
 
         Returns:

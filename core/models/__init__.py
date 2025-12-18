@@ -4,6 +4,7 @@ Domain models for the agent platform.
 These are the core data structures used throughout the application.
 """
 
+from .compaction_info import CompactionInfo, CompactionResult
 from .file_diff import FileDiff
 from .message import AssistantMessage, Message, UserMessage
 from .message_time import MessageTime
@@ -30,6 +31,8 @@ __all__ = [
     "FileDiff",
     "SessionSummary",
     "RevertInfo",
+    "CompactionInfo",
+    "CompactionResult",
     "Session",
     # Provider info
     "ModelInfo",

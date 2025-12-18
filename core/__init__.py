@@ -5,10 +5,13 @@ This package contains transport-agnostic business logic for the agent platform.
 The server package provides HTTP bindings around these core operations.
 """
 
+from .compaction import compact_conversation, should_auto_compact
 from .events import Event, EventBus, NullEventBus
 from .exceptions import CoreError, InvalidOperationError, NotFoundError
 from .models import (
     AssistantMessage,
+    CompactionInfo,
+    CompactionResult,
     FileDiff,
     FilePart,
     Message,
@@ -42,6 +45,7 @@ from .sessions import (
     get_session_diff,
     list_sessions,
     revert_session,
+    undo_turns,
     unrevert_session,
     update_session,
 )
@@ -61,6 +65,8 @@ __all__ = [
     "SessionTime",
     "SessionSummary",
     "RevertInfo",
+    "CompactionInfo",
+    "CompactionResult",
     "FileDiff",
     "Message",
     "UserMessage",
@@ -88,6 +94,7 @@ __all__ = [
     "delete_session",
     "fork_session",
     "revert_session",
+    "undo_turns",
     "unrevert_session",
     "abort_session",
     "get_session_diff",
@@ -100,4 +107,7 @@ __all__ = [
     "track_snapshot",
     "compute_diff",
     "restore_snapshot",
+    # Compaction operations
+    "compact_conversation",
+    "should_auto_compact",
 ]

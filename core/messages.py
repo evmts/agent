@@ -10,6 +10,9 @@ import os
 import time
 from typing import Any, AsyncGenerator, Protocol
 
+from config.defaults import DEFAULT_AUTO_COMPACT_TOKEN_LIMIT
+from config.skills import expand_skill_references, get_skill_registry
+from .compaction import should_auto_compact, compact_conversation
 from .events import Event, EventBus
 from .exceptions import NotFoundError
 from .models import FileDiff, SessionSummary, gen_id
@@ -88,6 +91,7 @@ async def send_message(
     agent_name: str = "default",
     model_id: str = "default",
     provider_id: str = "default",
+    reasoning_effort: str | None = None,
 ) -> AsyncGenerator[Event, None]:
     """
     Send a message and stream the response.
@@ -103,6 +107,7 @@ async def send_message(
         agent_name: Agent name for metadata
         model_id: Model ID for metadata
         provider_id: Provider ID for metadata
+        reasoning_effort: Optional reasoning effort level (minimal, low, medium, high)
 
     Yields:
         Events as the message is processed
@@ -207,7 +212,20 @@ async def send_message(
                 if part.get("type") == "text":
                     user_text += part.get("text", "")
 
-            async for event in agent.stream_async(user_text):
+            # Expand skill references in user message
+            expanded_text, skills_used = expand_skill_references(
+                user_text, get_skill_registry()
+            )
+            if skills_used:
+                logger.info("Expanded skills in message: %s", skills_used)
+
+            # Pass model_id and reasoning_effort to agent
+            async for event in agent.stream_async(
+                expanded_text,
+                session_id=session_id,
+                model_id=model_id,
+                reasoning_effort=reasoning_effort,
+            ):
                 event_type = getattr(event, "event_type", "text")
 
                 if event_type == "text" and hasattr(event, "data") and event.data:
@@ -343,6 +361,25 @@ async def send_message(
                     sum(d.additions for d in diffs),
                     sum(d.deletions for d in diffs),
                 )
+
+    # Check for auto-compaction
+    try:
+        if should_auto_compact(session_id, DEFAULT_AUTO_COMPACT_TOKEN_LIMIT):
+            logger.info("Auto-compacting session %s", session_id)
+            compaction_result = await compact_conversation(
+                session_id=session_id,
+                event_bus=event_bus,
+            )
+            if compaction_result.compacted:
+                logger.info(
+                    "Session %s compacted: %d messages -> summary (saved %d tokens)",
+                    session_id,
+                    compaction_result.messages_removed,
+                    compaction_result.tokens_before - compaction_result.tokens_after,
+                )
+    except Exception as e:
+        # Don't fail the message if compaction fails
+        logger.warning("Auto-compaction failed for session %s: %s", session_id, str(e))
 
     # Update session timestamp
     sessions[session_id].time.updated = time.time()
