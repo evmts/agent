@@ -148,7 +148,7 @@ func execCommand(args []string) int {
 
 		formatter.StatusMessage("Starting embedded server...")
 		var err error
-		serverProcess, url, err = embedded.StartServerWithLogger(ctx, logger)
+		serverProcess, url, err = embedded.StartServerWithLoggerQuiet(ctx, logger, flags.quiet)
 		if err != nil {
 			fmt.Fprintf(stderr, "Error starting embedded server: %v\n", err)
 			fmt.Fprintf(stderr, "Tip: Use --backend=URL to connect to an external server\n")
@@ -237,11 +237,12 @@ func runAgent(ctx context.Context, client *agent.Client, prompt string, flags *E
 		},
 	}
 
-	// Disable tools if requested
+	// NOTE: The --no-tools flag is currently not implemented.
+	// The backend API accepts the tools parameter but does not process it.
+	// To disable tools, you would need to configure the agent on the backend side.
+	// TODO: Implement tools configuration support in the backend (core/messages.py, agent/agent.py)
 	if flags.noTools {
-		req.Tools = map[string]bool{
-			"*": false,
-		}
+		formatter.StatusMessage("Warning: --no-tools flag is not currently supported by the backend")
 	}
 
 	// Set model if specified
@@ -289,6 +290,7 @@ func runAgent(ctx context.Context, client *agent.Client, prompt string, flags *E
 	var currentText strings.Builder
 	var finalMessage *agent.Message
 	seenTools := make(map[string]bool)
+	textParts := make(map[string]string) // Track text parts by ID
 
 	for {
 		select {
@@ -308,6 +310,10 @@ func runAgent(ctx context.Context, client *agent.Client, prompt string, flags *E
 				fmt.Fprintf(stderr, "Error: %v\n", err)
 				formatter.SetError(err)
 			}
+			// Add accumulated text as a single assistant message before finalizing
+			if currentText.Len() > 0 {
+				formatter.AddAssistantMessage(currentText.String())
+			}
 			formatter.Finalize()
 			if err != nil {
 				return 1
@@ -317,6 +323,10 @@ func runAgent(ctx context.Context, client *agent.Client, prompt string, flags *E
 		case event, ok := <-eventCh:
 			if !ok {
 				// Stream completed successfully
+				// Add accumulated text as a single assistant message
+				if currentText.Len() > 0 {
+					formatter.AddAssistantMessage(currentText.String())
+				}
 				if finalMessage != nil && finalMessage.Tokens != nil {
 					formatter.SetTokensUsed(GetTokensFromMessage(finalMessage))
 				}
@@ -332,10 +342,15 @@ func runAgent(ctx context.Context, client *agent.Client, prompt string, flags *E
 			if event.Part != nil {
 				switch event.Part.Type {
 				case "text":
-					currentText.Reset()
-					currentText.WriteString(event.Part.Text)
+					// Accumulate text parts instead of resetting
+					// Check if this is a new part or an update
+					if prevText, exists := textParts[event.Part.ID]; !exists || prevText != event.Part.Text {
+						textParts[event.Part.ID] = event.Part.Text
+						// Rebuild currentText from all parts
+						currentText.Reset()
+						currentText.WriteString(event.Part.Text)
+					}
 					formatter.StreamText(event.Part.Text)
-					formatter.AddAssistantMessage(event.Part.Text)
 
 				case "tool":
 					if event.Part.State != nil {

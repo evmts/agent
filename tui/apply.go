@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aymanbagabas/go-udiff"
 	"github.com/williamcory/agent/sdk/agent"
 )
 
@@ -220,56 +221,35 @@ func convertToUnifiedDiff(diffs []agent.FileDiff) string {
 	return sb.String()
 }
 
-// generateUnifiedDiffBody generates the actual diff hunks
-// This is a simplified implementation
+// generateUnifiedDiffBody generates the actual diff hunks using go-udiff
 func generateUnifiedDiffBody(before, after string) string {
-	beforeLines := strings.Split(before, "\n")
-	afterLines := strings.Split(after, "\n")
+	// Use go-udiff to generate proper unified diff with context lines
+	// The labels don't matter here since we're only using the body
+	diff := udiff.Unified("a", "b", before, after)
 
-	// Simple implementation: if empty before, all additions; if empty after, all deletions
-	if before == "" && after != "" {
-		// All new lines
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("@@ -0,0 +1,%d @@\n", len(afterLines)))
-		for _, line := range afterLines {
-			sb.WriteString("+")
-			sb.WriteString(line)
-			sb.WriteString("\n")
+	// If the diff is empty (files are identical), return empty string
+	if diff == "" {
+		return ""
+	}
+
+	// Extract just the hunk body (everything after the file headers)
+	// The diff includes "--- a\n+++ b\n" which we don't want since
+	// convertToUnifiedDiff already adds the proper headers
+	lines := strings.Split(diff, "\n")
+	var bodyStart int
+	for i, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			bodyStart = i
+			break
 		}
-		return sb.String()
 	}
 
-	if after == "" && before != "" {
-		// All deleted lines
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("@@ -1,%d +0,0 @@\n", len(beforeLines)))
-		for _, line := range beforeLines {
-			sb.WriteString("-")
-			sb.WriteString(line)
-			sb.WriteString("\n")
-		}
-		return sb.String()
+	// Join from the first @@ line onwards
+	if bodyStart > 0 {
+		return strings.Join(lines[bodyStart:], "\n")
 	}
 
-	// For modifications, use a simple approach:
-	// Delete all old lines, add all new lines
-	// A proper diff algorithm would be better, but this works
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("@@ -1,%d +1,%d @@\n", len(beforeLines), len(afterLines)))
-
-	// Remove old lines
-	for _, line := range beforeLines {
-		sb.WriteString("-")
-		sb.WriteString(line)
-		sb.WriteString("\n")
-	}
-
-	// Add new lines
-	for _, line := range afterLines {
-		sb.WriteString("+")
-		sb.WriteString(line)
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
+	// If no hunk found, return the diff as-is
+	// This can happen with empty files
+	return diff
 }

@@ -29,6 +29,11 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 
 // StartServerWithLogger starts the Python server with a custom logger.
 func StartServerWithLogger(ctx context.Context, logger *agent.Logger) (*ServerProcess, string, error) {
+	return StartServerWithLoggerQuiet(ctx, logger, false)
+}
+
+// StartServerWithLoggerQuiet starts the Python server with a custom logger and optional quiet mode.
+func StartServerWithLoggerQuiet(ctx context.Context, logger *agent.Logger, quiet bool) (*ServerProcess, string, error) {
 	logger.Info("Starting embedded server...")
 
 	// Find an available port
@@ -56,8 +61,21 @@ func StartServerWithLogger(ctx context.Context, logger *agent.Logger) (*ServerPr
 		fmt.Sprintf("PORT=%d", port),
 		"HOST=127.0.0.1",
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// In quiet mode (exec command), redirect server output to /dev/null
+	if quiet {
+		devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if err != nil {
+			cancel()
+			logger.Error("Failed to open /dev/null", "error", err.Error())
+			return nil, "", fmt.Errorf("failed to open /dev/null: %w", err)
+		}
+		cmd.Stdout = devNull
+		cmd.Stderr = devNull
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	// Set platform-specific process attributes
 	setProcAttr(cmd)

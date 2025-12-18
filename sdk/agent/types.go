@@ -47,6 +47,7 @@ type Session struct {
 	Version   string          `json:"version"`
 	Time      SessionTime     `json:"time"`
 	ParentID  *string         `json:"parentID,omitempty"`
+	ForkPoint *string         `json:"fork_point,omitempty"`
 	Summary   *SessionSummary `json:"summary,omitempty"`
 	Revert    *RevertInfo     `json:"revert,omitempty"`
 }
@@ -374,6 +375,7 @@ type PromptRequest struct {
 // ForkRequest is the request body for forking a session.
 type ForkRequest struct {
 	MessageID *string `json:"messageID,omitempty"`
+	Title     *string `json:"title,omitempty"`
 }
 
 // RevertRequest is the request body for reverting a session.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
@@ -40,7 +41,7 @@ var (
 	statusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
 
-	availableCommands = []string{"/model", "/new", "/sessions", "/clear", "/help"}
+	availableCommands = []string{"/model", "/new", "/sessions", "/clear", "/help", "/diff"}
 )
 
 // Message types
@@ -552,6 +553,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.Type {
 		case tea.KeyEsc:
+			if m.showFileSearch {
+				m.showFileSearch = false
+				return m, nil
+			}
 			if m.showAutocomplete {
 				m.showAutocomplete = false
 				return m, nil
@@ -560,6 +565,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyEnter:
+			if m.showFileSearch && len(m.fileSearchResults) > 0 {
+				m.insertSelectedFile()
+				return m, nil
+			}
 			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
 				m.input = m.autocompleteOptions[m.autocompleteSelection]
 				m.showAutocomplete = false
@@ -588,8 +597,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "/help":
 				m.messages = append(m.messages, message{
 					role:    "system",
-					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /help",
+					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /help",
 				})
+				m.input = ""
+				return m, nil
+			}
+
+			// Handle /diff command
+			if strings.HasPrefix(m.input, "/diff") {
+				diffOutput, err := m.handleDiffCommand(m.input)
+				if err != nil {
+					m.messages = append(m.messages, message{
+						role:    "system",
+						content: fmt.Sprintf("Error: %v", err),
+					})
+				} else {
+					m.messages = append(m.messages, message{
+						role:    "system",
+						content: diffOutput,
+					})
+				}
 				m.input = ""
 				return m, nil
 			}
@@ -623,6 +650,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.sendMessage(input, m.program), spinnerTick(), timeoutTick())
 
 		case tea.KeyTab:
+			if m.showFileSearch && len(m.fileSearchResults) > 0 {
+				m.insertSelectedFile()
+				return m, nil
+			}
 			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
 				m.input = m.autocompleteOptions[m.autocompleteSelection]
 				m.showAutocomplete = false
@@ -641,7 +672,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentMode = modes[nextIndex]
 
 		case tea.KeyUp:
-			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+			if m.showFileSearch && len(m.fileSearchResults) > 0 {
+				m.fileSearchSelection--
+				if m.fileSearchSelection < 0 {
+					m.fileSearchSelection = len(m.fileSearchResults) - 1
+				}
+			} else if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
 				m.autocompleteSelection--
 				if m.autocompleteSelection < 0 {
 					m.autocompleteSelection = len(m.autocompleteOptions) - 1
@@ -653,7 +689,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyDown:
-			if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
+			if m.showFileSearch && len(m.fileSearchResults) > 0 {
+				m.fileSearchSelection++
+				if m.fileSearchSelection >= len(m.fileSearchResults) {
+					m.fileSearchSelection = 0
+				}
+			} else if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
 				m.autocompleteSelection++
 				if m.autocompleteSelection >= len(m.autocompleteOptions) {
 					m.autocompleteSelection = 0
@@ -697,15 +738,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 				m.updateAutocomplete()
+				m.detectFileSearch()
 			}
 
 		case tea.KeySpace:
 			m.input += " "
 			m.showAutocomplete = false
+			m.detectFileSearch()
 
 		case tea.KeyRunes:
 			m.input += string(msg.Runes)
 			m.updateAutocomplete()
+			m.detectFileSearch()
 		}
 
 	case spinnerTickMsg:
@@ -1035,6 +1079,45 @@ func (m model) View() string {
 		}
 	}
 
+	// File search overlay
+	if m.showFileSearch {
+		s.WriteString("\n")
+		searchHeaderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
+		s.WriteString(searchHeaderStyle.Render("🔍 File Search: ") + m.fileSearchQuery + "\n")
+		s.WriteString(strings.Repeat("─", minInt(m.width, 80)) + "\n")
+
+		if len(m.fileSearchResults) == 0 {
+			s.WriteString(statusStyle.Render("  No files found\n"))
+		} else {
+			// Show up to 10 results
+			maxResults := minInt(10, len(m.fileSearchResults))
+			for i := 0; i < maxResults; i++ {
+				result := m.fileSearchResults[i]
+				prefix := "  "
+				if i == m.fileSearchSelection {
+					prefix = "> "
+				}
+
+				// Split path to show directory
+				dir := filepath.Dir(result.Path)
+				base := filepath.Base(result.Path)
+
+				line := fmt.Sprintf("%s%-30s  %s", prefix, base, statusStyle.Render(dir))
+				if i == m.fileSearchSelection {
+					s.WriteString(autocompleteSelectedStyle.Render(line) + "\n")
+				} else {
+					s.WriteString(line + "\n")
+				}
+			}
+
+			if len(m.fileSearchResults) > maxResults {
+				s.WriteString(statusStyle.Render(fmt.Sprintf("  ... and %d more\n", len(m.fileSearchResults)-maxResults)))
+			}
+		}
+
+		s.WriteString(statusStyle.Render("  [↑↓: Navigate] [Tab/Enter: Select] [Esc: Cancel]\n"))
+	}
+
 	s.WriteString(borderLine + "\n")
 
 	// Status line with colored mode indicator
@@ -1066,15 +1149,161 @@ func (m model) View() string {
 	return s.String()
 }
 
+// handleDiffCommand handles the /diff slash command
+func (m model) handleDiffCommand(input string) (string, error) {
+	// Parse arguments
+	args := strings.Fields(input)
+	args = args[1:] // Skip "/diff"
+
+	stagedOnly := false
+	statOnly := false
+	var fileFilter string
+
+	for _, arg := range args {
+		switch arg {
+		case "--staged":
+			stagedOnly = true
+		case "--stat":
+			statOnly = true
+		default:
+			if !strings.HasPrefix(arg, "-") {
+				fileFilter = arg
+			}
+		}
+	}
+
+	// Run git diff command
+	diff, err := m.runGitDiff(stagedOnly, statOnly, fileFilter)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	// If no diff output, check for untracked files
+	if diff == "" {
+		untracked, err := m.getUntrackedFiles()
+		if err == nil && untracked != "" {
+			return formatUntrackedFiles(untracked), nil
+		}
+		return "No changes", nil
+	}
+
+	// Format the diff output
+	return formatDiff(diff), nil
+}
+
+// runGitDiff executes git diff and returns the output
+func (m model) runGitDiff(stagedOnly, statOnly bool, fileFilter string) (string, error) {
+	gitArgs := []string{"diff"}
+
+	// Add color for better display
+	if !statOnly {
+		gitArgs = append(gitArgs, "--color=always")
+	}
+
+	if stagedOnly {
+		gitArgs = append(gitArgs, "--staged")
+	}
+
+	if statOnly {
+		gitArgs = append(gitArgs, "--stat")
+	}
+
+	// Add file filter if specified
+	if fileFilter != "" {
+		gitArgs = append(gitArgs, "--", fileFilter)
+	}
+
+	cmd := exec.Command("git", gitArgs...)
+	cmd.Dir = m.cwd
+	output, err := cmd.Output()
+	if err != nil {
+		// Check if it's because we're not in a git repo
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return "", fmt.Errorf("git command failed: %s", string(exitErr.Stderr))
+		}
+		return "", err
+	}
+
+	return string(output), nil
+}
+
+// getUntrackedFiles returns a list of untracked files
+func (m model) getUntrackedFiles() (string, error) {
+	cmd := exec.Command("git", "ls-files", "--others", "--exclude-standard")
+	cmd.Dir = m.cwd
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// formatUntrackedFiles formats untracked files for display
+func formatUntrackedFiles(files string) string {
+	var sb strings.Builder
+	sb.WriteString("Untracked files:\n\n")
+
+	fileList := strings.Split(strings.TrimSpace(files), "\n")
+	for _, file := range fileList {
+		if file == "" {
+			continue
+		}
+		// Use green color for new files
+		fileStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+		sb.WriteString("  " + fileStyle.Render("+ "+file) + " (new file)\n")
+	}
+
+	return sb.String()
+}
+
+// formatDiff formats git diff output with enhanced styling
+func formatDiff(raw string) string {
+	// Git already provides colored output with --color=always,
+	// so we can mostly pass it through, but we'll add some headers
+	var sb strings.Builder
+	lines := strings.Split(raw, "\n")
+
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "diff --git"):
+			// Extract file name and add a nice header
+			parts := strings.Fields(line)
+			if len(parts) >= 4 {
+				file := strings.TrimPrefix(parts[2], "a/")
+				headerStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("12")).
+					Bold(true)
+				sb.WriteString("\n")
+				sb.WriteString(headerStyle.Render("═══ " + file + " ═══"))
+				sb.WriteString("\n")
+			}
+		case strings.HasPrefix(line, "index") || strings.HasPrefix(line, "new file") || strings.HasPrefix(line, "deleted file"):
+			// Skip index lines for cleaner output
+			continue
+		case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+			// Skip the file marker lines as we have our own header
+			continue
+		default:
+			// Pass through all other lines (including colored ones from git)
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `agent - AI agent CLI
 
 Usage:
-  agent [OPTIONS]              Start interactive TUI
-  agent exec [OPTIONS] [PROMPT] Run agent non-interactively
-  agent e [OPTIONS] [PROMPT]   Alias for exec
-  agent help                   Show this help
-  agent version                Show version
+  agent [OPTIONS]                Start interactive TUI
+  agent exec [OPTIONS] [PROMPT]  Run agent non-interactively
+  agent e [OPTIONS] [PROMPT]     Alias for exec
+  agent apply [OPTIONS]          Apply latest session diff to working tree
+  agent a [OPTIONS]              Alias for apply
+  agent help                     Show this help
+  agent version                  Show version
 
 Interactive Mode Options:
   --prompt TEXT      Initial prompt to send
@@ -1092,12 +1321,24 @@ Exec Command Options:
   --no-tools         Disable tool execution
   -q, --quiet        Suppress status messages
 
+Apply Command Options:
+  --session ID       Apply diff from specific session (default: latest)
+  --dry-run          Show what would be applied without changes
+  --reverse          Reverse the diff (unapply changes)
+  --check            Check if diff applies cleanly
+  --3way             Use 3-way merge for conflicts
+  -q, --quiet        Suppress output except errors
+
 Examples:
   agent                                    Start interactive TUI
   agent exec "List all files"              Run non-interactively
   echo "List files" | agent exec           Read from stdin
   agent exec -f prompt.txt --json          Read from file, JSON output
   agent exec --timeout 300 --stream "task" With timeout and streaming
+  agent apply                              Apply latest session diff
+  agent apply --dry-run                    Preview what would be applied
+  agent apply --session ses_abc123         Apply specific session diff
+  agent apply --reverse                    Reverse (unapply) the diff
 
 Environment Variables:
   ANTHROPIC_API_KEY  Required - Claude API key
@@ -1119,6 +1360,18 @@ func main() {
 		case "exec", "e":
 			// Run non-interactive exec command
 			os.Exit(execCommand(args[1:]))
+		case "apply", "a":
+			// Apply session diff
+			cmd, err := NewApplyCommand(args[1:])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing apply command: %v\n", err)
+				os.Exit(1)
+			}
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		case "help", "--help", "-h":
 			printUsage()
 			os.Exit(0)
