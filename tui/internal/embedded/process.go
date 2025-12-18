@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/williamcory/agent/sdk/agent"
 )
 
 // ServerProcess manages the lifecycle of the Python server.
@@ -16,22 +18,34 @@ type ServerProcess struct {
 	cmd    *exec.Cmd
 	port   int
 	cancel context.CancelFunc
+	logger *agent.Logger
 }
 
 // StartServer starts the Python server.
 // Returns the server process handle and URL.
 func StartServer(ctx context.Context) (*ServerProcess, string, error) {
+	return StartServerWithLogger(ctx, agent.GetLogger())
+}
+
+// StartServerWithLogger starts the Python server with a custom logger.
+func StartServerWithLogger(ctx context.Context, logger *agent.Logger) (*ServerProcess, string, error) {
+	logger.Info("Starting embedded server...")
+
 	// Find an available port
 	port, err := findFreePort()
 	if err != nil {
+		logger.Error("Failed to find free port", "error", err.Error())
 		return nil, "", fmt.Errorf("failed to find free port: %w", err)
 	}
+	logger.Debug("Found free port", "port", port)
 
 	// Find main.py
 	mainPy := findMainPy()
 	if mainPy == "" {
+		logger.Error("main.py not found")
 		return nil, "", fmt.Errorf("main.py not found (checked relative to executable and working directory)")
 	}
+	logger.Debug("Found main.py", "path", mainPy)
 
 	// Create a cancellable context for the process
 	procCtx, cancel := context.WithCancel(ctx)
@@ -48,24 +62,32 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 	// Set platform-specific process attributes
 	setProcAttr(cmd)
 
+	logger.Debug("Starting Python process", "command", "uv run python "+mainPy)
 	if err := cmd.Start(); err != nil {
 		cancel()
+		logger.Error("Failed to start server process", "error", err.Error())
 		return nil, "", fmt.Errorf("failed to start server: %w", err)
 	}
+	logger.Debug("Process started", "pid", cmd.Process.Pid)
 
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Wait for the server to be ready
-	if err := waitForServer(serverURL, 30*time.Second); err != nil {
+	logger.Debug("Waiting for server health check...")
+	if err := waitForServerWithLogger(serverURL, 30*time.Second, logger); err != nil {
 		cmd.Process.Kill()
 		cancel()
+		logger.Error("Server health check failed", "error", err.Error())
 		return nil, "", fmt.Errorf("server failed to start: %w", err)
 	}
+
+	logger.Info("Embedded server ready", "url", serverURL, "port", port)
 
 	return &ServerProcess{
 		cmd:    cmd,
 		port:   port,
 		cancel: cancel,
+		logger: logger,
 	}, serverURL, nil
 }
 
@@ -73,6 +95,10 @@ func StartServer(ctx context.Context) (*ServerProcess, string, error) {
 func (s *ServerProcess) Stop() error {
 	if s == nil {
 		return nil
+	}
+
+	if s.logger != nil {
+		s.logger.Info("Stopping embedded server...")
 	}
 
 	// Cancel the context to signal shutdown
@@ -94,10 +120,20 @@ func (s *ServerProcess) Stop() error {
 		select {
 		case <-done:
 			// Process exited cleanly
+			if s.logger != nil {
+				s.logger.Debug("Server stopped gracefully")
+			}
 		case <-time.After(5 * time.Second):
 			// Force kill if still running
+			if s.logger != nil {
+				s.logger.Warn("Server did not stop gracefully, force killing")
+			}
 			s.cmd.Process.Kill()
 		}
+	}
+
+	if s.logger != nil {
+		s.logger.Info("Embedded server stopped")
 	}
 
 	return nil
@@ -154,19 +190,28 @@ func findFreePort() (int, error) {
 
 // waitForServer polls the health endpoint until the server is ready.
 func waitForServer(url string, timeout time.Duration) error {
+	return waitForServerWithLogger(url, timeout, agent.GetLogger())
+}
+
+// waitForServerWithLogger polls the health endpoint with logging.
+func waitForServerWithLogger(url string, timeout time.Duration, logger *agent.Logger) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(timeout)
+	attempts := 0
 
 	for time.Now().Before(deadline) {
+		attempts++
 		resp, err := client.Get(url + "/health")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
+				logger.Debug("Health check passed", "attempts", attempts)
 				return nil
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	logger.Debug("Health check timed out", "attempts", attempts)
 	return fmt.Errorf("server did not become ready within %v", timeout)
 }

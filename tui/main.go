@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/williamcory/agent/sdk/agent"
@@ -97,6 +98,9 @@ type model struct {
 	spinnerFrame          int
 	program               *tea.Program
 	seenToolIDs           map[string]bool // Track tools we've displayed
+	viewport              viewport.Model  // Scrollable viewport for messages
+	viewportReady         bool            // Whether viewport has been initialized
+	autoScroll            bool            // Auto-scroll to bottom on new content
 }
 
 // Bubbletea message types
@@ -150,6 +154,7 @@ func initialModel(client *agent.Client, project *agent.Project, cwd, version str
 		ctx:                   ctx,
 		cancel:                cancel,
 		seenToolIDs:           make(map[string]bool),
+		autoScroll:            true, // Auto-scroll to bottom by default
 	}
 
 	if initialPrompt != nil && *initialPrompt != "" {
@@ -625,6 +630,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.autocompleteSelection < 0 {
 					m.autocompleteSelection = len(m.autocompleteOptions) - 1
 				}
+			} else if m.viewportReady {
+				// Scroll up
+				m.viewport.LineUp(1)
+				m.autoScroll = false // User scrolled, disable auto-scroll
 			}
 
 		case tea.KeyDown:
@@ -633,6 +642,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.autocompleteSelection >= len(m.autocompleteOptions) {
 					m.autocompleteSelection = 0
 				}
+			} else if m.viewportReady {
+				// Scroll down
+				m.viewport.LineDown(1)
+				// Re-enable auto-scroll if we're at the bottom
+				if m.viewport.AtBottom() {
+					m.autoScroll = true
+				}
+			}
+
+		case tea.KeyPgUp:
+			if m.viewportReady {
+				m.viewport.HalfViewUp()
+				m.autoScroll = false
+			}
+
+		case tea.KeyPgDown:
+			if m.viewportReady {
+				m.viewport.HalfViewDown()
+				if m.viewport.AtBottom() {
+					m.autoScroll = true
+				}
+			}
+
+		case tea.KeyHome:
+			if m.viewportReady {
+				m.viewport.GotoTop()
+				m.autoScroll = false
+			}
+
+		case tea.KeyEnd:
+			if m.viewportReady {
+				m.viewport.GotoBottom()
+				m.autoScroll = true
 			}
 
 		case tea.KeyBackspace:
@@ -777,6 +819,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
+		// Calculate viewport height (total height minus input area)
+		// Input area: 1 border + input lines + 1 border + 2 status lines = ~5-6 lines minimum
+		inputAreaHeight := 6
+		viewportHeight := m.height - inputAreaHeight
+		if viewportHeight < 1 {
+			viewportHeight = 1
+		}
+
+		if !m.viewportReady {
+			// Initialize viewport
+			m.viewport = viewport.New(m.width, viewportHeight)
+			m.viewport.YPosition = 0
+			m.viewportReady = true
+		} else {
+			// Update viewport dimensions
+			m.viewport.Width = m.width
+			m.viewport.Height = viewportHeight
+		}
+
 	// Handle global events from SSE stream
 	case *agent.GlobalEvent:
 		if msg.Part != nil {
@@ -837,11 +898,12 @@ func (m model) getModelName() string {
 	return "Loading..."
 }
 
-func (m model) View() string {
+// buildMessageContent builds the chat content for the viewport
+func (m model) buildMessageContent() string {
 	var s strings.Builder
 
 	// Display logo header when no messages
-	if len(m.messages) == 0 && !m.showModelMenu {
+	if len(m.messages) == 0 {
 		logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 		versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 
@@ -853,32 +915,6 @@ func (m model) View() string {
 		s.WriteString(logoStyle.Render(" ▐▛███▜▌") + "   " + lipgloss.NewStyle().Bold(true).Render("Agent "+version) + "\n")
 		s.WriteString(logoStyle.Render("▝▜█████▛▘") + "  " + m.getModelName() + "\n")
 		s.WriteString(logoStyle.Render("  ▘▘ ▝▝") + "    " + versionStyle.Render(m.cwd) + "\n\n")
-	}
-
-	// Model menu
-	if m.showModelMenu {
-		s.WriteString(lipgloss.NewStyle().Bold(true).Render("Switch between models") + "\n\n")
-		for i, opt := range m.modelOptions {
-			prefix := "   "
-			if i == m.modelMenuSelection {
-				prefix = " > "
-			}
-
-			checkmark := ""
-			if m.currentModel != nil && opt.modelID == m.currentModel.ModelID {
-				checkmark = " [current]"
-			}
-
-			line := fmt.Sprintf("%s%d. %-25s %s%s", prefix, i+1, opt.name, opt.description, checkmark)
-			if i == m.modelMenuSelection {
-				s.WriteString(autocompleteSelectedStyle.Render(line) + "\n")
-			} else {
-				s.WriteString(line + "\n")
-			}
-		}
-		s.WriteString("\n")
-		s.WriteString(statusStyle.Render("Press Enter to select, Esc to cancel") + "\n")
-		return s.String()
 	}
 
 	// Chat history
@@ -919,6 +955,53 @@ func (m model) View() string {
 		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("✗ %v", m.err)) + "\n\n")
 	}
 
+	return s.String()
+}
+
+func (m model) View() string {
+	var s strings.Builder
+
+	// Model menu (rendered without viewport)
+	if m.showModelMenu {
+		s.WriteString(lipgloss.NewStyle().Bold(true).Render("Switch between models") + "\n\n")
+		for i, opt := range m.modelOptions {
+			prefix := "   "
+			if i == m.modelMenuSelection {
+				prefix = " > "
+			}
+
+			checkmark := ""
+			if m.currentModel != nil && opt.modelID == m.currentModel.ModelID {
+				checkmark = " [current]"
+			}
+
+			line := fmt.Sprintf("%s%d. %-25s %s%s", prefix, i+1, opt.name, opt.description, checkmark)
+			if i == m.modelMenuSelection {
+				s.WriteString(autocompleteSelectedStyle.Render(line) + "\n")
+			} else {
+				s.WriteString(line + "\n")
+			}
+		}
+		s.WriteString("\n")
+		s.WriteString(statusStyle.Render("Press Enter to select, Esc to cancel") + "\n")
+		return s.String()
+	}
+
+	// Build message content and render through viewport
+	if m.viewportReady {
+		// Set content and auto-scroll if needed
+		content := m.buildMessageContent()
+		m.viewport.SetContent(content)
+		if m.autoScroll {
+			m.viewport.GotoBottom()
+		}
+		s.WriteString(m.viewport.View())
+		s.WriteString("\n")
+	} else {
+		// Fallback if viewport not ready - render content directly
+		s.WriteString(m.buildMessageContent())
+	}
+
 	// Input area
 	borderLine := strings.Repeat("─", m.width)
 	if m.width == 0 {
@@ -955,7 +1038,13 @@ func (m model) View() string {
 		}
 	}
 
-	s.WriteString(statusStyle.Render("  ⏵⏵ ") + modeStyle.Render(modeText) + "\n")
+	// Scroll indicator
+	scrollInfo := ""
+	if m.viewportReady && !m.viewport.AtBottom() {
+		scrollInfo = " (↑↓ to scroll)"
+	}
+
+	s.WriteString(statusStyle.Render("  ⏵⏵ ") + modeStyle.Render(modeText) + statusStyle.Render(scrollInfo) + "\n")
 	s.WriteString(statusStyle.Render("  (shift+tab to cycle modes)") + "\n")
 
 	return s.String()
@@ -972,6 +1061,11 @@ func main() {
 	backendURL := flag.String("backend", "", "Backend URL (overrides embedded server)")
 	useEmbedded := flag.Bool("embedded", true, "Use embedded server (default: true)")
 	flag.Parse()
+
+	// Initialize logging from LOG_LEVEL env var
+	logger := agent.NewLoggerFromEnv()
+	agent.SetLogger(logger)
+	logger.Info("TUI starting", "version", version)
 
 	// Determine backend URL
 	url := *backendURL
@@ -1004,10 +1098,11 @@ func main() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		fmt.Println("Starting embedded server...")
+		logger.Info("Starting embedded server...")
 		var err error
-		serverProcess, url, err = embedded.StartServer(ctx)
+		serverProcess, url, err = embedded.StartServerWithLogger(ctx, logger)
 		if err != nil {
+			logger.Error("Failed to start embedded server", "error", err.Error())
 			fmt.Fprintf(os.Stderr, "Error starting embedded server: %v\n", err)
 			fmt.Fprintf(os.Stderr, "Tip: Use --backend=URL to connect to an external server\n")
 			os.Exit(1)
@@ -1024,13 +1119,15 @@ func main() {
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-sigChan
+			logger.Info("Received shutdown signal")
 			cleanup()
 			os.Exit(0)
 		}()
 
-		fmt.Printf("Server running at %s\n", url)
+		logger.Info("Server running", "url", url)
 	} else if url == "" {
 		url = "http://localhost:8000"
+		logger.Debug("Using default backend URL", "url", url)
 	}
 
 	// Get working directory
@@ -1047,7 +1144,9 @@ func main() {
 	client := agent.NewClient(url,
 		agent.WithDirectory(cwd),
 		agent.WithTimeout(60*time.Second),
+		agent.WithLogger(logger),
 	)
+	logger.Debug("SDK client created", "url", url, "cwd", cwd)
 
 	// Get project info
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
