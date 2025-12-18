@@ -67,3 +67,70 @@ See `.claude/skills/` for detailed guidance on specific topics:
 | [snapshot-system.md](.claude/skills/snapshot-system.md) | Git snapshots, revert |
 | [testing.md](.claude/skills/testing.md) | pytest, fixtures, E2E |
 | [go-development.md](.claude/skills/go-development.md) | SDK client, TUI |
+
+## Task Delegation
+
+The agent supports delegating tasks to specialized sub-agents for parallel execution. This enables breaking down complex work into concurrent subtasks.
+
+### Available Tools
+
+#### `task` - Single Task Delegation
+
+Delegate a single task to a specialized sub-agent:
+
+```python
+# Example: Explore codebase for authentication files
+result = await task(
+    objective="Find all files related to user authentication",
+    subagent_type="explore",  # or "plan", "general"
+    timeout_seconds=120
+)
+# Returns JSON with task_id, status, result, duration, etc.
+```
+
+#### `task_parallel` - Parallel Task Execution
+
+Execute multiple tasks concurrently:
+
+```python
+# Example: Parallel codebase exploration
+results = await task_parallel([
+    {
+        "objective": "Find all authentication-related files",
+        "subagent_type": "explore"
+    },
+    {
+        "objective": "Find all database migration files",
+        "subagent_type": "explore"
+    },
+    {
+        "objective": "Run pytest on the auth module",
+        "subagent_type": "general"
+    }
+])
+# Returns JSON array of task results
+```
+
+### Sub-Agent Types
+
+| Type | Purpose | Tool Access |
+|------|---------|-------------|
+| `explore` | Fast codebase search & discovery | Read-only, search tools, git |
+| `plan` | Analysis & planning (read-only) | Read-only, safe shell commands |
+| `general` | Implementation & execution | Full tool access |
+
+### Implementation Details
+
+- **File**: `agent/task_executor.py` - TaskExecutor class manages sub-agent lifecycle
+- **Integration**: `agent/agent.py` - Task tools registered in create_agent_with_mcp()
+- **State**: `core/state.py` - session_subtasks tracks active tasks per session
+- **Events**: `core/events.py` - task.* event types for monitoring
+- **Tests**: `tests/test_agent/test_task_executor.py`, `tests/test_agent/test_task_tools.py`
+
+### Key Features
+
+- **Parallel Execution**: Multiple sub-agents run concurrently (max 10 by default)
+- **Timeout Support**: Each task has configurable timeout (default 120s)
+- **Batching**: Large task lists automatically batched to prevent resource exhaustion
+- **Error Handling**: Failed tasks return structured error information
+- **Isolation**: Each sub-agent runs in isolated context with no shared state

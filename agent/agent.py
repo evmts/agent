@@ -5,10 +5,11 @@ Uses external MCP servers for shell and filesystem operations,
 minimizing custom tool code that needs to be maintained.
 """
 
+import json
 import os
 import sys
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import httpx
 from pydantic_ai import Agent, WebSearchTool
@@ -16,10 +17,16 @@ from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 
 from .browser_client import get_browser_client
+from .task_executor import TaskExecutor
+from .tools.grep import grep as grep_impl
 from .tools.lsp import diagnostics as lsp_diagnostics_impl
+from .tools.lsp import find_references as lsp_find_references_impl
+from .tools.lsp import go_to_definition as lsp_go_to_definition_impl
 from .tools.lsp import hover as lsp_hover_impl
 from .tools.lsp import touch_file as lsp_touch_file_impl
+from .tools.lsp import workspace_symbol as lsp_workspace_symbol_impl
 from .tools.multiedit import multiedit as multiedit_impl
+from .tools.patch import patch as patch_impl
 from .tools.web_fetch import fetch_url
 
 # Lazy import - duckduckgo is optional
@@ -574,6 +581,79 @@ async def create_agent_with_mcp(
         except Exception as e:
             return f"Error: Unexpected error fetching URL: {str(e)}"
 
+    # Grep tool with multiline pattern matching and pagination
+    @agent.tool_plain
+    async def grep(
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        multiline: bool = False,
+        case_insensitive: bool = False,
+        max_count: int | None = None,
+        context_before: int | None = None,
+        context_after: int | None = None,
+        context_lines: int | None = None,
+        head_limit: int = 0,
+        offset: int = 0,
+    ) -> str:
+        """Search for patterns in files using ripgrep.
+
+        Supports multiline pattern matching, context lines, and pagination for large result sets.
+
+        Args:
+            pattern: Regular expression pattern to search for
+            path: Directory or file to search in (defaults to working directory)
+            glob: File pattern to filter (e.g., "*.py", "*.{ts,tsx}")
+            multiline: Enable multiline mode where . matches newlines and patterns can span lines
+            case_insensitive: Case-insensitive search
+            max_count: Maximum number of matches per file
+            context_before: Number of lines to show before each match
+            context_after: Number of lines to show after each match
+            context_lines: Number of lines to show before AND after each match (overrides context_before/after)
+            head_limit: Limit output to first N matches (0 = unlimited)
+            offset: Skip first N matches before applying head_limit (0 = start from beginning)
+
+        Examples:
+            # Single-line search (default)
+            grep(pattern="def authenticate", glob="*.py")
+
+            # Get first 10 results
+            grep(pattern="error", head_limit=10)
+
+            # Get second page (items 11-20)
+            grep(pattern="error", offset=10, head_limit=10)
+
+            # Search with context lines
+            grep(pattern="error", context_lines=3, glob="*.py")
+
+            # Multi-line search for function with body
+            grep(pattern=r"def authenticate\\(.*?\\):[\\s\\S]*?return", multiline=True, glob="*.py")
+
+            # Find multi-line docstrings with pagination
+            grep(pattern=r'\"\"\"[\\s\\S]*?\"\"\"', multiline=True, glob="*.py", head_limit=5)
+
+        Returns:
+            Formatted search results or error message
+        """
+        cwd = working_dir or os.getcwd()
+        result = await grep_impl(
+            pattern=pattern,
+            path=path,
+            glob=glob,
+            multiline=multiline,
+            case_insensitive=case_insensitive,
+            max_count=max_count,
+            working_dir=cwd,
+            context_before=context_before,
+            context_after=context_after,
+            context_lines=context_lines,
+            head_limit=head_limit,
+            offset=offset,
+        )
+        if result.get("success"):
+            return result.get("formatted_output", "No matches found")
+        return f"Error: {result.get('error', 'Unknown error')}"
+
     # MultiEdit tool for atomic multi-file edits
     @agent.tool_plain
     async def multiedit(file_path: str, edits: list[dict]) -> str:
@@ -601,6 +681,139 @@ async def create_agent_with_mcp(
             rel_path = result.get("file_path", file_path)
             return f"Applied {edit_count} edit(s) to {rel_path}"
         return f"Error: {result.get('error', 'Unknown error')}"
+
+    @agent.tool_plain
+    async def patch(patch_text: str) -> str:
+        """Apply a patch to modify multiple files with context-aware changes.
+
+        Supports adding, updating, deleting, and moving files in a single atomic operation.
+        Uses a custom patch format with Begin/End markers and supports context-aware matching.
+
+        Args:
+            patch_text: The full patch text in custom format with *** Begin Patch and *** End Patch markers
+
+        Returns:
+            Summary of changes made including list of affected files
+
+        Patch Format:
+            *** Begin Patch
+            *** Add File: path/to/new/file.py
+            +line 1 content
+            +line 2 content
+
+            *** Update File: path/to/existing/file.py
+            @@ context line for finding location
+            -old line to remove
+            +new line to add
+             unchanged line
+
+            *** Delete File: path/to/old/file.py
+            *** End Patch
+        """
+        cwd = working_dir or os.getcwd()
+        return await patch_impl(patch_text, working_dir=cwd)
+
+
+    # Task delegation tools for spawning sub-agents
+    task_executor = TaskExecutor(model_id=model_id, working_dir=working_dir)
+
+    @agent.tool_plain
+    async def task(
+        objective: str,
+        subagent_type: str = "general",
+        context: dict[str, Any] | None = None,
+        timeout_seconds: int = 120,
+        session_id: str = "default",
+    ) -> str:
+        """Delegate a task to a specialized sub-agent for parallel execution.
+
+        Use this tool to break down complex work into parallel subtasks that can
+        be executed by specialized agents. Results are returned as structured data.
+
+        Args:
+            objective: Clear description of what the sub-agent should accomplish
+            subagent_type: Type of agent to spawn:
+                - "explore": Fast codebase exploration and search
+                - "plan": Analysis and planning (read-only)
+                - "general": Implementation and execution (full tools)
+            context: Optional context dictionary to pass to sub-agent
+            timeout_seconds: Maximum execution time (default 120s)
+            session_id: Session identifier for task tracking
+
+        Returns:
+            JSON string with task results including:
+            - task_id: Unique identifier for the task
+            - status: "completed", "failed", "timeout"
+            - result: Sub-agent's response or output
+            - duration: Execution time in seconds
+            - agent_type: Which sub-agent type was used
+
+        Example:
+            # Explore codebase for authentication-related code
+            result = await task(
+                objective="Find all files related to user authentication and authorization",
+                subagent_type="explore"
+            )
+
+            # Analyze test coverage in parallel
+            test_result = await task(
+                objective="Analyze test coverage for the auth module",
+                subagent_type="plan"
+            )
+        """
+        result = await task_executor.execute_task(
+            objective=objective,
+            subagent_type=subagent_type,
+            context=context,
+            timeout_seconds=timeout_seconds,
+        )
+        return json.dumps(result.to_dict(), indent=2)
+
+    @agent.tool_plain
+    async def task_parallel(
+        tasks: list[dict[str, Any]],
+        timeout_seconds: int = 120,
+        session_id: str = "default",
+    ) -> str:
+        """Execute multiple tasks in parallel with specialized sub-agents.
+
+        Use this to run multiple independent subtasks concurrently for faster
+        execution. Each task can use a different specialized agent type.
+
+        Args:
+            tasks: List of task specifications, each containing:
+                - objective: What the sub-agent should accomplish
+                - subagent_type: (optional) Agent type (default "general")
+                - context: (optional) Context dictionary
+            timeout_seconds: Timeout for each individual task (default 120s)
+            session_id: Session identifier for task tracking
+
+        Returns:
+            JSON array of task results, each with the same structure as the
+            task tool output.
+
+        Example:
+            # Parallel codebase exploration
+            results = await task_parallel([
+                {
+                    "objective": "Find all authentication-related files",
+                    "subagent_type": "explore"
+                },
+                {
+                    "objective": "Find all database migration files",
+                    "subagent_type": "explore"
+                },
+                {
+                    "objective": "Run pytest on the auth module",
+                    "subagent_type": "general"
+                }
+            ])
+        """
+        results = await task_executor.execute_parallel(
+            tasks=tasks,
+            timeout_seconds=timeout_seconds,
+        )
+        return json.dumps([r.to_dict() for r in results], indent=2)
 
     # Use async context manager to properly manage MCP server lifecycles
     async with agent:

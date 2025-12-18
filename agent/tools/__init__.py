@@ -1,5 +1,6 @@
 """Tools for the agent."""
 
+from .grep import grep
 from .lsp import (
     Diagnostic,
     DiagnosticSeverity,
@@ -14,8 +15,14 @@ from .multiedit import (
     MULTIEDIT_DESCRIPTION,
     multiedit,
 )
+from .patch import (
+    PATCH_DESCRIPTION,
+    patch,
+)
 
 __all__ = [
+    # Search tools
+    "grep",
     # LSP tools
     "Diagnostic",
     "DiagnosticSeverity",
@@ -28,4 +35,6 @@ __all__ = [
     # Edit tools
     "multiedit",
     "MULTIEDIT_DESCRIPTION",
+    "patch",
+    "PATCH_DESCRIPTION",
 ]

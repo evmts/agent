@@ -10,7 +10,9 @@ from fastapi import FastAPI
 
 from agent import create_mcp_wrapper, create_simple_wrapper
 from config import DEFAULT_MODEL
-from server import app, set_agent
+from core.permissions import PermissionChecker, PermissionStore
+from server import app, set_agent, set_permission_checker
+from server.event_bus import get_event_bus
 from server.logging_config import setup_logging
 
 # Initialize logging before anything else
@@ -24,12 +26,13 @@ DEFAULT_USE_MCP = True
 
 _wrapper_context = None
 _wrapper = None
+_permission_store = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage MCP wrapper lifecycle with FastAPI lifespan."""
-    global _wrapper_context, _wrapper
+    global _wrapper_context, _wrapper, _permission_store
 
     model_id = os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL)
     working_dir = os.environ.get("WORKING_DIR", os.getcwd())
@@ -39,6 +42,13 @@ async def lifespan(app: FastAPI):
     logger.info("Model: %s", model_id)
     logger.info("Working directory: %s", working_dir)
     logger.info("MCP enabled: %s", use_mcp)
+
+    # Initialize permission system
+    logger.info("Initializing permission system...")
+    _permission_store = PermissionStore()
+    permission_checker = PermissionChecker(_permission_store, get_event_bus())
+    set_permission_checker(permission_checker)
+    logger.info("Permission system ready")
 
     if use_mcp:
         logger.info("Initializing MCP servers...")
