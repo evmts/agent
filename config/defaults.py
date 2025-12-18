@@ -88,3 +88,14 @@ LSP_SERVERS = {
         "root_markers": ["Cargo.toml", ".git"],
     },
 }
+
+# Ghost Commit Configuration
+GHOST_COMMIT_CONFIG = {
+    "squash_on_close": False,  # Squash all ghost commits on session end
+    "ignore_patterns": [
+        ".env",
+        "*.key",
+        "*.pem",
+        "credentials.*",
+    ],
+}
