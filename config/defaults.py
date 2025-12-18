@@ -34,7 +34,7 @@ DEFAULT_MODEL_PROVIDERS = {
         "name": "Anthropic",
         "base_url": "https://api.anthropic.com/v1",
         "env_key": "ANTHROPIC_API_KEY",
-        "default_model": "claude-sonnet-4-20250514",
+        "default_model": "claude-opus-4-5-20251101",
     },
     "openai": {
         "name": "OpenAI",

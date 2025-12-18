@@ -51,8 +51,8 @@ class ProvidersResponse(BaseModel):
 # =============================================================================
 
 ANTHROPIC_MODELS = [
+    Model(id="claude-opus-4-5-20251101", name="Claude Opus 4.5"),
     Model(id="claude-sonnet-4-20250514", name="Claude Sonnet 4"),
-    Model(id="claude-opus-4-20250514", name="Claude Opus 4"),
     Model(id="claude-3-5-sonnet-20241022", name="Claude 3.5 Sonnet"),
     Model(id="claude-3-5-haiku-20241022", name="Claude 3.5 Haiku"),
 ]
@@ -82,7 +82,7 @@ async def list_providers(directory: str = Query(None)) -> ProvidersResponse:
         providers.append(
             Provider(id="anthropic", name="Anthropic", models=ANTHROPIC_MODELS)
         )
-        # Default to first model (Sonnet 4)
+        # Default to first model (Opus 4.5)
         default["anthropic"] = DEFAULT_ANTHROPIC_MODEL_INDEX
 
     return ProvidersResponse(providers=providers, default=default)
