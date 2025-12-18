@@ -5,7 +5,7 @@ Exports the main configuration classes and functions for use throughout the appl
 """
 
 from .agent_config import AgentConfig
-from .defaults import DEFAULT_MODEL, DEFAULT_MODEL_PROVIDERS, DEFAULT_REASONING_EFFORT
+from .defaults import DEFAULT_MODEL, DEFAULT_MODEL_PROVIDERS, DEFAULT_REASONING_EFFORT, DEFAULT_REVIEW_MODEL
 from .experimental_config import ExperimentalConfig
 from .loader import get_config, get_working_directory, load_config, load_config_file, merge_configs, strip_jsonc_comments
 from .main_config import Config
@@ -25,6 +25,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_MODEL_PROVIDERS",
     "DEFAULT_REASONING_EFFORT",
+    "DEFAULT_REVIEW_MODEL",
     "CLAUDE_MD_FILENAME",
     "AGENTS_MD_FILENAME",
     # Config models

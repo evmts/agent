@@ -2,6 +2,7 @@
 
 DEFAULT_MODEL = "claude-opus-4-5-20251101"
 DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_REVIEW_MODEL = "claude-sonnet-4-20250514"  # Use faster model for code reviews
 
 # Available models configuration
 AVAILABLE_MODELS = [

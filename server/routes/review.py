@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from agent.review import REVIEW_PROMPT, parse_review_output
-from config import REVIEW_MODEL
+from config import DEFAULT_REVIEW_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +81,11 @@ async def run_review(
             issues=[],
             positive_notes=[],
             summary=NO_CHANGES_MESSAGE,
-            model_used=request.model or REVIEW_MODEL,
+            model_used=request.model or DEFAULT_REVIEW_MODEL,
         )
 
     # Select model
-    model = request.model or REVIEW_MODEL
+    model = request.model or DEFAULT_REVIEW_MODEL
     logger.info("Running code review with model: %s", model)
 
     # Create review prompt
