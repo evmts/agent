@@ -25,4 +25,5 @@ async def create_session_route(
         event_bus=get_event_bus(),
         title=request.title,
         parent_id=request.parentID,
+        bypass_mode=request.bypass_mode,
     )

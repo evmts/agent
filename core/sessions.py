@@ -48,6 +48,7 @@ async def create_session(
     event_bus: EventBus,
     title: str | None = None,
     parent_id: str | None = None,
+    bypass_mode: bool = False,
 ) -> Session:
     """
     Create a new session.
@@ -57,6 +58,7 @@ async def create_session(
         event_bus: EventBus for publishing events
         title: Optional session title
         parent_id: Optional parent session ID
+        bypass_mode: If True, skip all permission checks (DANGEROUS)
 
     Returns:
         The created session
@@ -70,6 +72,7 @@ async def create_session(
         version=DEFAULT_VERSION,
         time=SessionTime(created=now, updated=now),
         parentID=parent_id,
+        bypass_mode=bypass_mode,
     )
     sessions[session.id] = session
     session_messages[session.id] = []
@@ -77,7 +80,10 @@ async def create_session(
     # Initialize snapshot tracking
     init_snapshot(session.id, directory)
 
-    logger.info("Session created: %s", session.id)
+    if bypass_mode:
+        logger.warning("⚠️  Session created in BYPASS MODE: %s - All permission checks disabled", session.id)
+    else:
+        logger.info("Session created: %s", session.id)
 
     await event_bus.publish(
         Event(type="session.created", properties={"info": session.model_dump()})
