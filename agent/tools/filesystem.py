@@ -81,3 +81,39 @@ def check_file_writable(path: str) -> None:
     except RuntimeError:
         # No session ID set - skip enforcement (for backwards compatibility)
         pass
+
+
+def mark_file_written(path: str) -> None:
+    """
+    Mark a file as written in the current session's tracker.
+
+    Updates tracking with the file's new modification time after a write.
+    This should be called after successful write operations to prevent
+    false positives when the agent checks if its own writes were external.
+
+    Args:
+        path: Path to the file that was written
+    """
+    try:
+        session_id = get_current_session_id()
+        tracker = get_file_tracker(session_id)
+        tracker.mark_written(path)
+    except RuntimeError:
+        # No session ID set - skip tracking (for backwards compatibility)
+        pass
+
+
+def clear_file_tracking(path: str) -> None:
+    """
+    Clear tracking for a specific file.
+
+    Args:
+        path: Path to the file to stop tracking
+    """
+    try:
+        session_id = get_current_session_id()
+        tracker = get_file_tracker(session_id)
+        tracker.clear_file(path)
+    except RuntimeError:
+        # No session ID set - skip (for backwards compatibility)
+        pass

@@ -264,6 +264,136 @@ class TestEdgeCases:
         assert tracker.is_read(str(test_dir))
 
 
+class TestEnhancedFeatures:
+    """Tests for enhanced file modification tracking features."""
+
+    def test_mark_written_updates_timestamp(self, tmp_path):
+        """Test that mark_written updates the tracked timestamp."""
+        tracker = FileTimeTracker()
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        tracker.mark_read(str(test_file))
+        original_read_time = tracker.get_read_time(str(test_file))
+
+        # Sleep and modify file
+        time.sleep(0.01)
+        test_file.write_text("new content")
+
+        # Mark as written to update tracking
+        tracker.mark_written(str(test_file))
+
+        # Now should not raise even though file was modified
+        tracker.assert_not_modified(str(test_file))
+
+        # Verify timestamp was updated
+        new_read_time = tracker.get_read_time(str(test_file))
+        assert new_read_time > original_read_time
+
+    def test_mark_written_after_agent_write(self, tmp_path):
+        """Test typical workflow: read -> write -> mark_written."""
+        tracker = FileTimeTracker()
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("original")
+
+        # Agent reads file
+        tracker.mark_read(str(test_file))
+
+        # Sleep to ensure different mtime
+        time.sleep(0.01)
+
+        # Agent modifies file
+        test_file.write_text("modified by agent")
+
+        # Mark as written
+        tracker.mark_written(str(test_file))
+
+        # Subsequent write should still work (file was tracked)
+        tracker.assert_not_modified(str(test_file))
+
+    def test_clear_file_removes_tracking(self, tmp_path):
+        """Test that clear_file removes tracking for specific file."""
+        tracker = FileTimeTracker()
+        test_file1 = tmp_path / "file1.txt"
+        test_file2 = tmp_path / "file2.txt"
+        test_file1.write_text("content1")
+        test_file2.write_text("content2")
+
+        tracker.mark_read(str(test_file1))
+        tracker.mark_read(str(test_file2))
+
+        # Clear only file1
+        tracker.clear_file(str(test_file1))
+
+        # file1 should not be tracked
+        assert not tracker.is_read(str(test_file1))
+
+        # file2 should still be tracked
+        assert tracker.is_read(str(test_file2))
+
+    def test_error_message_includes_timestamps(self, tmp_path):
+        """Test that error messages include readable timestamps."""
+        tracker = FileTimeTracker()
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        tracker.mark_read(str(test_file))
+
+        # Wait and modify file
+        time.sleep(0.01)
+        test_file.write_text("modified")
+
+        # Check that error message includes timestamps
+        try:
+            tracker.assert_not_modified(str(test_file))
+            pytest.fail("Should have raised ValueError")
+        except ValueError as e:
+            error_msg = str(e)
+            # Should include both timestamps
+            assert "Last modification:" in error_msg
+            assert "Last read:" in error_msg
+            # Should be in ISO format
+            assert "T" in error_msg  # ISO format includes T separator
+
+    def test_external_modification_scenario(self, tmp_path):
+        """Test the scenario where external tool modifies file."""
+        tracker = FileTimeTracker()
+        test_file = tmp_path / "config.json"
+        test_file.write_text('{"key": "value"}')
+
+        # Agent reads file
+        tracker.mark_read(str(test_file))
+
+        # External formatter modifies file
+        time.sleep(0.01)
+        test_file.write_text('{\n  "key": "value"\n}')
+
+        # Agent tries to write - should fail
+        with pytest.raises(ValueError, match="has been modified since"):
+            tracker.assert_not_modified(str(test_file))
+
+        # Agent re-reads file
+        tracker.mark_read(str(test_file))
+
+        # Now write should succeed
+        tracker.assert_not_modified(str(test_file))
+
+    def test_mark_written_handles_deleted_file(self, tmp_path):
+        """Test that mark_written handles deleted files gracefully."""
+        tracker = FileTimeTracker()
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        tracker.mark_read(str(test_file))
+        test_file.unlink()
+
+        # Should not raise
+        tracker.mark_written(str(test_file))
+
+        # File should no longer be tracked
+        assert not tracker.is_read(str(test_file))
+
+
 @pytest.fixture(autouse=True)
 def cleanup_session():
     """Cleanup session context after each test."""

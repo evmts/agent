@@ -111,9 +111,14 @@ class FileTimeTracker:
         # Compare modification times
         last_read_time = self._last_read[normalized]
         if current_mtime > last_read_time:
+            # Format timestamps for clear error message
+            last_mod_str = current_mtime.isoformat(timespec='milliseconds')
+            last_read_str = last_read_time.isoformat(timespec='milliseconds')
             raise ValueError(
-                f"File {file_path} has been modified since it was last read. "
-                "Please use the Read tool again to get the latest contents"
+                f"File {file_path} has been modified since it was last read.\n"
+                f"Last modification: {last_mod_str}\n"
+                f"Last read: {last_read_str}\n\n"
+                f"Please use the Read tool again to get the latest contents before modifying it."
             )
 
     def is_read(self, file_path: str) -> bool:
@@ -128,6 +133,40 @@ class FileTimeTracker:
         """
         normalized = self._normalize_path(file_path)
         return normalized in self._last_read
+
+    def mark_written(self, file_path: str) -> None:
+        """
+        Update tracking after successful write.
+
+        Records the file's new modification time after a write operation.
+        This prevents false positives when checking if the agent's own
+        writes triggered external modification warnings.
+
+        Args:
+            file_path: Path to the file that was written
+        """
+        normalized = self._normalize_path(file_path)
+
+        try:
+            stat_info = os.stat(normalized)
+            mtime = datetime.fromtimestamp(stat_info.st_mtime)
+            self._last_read[normalized] = mtime
+        except (OSError, FileNotFoundError):
+            # File doesn't exist after write (unlikely) - clear tracking
+            self.clear_file(file_path)
+
+    def clear_file(self, file_path: str) -> None:
+        """
+        Remove tracking for a specific file.
+
+        Use this when a file is deleted or when you want to reset
+        tracking for a specific file without clearing all tracking data.
+
+        Args:
+            file_path: Path to the file to stop tracking
+        """
+        normalized = self._normalize_path(file_path)
+        self._last_read.pop(normalized, None)
 
     def clear(self) -> None:
         """Clear all tracked file read times."""

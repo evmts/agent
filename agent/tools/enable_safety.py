@@ -8,7 +8,7 @@ for the agent without major refactoring.
 import os
 from typing import Callable, Any
 
-from .filesystem import set_current_session_id, mark_file_read, check_file_writable
+from .filesystem import set_current_session_id, mark_file_read, mark_file_written, check_file_writable
 
 
 def create_safe_read_wrapper(original_read: Callable) -> Callable:
@@ -70,7 +70,7 @@ def create_safe_write_wrapper(original_write: Callable) -> Callable:
         result = await original_write(*args, **kwargs)
 
         # Update tracking after successful write
-        mark_file_read(path)
+        mark_file_written(path)
         return result
 
     # Preserve function metadata
@@ -169,5 +169,5 @@ async def safe_write_file(path: str, content: str) -> str:
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
 
-    mark_file_read(path)
+    mark_file_written(path)
     return f"Successfully wrote {len(content)} bytes to {path}"
