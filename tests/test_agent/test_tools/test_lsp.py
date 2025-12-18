@@ -910,3 +910,362 @@ class TestLSPManagerGetAllDiagnostics:
         assert "/file2.ts" in result
         assert len(result["/file1.py"]) == 1
         assert len(result["/file2.ts"]) == 1
+
+
+# --- Workspace Symbol API Tests ---
+
+
+class TestWorkspaceSymbolAPI:
+    """Test workspace_symbol public API function."""
+
+    @pytest.fixture(autouse=True)
+    def reset_manager(self):
+        """Reset manager singleton before each test."""
+        LSPManager.reset_instance()
+        yield
+        LSPManager.reset_instance()
+
+    @pytest.mark.asyncio
+    async def test_workspace_symbol_no_clients(self):
+        """Test error when no clients are available."""
+        from agent.tools.lsp import workspace_symbol
+
+        result = await workspace_symbol("test_function")
+        assert result["success"] is False
+        assert "No LSP clients available" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_workspace_symbol_with_mock_client(self, tmp_path):
+        """Test workspace_symbol with mocked client."""
+        from agent.tools.lsp import workspace_symbol
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def test_function(): pass")
+
+        # Mock client with symbol results
+        mock_client = MagicMock()
+        mock_client.workspace_symbol = AsyncMock(return_value=[
+            {
+                "name": "test_function",
+                "kind": 12,  # Function
+                "location": {
+                    "uri": f"file://{test_file}",
+                    "range": {
+                        "start": {"line": 0, "character": 4},
+                        "end": {"line": 0, "character": 17},
+                    },
+                },
+            },
+        ])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+        mock_manager._client_lock = asyncio.Lock()
+        mock_manager._clients = [mock_client]
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await workspace_symbol("test_function", str(test_file))
+
+        assert result["success"] is True
+        assert result["count"] == 1
+        assert len(result["symbols"]) == 1
+        assert result["symbols"][0]["name"] == "test_function"
+
+    @pytest.mark.asyncio
+    async def test_workspace_symbol_no_results(self, tmp_path):
+        """Test workspace_symbol with no results."""
+        from agent.tools.lsp import workspace_symbol
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("x = 1")
+
+        mock_client = MagicMock()
+        mock_client.workspace_symbol = AsyncMock(return_value=[])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await workspace_symbol("nonexistent", str(test_file))
+
+        assert result["success"] is True
+        assert result["count"] == 0
+        assert len(result["symbols"]) == 0
+
+
+# --- Go To Definition API Tests ---
+
+
+class TestGoToDefinitionAPI:
+    """Test go_to_definition public API function."""
+
+    @pytest.fixture(autouse=True)
+    def reset_manager(self):
+        """Reset manager singleton before each test."""
+        LSPManager.reset_instance()
+        yield
+        LSPManager.reset_instance()
+
+    @pytest.mark.asyncio
+    async def test_file_not_found(self):
+        """Test error when file doesn't exist."""
+        from agent.tools.lsp import go_to_definition
+
+        result = await go_to_definition("/nonexistent/path.py", 0, 0)
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unsupported_file_type(self, tmp_path):
+        """Test error for unsupported file types."""
+        from agent.tools.lsp import go_to_definition
+
+        test_file = tmp_path / "test.xyz"
+        test_file.write_text("content")
+
+        result = await go_to_definition(str(test_file), 0, 0)
+        assert result["success"] is False
+        assert "No LSP server available" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_go_to_definition_with_mock_client(self, tmp_path):
+        """Test go_to_definition with mocked client."""
+        from agent.tools.lsp import go_to_definition
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("x = 1")
+
+        # Mock client with definition result
+        mock_client = MagicMock()
+        mock_client.definition = AsyncMock(return_value=[
+            {
+                "uri": f"file://{test_file}",
+                "range": {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 0, "character": 1},
+                },
+            },
+        ])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await go_to_definition(str(test_file), 0, 0)
+
+        assert result["success"] is True
+        assert result["count"] == 1
+        assert len(result["definitions"]) == 1
+        # Check that file:// URI was stripped
+        assert not result["definitions"][0]["uri"].startswith("file://")
+
+    @pytest.mark.asyncio
+    async def test_go_to_definition_no_result(self, tmp_path):
+        """Test go_to_definition with no results."""
+        from agent.tools.lsp import go_to_definition
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("x = 1")
+
+        mock_client = MagicMock()
+        mock_client.definition = AsyncMock(return_value=[])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await go_to_definition(str(test_file), 0, 0)
+
+        assert result["success"] is True
+        assert result["count"] == 0
+        assert len(result["definitions"]) == 0
+
+
+# --- Find References API Tests ---
+
+
+class TestFindReferencesAPI:
+    """Test find_references public API function."""
+
+    @pytest.fixture(autouse=True)
+    def reset_manager(self):
+        """Reset manager singleton before each test."""
+        LSPManager.reset_instance()
+        yield
+        LSPManager.reset_instance()
+
+    @pytest.mark.asyncio
+    async def test_file_not_found(self):
+        """Test error when file doesn't exist."""
+        from agent.tools.lsp import find_references
+
+        result = await find_references("/nonexistent/path.py", 0, 0)
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unsupported_file_type(self, tmp_path):
+        """Test error for unsupported file types."""
+        from agent.tools.lsp import find_references
+
+        test_file = tmp_path / "test.xyz"
+        test_file.write_text("content")
+
+        result = await find_references(str(test_file), 0, 0)
+        assert result["success"] is False
+        assert "No LSP server available" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_find_references_with_mock_client(self, tmp_path):
+        """Test find_references with mocked client."""
+        from agent.tools.lsp import find_references
+
+        test_file = tmp_path / "test.py"
+        other_file = tmp_path / "other.py"
+        test_file.write_text("def foo(): pass")
+        other_file.write_text("from test import foo")
+
+        # Mock client with reference results
+        mock_client = MagicMock()
+        mock_client.references = AsyncMock(return_value=[
+            {
+                "uri": f"file://{test_file}",
+                "range": {
+                    "start": {"line": 0, "character": 4},
+                    "end": {"line": 0, "character": 7},
+                },
+            },
+            {
+                "uri": f"file://{other_file}",
+                "range": {
+                    "start": {"line": 0, "character": 17},
+                    "end": {"line": 0, "character": 20},
+                },
+            },
+        ])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await find_references(str(test_file), 0, 4, include_declaration=True)
+
+        assert result["success"] is True
+        assert result["count"] == 2
+        assert len(result["references"]) == 2
+        assert len(result["files"]) == 2
+        # Check that file:// URIs were stripped
+        for ref in result["references"]:
+            assert not ref["uri"].startswith("file://")
+
+    @pytest.mark.asyncio
+    async def test_find_references_no_result(self, tmp_path):
+        """Test find_references with no results."""
+        from agent.tools.lsp import find_references
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("x = 1")
+
+        mock_client = MagicMock()
+        mock_client.references = AsyncMock(return_value=[])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await find_references(str(test_file), 0, 0)
+
+        assert result["success"] is True
+        assert result["count"] == 0
+        assert len(result["references"]) == 0
+        assert len(result["files"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_find_references_exclude_declaration(self, tmp_path):
+        """Test find_references excluding declaration."""
+        from agent.tools.lsp import find_references
+
+        test_file = tmp_path / "test.py"
+        test_file.write_text("x = 1")
+
+        mock_client = MagicMock()
+        mock_client.references = AsyncMock(return_value=[])
+
+        mock_manager = MagicMock()
+        mock_manager.get_client = AsyncMock(return_value=mock_client)
+
+        with patch("agent.tools.lsp.get_lsp_manager", return_value=mock_manager):
+            result = await find_references(str(test_file), 0, 0, include_declaration=False)
+
+        assert result["success"] is True
+        # Verify the client was called with include_declaration=False
+        mock_client.references.assert_called_once_with(str(test_file), 0, 0, False)
+
+
+# --- LSP Client Definition and References Tests ---
+
+
+class TestLSPClientDefinitionAndReferences:
+    """Test LSPClient definition and references methods."""
+
+    @pytest.mark.asyncio
+    async def test_definition_method(self):
+        """Test LSPClient.definition method."""
+        from agent.tools.lsp import LSPClient, LSPConnection
+
+        mock_conn = MagicMock(spec=LSPConnection)
+        mock_conn.send_request = AsyncMock(return_value=[
+            {
+                "uri": "file:///test.py",
+                "range": {
+                    "start": {"line": 5, "character": 0},
+                    "end": {"line": 5, "character": 10},
+                },
+            },
+        ])
+
+        client = LSPClient("python", "/root", mock_conn)
+        client._open_files.add("/test.py")  # Pretend file is already open
+
+        result = await client.definition("/test.py", 0, 5)
+
+        assert len(result) == 1
+        assert result[0]["uri"] == "file:///test.py"
+        mock_conn.send_request.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_references_method(self):
+        """Test LSPClient.references method."""
+        from agent.tools.lsp import LSPClient, LSPConnection
+
+        mock_conn = MagicMock(spec=LSPConnection)
+        mock_conn.send_request = AsyncMock(return_value=[
+            {
+                "uri": "file:///test.py",
+                "range": {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 0, "character": 5},
+                },
+            },
+            {
+                "uri": "file:///other.py",
+                "range": {
+                    "start": {"line": 10, "character": 0},
+                    "end": {"line": 10, "character": 5},
+                },
+            },
+        ])
+
+        client = LSPClient("python", "/root", mock_conn)
+        client._open_files.add("/test.py")  # Pretend file is already open
+
+        result = await client.references("/test.py", 0, 0, include_declaration=True)
+
+        assert len(result) == 2
+        assert result[0]["uri"] == "file:///test.py"
+        assert result[1]["uri"] == "file:///other.py"
+        mock_conn.send_request.assert_called_once()
+        # Check the parameters passed
+        call_args = mock_conn.send_request.call_args
+        assert call_args[0][0] == "textDocument/references"
+        assert call_args[0][1]["context"]["includeDeclaration"] is True

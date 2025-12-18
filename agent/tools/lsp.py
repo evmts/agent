@@ -918,6 +918,89 @@ class LSPClient:
         # Both have name and kind fields
         return result if isinstance(result, list) else []
 
+    async def definition(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+    ) -> list[dict[str, Any]]:
+        """Go to definition of symbol at position.
+
+        Args:
+            file_path: Path to source file
+            line: 0-based line number
+            character: 0-based character offset
+
+        Returns:
+            List of location dicts with uri, range
+        """
+        # Ensure file is open
+        await self.open_file(file_path)
+
+        params = {
+            "textDocument": {
+                "uri": f"file://{file_path}",
+            },
+            "position": {
+                "line": line,
+                "character": character,
+            },
+        }
+
+        result = await self.connection.send_request("textDocument/definition", params)
+
+        if result is None:
+            return []
+
+        # Result can be Location, Location[], or LocationLink[]
+        if isinstance(result, dict):
+            return [result]
+        elif isinstance(result, list):
+            return result
+        return []
+
+    async def references(
+        self,
+        file_path: str,
+        line: int,
+        character: int,
+        include_declaration: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Find all references to symbol at position.
+
+        Args:
+            file_path: Path to source file
+            line: 0-based line number
+            character: 0-based character offset
+            include_declaration: Whether to include the declaration
+
+        Returns:
+            List of location dicts with uri, range
+        """
+        # Ensure file is open
+        await self.open_file(file_path)
+
+        params = {
+            "textDocument": {
+                "uri": f"file://{file_path}",
+            },
+            "position": {
+                "line": line,
+                "character": character,
+            },
+            "context": {
+                "includeDeclaration": include_declaration,
+            },
+        }
+
+        result = await self.connection.send_request("textDocument/references", params)
+
+        if result is None:
+            return []
+
+        # Result is Location[]
+        return result if isinstance(result, list) else []
+
     async def wait_for_diagnostics(
         self,
         file_path: str,
@@ -1480,6 +1563,262 @@ async def get_all_diagnostics_summary() -> dict[str, Any]:
             "total_errors": total_errors,
             "total_warnings": total_warnings,
             "file_count": len(all_diags),
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {e}",
+        }
+
+
+async def workspace_symbol(query: str, file_path: str | None = None) -> dict[str, Any]:
+    """Search for symbols across the workspace.
+
+    Args:
+        query: Search query string (symbol name or pattern)
+        file_path: Optional file path to determine workspace (uses first available client if None)
+
+    Returns:
+        dict with:
+            - success: bool
+            - symbols: list of dicts with name, kind, location, containerName
+            - count: int number of symbols found
+            - error: str error message if success=False
+    """
+    try:
+        manager = await get_lsp_manager()
+
+        # Get client
+        if file_path and os.path.isfile(file_path):
+            client = await manager.get_client(file_path)
+        else:
+            # Use first available client
+            async with manager._client_lock:
+                if not manager._clients:
+                    return {
+                        "success": False,
+                        "error": "No LSP clients available. Open a file first.",
+                    }
+                client = manager._clients[0]
+
+        if client is None:
+            return {
+                "success": False,
+                "error": "Failed to get LSP client",
+            }
+
+        # Search for symbols
+        symbols = await client.workspace_symbol(query)
+
+        return {
+            "success": True,
+            "symbols": symbols,
+            "count": len(symbols),
+        }
+
+    except LSPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {e}",
+        }
+
+
+async def go_to_definition(file_path: str, line: int, character: int) -> dict[str, Any]:
+    """Go to the definition of a symbol at the given position.
+
+    Args:
+        file_path: Absolute path to the source file
+        line: 0-based line number
+        character: 0-based character offset within the line
+
+    Returns:
+        dict with:
+            - success: bool
+            - definitions: list of dicts with uri (file path) and range
+            - count: int number of definitions found
+            - error: str error message if success=False
+    """
+    # Validate file exists
+    if not os.path.isfile(file_path):
+        return {
+            "success": False,
+            "error": f"File not found: {file_path}",
+        }
+
+    # Check if we have a server for this file type
+    server_info = get_server_for_file(file_path)
+    if server_info is None:
+        ext = Path(file_path).suffix
+        supported = ", ".join(
+            ext for config in LSP_SERVERS.values() for ext in config["extensions"]
+        )
+        return {
+            "success": False,
+            "error": f"No LSP server available for '{ext}' files. Supported: {supported}",
+        }
+
+    try:
+        manager = await get_lsp_manager()
+        client = await manager.get_client(file_path)
+
+        if client is None:
+            return {
+                "success": False,
+                "error": "Failed to get LSP client",
+            }
+
+        # Get definitions
+        definitions = await client.definition(file_path, line, character)
+
+        # Convert file:// URIs to paths
+        for defn in definitions:
+            if "uri" in defn and defn["uri"].startswith("file://"):
+                defn["uri"] = defn["uri"][7:]
+
+        return {
+            "success": True,
+            "definitions": definitions,
+            "count": len(definitions),
+        }
+
+    except LSPServerNotFoundError as e:
+        server_id = server_info[0]
+        install_hints = {
+            "python": "pip install python-lsp-server",
+            "typescript": "npm install -g typescript-language-server typescript",
+            "go": "go install golang.org/x/tools/gopls@latest",
+            "rust": "rustup component add rust-analyzer",
+        }
+        hint = install_hints.get(server_id, "")
+        error_msg = str(e)
+        if hint:
+            error_msg += f" Install with: {hint}"
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+    except LSPTimeoutError as e:
+        return {
+            "success": False,
+            "error": f"LSP request timed out: {e}",
+        }
+
+    except LSPError as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {e}",
+        }
+
+
+async def find_references(
+    file_path: str,
+    line: int,
+    character: int,
+    include_declaration: bool = True,
+) -> dict[str, Any]:
+    """Find all references to a symbol at the given position.
+
+    Args:
+        file_path: Absolute path to the source file
+        line: 0-based line number
+        character: 0-based character offset within the line
+        include_declaration: Whether to include the symbol's declaration
+
+    Returns:
+        dict with:
+            - success: bool
+            - references: list of dicts with uri (file path) and range
+            - count: int number of references found
+            - files: list of unique file paths containing references
+            - error: str error message if success=False
+    """
+    # Validate file exists
+    if not os.path.isfile(file_path):
+        return {
+            "success": False,
+            "error": f"File not found: {file_path}",
+        }
+
+    # Check if we have a server for this file type
+    server_info = get_server_for_file(file_path)
+    if server_info is None:
+        ext = Path(file_path).suffix
+        supported = ", ".join(
+            ext for config in LSP_SERVERS.values() for ext in config["extensions"]
+        )
+        return {
+            "success": False,
+            "error": f"No LSP server available for '{ext}' files. Supported: {supported}",
+        }
+
+    try:
+        manager = await get_lsp_manager()
+        client = await manager.get_client(file_path)
+
+        if client is None:
+            return {
+                "success": False,
+                "error": "Failed to get LSP client",
+            }
+
+        # Get references
+        references = await client.references(file_path, line, character, include_declaration)
+
+        # Convert file:// URIs to paths and collect unique files
+        unique_files = set()
+        for ref in references:
+            if "uri" in ref and ref["uri"].startswith("file://"):
+                ref["uri"] = ref["uri"][7:]
+                unique_files.add(ref["uri"])
+
+        return {
+            "success": True,
+            "references": references,
+            "count": len(references),
+            "files": sorted(list(unique_files)),
+        }
+
+    except LSPServerNotFoundError as e:
+        server_id = server_info[0]
+        install_hints = {
+            "python": "pip install python-lsp-server",
+            "typescript": "npm install -g typescript-language-server typescript",
+            "go": "go install golang.org/x/tools/gopls@latest",
+            "rust": "rustup component add rust-analyzer",
+        }
+        hint = install_hints.get(server_id, "")
+        error_msg = str(e)
+        if hint:
+            error_msg += f" Install with: {hint}"
+        return {
+            "success": False,
+            "error": error_msg,
+        }
+
+    except LSPTimeoutError as e:
+        return {
+            "success": False,
+            "error": f"LSP request timed out: {e}",
+        }
+
+    except LSPError as e:
+        return {
+            "success": False,
+            "error": str(e),
         }
 
     except Exception as e:
