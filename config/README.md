@@ -33,7 +33,10 @@ The system looks for configuration files in the following order (later files ove
   "theme": "default",    // UI theme name
   "keybindings": {},     // Custom keybindings
   "mcp": {},            // MCP server configurations
-  "experimental": {}     // Experimental features
+  "experimental": {},    // Experimental features
+  "model": "",           // Override default model for active provider
+  "model_provider": "anthropic",  // Active model provider ID
+  "model_providers": {}  // Custom model provider configurations
 }
 ```
 
@@ -121,6 +124,58 @@ Configure MCP (Model Context Protocol) servers:
 }
 ```
 
+### Model Provider Configuration
+
+Configure custom model providers to use alternative APIs including local models:
+
+```jsonc
+{
+  "model_provider": "anthropic",  // Active provider ID
+  "model": "claude-opus-4-5-20251101",  // Override default model for active provider
+  "model_providers": {
+    "azure": {
+      "name": "Azure OpenAI",
+      "base_url": "https://my-deployment.openai.azure.com",
+      "env_key": "AZURE_OPENAI_API_KEY",
+      "default_model": "gpt-4o",
+      "http_headers": {
+        "api-version": "2024-02-01"
+      }
+    },
+    "custom": {
+      "name": "My Custom Provider",
+      "base_url": "http://localhost:8080/v1",
+      "env_key": "CUSTOM_API_KEY",
+      "default_model": "custom-model"
+    }
+  }
+}
+```
+
+**Built-in Providers:**
+- `anthropic` (default) - Anthropic Claude API
+- `openai` - OpenAI API
+- `ollama` - Local Ollama server (http://localhost:11434/v1)
+- `lmstudio` - LM Studio local server (http://localhost:1234/v1)
+
+**Custom Provider Fields:**
+- `name` (string): Human-readable provider name
+- `base_url` (string): Base URL for API requests
+- `env_key` (string, optional): Environment variable name for API key. Set to `null` for local providers that don't require authentication
+- `default_model` (string): Default model ID for this provider
+- `http_headers` (object, optional): Additional HTTP headers to include in requests
+
+**Example: Using Ollama Locally**
+
+```jsonc
+{
+  "model_provider": "ollama",
+  "model": "llama3.2"
+}
+```
+
+No API key needed for Ollama since it's a local provider.
+
 ### Experimental Features
 
 Enable experimental features:
@@ -178,6 +233,33 @@ from agent.registry import list_agent_names, get_agent_config
 for name in list_agent_names():
     config = get_agent_config(name)
     print(f"{name}: {config.description}")
+```
+
+### Using Model Providers
+
+```python
+from config import get_config
+from config.providers import provider_registry
+
+# Load configuration
+config = get_config()
+
+# Get the active provider
+provider = provider_registry.get_active_provider(config.model_dump())
+print(f"Using provider: {provider.name}")
+print(f"Base URL: {provider.base_url}")
+print(f"Default model: {provider.default_model}")
+
+# List all available providers
+for provider in provider_registry.list_providers():
+    print(f"{provider.id}: {provider.name} ({provider.base_url})")
+
+# Get a specific provider
+ollama = provider_registry.get("ollama")
+if ollama:
+    print(f"Ollama is local: {ollama.is_local()}")
+    client_kwargs = ollama.get_client_kwargs()
+    print(f"Client kwargs: {client_kwargs}")
 ```
 
 ## Built-in Agents

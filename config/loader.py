@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .main_config import Config
+from .providers import provider_registry
 
 
 def strip_jsonc_comments(content: str) -> str:
@@ -115,7 +116,13 @@ def load_config(project_root: Path | None = None) -> Config:
             break
 
     # Create and validate Config model
-    return Config(**config_data)
+    config = Config(**config_data)
+
+    # Load custom providers into the global registry
+    if config.model_providers:
+        provider_registry.load_from_config(config.model_dump())
+
+    return config
 
 
 def get_working_directory() -> str:

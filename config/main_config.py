@@ -1,5 +1,6 @@
 """Main Config model."""
 
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 from .agent_config import AgentConfig
@@ -39,4 +40,16 @@ class Config(BaseModel):
     experimental: ExperimentalConfig = Field(
         default_factory=ExperimentalConfig,
         description="Experimental features flags",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Override default model for the active provider",
+    )
+    model_provider: str = Field(
+        default="anthropic",
+        description="Active model provider ID (anthropic, openai, ollama, etc.)",
+    )
+    model_providers: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Custom model provider configurations",
     )
