@@ -4,7 +4,7 @@ Route registration for the OpenCode API.
 
 from fastapi import FastAPI
 
-from . import agents, app as app_routes, commands, config, events, health, mcp, messages, models, permissions, project, review, sessions, skills, tools
+from . import agents, app as app_routes, commands, config, events, features, health, mcp, messages, models, permissions, project, review, sessions, skills, tools
 
 
 def register_routes(app: FastAPI) -> None:
@@ -14,6 +14,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(commands.router)
     app.include_router(config.router)
     app.include_router(events.router)
+    app.include_router(features.router)
     app.include_router(health.router)
     app.include_router(mcp.router)
     app.include_router(models.router)
