@@ -116,6 +116,10 @@ type model struct {
 	fileSearchSelection int
 	fileIndex           *FileIndex
 	imageAttachments    []imageAttachment // Images to send with message
+	// Input history
+	inputHistory      []string // History of sent messages
+	historyIndex      int      // Current position in history (-1 = not browsing)
+	savedInput        string   // Saved current input when browsing history
 }
 
 // Bubbletea message types
@@ -183,6 +187,9 @@ func initialModel(client *agent.Client, project *agent.Project, cwd, version str
 		showFileSearch:        false,
 		fileSearchResults:     []FileMatch{},
 		fileSearchSelection:   0,
+		inputHistory:          []string{},
+		historyIndex:          -1,
+		savedInput:            "",
 	}
 
 	if initialPrompt != nil && *initialPrompt != "" {
@@ -714,6 +721,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			userMsg := message{role: "user", content: m.input}
 			m.messages = append(m.messages, userMsg)
 			input := m.input
+			// Add to history (avoid duplicates of last entry)
+			if len(m.inputHistory) == 0 || m.inputHistory[len(m.inputHistory)-1] != input {
+				m.inputHistory = append(m.inputHistory, input)
+			}
+			m.historyIndex = -1 // Reset history navigation
+			m.savedInput = ""
 			m.input = ""
 			m.waiting = true
 			m.streamingText = ""
@@ -764,6 +777,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.autocompleteSelection < 0 {
 					m.autocompleteSelection = len(m.autocompleteOptions) - 1
 				}
+			} else if len(m.inputHistory) > 0 {
+				// Navigate input history
+				if m.historyIndex == -1 {
+					// Starting to browse history - save current input
+					m.savedInput = m.input
+					m.historyIndex = len(m.inputHistory) - 1
+				} else if m.historyIndex > 0 {
+					m.historyIndex--
+				}
+				m.input = m.inputHistory[m.historyIndex]
 			} else if m.viewportReady {
 				// Scroll up
 				m.viewport.LineUp(1)
@@ -780,6 +803,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.autocompleteSelection++
 				if m.autocompleteSelection >= len(m.autocompleteOptions) {
 					m.autocompleteSelection = 0
+				}
+			} else if m.historyIndex >= 0 {
+				// Navigate input history forward
+				if m.historyIndex < len(m.inputHistory)-1 {
+					m.historyIndex++
+					m.input = m.inputHistory[m.historyIndex]
+				} else {
+					// Reached end of history - restore saved input
+					m.historyIndex = -1
+					m.input = m.savedInput
 				}
 			} else if m.viewportReady {
 				// Scroll down
@@ -821,17 +854,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = m.input[:len(m.input)-1]
 				m.updateAutocomplete()
 				m.detectFileSearch()
+				m.historyIndex = -1 // Reset history navigation on edit
 			}
 
 		case tea.KeySpace:
 			m.input += " "
 			m.showAutocomplete = false
 			m.detectFileSearch()
+			m.historyIndex = -1 // Reset history navigation on edit
 
 		case tea.KeyRunes:
 			m.input += string(msg.Runes)
 			m.updateAutocomplete()
 			m.detectFileSearch()
+			m.historyIndex = -1 // Reset history navigation on edit
 		}
 
 	case spinnerTickMsg:
@@ -1050,9 +1086,20 @@ func (m model) getModelName() string {
 	return "Loading..."
 }
 
+// wrapText wraps text to fit within the given width
+func wrapText(text string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	return lipgloss.NewStyle().Width(width).Render(text)
+}
+
 // buildMessageContent builds the chat content for the viewport
 func (m model) buildMessageContent() string {
 	var s strings.Builder
+
+	// Add top margin
+	s.WriteString("\n")
 
 	// Display logo header when no messages
 	if len(m.messages) == 0 {
@@ -1070,30 +1117,36 @@ func (m model) buildMessageContent() string {
 	}
 
 	// Chat history
+	// Calculate wrap width (leave some margin for prefixes)
+	wrapWidth := m.width - 4
+	if wrapWidth <= 0 {
+		wrapWidth = 76
+	}
+
 	for _, msg := range m.messages {
 		if msg.role == "user" {
-			s.WriteString(promptStyle.Render("> ") + msg.content + "\n\n")
+			s.WriteString(promptStyle.Render("> ") + wrapText(msg.content, wrapWidth-2) + "\n\n")
 		} else if msg.role == "system" {
-			s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(msg.content) + "\n\n")
+			s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(wrapText(msg.content, wrapWidth)) + "\n\n")
 		} else if msg.isToolUse {
 			toolStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-			s.WriteString(toolStyle.Render("🔧 ") + msg.content + "\n")
+			s.WriteString(toolStyle.Render("🔧 ") + wrapText(msg.content, wrapWidth-3) + "\n")
 		} else if msg.isToolResult {
 			resultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 			content := msg.content
 			if len(content) > 200 {
 				content = content[:200] + "..."
 			}
-			s.WriteString(resultStyle.Render("  └─ ") + content + "\n\n")
+			s.WriteString(resultStyle.Render("  └─ ") + wrapText(content, wrapWidth-5) + "\n\n")
 		} else {
-			s.WriteString(responseStyle.Render("⏺ ") + msg.content + "\n\n")
+			s.WriteString(responseStyle.Render("⏺ ") + wrapText(msg.content, wrapWidth-2) + "\n\n")
 		}
 	}
 
 	// Streaming text with spinner
 	if m.streamingText != "" {
 		spinner := spinnerFrames[m.spinnerFrame]
-		s.WriteString(responseStyle.Render(spinner+" ") + m.streamingText + "\n\n")
+		s.WriteString(responseStyle.Render(spinner+" ") + wrapText(m.streamingText, wrapWidth-2) + "\n\n")
 	}
 
 	// Waiting indicator with animated spinner
@@ -1139,10 +1192,20 @@ func (m model) View() string {
 		return s.String()
 	}
 
-	// Build message content and render through viewport
-	if m.viewportReady {
+	// Build message content
+	content := m.buildMessageContent()
+	contentLines := strings.Count(content, "\n")
+
+	// Calculate available space for content (total height minus input area)
+	inputAreaHeight := 6
+	availableHeight := m.height - inputAreaHeight
+	if availableHeight < 1 {
+		availableHeight = 1
+	}
+
+	// Use viewport only when content exceeds available space
+	if m.viewportReady && contentLines > availableHeight {
 		// Set content and auto-scroll if needed
-		content := m.buildMessageContent()
 		m.viewport.SetContent(content)
 		if m.autoScroll {
 			m.viewport.GotoBottom()
@@ -1150,8 +1213,8 @@ func (m model) View() string {
 		s.WriteString(m.viewport.View())
 		s.WriteString("\n")
 	} else {
-		// Fallback if viewport not ready - render content directly
-		s.WriteString(m.buildMessageContent())
+		// Content fits - render directly without viewport padding
+		s.WriteString(content)
 	}
 
 	// Input area
