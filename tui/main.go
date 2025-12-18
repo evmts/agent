@@ -102,6 +102,7 @@ type model struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	streamingText         string
+	streamingReasoning    string
 	spinnerFrame          int
 	program               *tea.Program
 	seenToolIDs           map[string]bool // Track tools we've displayed
@@ -120,6 +121,8 @@ type model struct {
 	inputHistory      []string // History of sent messages
 	historyIndex      int      // Current position in history (-1 = not browsing)
 	savedInput        string   // Saved current input when browsing history
+	// Mouse mode
+	mouseEnabled      bool     // Whether mouse capture is enabled (for text selection toggle)
 }
 
 // Bubbletea message types
@@ -190,6 +193,7 @@ func initialModel(client *agent.Client, project *agent.Project, cwd, version str
 		inputHistory:          []string{},
 		historyIndex:          -1,
 		savedInput:            "",
+		mouseEnabled:          true, // Mouse enabled by default for scroll
 	}
 
 	if initialPrompt != nil && *initialPrompt != "" {
@@ -639,6 +643,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Handle Ctrl+V for image paste
 			return m, m.handleImagePaste()
 
+		case tea.KeyCtrlS:
+			// Toggle mouse mode for text selection
+			m.mouseEnabled = !m.mouseEnabled
+			if m.mouseEnabled {
+				return m, tea.EnableMouseCellMotion
+			}
+			return m, tea.DisableMouse
+
 		case tea.KeyEsc:
 			if m.showFileSearch {
 				m.showFileSearch = false
@@ -684,7 +696,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "/help":
 				m.messages = append(m.messages, message{
 					role:    "system",
-					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /help",
+					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /help\n\nKeybindings: ctrl+s (toggle text selection mode), ctrl+v (paste image), shift+tab (cycle modes)",
 				})
 				m.input = ""
 				return m, nil
@@ -730,6 +742,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input = ""
 			m.waiting = true
 			m.streamingText = ""
+			m.streamingReasoning = ""
 			m.spinnerFrame = 0
 			m.seenToolIDs = make(map[string]bool)
 			m.err = nil // Clear previous errors
@@ -926,6 +939,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
 			m.streamingText = ""
 		}
+		m.streamingReasoning = ""
 
 	case toolUseMsg:
 		m.messages = append(m.messages, message{
@@ -991,6 +1005,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
 			m.streamingText = ""
 		}
+		m.streamingReasoning = ""
 		m.seenToolIDs = make(map[string]bool)
 		// Clean up temp image files
 		m.cleanupImageAttachments()
@@ -1001,6 +1016,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.waiting = false
 			m.err = fmt.Errorf("request timed out after %v", streamTimeout)
 			m.streamingText = ""
+			m.streamingReasoning = ""
 		}
 
 	case tea.WindowSizeMsg:
@@ -1026,10 +1042,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Height = viewportHeight
 		}
 
+	case tea.MouseMsg:
+		// Handle mouse wheel scrolling
+		if m.viewportReady {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.viewport.LineUp(3)
+				m.autoScroll = false
+			case tea.MouseButtonWheelDown:
+				m.viewport.LineDown(3)
+				if m.viewport.AtBottom() {
+					m.autoScroll = true
+				}
+			}
+		}
+
 	// Handle global events from SSE stream
 	case *agent.GlobalEvent:
 		if msg.Part != nil {
 			switch msg.Part.Type {
+			case "reasoning":
+				// Update streaming reasoning/thinking text
+				m.streamingReasoning = msg.Part.Text
 			case "text":
 				// Update streaming text
 				m.streamingText = msg.Part.Text
@@ -1066,6 +1100,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.messages = append(m.messages, message{role: "assistant", content: m.streamingText})
 				m.streamingText = ""
 			}
+			// Clear reasoning when done (we don't persist it in messages)
+			m.streamingReasoning = ""
 			// Reset seen tools for next message
 			m.seenToolIDs = make(map[string]bool)
 		}
@@ -1143,14 +1179,21 @@ func (m model) buildMessageContent() string {
 		}
 	}
 
+	// Streaming reasoning (thinking) with gray text
+	if m.streamingReasoning != "" {
+		thinkingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")) // Gray
+		spinner := spinnerFrames[m.spinnerFrame]
+		s.WriteString(thinkingStyle.Render(spinner+" Thinking...\n") + thinkingStyle.Render(wrapText(m.streamingReasoning, wrapWidth-2)) + "\n\n")
+	}
+
 	// Streaming text with spinner
 	if m.streamingText != "" {
 		spinner := spinnerFrames[m.spinnerFrame]
 		s.WriteString(responseStyle.Render(spinner+" ") + wrapText(m.streamingText, wrapWidth-2) + "\n\n")
 	}
 
-	// Waiting indicator with animated spinner
-	if m.waiting && m.streamingText == "" {
+	// Waiting indicator with animated spinner (only when not showing reasoning or text)
+	if m.waiting && m.streamingText == "" && m.streamingReasoning == "" {
 		spinner := spinnerFrames[m.spinnerFrame]
 		s.WriteString(responseStyle.Render(spinner+" Thinking...") + "\n\n")
 	}
@@ -1306,7 +1349,15 @@ func (m model) View() string {
 		scrollInfo = " (↑↓ to scroll)"
 	}
 
-	s.WriteString(statusStyle.Render("  ⏵⏵ ") + modeStyle.Render(modeText) + statusStyle.Render(scrollInfo) + "\n")
+	// Mouse mode indicator
+	mouseInfo := ""
+	if m.mouseEnabled {
+		mouseInfo = " · ctrl+s: select text"
+	} else {
+		mouseInfo = " · " + lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("SELECT MODE") + " (ctrl+s to exit)"
+	}
+
+	s.WriteString(statusStyle.Render("  ⏵⏵ ") + modeStyle.Render(modeText) + statusStyle.Render(scrollInfo) + statusStyle.Render(mouseInfo) + "\n")
 	s.WriteString(statusStyle.Render("  (shift+tab to cycle modes)") + "\n")
 
 	return s.String()
@@ -1651,8 +1702,9 @@ func main() {
 	// Create model
 	m := initialModel(client, project, cwd, version, prompt)
 
-	// Create program
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Create program with mouse support for scrolling
+	// Note: Use Shift+click to select text when mouse mode is enabled
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Send program pointer to model immediately after creation
 	go func() {
