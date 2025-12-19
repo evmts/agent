@@ -3,6 +3,7 @@
  */
 
 import { Hono } from 'hono';
+import { requireAuth, requireActiveAccount } from '../middleware/auth';
 import {
   createSession,
   getSession,
@@ -20,6 +21,9 @@ import { NotFoundError, InvalidOperationError } from '../../core/exceptions';
 import { getServerEventBus } from '../event-bus';
 
 const app = new Hono();
+
+// Apply authentication to all session routes
+app.use('*', requireAuth, requireActiveAccount);
 
 // List all sessions
 app.get('/', async (c) => {

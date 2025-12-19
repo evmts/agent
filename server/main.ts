@@ -6,11 +6,15 @@
 
 import app from './index';
 import { isPtyWebSocketRequest, createPtyWebSocketHandler } from './routes/pty';
+import { startSessionCleanup } from './lib/session';
 
 const port = Number(process.env.PORT) || 4000;
 const hostname = process.env.HOST || '0.0.0.0';
 
 console.log(`Starting API server on ${hostname}:${port}`);
+
+// Start session cleanup background job
+startSessionCleanup();
 
 const ptyWsHandler = createPtyWebSocketHandler();
 
@@ -47,3 +51,14 @@ const _server = Bun.serve<{ ptyId: string }>({
 });
 
 console.log(`API server running at http://${hostname}:${port}`);
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('Shutting down server...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Shutting down server...');
+  process.exit(0);
+});

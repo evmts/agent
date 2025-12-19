@@ -5,6 +5,9 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { authMiddleware } from './middleware/auth';
+import authRoutes from './routes/auth';
+import usersRoutes from './routes/users';
 import routes from './routes';
 
 export { ServerEventBus, getServerEventBus, setServerEventBus } from './event-bus';
@@ -32,6 +35,9 @@ app.use('*', cors({
   credentials: true,
 }));
 
+// Apply auth middleware globally (before routes)
+app.use('*', authMiddleware);
+
 // ElectricSQL Shape API proxy
 // This endpoint proxies shape requests to Electric for real-time sync
 app.get('/shape', async (c) => {
@@ -56,7 +62,11 @@ app.get('/shape', async (c) => {
   });
 });
 
-// Mount routes
+// Mount API routes under /api prefix  
+app.route('/api/auth', authRoutes);
+app.route('/api/users', usersRoutes);
+
+// Mount existing routes
 app.route('/', routes);
 
 // Error handling
