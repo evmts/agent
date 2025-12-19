@@ -5,8 +5,8 @@
  * to prevent path traversal and ensure files stay within working directory.
  */
 
-import { join, resolve, relative, dirname } from 'path';
-import { stat, mkdir } from 'fs/promises';
+import { resolve, relative, } from 'node:path';
+import { stat, mkdir } from 'node:fs/promises';
 
 // Error messages
 export const ERROR_FILE_NOT_FOUND = 'file not found: {}';
@@ -102,7 +102,7 @@ export function truncateLongLines(text: string, maxLineLength: number = 2000): s
     .split('\n')
     .map((line) => {
       if (line.length > maxLineLength) {
-        return line.slice(0, maxLineLength) + '... [truncated]';
+        return `${line.slice(0, maxLineLength)}... [truncated]`;
       }
       return line;
     })

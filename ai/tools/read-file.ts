@@ -4,8 +4,8 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { resolveAndValidatePath, truncateLongLines, fileExists } from './filesystem';
-import { getFileTracker, updateFileTracker } from '../../core/state';
+import { resolveAndValidatePath, fileExists } from './filesystem';
+import { updateFileTracker } from '../../core/state';
 
 // Constants
 const DEFAULT_READ_LIMIT = 2000; // lines
@@ -59,7 +59,7 @@ async function readFileImpl(
     // Truncate long lines
     selectedLines = selectedLines.map((line) => {
       if (line.length > MAX_LINE_LENGTH) {
-        return line.slice(0, MAX_LINE_LENGTH) + '... [truncated]';
+        return `${line.slice(0, MAX_LINE_LENGTH)}... [truncated]`;
       }
       return line;
     });

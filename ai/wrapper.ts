@@ -13,6 +13,7 @@ export interface StreamOptions {
   modelId?: string;
   agentName?: string;
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  abortSignal?: AbortSignal;
 }
 
 export interface WrapperOptions {
@@ -68,6 +69,7 @@ export class AgentWrapper {
       modelId: options.modelId ?? this.defaultModel,
       agentName: options.agentName ?? this.defaultAgentName,
       workingDir: this.workingDir,
+      abortSignal: options.abortSignal,
     };
 
     // Collect assistant response for history

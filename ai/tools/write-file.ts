@@ -4,7 +4,7 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { dirname } from 'path';
+import { dirname } from 'node:path';
 import { resolveAndValidatePath, ensureDir, fileExists } from './filesystem';
 import { getFileTracker, updateFileTracker } from '../../core/state';
 

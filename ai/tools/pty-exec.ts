@@ -7,21 +7,21 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { getPtyManager, type ProcessStatus, type SessionInfo } from './pty-manager';
+import { getPtyManager, type SessionInfo } from './pty-manager';
 
 // Constants
 const DEFAULT_YIELD_TIME_MS = 100;
 const DEFAULT_MAX_OUTPUT_TOKENS = 10000;
 const MAX_OUTPUT_CHARS = 50000;
 
-function estimateTokens(text: string): number {
+function _estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
 function truncateOutput(text: string, maxTokens: number): [string, boolean] {
   const maxChars = maxTokens * 4;
   if (text.length > maxChars) {
-    return [text.slice(0, maxChars) + '\n[Output truncated]', true];
+    return [`${text.slice(0, maxChars)}\n[Output truncated]`, true];
   }
   return [text, false];
 }

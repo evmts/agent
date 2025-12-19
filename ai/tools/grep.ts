@@ -9,7 +9,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 
 // Constants
-const DEFAULT_TIMEOUT_MS = 30000;
+const _DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_HEAD_LIMIT = 0; // 0 = unlimited
 
 interface GrepMatch {

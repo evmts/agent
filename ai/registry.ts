@@ -41,7 +41,7 @@ const buildAgent: AgentConfig = {
   name: 'build',
   description: 'Primary agent with full tool access for development tasks',
   mode: 'primary',
-  systemPrompt: SYSTEM_PROMPT_PREFIX + `
+  systemPrompt: `${SYSTEM_PROMPT_PREFIX}
 You are the primary development agent. You have full access to all tools
 and can read, write, and modify files as needed to complete tasks.
 `,
@@ -61,7 +61,7 @@ const generalAgent: AgentConfig = {
   name: 'general',
   description: 'Subagent for parallel task execution',
   mode: 'subagent',
-  systemPrompt: SYSTEM_PROMPT_PREFIX + `
+  systemPrompt: `${SYSTEM_PROMPT_PREFIX}
 You are a general-purpose subagent executing a specific task.
 Focus on completing your assigned objective efficiently.
 `,
@@ -81,7 +81,7 @@ const exploreAgent: AgentConfig = {
   name: 'explore',
   description: 'Read-only agent for fast codebase exploration',
   mode: 'subagent',
-  systemPrompt: SYSTEM_PROMPT_PREFIX + `
+  systemPrompt: `${SYSTEM_PROMPT_PREFIX}
 You are an exploration agent focused on searching and understanding code.
 You can only read files and search - you cannot modify anything.
 Be thorough but efficient in your search.
@@ -110,7 +110,7 @@ const planAgent: AgentConfig = {
   name: 'plan',
   description: 'Analysis and planning agent (read-only)',
   mode: 'subagent',
-  systemPrompt: SYSTEM_PROMPT_PREFIX + `
+  systemPrompt: `${SYSTEM_PROMPT_PREFIX}
 You are a planning agent. Analyze the codebase and create implementation plans.
 You can read files and search but cannot modify anything.
 Focus on understanding architecture and proposing clear, actionable plans.

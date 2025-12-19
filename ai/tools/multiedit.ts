@@ -13,7 +13,7 @@ import { getFileTracker, updateFileTracker } from '../../core/state';
 
 // Error messages
 const ERROR_FILE_PATH_REQUIRED = 'file_path parameter is required';
-const ERROR_EDITS_REQUIRED = 'edits parameter is required and must be an array';
+const _ERROR_EDITS_REQUIRED = 'edits parameter is required and must be an array';
 const ERROR_EDITS_EMPTY = 'edits array cannot be empty';
 const ERROR_EDIT_INVALID = 'edit at index {} is not a valid object';
 const ERROR_EDIT_MISSING_OLD = 'edit at index {} is missing old_string';

@@ -7,6 +7,7 @@ export {
   streamAgent,
   runAgent,
   runAgentSync,
+  persistedStreamAgent,
   type AgentOptions,
   type StreamEvent,
 } from './agent';

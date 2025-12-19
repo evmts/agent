@@ -40,6 +40,15 @@ export {
   truncateLongLines,
 } from './filesystem';
 
+// Re-export tool call tracker
+export {
+  ToolCallTracker,
+  getToolCallTracker,
+  setToolCallTracker,
+  type ToolCall,
+  type DuplicateCheck,
+} from './tracker';
+
 // Import all tools for aggregation
 import { grepTool } from './grep';
 import { readFileTool } from './read-file';
