@@ -1,230 +1,64 @@
-# Plue vs Gitea Feature Gap Analysis
+# Plue MVP Feature List
 
-## Current State
+Based on Gitea feature analysis. Implementation prompts in `docs/prompts/`.
 
-**Plue** is a "brutalist GitHub clone" with AI agent integration focused on:
-- Basic repository browsing (file tree, commits, file viewer)
-- Basic issue tracking (list, create, comment, close/reopen)
-- AI agent system with 9 tools for autonomous development
-- Real-time PTY terminal sessions
+## MVP Features (15 total)
 
-**Gitea** is a full-featured self-hosted Git forge with enterprise capabilities.
-
----
-
-## Missing Features (Organized by Priority)
-
-### 🔴 Critical (Core Git Forge Functionality)
-
-#### 1. Authentication & Authorization
-- [ ] User registration/login system
-- [ ] Session management with cookies/JWT
-- [ ] OAuth2/SSO integration (GitHub, Google, etc.)
-- [ ] API token management with scopes
-- [ ] SSH key management for git operations
-- [ ] Password reset/recovery
-- [ ] Email verification
-
-#### 2. Pull Requests
-- [ ] PR creation from branch comparisons
-- [ ] PR listing and filtering
-- [ ] Diff viewer for PRs
-- [ ] Merge operations (merge, squash, rebase, fast-forward)
-- [ ] PR status (open, merged, closed, draft)
-- [ ] Merge conflict detection
-- [ ] Target branch selection
-
-#### 3. Branch Management (via UI)
-- [ ] Create branch from web UI
-- [ ] Delete branch from web UI
-- [ ] Branch listing page
-- [ ] Branch protection rules
-- [ ] Default branch configuration
-
-#### 4. Repository Settings
-- [ ] Repository settings page
-- [ ] Visibility toggle (public/private)
-- [ ] Repository deletion
-- [ ] Repository transfer
-- [ ] Collaborator management
-
----
-
-### 🟠 Important (Expected Features)
-
-#### 5. Code Review
-- [ ] PR review workflow (approve, request changes, comment)
-- [ ] Inline code comments on diffs
-- [ ] Review threads and resolution
-- [ ] Required reviewers
-
-#### 6. Labels & Milestones
-- [ ] Label CRUD (create, edit, delete)
-- [ ] Label assignment to issues
-- [ ] Milestone CRUD
-- [ ] Milestone assignment
-- [ ] Milestone progress tracking
-
-#### 7. Issue Enhancements
-- [ ] Issue templates
-- [ ] Issue reactions (emoji)
-- [ ] Issue assignees (multiple)
-- [ ] Issue dependencies (blocks/blocked by)
-- [ ] Issue locking
-- [ ] Issue pinning
-
-#### 8. Tags & Releases
-- [ ] Tag listing page
-- [ ] Release creation with notes
-- [ ] Release asset uploads
-- [ ] Release downloads
-- [ ] Changelog generation
-
-#### 9. File Operations (via UI)
-- [ ] Create new file
-- [ ] Edit file inline
-- [ ] Delete file
-- [ ] Upload files
-- [ ] Raw file download
-- [ ] Archive download (zip/tar.gz)
-
-#### 10. Search
-- [ ] Global search bar
-- [ ] Repository search
-- [ ] Issue search with filters
-- [ ] Code search
-- [ ] User search
-
----
-
-### 🟡 Nice to Have (Enhanced Experience)
-
-#### 11. Activity & Notifications
-- [ ] Activity feed (home dashboard)
-- [ ] User activity/contribution graph
-- [ ] Repository activity feed
-- [ ] Notification system (in-app)
-- [ ] Email notifications
-- [ ] Watch/unwatch repositories
-
-#### 12. Organizations & Teams
-- [ ] Organization creation
-- [ ] Organization profile page
-- [ ] Team management
-- [ ] Team-based permissions
-- [ ] Organization settings
-
-#### 13. Repository Enhancements
-- [ ] Repository forking
-- [ ] Repository starring
-- [ ] Repository topics/tags
-- [ ] Language statistics bar
-- [ ] License detection
-- [ ] README rendering improvements
-- [ ] .gitignore templates
-- [ ] Repository templates
-
-#### 14. Code Navigation
-- [ ] Blame view
-- [ ] Git graph visualization
-- [ ] Commit comparison
-- [ ] File history
-- [ ] Jump to definition (with LSP)
-
-#### 15. Webhooks
-- [ ] Webhook CRUD
-- [ ] Event type selection
-- [ ] Webhook delivery history
-- [ ] Webhook testing
-
----
-
-### 🟢 Advanced (Enterprise/Power User)
-
-#### 16. CI/CD (Actions)
-- [ ] Workflow YAML support
-- [ ] Workflow execution
-- [ ] Job/step visualization
-- [ ] Runner management
-- [ ] Secrets management
-- [ ] Artifacts
-- [ ] Status checks for PRs
-
-#### 17. Wiki
-- [ ] Wiki page CRUD
-- [ ] Wiki navigation/sidebar
-- [ ] Wiki search
-- [ ] Wiki history
-
-#### 18. Security Features
-- [ ] Two-factor authentication (TOTP)
-- [ ] GPG key management
-- [ ] Signed commits verification
-- [ ] Deploy keys
-- [ ] Audit logs
-
-#### 19. Package Registry
-- [ ] NPM registry
-- [ ] Container registry (Docker)
-- [ ] Other package formats
-
-#### 20. Administration
-- [ ] Admin dashboard
-- [ ] User management
-- [ ] System settings
-- [ ] Database maintenance
-- [ ] Backup/restore
-
----
-
-## Quick Reference: What Plue Has vs Missing
-
-| Feature | Plue | Gitea |
-|---------|------|-------|
-| Repository browsing | ✅ | ✅ |
-| File tree | ✅ | ✅ |
-| Commit history | ✅ | ✅ |
-| File viewer | ✅ | ✅ |
-| Issues (basic) | ✅ | ✅ |
-| Issue comments | ✅ | ✅ |
-| AI Agent | ✅ | ❌ |
-| PTY Terminal | ✅ | ❌ |
-| Authentication | ❌ | ✅ |
-| Pull Requests | ❌ | ✅ |
-| Code Review | ❌ | ✅ |
-| Branch Management | ❌ | ✅ |
-| Labels/Milestones | ❌ | ✅ |
-| Releases | ❌ | ✅ |
-| Search | ❌ | ✅ |
-| Organizations | ❌ | ✅ |
-| CI/CD | ❌ | ✅ |
-| Webhooks | ❌ | ✅ |
-| Wiki | ❌ | ✅ |
-| Package Registry | ❌ | ✅ |
-
----
+| # | Feature | Prompt | Description |
+|---|---------|--------|-------------|
+| 01 | Authentication | [01_authentication.md](prompts/01_authentication.md) | Login, register, sessions, API tokens |
+| 02 | Pull Requests | [02_pull_requests.md](prompts/02_pull_requests.md) | Create, merge, diff viewing |
+| 03 | Branch Management | [03_branch_management.md](prompts/03_branch_management.md) | Create, delete, protect branches |
+| 04 | Repository Settings | [04_repository_settings.md](prompts/04_repository_settings.md) | Visibility, delete, collaborators |
+| 05 | Code Review | [05_code_review.md](prompts/05_code_review.md) | PR reviews, inline comments, approve/reject |
+| 06 | Labels & Milestones | [06_labels_milestones.md](prompts/06_labels_milestones.md) | Issue categorization and tracking |
+| 07 | Issue Enhancements | [07_issue_enhancements.md](prompts/07_issue_enhancements.md) | Templates, reactions, assignees, dependencies |
+| 08 | File Operations | [08_file_operations.md](prompts/08_file_operations.md) | Create, edit, delete files in browser |
+| 09 | Search | [09_search.md](prompts/09_search.md) | Find repos, issues, code, users |
+| 10 | Forking | [10_forking.md](prompts/10_forking.md) | Fork repositories |
+| 11 | Code Navigation | [11_code_navigation.md](prompts/11_code_navigation.md) | Blame, git graph, file history |
+| 12 | Webhooks | [12_webhooks.md](prompts/12_webhooks.md) | Trigger external services on events |
+| 13 | CI/CD Actions | [13_cicd_actions.md](prompts/13_cicd_actions.md) | GitHub Actions-style workflows |
+| 14 | Security Features | [14_security_features.md](prompts/14_security_features.md) | 2FA, GPG keys, deploy keys |
+| 15 | Administration | [15_administration.md](prompts/15_administration.md) | Basic admin dashboard, user management |
 
 ## Recommended Implementation Order
 
-1. **Authentication** - Foundation for everything else
-2. **Pull Requests** - Core collaboration feature
-3. **Branch Management** - Essential for PR workflow
-4. **Labels & Milestones** - Issue organization
-5. **Releases** - Software distribution
-6. **Search** - Discoverability
-7. **Organizations** - Team collaboration
-8. **Webhooks** - Integration capabilities
-9. **CI/CD** - Automation
-10. **Package Registry** - Artifact management
+**Phase 1 - Core (must have to be usable):**
+1. Authentication
+2. Pull Requests
+3. Branch Management
 
----
+**Phase 2 - Essential collaboration:**
+4. Repository Settings
+5. Code Review
+6. Labels & Milestones
 
-## Unique Plue Advantages
+**Phase 3 - Quality of life:**
+7. Issue Enhancements
+8. File Operations
+9. Search
+10. Forking
 
-Plue has features Gitea doesn't:
+**Phase 4 - Power features:**
+11. Code Navigation
+12. Webhooks
+13. CI/CD Actions
+14. Security Features
+15. Administration
 
-1. **Integrated AI Agent** - Claude-powered autonomous development
-2. **Real-time PTY Sessions** - Interactive terminal in browser
-3. **Session Management** - Fork, revert, undo conversation states
-4. **Multi-agent Architecture** - Specialized agents (build, explore, plan)
-5. **Read-before-write Safety** - File modification tracking
+## Removed from Gitea (not in MVP)
+
+- Wiki (separate repo, not useful)
+- Tags & Releases (can add later)
+- Activity & Notifications (can add later)
+- Organizations & Teams (can add later)
+- Package Registry (npm/Docker - can add later)
+- Starring, topics, language stats, license detection
+
+## Plue Unique Features (already have)
+
+- Integrated AI Agent (Claude-powered)
+- Real-time PTY terminal sessions
+- Session fork/revert/undo
+- Multi-agent architecture
