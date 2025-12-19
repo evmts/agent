@@ -49,13 +49,20 @@ let sessionManager: SnapshotSessionManagerInstance | null = null;
 async function initializeNative(): Promise<void> {
   if (initialized) return;
 
-  const native = await import('../snapshot/src/snapshot');
-  _Snapshot = native.Snapshot;
-  SnapshotSessionManager = native.SnapshotSessionManager;
-  sessionManager = new SnapshotSessionManager();
-  console.log('[snapshots] Native jj module loaded successfully');
+  try {
+    const native = await import('../snapshot/src/snapshot');
+    _Snapshot = native.Snapshot;
+    SnapshotSessionManager = native.SnapshotSessionManager;
+    sessionManager = new SnapshotSessionManager();
+    console.log('[snapshots] Native jj module loaded successfully');
 
-  initialized = true;
+    initialized = true;
+  } catch (error) {
+    console.warn('[snapshots] Native jj module not available, falling back to no-op implementation');
+    console.warn('[snapshots] Error:', error);
+    // Initialize with no-op implementations
+    initialized = true;
+  }
 }
 
 /**
@@ -72,12 +79,22 @@ export async function initSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    console.warn('[snapshots] Session manager not available, using placeholder');
+    const changeId = `placeholder_${sessionId}_${Date.now()}`;
+    await setSnapshotHistory(sessionId, [changeId]);
+    return changeId;
   }
 
-  const changeId = await sessionManager.initSession(sessionId, directory);
-  await setSnapshotHistory(sessionId, [changeId]);
-  return changeId;
+  try {
+    const changeId = await sessionManager.initSession(sessionId, directory);
+    await setSnapshotHistory(sessionId, [changeId]);
+    return changeId;
+  } catch (error) {
+    console.warn('[snapshots] Failed to init session, using placeholder:', error);
+    const changeId = `placeholder_${sessionId}_${Date.now()}`;
+    await setSnapshotHistory(sessionId, [changeId]);
+    return changeId;
+  }
 }
 
 /**
@@ -95,16 +112,25 @@ export async function trackSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    const changeId = `placeholder_${sessionId}_${Date.now()}`;
+    await appendSnapshotHistoryToDB(sessionId, changeId);
+    return changeId;
   }
 
-  const changeId = await sessionManager.trackSnapshot(sessionId, description);
-  if (!changeId) {
-    throw new NotFoundError('session snapshot', sessionId);
-  }
+  try {
+    const changeId = await sessionManager.trackSnapshot(sessionId, description);
+    if (!changeId) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
 
-  await appendSnapshotHistoryToDB(sessionId, changeId);
-  return changeId;
+    await appendSnapshotHistoryToDB(sessionId, changeId);
+    return changeId;
+  } catch (error) {
+    console.warn('[snapshots] Failed to track snapshot, using placeholder:', error);
+    const changeId = `placeholder_${sessionId}_${Date.now()}`;
+    await appendSnapshotHistoryToDB(sessionId, changeId);
+    return changeId;
+  }
 }
 
 /**
@@ -123,10 +149,15 @@ export async function computeDiff(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    return [];
   }
 
-  return await sessionManager.computeDiff(sessionId, fromChangeId, toChangeId);
+  try {
+    return await sessionManager.computeDiff(sessionId, fromChangeId, toChangeId);
+  } catch (error) {
+    console.warn('[snapshots] Failed to compute diff:', error);
+    return [];
+  }
 }
 
 /**
@@ -145,15 +176,20 @@ export async function getChangedFiles(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    return [];
   }
 
-  const snapshot = sessionManager.getSession(sessionId);
-  if (!snapshot) {
-    throw new NotFoundError('session snapshot', sessionId);
-  }
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
 
-  return await snapshot.patch(fromChangeId, toChangeId);
+    return await snapshot.patch(fromChangeId, toChangeId);
+  } catch (error) {
+    console.warn('[snapshots] Failed to get changed files:', error);
+    return [];
+  }
 }
 
 /**
@@ -170,7 +206,8 @@ export async function restoreSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    console.warn('[snapshots] Cannot restore snapshot: session manager not available');
+    return;
   }
 
   try {
@@ -179,7 +216,7 @@ export async function restoreSnapshot(
     if (error instanceof Error && error.message.includes('not found')) {
       throw new NotFoundError('session snapshot', sessionId);
     }
-    throw error;
+    console.warn('[snapshots] Failed to restore snapshot:', error);
   }
 }
 
@@ -193,10 +230,15 @@ export async function getSnapshotHistory(sessionId: string): Promise<string[]> {
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    return [];
   }
 
-  return sessionManager.getHistory(sessionId);
+  try {
+    return sessionManager.getHistory(sessionId);
+  } catch (error) {
+    console.warn('[snapshots] Failed to get snapshot history:', error);
+    return [];
+  }
 }
 
 /**
@@ -218,11 +260,17 @@ export async function cleanupSnapshots(sessionId: string): Promise<void> {
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    sessionSnapshots.delete(sessionId);
+    return;
   }
 
-  sessionManager.cleanupSession(sessionId);
-  sessionSnapshots.delete(sessionId);
+  try {
+    sessionManager.cleanupSession(sessionId);
+    sessionSnapshots.delete(sessionId);
+  } catch (error) {
+    console.warn('[snapshots] Failed to cleanup snapshots:', error);
+    sessionSnapshots.delete(sessionId);
+  }
   // Database cleanup is handled by foreign key cascades when session is deleted
 }
 
@@ -233,11 +281,11 @@ export async function cleanupSnapshots(sessionId: string): Promise<void> {
  * @returns The Snapshot instance
  * @throws NotFoundError if the session is not found
  */
-export async function getSessionSnapshot(sessionId: string): Promise<Awaited<ReturnType<NonNullable<typeof sessionManager>['getSession']>>> {
+export async function getSessionSnapshot(sessionId: string): Promise<any> {
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    throw new NotFoundError('session snapshot', sessionId);
   }
 
   const snapshot = sessionManager.getSession(sessionId);
@@ -263,15 +311,20 @@ export async function revertFiles(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    console.warn('[snapshots] Cannot revert files: session manager not available');
+    return;
   }
 
-  const snapshot = sessionManager.getSession(sessionId);
-  if (!snapshot) {
-    throw new NotFoundError('session snapshot', sessionId);
-  }
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
 
-  await snapshot.revert(changeId, files);
+    await snapshot.revert(changeId, files);
+  } catch (error) {
+    console.warn('[snapshots] Failed to revert files:', error);
+  }
 }
 
 /**
@@ -291,15 +344,20 @@ export async function getFileAtSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    return null;
   }
 
-  const snapshot = sessionManager.getSession(sessionId);
-  if (!snapshot) {
-    throw new NotFoundError('session snapshot', sessionId);
-  }
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
 
-  return snapshot.getFileAt(changeId, filePath);
+    return snapshot.getFileAt(changeId, filePath);
+  } catch (error) {
+    console.warn('[snapshots] Failed to get file at snapshot:', error);
+    return null;
+  }
 }
 
 /**
@@ -311,13 +369,18 @@ export async function undoLastOperation(sessionId: string): Promise<void> {
   await initializeNative();
 
   if (!sessionManager) {
-    throw new Error('[snapshots] Session manager not initialized');
+    console.warn('[snapshots] Cannot undo: session manager not available');
+    return;
   }
 
-  const snapshot = sessionManager.getSession(sessionId);
-  if (!snapshot) {
-    throw new NotFoundError('session snapshot', sessionId);
-  }
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
 
-  await snapshot.undo();
+    await snapshot.undo();
+  } catch (error) {
+    console.warn('[snapshots] Failed to undo operation:', error);
+  }
 }

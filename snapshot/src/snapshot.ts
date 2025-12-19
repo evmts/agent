@@ -16,7 +16,37 @@
  * - Operation: An atomic jj operation that can be undone
  */
 
-import { JjWorkspace, isJjWorkspace, } from '../index.js';
+// Import the native bindings with proper type handling
+let JjWorkspace: any;
+let isJjWorkspace: any;
+
+// Lazy load the native module to handle potential loading failures
+async function loadNative() {
+  try {
+    // Try importing as ESM first
+    const native = await import('../index.js');
+    JjWorkspace = native.JjWorkspace;
+    isJjWorkspace = native.isJjWorkspace;
+    return true;
+  } catch (err) {
+    try {
+      // Fall back to require for CommonJS
+      const native = require('../index.js');
+      JjWorkspace = native.JjWorkspace;
+      isJjWorkspace = native.isJjWorkspace;
+      return true;
+    } catch (err2) {
+      console.warn('[snapshot] Failed to load native jj bindings:', err2);
+      return false;
+    }
+  }
+}
+
+// Initialize immediately
+let nativeLoaded = false;
+loadNative().then(loaded => {
+  nativeLoaded = loaded;
+});
 
 // ============================================================================
 // Types
@@ -64,11 +94,11 @@ export interface SessionState {
  * operations for capturing, comparing, and restoring filesystem states.
  */
 export class Snapshot {
-  private workspace: JjWorkspace;
+  private workspace: any;
   private workspacePath: string;
   private initialized: boolean = false;
 
-  private constructor(workspace: JjWorkspace, path: string) {
+  private constructor(workspace: any, path: string) {
     this.workspace = workspace;
     this.workspacePath = path;
     this.initialized = true;
@@ -80,14 +110,20 @@ export class Snapshot {
    * Otherwise, initializes a new jj workspace (colocated with git if present).
    */
   static init(directory: string): Snapshot {
-    let workspace: JjWorkspace;
+    if (!nativeLoaded || !JjWorkspace || !isJjWorkspace) {
+      throw new Error('Native jj bindings not available');
+    }
+
+    let workspace: any;
 
     if (isJjWorkspace(directory)) {
       // Open existing jj workspace
       workspace = JjWorkspace.open(directory);
     } else {
       // Check if it's a git repo - if so, colocate
-      const hasGit = Bun.file(`${directory}/.git`).size > 0;
+      const hasGit = Bun?.file?.(`${directory}/.git`)?.size > 0 || 
+                     (typeof require !== 'undefined' && 
+                      require('fs').existsSync(`${directory}/.git`));
 
       if (hasGit) {
         workspace = JjWorkspace.initColocated(directory);
@@ -104,6 +140,10 @@ export class Snapshot {
    * Throws if the directory is not a jj workspace.
    */
   static open(directory: string): Snapshot {
+    if (!nativeLoaded || !JjWorkspace || !isJjWorkspace) {
+      throw new Error('Native jj bindings not available');
+    }
+
     if (!isJjWorkspace(directory)) {
       throw new Error(`Not a jj workspace: ${directory}`);
     }
@@ -125,18 +165,22 @@ export class Snapshot {
     // In jj, we create a new commit to capture the current state
     // The working copy changes are automatically tracked
     const msg = description || 'snapshot';
-    const result = await Bun.$`jj commit -m ${msg}`.cwd(this.workspacePath).quiet();
+    
+    // Use process execution for cross-platform compatibility
+    const result = await this.execJj(['commit', '-m', msg]);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to create snapshot: ${result.stderr.toString()}`);
+      throw new Error(`Failed to create snapshot: ${result.stderr}`);
     }
 
     // Reload workspace to get fresh state
-    this.workspace = JjWorkspace.open(this.workspacePath);
+    if (JjWorkspace) {
+      this.workspace = JjWorkspace.open(this.workspacePath);
+    }
 
     // The snapshot is the parent of the current working copy
-    const parentResult = await Bun.$`jj log -r @- --no-graph -T 'change_id'`.cwd(this.workspacePath).quiet();
-    return parentResult.stdout.toString().trim();
+    const parentResult = await this.execJj(['log', '-r', '@-', '--no-graph', '-T', 'change_id']);
+    return parentResult.stdout.trim();
   }
 
   /**
@@ -144,8 +188,8 @@ export class Snapshot {
    * Returns the change ID of the current (uncommitted) state.
    */
   async current(): Promise<string> {
-    const result = await Bun.$`jj log -r @ --no-graph -T 'change_id'`.cwd(this.workspacePath).quiet();
-    return result.stdout.toString().trim();
+    const result = await this.execJj(['log', '-r', '@', '--no-graph', '-T', 'change_id']);
+    return result.stdout.trim();
   }
 
   /**
@@ -154,14 +198,14 @@ export class Snapshot {
    */
   async patch(fromChangeId: string, toChangeId?: string): Promise<string[]> {
     const toRef = toChangeId || '@';
-    const result = await Bun.$`jj diff --from ${fromChangeId} --to ${toRef} --summary`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['diff', '--from', fromChangeId, '--to', toRef, '--summary']);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to get patch: ${result.stderr.toString()}`);
+      throw new Error(`Failed to get patch: ${result.stderr}`);
     }
 
     // Parse jj diff --summary output: "M path/to/file" format
-    const lines = result.stdout.toString().trim().split('\n').filter(Boolean);
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
     return lines.map(line => line.substring(2).trim()); // Remove "M " prefix
   }
 
@@ -173,14 +217,14 @@ export class Snapshot {
     const toRef = toChangeId || '@';
 
     // Get summary first for change types
-    const summaryResult = await Bun.$`jj diff --from ${fromChangeId} --to ${toRef} --summary`.cwd(this.workspacePath).quiet();
+    const summaryResult = await this.execJj(['diff', '--from', fromChangeId, '--to', toRef, '--summary']);
 
     if (summaryResult.exitCode !== 0) {
-      throw new Error(`Failed to get diff summary: ${summaryResult.stderr.toString()}`);
+      throw new Error(`Failed to get diff summary: ${summaryResult.stderr}`);
     }
 
     const diffs: FileDiff[] = [];
-    const lines = summaryResult.stdout.toString().trim().split('\n').filter(Boolean);
+    const lines = summaryResult.stdout.trim().split('\n').filter(Boolean);
 
     for (const line of lines) {
       const changeCode = line[0];
@@ -194,13 +238,13 @@ export class Snapshot {
       }
 
       // Get the actual diff for line counts
-      const diffResult = await Bun.$`jj diff --from ${fromChangeId} --to ${toRef} ${path} --stat`.cwd(this.workspacePath).quiet();
+      const diffResult = await this.execJj(['diff', '--from', fromChangeId, '--to', toRef, path, '--stat']);
 
       let addedLines = 0;
       let deletedLines = 0;
 
       // Parse stat output for line counts
-      const statOutput = diffResult.stdout.toString();
+      const statOutput = diffResult.stdout;
       const statMatch = statOutput.match(/(\d+) insertion.*?(\d+) deletion/);
       if (statMatch?.[1] && statMatch[2]) {
         addedLines = parseInt(statMatch[1], 10);
@@ -225,10 +269,10 @@ export class Snapshot {
   async revert(changeId: string, files: string[]): Promise<void> {
     if (files.length === 0) return;
 
-    const result = await Bun.$`jj restore --from ${changeId} ${files}`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['restore', '--from', changeId, ...files]);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to revert files: ${result.stderr.toString()}`);
+      throw new Error(`Failed to revert files: ${result.stderr}`);
     }
   }
 
@@ -237,10 +281,10 @@ export class Snapshot {
    * This discards all current changes and resets to the snapshot.
    */
   async restore(changeId: string): Promise<void> {
-    const result = await Bun.$`jj restore --from ${changeId}`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['restore', '--from', changeId]);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to restore snapshot: ${result.stderr.toString()}`);
+      throw new Error(`Failed to restore snapshot: ${result.stderr}`);
     }
   }
 
@@ -248,26 +292,26 @@ export class Snapshot {
    * Get file contents at a specific snapshot.
    */
   async getFileAt(changeId: string, filePath: string): Promise<string | null> {
-    const result = await Bun.$`jj file show -r ${changeId} ${filePath}`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['file', 'show', '-r', changeId, filePath]);
 
     if (result.exitCode !== 0) {
       return null; // File doesn't exist at that snapshot
     }
 
-    return result.stdout.toString();
+    return result.stdout;
   }
 
   /**
    * List all files at a specific snapshot.
    */
   async listFilesAt(changeId: string): Promise<string[]> {
-    const result = await Bun.$`jj file list -r ${changeId}`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['file', 'list', '-r', changeId]);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to list files: ${result.stderr.toString()}`);
+      throw new Error(`Failed to list files: ${result.stderr}`);
     }
 
-    return result.stdout.toString().trim().split('\n').filter(Boolean);
+    return result.stdout.trim().split('\n').filter(Boolean);
   }
 
   /**
@@ -286,13 +330,14 @@ export class Snapshot {
    * Get information about a snapshot by its change ID.
    */
   async getSnapshot(changeId: string): Promise<SnapshotInfo> {
-    const result = await Bun.$`jj log -r ${changeId} --no-graph -T 'commit_id ++ "\n" ++ description ++ "\n" ++ committer.timestamp() ++ "\n" ++ empty'`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['log', '-r', changeId, '--no-graph', '-T', 
+      'commit_id ++ "\\n" ++ description ++ "\\n" ++ committer.timestamp() ++ "\\n" ++ empty']);
 
     if (result.exitCode !== 0) {
       throw new Error(`Snapshot not found: ${changeId}`);
     }
 
-    const lines = result.stdout.toString().trim().split('\n');
+    const lines = result.stdout.trim().split('\n');
 
     return {
       changeId,
@@ -307,13 +352,14 @@ export class Snapshot {
    * List recent snapshots.
    */
   async listSnapshots(limit: number = 50): Promise<SnapshotInfo[]> {
-    const result = await Bun.$`jj log --no-graph -n ${limit} -T 'change_id ++ "|" ++ commit_id ++ "|" ++ description.first_line() ++ "|" ++ committer.timestamp() ++ "|" ++ empty ++ "\n"'`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['log', '--no-graph', '-n', limit.toString(), '-T', 
+      'change_id ++ "|" ++ commit_id ++ "|" ++ description.first_line() ++ "|" ++ committer.timestamp() ++ "|" ++ empty ++ "\\n"']);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to list snapshots: ${result.stderr.toString()}`);
+      throw new Error(`Failed to list snapshots: ${result.stderr}`);
     }
 
-    const lines = result.stdout.toString().trim().split('\n').filter(Boolean);
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
 
     return lines.map(line => {
       const parts = line.split('|');
@@ -336,27 +382,30 @@ export class Snapshot {
    * This leverages jj's built-in operation log.
    */
   async undo(): Promise<void> {
-    const result = await Bun.$`jj undo`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['undo']);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to undo: ${result.stderr.toString()}`);
+      throw new Error(`Failed to undo: ${result.stderr}`);
     }
 
     // Reload workspace
-    this.workspace = JjWorkspace.open(this.workspacePath);
+    if (JjWorkspace) {
+      this.workspace = JjWorkspace.open(this.workspacePath);
+    }
   }
 
   /**
    * Get the operation log.
    */
   async getOperationLog(limit: number = 20): Promise<Array<{ id: string; description: string; timestamp: number }>> {
-    const result = await Bun.$`jj op log --no-graph -n ${limit} -T 'self.id() ++ "|" ++ description ++ "|" ++ self.time().end() ++ "\n"'`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['op', 'log', '--no-graph', '-n', limit.toString(), '-T', 
+      'self.id() ++ "|" ++ description ++ "|" ++ self.time().end() ++ "\\n"']);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to get operation log: ${result.stderr.toString()}`);
+      throw new Error(`Failed to get operation log: ${result.stderr}`);
     }
 
-    const lines = result.stdout.toString().trim().split('\n').filter(Boolean);
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
 
     return lines.map(line => {
       const parts = line.split('|');
@@ -372,13 +421,56 @@ export class Snapshot {
    * Restore to a specific operation.
    */
   async restoreOperation(operationId: string): Promise<void> {
-    const result = await Bun.$`jj op restore ${operationId}`.cwd(this.workspacePath).quiet();
+    const result = await this.execJj(['op', 'restore', operationId]);
 
     if (result.exitCode !== 0) {
-      throw new Error(`Failed to restore operation: ${result.stderr.toString()}`);
+      throw new Error(`Failed to restore operation: ${result.stderr}`);
     }
 
-    this.workspace = JjWorkspace.open(this.workspacePath);
+    if (JjWorkspace) {
+      this.workspace = JjWorkspace.open(this.workspacePath);
+    }
+  }
+
+  // ==========================================================================
+  // Helper Methods
+  // ==========================================================================
+
+  private async execJj(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    try {
+      if (typeof Bun !== 'undefined' && Bun.$) {
+        // Use Bun's process execution
+        const result = await Bun.$`jj ${args}`.cwd(this.workspacePath).quiet();
+        return {
+          exitCode: result.exitCode,
+          stdout: result.stdout.toString(),
+          stderr: result.stderr.toString()
+        };
+      } else if (typeof require !== 'undefined') {
+        // Use Node.js child_process
+        const { spawn } = require('child_process');
+        return new Promise((resolve) => {
+          const proc = spawn('jj', args, { cwd: this.workspacePath });
+          let stdout = '';
+          let stderr = '';
+          
+          proc.stdout?.on('data', (data: any) => stdout += data.toString());
+          proc.stderr?.on('data', (data: any) => stderr += data.toString());
+          
+          proc.on('close', (code: number) => {
+            resolve({ exitCode: code, stdout, stderr });
+          });
+        });
+      } else {
+        throw new Error('No process execution method available');
+      }
+    } catch (error) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   // ==========================================================================
@@ -386,7 +478,7 @@ export class Snapshot {
   // ==========================================================================
 
   get root(): string {
-    return this.workspace.root;
+    return this.workspace?.root || this.workspacePath;
   }
 
   get isInitialized(): boolean {
