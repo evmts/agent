@@ -83,6 +83,11 @@ async function writeFileImpl(
   }
 }
 
+const writeFileParameters = z.object({
+  filePath: z.string().describe('Absolute path to the file to write'),
+  content: z.string().describe('Content to write to the file'),
+});
+
 export const writeFileTool = tool({
   description: `Write content to a file.
 
@@ -91,11 +96,9 @@ Parent directories are created automatically if needed.
 
 IMPORTANT: You must read existing files with the readFile tool before overwriting them.
 This ensures you understand the file's contents before making changes.`,
-  parameters: z.object({
-    filePath: z.string().describe('Absolute path to the file to write'),
-    content: z.string().describe('Content to write to the file'),
-  }),
-  execute: async (args) => {
+  parameters: writeFileParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof writeFileParameters>) => {
     const result = await writeFileImpl(args.filePath, args.content);
     if (!result.success) {
       return `Error: ${result.error}`;

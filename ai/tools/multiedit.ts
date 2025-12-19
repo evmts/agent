@@ -139,7 +139,7 @@ async function multieditImpl(
 
     // Apply edits sequentially
     for (let i = 0; i < operations.length; i++) {
-      const op = operations[i];
+      const op = operations[i]!;
 
       // Handle file creation (empty oldString on first edit)
       if (op.oldString === '' && !exists && i === 0) {
@@ -202,6 +202,15 @@ async function multieditImpl(
   }
 }
 
+const multieditParameters = z.object({
+  filePath: z.string().describe('Absolute path to the file to modify'),
+  edits: z.array(z.object({
+    oldString: z.string().describe('Text to replace (must match exactly)'),
+    newString: z.string().describe('Replacement text'),
+    replaceAll: z.boolean().optional().describe('Replace all occurrences (default: false)'),
+  })).describe('Array of edit operations to apply sequentially'),
+});
+
 export const multieditTool = tool({
   description: `Perform multiple find-and-replace operations on a single file atomically.
 
@@ -214,15 +223,9 @@ IMPORTANT:
 - Edits are applied in sequence - plan carefully to avoid conflicts
 
 To create a new file: use empty old_string with the file contents as new_string.`,
-  parameters: z.object({
-    filePath: z.string().describe('Absolute path to the file to modify'),
-    edits: z.array(z.object({
-      oldString: z.string().describe('Text to replace (must match exactly)'),
-      newString: z.string().describe('Replacement text'),
-      replaceAll: z.boolean().optional().describe('Replace all occurrences (default: false)'),
-    })).describe('Array of edit operations to apply sequentially'),
-  }),
-  execute: async (args) => {
+  parameters: multieditParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof multieditParameters>) => {
     const result = await multieditImpl(args.filePath, args.edits);
     return result.success
       ? result.output!

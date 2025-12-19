@@ -175,6 +175,15 @@ function listPtySessionsImpl(): { success: boolean; sessions: SessionInfo[] } {
 
 // Tool definitions
 
+const unifiedExecParameters = z.object({
+  cmd: z.string().describe('Command to execute'),
+  workdir: z.string().optional().describe('Working directory'),
+  shell: z.string().optional().describe('Shell to use (defaults to $SHELL)'),
+  login: z.boolean().optional().describe('Use login shell'),
+  yieldTimeMs: z.number().optional().describe('Time to wait for output (default: 100ms)'),
+  maxOutputTokens: z.number().optional().describe('Max output tokens (default: 10000)'),
+});
+
 export const unifiedExecTool = tool({
   description: `Run a command in an interactive PTY session.
 
@@ -187,15 +196,9 @@ Use this for:
 - Long-running processes
 
 Returns a session_id that can be used with writeStdin to send input.`,
-  parameters: z.object({
-    cmd: z.string().describe('Command to execute'),
-    workdir: z.string().optional().describe('Working directory'),
-    shell: z.string().optional().describe('Shell to use (defaults to $SHELL)'),
-    login: z.boolean().optional().describe('Use login shell'),
-    yieldTimeMs: z.number().optional().describe('Time to wait for output (default: 100ms)'),
-    maxOutputTokens: z.number().optional().describe('Max output tokens (default: 10000)'),
-  }),
-  execute: async (args) => {
+  parameters: unifiedExecParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof unifiedExecParameters>) => {
     const result = await unifiedExecImpl(
       args.cmd,
       args.workdir,
@@ -219,6 +222,13 @@ Returns a session_id that can be used with writeStdin to send input.`,
   },
 });
 
+const writeStdinParameters = z.object({
+  sessionId: z.string().describe('PTY session ID from unifiedExec'),
+  chars: z.string().describe('Characters to write (use \\n for newline, \\x03 for Ctrl+C)'),
+  yieldTimeMs: z.number().optional().describe('Time to wait for output (default: 100ms)'),
+  maxOutputTokens: z.number().optional().describe('Max output tokens (default: 10000)'),
+});
+
 export const writeStdinTool = tool({
   description: `Write input to a running PTY session.
 
@@ -229,13 +239,9 @@ Examples:
 - Send a command: chars="print('hello')\\n"
 - Send Ctrl+C: chars="\\x03"
 - Send Ctrl+D: chars="\\x04"`,
-  parameters: z.object({
-    sessionId: z.string().describe('PTY session ID from unifiedExec'),
-    chars: z.string().describe('Characters to write (use \\n for newline, \\x03 for Ctrl+C)'),
-    yieldTimeMs: z.number().optional().describe('Time to wait for output (default: 100ms)'),
-    maxOutputTokens: z.number().optional().describe('Max output tokens (default: 10000)'),
-  }),
-  execute: async (args) => {
+  parameters: writeStdinParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof writeStdinParameters>) => {
     const result = await writeStdinImpl(
       args.sessionId,
       args.chars,
@@ -256,16 +262,19 @@ Examples:
   },
 });
 
+const closePtySessionParameters = z.object({
+  sessionId: z.string().describe('PTY session ID to close'),
+  force: z.boolean().optional().describe('Force kill with SIGKILL (default: false)'),
+});
+
 export const closePtySessionTool = tool({
   description: `Close a PTY session.
 
 Terminates the process and cleans up resources.
 Use force=true to send SIGKILL instead of SIGTERM.`,
-  parameters: z.object({
-    sessionId: z.string().describe('PTY session ID to close'),
-    force: z.boolean().optional().describe('Force kill with SIGKILL (default: false)'),
-  }),
-  execute: async (args) => {
+  parameters: closePtySessionParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof closePtySessionParameters>) => {
     const result = await closePtySessionImpl(args.sessionId, args.force);
     return result.success
       ? `Session ${args.sessionId} closed`
@@ -273,12 +282,15 @@ Use force=true to send SIGKILL instead of SIGTERM.`,
   },
 });
 
+const listPtySessionsParameters = z.object({});
+
 export const listPtySessionsTool = tool({
   description: `List all active PTY sessions.
 
 Shows session IDs, commands, and status of all running sessions.`,
-  parameters: z.object({}),
-  execute: async () => {
+  parameters: listPtySessionsParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (_args: z.infer<typeof listPtySessionsParameters>) => {
     const result = listPtySessionsImpl();
     if (result.sessions.length === 0) {
       return 'No active PTY sessions';

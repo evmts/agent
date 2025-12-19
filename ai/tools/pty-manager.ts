@@ -125,18 +125,14 @@ export class PTYManager {
     }
 
     const stdin = session.process.stdin;
-    if (!stdin) {
+    if (!stdin || typeof stdin === 'number') {
       throw new Error(`Session ${sessionId} stdin not available`);
     }
 
-    // Write to stdin
-    const writer = stdin.getWriter();
-    try {
-      await writer.write(new TextEncoder().encode(data));
-      session.lastActivity = Date.now();
-    } finally {
-      writer.releaseLock();
-    }
+    // Write to stdin - FileSink has write() method directly
+    const encoded = new TextEncoder().encode(data);
+    (stdin as { write: (data: Uint8Array) => number }).write(encoded);
+    session.lastActivity = Date.now();
   }
 
   /**
@@ -155,7 +151,7 @@ export class PTYManager {
     const stdout = session.process.stdout;
     const stderr = session.process.stderr;
 
-    if (!stdout) {
+    if (!stdout || typeof stdout === 'number') {
       return '';
     }
 
@@ -164,7 +160,7 @@ export class PTYManager {
     const deadline = Date.now() + timeoutMs;
 
     // Read from stdout
-    const reader = stdout.getReader();
+    const reader = (stdout as ReadableStream<Uint8Array>).getReader();
 
     try {
       while (Date.now() < deadline && totalBytes < maxBytes) {
@@ -193,8 +189,8 @@ export class PTYManager {
     }
 
     // Also try to read from stderr
-    if (stderr) {
-      const stderrReader = stderr.getReader();
+    if (stderr && typeof stderr !== 'number') {
+      const stderrReader = (stderr as ReadableStream<Uint8Array>).getReader();
       try {
         const result = await Promise.race([
           stderrReader.read(),

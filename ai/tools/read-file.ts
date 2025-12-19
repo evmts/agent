@@ -87,6 +87,12 @@ async function readFileImpl(
   }
 }
 
+const readFileParameters = z.object({
+  filePath: z.string().describe('Absolute path to the file to read'),
+  offset: z.number().optional().describe('Line number to start reading from (0-indexed)'),
+  limit: z.number().optional().describe('Maximum number of lines to read'),
+});
+
 export const readFileTool = tool({
   description: `Read a file from the filesystem.
 
@@ -94,12 +100,9 @@ Returns file contents with line numbers. Supports offset and limit for large fil
 By default reads up to 2000 lines. Lines longer than 2000 characters are truncated.
 
 Use this tool to read source code, configuration files, and other text files.`,
-  parameters: z.object({
-    filePath: z.string().describe('Absolute path to the file to read'),
-    offset: z.number().optional().describe('Line number to start reading from (0-indexed)'),
-    limit: z.number().optional().describe('Maximum number of lines to read'),
-  }),
-  execute: async (args) => {
+  parameters: readFileParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof readFileParameters>) => {
     const result = await readFileImpl(args.filePath, args.offset, args.limit);
     if (!result.success) {
       return `Error: ${result.error}`;

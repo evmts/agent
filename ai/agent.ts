@@ -118,7 +118,7 @@ export async function* streamAgent(
     maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     temperature: options.temperature ?? config.temperature,
-  });
+  } as Parameters<typeof streamText>[0]);
 
   // Transform the stream to our StreamEvent format
   for await (const part of result.fullStream) {
@@ -126,14 +126,14 @@ export async function* streamAgent(
       case 'text-delta':
         yield {
           type: 'text',
-          data: part.textDelta,
+          data: (part as { type: 'text-delta'; text: string }).text,
         };
         break;
 
-      case 'reasoning':
+      case 'reasoning-delta':
         yield {
           type: 'reasoning',
-          data: part.textDelta,
+          data: (part as unknown as { type: 'reasoning-delta'; text: string }).text,
         };
         break;
 
@@ -141,7 +141,7 @@ export async function* streamAgent(
         yield {
           type: 'tool_call',
           toolName: part.toolName,
-          toolInput: part.args as Record<string, unknown>,
+          toolInput: (part as { input: unknown }).input as Record<string, unknown>,
           toolId: part.toolCallId,
         };
         break;
@@ -150,7 +150,9 @@ export async function* streamAgent(
         yield {
           type: 'tool_result',
           toolName: part.toolName,
-          toolOutput: typeof part.result === 'string' ? part.result : JSON.stringify(part.result),
+          toolOutput: typeof (part as { output: unknown }).output === 'string'
+            ? (part as { output: string }).output
+            : JSON.stringify((part as { output: unknown }).output),
           toolId: part.toolCallId,
         };
         break;

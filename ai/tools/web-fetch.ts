@@ -131,7 +131,7 @@ async function webFetchImpl(
 
       if (contentType.includes('charset=')) {
         const match = contentType.match(/charset=([^;]+)/);
-        if (match) {
+        if (match?.[1]) {
           encoding = match[1].trim();
         }
       }
@@ -175,6 +175,11 @@ async function webFetchImpl(
   }
 }
 
+const webFetchParameters = z.object({
+  url: z.string().describe('URL to fetch (must start with http:// or https://)'),
+  timeoutMs: z.number().optional().describe('Request timeout in milliseconds (default: 30000)'),
+});
+
 export const webFetchTool = tool({
   description: `Fetch content from a URL.
 
@@ -187,11 +192,9 @@ Use this for:
 - Web page content
 
 Note: For large files or binary content, this tool will return an error.`,
-  parameters: z.object({
-    url: z.string().describe('URL to fetch (must start with http:// or https://)'),
-    timeoutMs: z.number().optional().describe('Request timeout in milliseconds (default: 30000)'),
-  }),
-  execute: async (args) => {
+  parameters: webFetchParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof webFetchParameters>) => {
     const result = await webFetchImpl(args.url, args.timeoutMs);
     return result.success
       ? result.content!

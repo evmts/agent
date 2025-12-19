@@ -242,6 +242,20 @@ function formatMatches(
   return lines.join('\n');
 }
 
+const grepParameters = z.object({
+  pattern: z.string().describe('Regular expression pattern to search for'),
+  path: z.string().optional().describe('Directory or file to search in (defaults to working directory)'),
+  glob: z.string().optional().describe('File pattern filter (e.g., "*.ts", "*.{js,jsx}")'),
+  multiline: z.boolean().optional().describe('Enable multiline mode where . matches newlines'),
+  caseInsensitive: z.boolean().optional().describe('Case-insensitive search'),
+  maxCount: z.number().optional().describe('Maximum matches per file'),
+  contextBefore: z.number().optional().describe('Lines to show before each match'),
+  contextAfter: z.number().optional().describe('Lines to show after each match'),
+  contextLines: z.number().optional().describe('Lines before AND after (takes precedence)'),
+  headLimit: z.number().optional().describe('Limit output to first N matches (0 = unlimited)'),
+  offset: z.number().optional().describe('Skip first N matches'),
+});
+
 export const grepTool = tool({
   description: `Search for patterns in files using ripgrep.
 
@@ -251,20 +265,9 @@ Examples:
 - Search for a function: pattern="def authenticate", glob="*.py"
 - Multiline search: pattern="function.*\\{", multiline=true
 - Paginated results: headLimit=10, offset=0 (first page), offset=10 (second page)`,
-  parameters: z.object({
-    pattern: z.string().describe('Regular expression pattern to search for'),
-    path: z.string().optional().describe('Directory or file to search in (defaults to working directory)'),
-    glob: z.string().optional().describe('File pattern filter (e.g., "*.ts", "*.{js,jsx}")'),
-    multiline: z.boolean().optional().describe('Enable multiline mode where . matches newlines'),
-    caseInsensitive: z.boolean().optional().describe('Case-insensitive search'),
-    maxCount: z.number().optional().describe('Maximum matches per file'),
-    contextBefore: z.number().optional().describe('Lines to show before each match'),
-    contextAfter: z.number().optional().describe('Lines to show after each match'),
-    contextLines: z.number().optional().describe('Lines before AND after (takes precedence)'),
-    headLimit: z.number().optional().describe('Limit output to first N matches (0 = unlimited)'),
-    offset: z.number().optional().describe('Skip first N matches'),
-  }),
-  execute: async (args) => {
+  parameters: grepParameters,
+  // @ts-expect-error - Zod v4 type inference issue with AI SDK
+  execute: async (args: z.infer<typeof grepParameters>) => {
     const result = await grepImpl(
       args.pattern,
       args.path,
