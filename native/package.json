@@ -1,33 +1,17 @@
 {
-  "name": "jj-native",
+  "name": "@plue/native",
   "version": "0.1.0",
-  "description": "Bun/Node.js bindings for jj-lib (Jujutsu VCS)",
-  "main": "index.js",
-  "types": "index.d.ts",
-  "napi": {
-    "name": "jj-native",
-    "triples": {
-      "additional": [
-        "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
-        "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu"
-      ]
-    }
-  },
+  "type": "module",
+  "main": "index.ts",
   "scripts": {
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
-    "artifacts": "napi artifacts"
+    "dev": "bun run index.ts",
+    "build:webui": "bun run scripts/build-webui.ts",
+    "postinstall": "bun run scripts/download-webui.ts"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0"
+    "@types/bun": "latest"
   },
-  "license": "Apache-2.0",
-  "files": [
-    "index.js",
-    "index.d.ts",
-    "*.node"
-  ]
+  "peerDependencies": {
+    "typescript": "^5"
+  }
 }
