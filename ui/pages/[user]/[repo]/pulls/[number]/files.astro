@@ -26,6 +26,17 @@ const [pr] = await sql`
 if (!pr) return Astro.redirect("/404");
 
 const compareInfo = await compareRefs(username, reponame, pr.base_branch, pr.head_branch);
+
+const [{ issue_count }] = await sql`
+  SELECT COUNT(*) as issue_count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+const [{ pr_count }] = await sql`
+  SELECT COUNT(*) as pr_count 
+  FROM pull_requests pr_c
+  JOIN issues i ON pr_c.issue_id = i.id 
+  WHERE pr_c.base_repo_id = ${repo.id} AND i.state = 'open' AND pr_c.has_merged = false
+`;
 ---
 
 <Layout title={`Files · PR #${number}`}>
@@ -41,8 +52,26 @@ const compareInfo = await compareRefs(username, reponame, pr.base_branch, pr.hea
     <span class="current">files</span>
   </div>
 
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issue_count) > 0 && <span class="badge">{issue_count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/pulls`} class="active">
+      Pull Requests
+      {Number(pr_count) > 0 && <span class="badge">{pr_count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
+  </nav>
+
   <div class="container">
-    <h1>Files Changed</h1>
+    <h1>{pr.title} <span class="pr-number">#{number}</span></h1>
+
+    <div class="pr-tabs">
+      <a href={`/${username}/${reponame}/pulls/${number}`} class="tab">Conversation</a>
+      <a href={`/${username}/${reponame}/pulls/${number}/files`} class="tab active">Files Changed</a>
+    </div>
 
     <div class="diff-stats">
       <strong>{compareInfo.total_files}</strong> files changed,
@@ -74,10 +103,16 @@ const compareInfo = await compareRefs(username, reponame, pr.base_branch, pr.hea
 </Layout>
 
 <style>
+  .pr-number {
+    color: #666;
+    font-weight: normal;
+  }
+
   .diff-stats {
     margin: 1rem 0;
     padding: 1rem;
     border: 1px solid black;
+    background: #f9f9f9;
   }
 
   .add {
@@ -125,9 +160,19 @@ const compareInfo = await compareRefs(username, reponame, pr.base_branch, pr.hea
     background: #f8d7da;
   }
 
+  .file-status.renamed {
+    background: #cce5ff;
+  }
+
   .file-name {
     flex: 1;
     font-family: monospace;
+    font-weight: bold;
+  }
+
+  .file-stats {
+    font-family: monospace;
+    font-size: 0.875rem;
   }
 
   .diff-patch {
@@ -135,11 +180,30 @@ const compareInfo = await compareRefs(username, reponame, pr.base_branch, pr.hea
     overflow-x: auto;
     font-size: 0.875rem;
     line-height: 1.5;
+    background: white;
+    margin: 0;
   }
 
   .binary-file {
     padding: 2rem;
     text-align: center;
     color: #666;
+    background: #f9f9f9;
+  }
+
+  /* Syntax highlighting for diffs */
+  .diff-patch code {
+    color: inherit;
+  }
+
+  /* Basic diff coloring - this could be enhanced with more sophisticated parsing */
+  .diff-patch :global(.line-added) {
+    background: #e6ffed;
+    color: #24292f;
+  }
+
+  .diff-patch :global(.line-removed) {
+    background: #ffebe9;
+    color: #24292f;
   }
 </style>
