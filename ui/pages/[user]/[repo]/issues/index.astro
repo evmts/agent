@@ -33,6 +33,13 @@ const [{ open_count }] = await sql`
 const [{ closed_count }] = await sql`
   SELECT COUNT(*) as closed_count FROM issues WHERE repository_id = ${repo.id} AND state = 'closed'
 `;
+
+const [{ count: prCount }] = await sql`
+  SELECT COUNT(*) as count 
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id 
+  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
+`;
 ---
 
 <Layout title={`Issues · ${username}/${reponame} · plue`}>
@@ -49,6 +56,10 @@ const [{ closed_count }] = await sql`
   <nav class="repo-nav">
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`} class="active">Issues</a>
+    <a href={`/${username}/${reponame}/pulls`}>
+      Pull Requests
+      {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
+    </a>
     <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
   </nav>
 

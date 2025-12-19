@@ -37,6 +37,17 @@ const comments = await sql`
 
 const users = await sql`SELECT * FROM users ORDER BY username` as User[];
 
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+const [{ count: prCount }] = await sql`
+  SELECT COUNT(*) as count 
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id 
+  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
+`;
+
 let error = "";
 
 if (Astro.request.method === "POST") {
@@ -98,7 +109,14 @@ function formatDate(date: Date): string {
 
   <nav class="repo-nav">
     <a href={`/${username}/${reponame}`}>Code</a>
-    <a href={`/${username}/${reponame}/issues`} class="active">Issues</a>
+    <a href={`/${username}/${reponame}/issues`} class="active">
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/pulls`}>
+      Pull Requests
+      {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
+    </a>
     <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
   </nav>
 

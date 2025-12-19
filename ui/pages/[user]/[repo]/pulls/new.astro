@@ -1,0 +1,164 @@
+---
+import Layout from "../../../../../layouts/Layout.astro";
+import Header from "../../../../../components/Header.astro";
+import { sql } from "../../../../../lib/db";
+import { listBranches } from "../../../../../lib/git";
+import type { User, Repository } from "../../../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+if (!repo) return Astro.redirect("/404");
+
+const branches = await listBranches(username, reponame);
+
+const [{ issue_count }] = await sql`
+  SELECT COUNT(*) as issue_count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+const [{ pr_count }] = await sql`
+  SELECT COUNT(*) as pr_count 
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id 
+  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
+`;
+---
+
+<Layout title={`New Pull Request · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}/pulls`}>pulls</a>
+    <span class="sep">/</span>
+    <span class="current">new</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issue_count) > 0 && <span class="badge">{issue_count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/pulls`} class="active">
+      Pull Requests
+      {Number(pr_count) > 0 && <span class="badge">{pr_count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
+  </nav>
+
+  <div class="container">
+    <h1 class="page-title mb-3">New Pull Request</h1>
+
+    <form method="POST" action={`/api/${username}/${reponame}/pulls`}>
+      <div class="form-group">
+        <label for="title">Title</label>
+        <input
+          type="text"
+          id="title"
+          name="title"
+          required
+          placeholder="Describe your changes"
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description <span class="text-muted">(optional, markdown supported)</span></label>
+        <textarea
+          id="description"
+          name="description"
+          rows="10"
+          placeholder="Provide more details about this pull request"
+        ></textarea>
+      </div>
+
+      <div class="branch-selector">
+        <div class="form-group">
+          <label for="base_branch">Base branch</label>
+          <select id="base_branch" name="base_branch" required>
+            {branches.map(branch => (
+              <option value={branch} selected={branch === repo.default_branch}>
+                {branch}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div class="arrow">←</div>
+
+        <div class="form-group">
+          <label for="head_branch">Compare branch</label>
+          <select id="head_branch" name="head_branch" required>
+            {branches.map(branch => (
+              <option value={branch} selected={branch !== repo.default_branch}>
+                {branch}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create Pull Request</button>
+        <a href={`/${username}/${reponame}/pulls`} class="btn">Cancel</a>
+      </div>
+    </form>
+  </div>
+</Layout>
+
+<style>
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .form-group label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+  }
+
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid black;
+    font-family: inherit;
+  }
+
+  .text-muted {
+    color: #666;
+    font-weight: normal;
+  }
+
+  .branch-selector {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1rem;
+    align-items: center;
+    margin: 2rem 0;
+    padding: 1rem;
+    border: 1px solid black;
+    background: #f9f9f9;
+  }
+
+  .arrow {
+    font-size: 2rem;
+    text-align: center;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 1rem;
+  }
+</style>

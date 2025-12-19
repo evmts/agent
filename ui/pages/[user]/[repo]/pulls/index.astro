@@ -1,0 +1,197 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository } from "../../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+const state = Astro.url.searchParams.get("state") || "open";
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+if (!repo) return Astro.redirect("/404");
+
+const pulls = await sql`
+  SELECT
+    pr.*,
+    i.title, i.state, i.issue_number, i.author_id,
+    u.username as author_username
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id
+  JOIN users u ON i.author_id = u.id
+  WHERE pr.base_repo_id = ${repo.id}
+  ${state === 'all' ? sql`` : state === 'open'
+    ? sql`AND i.state = 'open' AND pr.has_merged = false`
+    : state === 'merged'
+    ? sql`AND pr.has_merged = true`
+    : sql``
+  }
+  ORDER BY pr.created_at DESC
+`;
+
+const [{ open_count }] = await sql`
+  SELECT COUNT(*) as open_count
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id
+  WHERE pr.base_repo_id = ${repo.id}
+    AND i.state = 'open'
+    AND pr.has_merged = false
+`;
+
+const [{ merged_count }] = await sql`
+  SELECT COUNT(*) as merged_count
+  FROM pull_requests pr
+  WHERE pr.base_repo_id = ${repo.id} AND pr.has_merged = true
+`;
+
+const [{ issue_count }] = await sql`
+  SELECT COUNT(*) as issue_count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+---
+
+<Layout title={`Pull Requests · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">pulls</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issue_count) > 0 && <span class="badge">{issue_count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/pulls`} class="active">
+      Pull Requests
+      {Number(open_count) > 0 && <span class="badge">{open_count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
+  </nav>
+
+  <div class="container">
+    <div class="flex-between mb-3">
+      <h1 class="page-title">Pull Requests</h1>
+      <a href={`/${username}/${reponame}/pulls/new`} class="btn btn-primary">New PR</a>
+    </div>
+
+    <div class="tabs">
+      <a
+        href={`/${username}/${reponame}/pulls?state=open`}
+        class:list={["tab", { active: state === "open" }]}
+      >
+        {open_count} Open
+      </a>
+      <a
+        href={`/${username}/${reponame}/pulls?state=merged`}
+        class:list={["tab", { active: state === "merged" }]}
+      >
+        {merged_count} Merged
+      </a>
+    </div>
+
+    {pulls.length === 0 ? (
+      <div class="empty-state">
+        <p>No {state} pull requests</p>
+      </div>
+    ) : (
+      <div class="pr-list">
+        {pulls.map((pr: any) => (
+          <a href={`/${username}/${reponame}/pulls/${pr.issue_number}`} class="pr-item">
+            <span class:list={["pr-status", pr.has_merged ? "merged" : pr.status]}>
+              {pr.has_merged ? "merged" : pr.status}
+            </span>
+            <div class="pr-content">
+              <div class="pr-title">{pr.title}</div>
+              <div class="pr-meta">
+                #{pr.issue_number} · {pr.head_branch} → {pr.base_branch} · by {pr.author_username}
+              </div>
+              <div class="pr-stats">
+                +{pr.additions} -{pr.deletions} · {pr.changed_files} files
+              </div>
+            </div>
+          </a>
+        ))}
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .pr-list {
+    border: 1px solid black;
+  }
+
+  .pr-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    border-bottom: 1px solid black;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .pr-item:last-child {
+    border-bottom: none;
+  }
+
+  .pr-item:hover {
+    background: #f5f5f5;
+  }
+
+  .pr-status {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid black;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    align-self: flex-start;
+  }
+
+  .pr-status.mergeable {
+    background: #d4edda;
+  }
+
+  .pr-status.merged {
+    background: #6f42c1;
+    color: white;
+  }
+
+  .pr-status.conflict {
+    background: #f8d7da;
+  }
+
+  .pr-content {
+    flex: 1;
+  }
+
+  .pr-title {
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+  }
+
+  .pr-meta {
+    font-size: 0.875rem;
+    color: #666;
+  }
+
+  .pr-stats {
+    font-size: 0.875rem;
+    color: #666;
+    margin-top: 0.25rem;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: #666;
+  }
+</style>

@@ -19,6 +19,17 @@ if (!repo) return Astro.redirect("/404");
 
 const commits = await getCommits(username!, reponame!, branch!, 50);
 
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+const [{ count: prCount }] = await sql`
+  SELECT COUNT(*) as count 
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id 
+  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
+`;
+
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
@@ -51,7 +62,14 @@ function formatDate(timestamp: number): string {
 
   <nav class="repo-nav">
     <a href={`/${username}/${reponame}`}>Code</a>
-    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/pulls`}>
+      Pull Requests
+      {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
+    </a>
     <a href={`/${username}/${reponame}/commits/${branch}`} class="active">Commits</a>
   </nav>
 

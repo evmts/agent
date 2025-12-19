@@ -1,0 +1,119 @@
+import type { APIRoute } from 'astro';
+import { sql } from '../../../../../lib/db';
+import { getUserBySession } from '../../../../../lib/auth-helpers';
+import { compareRefs, checkMergeable } from '../../../../../lib/git';
+import type { User, Repository, Issue, PullRequest } from '../../../../../lib/types';
+
+// Create a pull request
+export const POST: APIRoute = async ({ params, request }) => {
+  try {
+    const { user: username, repo: reponame } = params;
+    const formData = await request.formData();
+    
+    const title = formData.get('title') as string;
+    const description = formData.get('description') as string || '';
+    const headBranch = formData.get('head_branch') as string;
+    const baseBranch = formData.get('base_branch') as string;
+
+    // Get authenticated user
+    const authUser = await getUserBySession(request);
+    if (!authUser) {
+      return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!title || !headBranch || !baseBranch) {
+      return new Response(JSON.stringify({ error: 'Title, head branch, and base branch are required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'User not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const [repo] = await sql`
+      SELECT * FROM repositories
+      WHERE user_id = ${user.id} AND name = ${reponame}
+    ` as Repository[];
+    if (!repo) {
+      return new Response(JSON.stringify({ error: 'Repository not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Get next issue number
+    const [{ next_num }] = await sql`
+      SELECT COALESCE(MAX(issue_number), 0) + 1 as next_num
+      FROM issues
+      WHERE repository_id = ${repo.id}
+    `;
+
+    // Create issue first
+    const [issue] = await sql`
+      INSERT INTO issues (
+        repository_id, author_id, issue_number, title, body, state
+      ) VALUES (
+        ${repo.id}, ${authUser.id}, ${next_num}, ${title}, ${description}, 'open'
+      )
+      RETURNING *
+    ` as Issue[];
+
+    // Compare branches
+    const compareInfo = await compareRefs(username, reponame, baseBranch, headBranch);
+
+    // Check for conflicts
+    const { mergeable, conflictedFiles } = await checkMergeable(
+      username,
+      reponame,
+      baseBranch,
+      headBranch
+    );
+
+    // Create pull request
+    const [pr] = await sql`
+      INSERT INTO pull_requests (
+        issue_id,
+        head_repo_id, head_branch, head_commit_id,
+        base_repo_id, base_branch,
+        merge_base,
+        status,
+        commits_ahead, commits_behind,
+        additions, deletions, changed_files,
+        conflicted_files
+      ) VALUES (
+        ${issue.id},
+        ${repo.id}, ${headBranch}, ${compareInfo.head_commit_id},
+        ${repo.id}, ${baseBranch},
+        ${compareInfo.merge_base},
+        ${mergeable ? 'mergeable' : 'conflict'},
+        ${compareInfo.commits.length}, 0,
+        ${compareInfo.total_additions}, ${compareInfo.total_deletions}, ${compareInfo.total_files},
+        ${conflictedFiles.length > 0 ? JSON.stringify(conflictedFiles) : null}
+      )
+      RETURNING *
+    ` as PullRequest[];
+
+    // Redirect to the new pull request
+    return new Response('', {
+      status: 302,
+      headers: {
+        'Location': `/${username}/${reponame}/pulls/${next_num}`
+      }
+    });
+  } catch (error) {
+    console.error('Create PR error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+};

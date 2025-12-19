@@ -36,6 +36,13 @@ const cloneUrl = getCloneUrl(username!, reponame!);
 const [{ count: issueCount }] = await sql`
   SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
 `;
+
+const [{ count: prCount }] = await sql`
+  SELECT COUNT(*) as count 
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id 
+  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
+`;
 ---
 
 <Layout title={`${username}/${reponame} · plue`}>
@@ -52,6 +59,10 @@ const [{ count: issueCount }] = await sql`
     <a href={`/${username}/${reponame}/issues`}>
       Issues
       {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/pulls`}>
+      Pull Requests
+      {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/commits/${defaultBranch}`}>Commits</a>
   </nav>

@@ -133,6 +133,120 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 
 -- =============================================================================
+-- Pull Request Tables
+-- =============================================================================
+
+-- Pull requests extend issues
+CREATE TABLE IF NOT EXISTS pull_requests (
+  id SERIAL PRIMARY KEY,
+  issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+
+  -- Branch information
+  head_repo_id INTEGER REFERENCES repositories(id) ON DELETE SET NULL,
+  head_branch VARCHAR(255) NOT NULL,
+  head_commit_id VARCHAR(64),
+  base_repo_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  base_branch VARCHAR(255) NOT NULL,
+  merge_base VARCHAR(64),
+
+  -- Status
+  status VARCHAR(20) DEFAULT 'checking' CHECK (status IN (
+    'checking',      -- Checking for conflicts
+    'mergeable',     -- Can be merged
+    'conflict',      -- Has merge conflicts
+    'merged',        -- Already merged
+    'error',         -- Error during check
+    'empty'          -- No changes
+  )),
+
+  -- Merge information
+  has_merged BOOLEAN DEFAULT false,
+  merged_at TIMESTAMP,
+  merged_by INTEGER REFERENCES users(id),
+  merged_commit_id VARCHAR(64),
+  merge_style VARCHAR(20) CHECK (merge_style IN ('merge', 'squash', 'rebase')),
+
+  -- Stats
+  commits_ahead INTEGER DEFAULT 0,
+  commits_behind INTEGER DEFAULT 0,
+  additions INTEGER DEFAULT 0,
+  deletions INTEGER DEFAULT 0,
+  changed_files INTEGER DEFAULT 0,
+  conflicted_files TEXT[], -- Array of file paths with conflicts
+
+  -- Settings
+  allow_maintainer_edit BOOLEAN DEFAULT true,
+
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+
+  UNIQUE(issue_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pull_requests_head_repo ON pull_requests(head_repo_id);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_base_repo ON pull_requests(base_repo_id);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_status ON pull_requests(status);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_merged ON pull_requests(has_merged);
+
+-- Code reviews for pull requests
+CREATE TABLE IF NOT EXISTS reviews (
+  id SERIAL PRIMARY KEY,
+  pull_request_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+  reviewer_id INTEGER NOT NULL REFERENCES users(id),
+
+  -- Review type
+  type VARCHAR(20) NOT NULL CHECK (type IN (
+    'pending',    -- Draft review not yet submitted
+    'comment',    -- General feedback
+    'approve',    -- Approve changes
+    'request_changes' -- Request changes before merge
+  )),
+
+  content TEXT, -- Overall review comment
+  commit_id VARCHAR(64), -- Commit being reviewed
+
+  -- Status
+  official BOOLEAN DEFAULT false, -- Made by assigned reviewer
+  stale BOOLEAN DEFAULT false,    -- Outdated due to new commits
+  dismissed BOOLEAN DEFAULT false, -- Dismissed by maintainer
+
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_pr ON reviews(pull_request_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_reviewer ON reviews(reviewer_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_type ON reviews(type);
+
+-- Line-by-line code comments
+CREATE TABLE IF NOT EXISTS review_comments (
+  id SERIAL PRIMARY KEY,
+  review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+  pull_request_id INTEGER NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+  author_id INTEGER NOT NULL REFERENCES users(id),
+
+  -- Location in diff
+  commit_id VARCHAR(64) NOT NULL,
+  file_path TEXT NOT NULL,
+  diff_side VARCHAR(10) CHECK (diff_side IN ('left', 'right')), -- old vs new
+  line INTEGER NOT NULL, -- Line number in the file
+
+  -- Content
+  body TEXT NOT NULL,
+
+  -- Status
+  invalidated BOOLEAN DEFAULT false, -- Line changed by subsequent commit
+  resolved BOOLEAN DEFAULT false,
+
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_comments_review ON review_comments(review_id);
+CREATE INDEX IF NOT EXISTS idx_review_comments_pr ON review_comments(pull_request_id);
+CREATE INDEX IF NOT EXISTS idx_review_comments_file ON review_comments(pull_request_id, file_path);
+
+-- =============================================================================
 -- Agent State Tables
 -- =============================================================================
 

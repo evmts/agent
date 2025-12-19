@@ -1,0 +1,145 @@
+---
+import Layout from "../../../../../../layouts/Layout.astro";
+import Header from "../../../../../../components/Header.astro";
+import { sql } from "../../../../../../lib/db";
+import { compareRefs } from "../../../../../../lib/git";
+import type { User, Repository, PullRequest } from "../../../../../../lib/types";
+
+const { user: username, repo: reponame, number } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+if (!repo) return Astro.redirect("/404");
+
+const [pr] = await sql`
+  SELECT pr.*, i.title
+  FROM pull_requests pr
+  JOIN issues i ON pr.issue_id = i.id
+  WHERE i.repository_id = ${repo.id} AND i.issue_number = ${parseInt(number!, 10)}
+` as PullRequest[];
+
+if (!pr) return Astro.redirect("/404");
+
+const compareInfo = await compareRefs(username, reponame, pr.base_branch, pr.head_branch);
+---
+
+<Layout title={`Files · PR #${number}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}/pulls/${number}`}>PR #{number}</a>
+    <span class="sep">/</span>
+    <span class="current">files</span>
+  </div>
+
+  <div class="container">
+    <h1>Files Changed</h1>
+
+    <div class="diff-stats">
+      <strong>{compareInfo.total_files}</strong> files changed,
+      <span class="add">+{compareInfo.total_additions}</span>,
+      <span class="del">-{compareInfo.total_deletions}</span>
+    </div>
+
+    <div class="files-list">
+      {compareInfo.files.map((file) => (
+        <div class="file-diff">
+          <div class="file-header">
+            <span class:list={["file-status", file.status]}>{file.status}</span>
+            <span class="file-name">{file.name}</span>
+            <span class="file-stats">
+              <span class="add">+{file.additions}</span>
+              <span class="del">-{file.deletions}</span>
+            </span>
+          </div>
+
+          {file.isBinary ? (
+            <div class="binary-file">Binary file</div>
+          ) : (
+            <pre class="diff-patch"><code>{file.patch}</code></pre>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .diff-stats {
+    margin: 1rem 0;
+    padding: 1rem;
+    border: 1px solid black;
+  }
+
+  .add {
+    color: green;
+  }
+
+  .del {
+    color: red;
+  }
+
+  .files-list {
+    margin-top: 2rem;
+  }
+
+  .file-diff {
+    border: 1px solid black;
+    margin-bottom: 2rem;
+  }
+
+  .file-header {
+    background: #f5f5f5;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid black;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .file-status {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    border: 1px solid black;
+  }
+
+  .file-status.added {
+    background: #d4edda;
+  }
+
+  .file-status.modified {
+    background: #fff3cd;
+  }
+
+  .file-status.deleted {
+    background: #f8d7da;
+  }
+
+  .file-name {
+    flex: 1;
+    font-family: monospace;
+  }
+
+  .diff-patch {
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .binary-file {
+    padding: 2rem;
+    text-align: center;
+    color: #666;
+  }
+</style>
