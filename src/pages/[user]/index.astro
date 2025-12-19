@@ -22,19 +22,19 @@ const repos = await sql`
 ` as Repository[];
 ---
 
-<Layout title={`${user.display_name || user.username} - plue`}>
+<Layout title={`${user.username} · plue`}>
   <Header />
   <div class="container">
-    <div class="mb-2">
-      <h1>{user.display_name || user.username}</h1>
-      {user.bio && <p>{user.bio}</p>}
+    <div class="user-profile mb-3">
+      <h1 class="page-title">{user.display_name || user.username}</h1>
+      {user.bio && <p class="bio">{user.bio}</p>}
     </div>
 
-    <h2>repositories</h2>
+    <h2 class="mb-2">Repositories</h2>
 
     {repos.length === 0 ? (
       <div class="empty-state">
-        <p>No repositories yet.</p>
+        <p>No repositories yet</p>
       </div>
     ) : (
       <ul class="repo-list">
@@ -45,3 +45,14 @@ const repos = await sql`
     )}
   </div>
 </Layout>
+
+<style>
+  .user-profile {
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .bio {
+    margin-top: 8px;
+  }
+</style>

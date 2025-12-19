@@ -48,7 +48,7 @@ if (Astro.request.method === "POST") {
     const body = (formData.get("body") as string)?.trim();
 
     if (!authorId || !body) {
-      error = "Author and comment body are required";
+      error = "Comment cannot be empty";
     } else {
       await sql`
         INSERT INTO comments (issue_id, author_id, body)
@@ -76,49 +76,48 @@ if (Astro.request.method === "POST") {
 
 function formatDate(date: Date): string {
   return new Date(date).toLocaleDateString("en-US", {
-    year: "numeric",
     month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    year: "numeric",
   });
 }
 ---
 
-<Layout title={`${issue.title} - ${username}/${reponame} - plue`}>
+<Layout title={`${issue.title} · Issue #${issue.issue_number} · plue`}>
   <Header />
 
   <div class="breadcrumb">
     <a href={`/${username}`}>{username}</a>
-    <span>/</span>
+    <span class="sep">/</span>
     <a href={`/${username}/${reponame}`}>{reponame}</a>
-    <span>/</span>
+    <span class="sep">/</span>
     <a href={`/${username}/${reponame}/issues`}>issues</a>
-    <span>/</span>
+    <span class="sep">/</span>
     <span class="current">#{issue.issue_number}</span>
   </div>
 
   <nav class="repo-nav">
-    <a href={`/${username}/${reponame}`}>code</a>
-    <a href={`/${username}/${reponame}/issues`} class="active">issues</a>
-    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>commits</a>
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`} class="active">Issues</a>
+    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
   </nav>
 
   <div class="container">
-    <div class="flex-between mb-1">
-      <h1>{issue.title}</h1>
-      <span class:list={["issue-state", issue.state]}>{issue.state}</span>
+    <div class="issue-header mb-3">
+      <div class="flex-between mb-1">
+        <h1 class="page-title">{issue.title}</h1>
+        <span class:list={["issue-state", issue.state]}>{issue.state}</span>
+      </div>
+      <p class="text-muted text-sm">
+        #{issue.issue_number} opened by <strong>{issue.author_username}</strong> on {formatDate(issue.created_at)}
+      </p>
     </div>
 
-    <p class="issue-meta" style="margin-bottom: 2rem;">
-      #{issue.issue_number} opened by {issue.author_username} on {formatDate(issue.created_at)}
-    </p>
-
     {issue.body && (
-      <div class="comment mb-2">
+      <div class="comment">
         <div class="comment-header">
           <strong>{issue.author_username}</strong>
-          <span style="color: var(--gray)"> opened this issue</span>
+          <span class="time">· opened this issue</span>
         </div>
         <div class="comment-body">
           <Markdown content={issue.body} />
@@ -130,44 +129,68 @@ function formatDate(date: Date): string {
       <CommentCard comment={comment} />
     ))}
 
-    <h2 class="mt-2 mb-1">add a comment</h2>
+    <div class="add-comment mt-3">
+      <h2 class="mb-2">Add a comment</h2>
 
-    {error && <p style="color: #f44; margin-bottom: 1rem;">{error}</p>}
+      {error && (
+        <div class="error-banner mb-2">
+          {error}
+        </div>
+      )}
 
-    <form method="POST">
-      <input type="hidden" name="action" value="comment" />
+      <form method="POST">
+        <input type="hidden" name="action" value="comment" />
 
-      <div class="user-select">
-        <label for="author_id">Comment as</label>
-        <select name="author_id" id="author_id" required>
-          {users.map((u) => (
-            <option value={u.id}>{u.username}</option>
-          ))}
-        </select>
-      </div>
+        <div class="form-group">
+          <label for="author_id">Comment as</label>
+          <select name="author_id" id="author_id" required>
+            {users.map((u) => (
+              <option value={u.id}>{u.username}</option>
+            ))}
+          </select>
+        </div>
 
-      <label for="body">Comment</label>
-      <textarea
-        name="body"
-        id="body"
-        required
-        placeholder="Write a comment..."
-        style="min-height: 100px;"
-      ></textarea>
+        <div class="form-group">
+          <label for="body">Comment</label>
+          <textarea
+            name="body"
+            id="body"
+            required
+            placeholder="Leave a comment..."
+            style="min-height: 120px;"
+          ></textarea>
+        </div>
 
-      <div class="flex gap-1">
-        <button type="submit" class="btn">Comment</button>
+        <div class="flex gap-1">
+          <button type="submit" class="btn btn-primary">Comment</button>
 
-        {issue.state === "open" ? (
-          <button type="submit" name="action" value="close" class="btn btn-danger">
-            Close issue
-          </button>
-        ) : (
-          <button type="submit" name="action" value="reopen" class="btn">
-            Reopen issue
-          </button>
-        )}
-      </div>
-    </form>
+          {issue.state === "open" ? (
+            <button type="submit" name="action" value="close" class="btn btn-danger">
+              Close issue
+            </button>
+          ) : (
+            <button type="submit" name="action" value="reopen" class="btn">
+              Reopen issue
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
   </div>
 </Layout>
+
+<style>
+  .issue-header {
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .error-banner {
+    padding: 12px 16px;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    border-radius: var(--radius);
+    color: var(--error);
+    font-size: 13px;
+  }
+</style>

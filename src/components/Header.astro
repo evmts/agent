@@ -7,9 +7,9 @@ const { currentPath = "/" } = Astro.props;
 ---
 
 <header class="site-header">
-  <h1><a href="/">plue</a></h1>
+  <a href="/" class="logo">plue</a>
   <nav>
-    <a href="/" class:list={[{ active: currentPath === "/" }]}>repos</a>
+    <a href="/" class:list={[{ active: currentPath === "/" }]}>explore</a>
     <a href="/new" class:list={[{ active: currentPath === "/new" }]}>new</a>
   </nav>
 </header>

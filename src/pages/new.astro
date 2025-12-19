@@ -8,7 +8,6 @@ import type { User, Repository } from "../lib/types";
 const users = await sql`SELECT * FROM users ORDER BY username` as User[];
 
 let error = "";
-let success = "";
 
 if (Astro.request.method === "POST") {
   const formData = await Astro.request.formData();
@@ -17,7 +16,7 @@ if (Astro.request.method === "POST") {
   const description = formData.get("description") as string;
 
   if (!userId || !name) {
-    error = "User and repository name are required";
+    error = "Owner and name are required";
   } else {
     try {
       const [user] = await sql`SELECT * FROM users WHERE id = ${userId}` as User[];
@@ -25,7 +24,6 @@ if (Astro.request.method === "POST") {
       if (!user) {
         error = "User not found";
       } else {
-        // Check if repo exists
         const [existing] = await sql`
           SELECT * FROM repositories WHERE user_id = ${userId} AND name = ${name}
         ` as Repository[];
@@ -33,15 +31,12 @@ if (Astro.request.method === "POST") {
         if (existing) {
           error = "Repository already exists";
         } else {
-          // Create database record
           await sql`
             INSERT INTO repositories (user_id, name, description)
             VALUES (${userId}, ${name}, ${description})
           `;
 
-          // Initialize git repo
           await initRepo(user.username, name);
-
           return Astro.redirect(`/${user.username}/${name}`);
         }
       }
@@ -52,16 +47,19 @@ if (Astro.request.method === "POST") {
 }
 ---
 
-<Layout title="New Repository - plue">
+<Layout title="New Repository · plue">
   <Header currentPath="/new" />
   <div class="container">
-    <h1>new repository</h1>
+    <h1 class="page-title mb-3">Create a new repository</h1>
 
-    {error && <p style="color: #f44; margin-bottom: 1rem;">{error}</p>}
-    {success && <p style="color: #4f4; margin-bottom: 1rem;">{success}</p>}
+    {error && (
+      <div class="error-banner mb-3">
+        {error}
+      </div>
+    )}
 
     <form method="POST">
-      <div class="user-select">
+      <div class="form-group">
         <label for="user_id">Owner</label>
         <select name="user_id" id="user_id" required>
           {users.map((user) => (
@@ -70,25 +68,42 @@ if (Astro.request.method === "POST") {
         </select>
       </div>
 
-      <label for="name">Repository name</label>
-      <input
-        type="text"
-        name="name"
-        id="name"
-        required
-        pattern="[a-zA-Z0-9-]+"
-        placeholder="my-project"
-      />
+      <div class="form-group">
+        <label for="name">Repository name</label>
+        <input
+          type="text"
+          name="name"
+          id="name"
+          required
+          pattern="[a-zA-Z0-9-]+"
+          placeholder="my-project"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
 
-      <label for="description">Description (optional)</label>
-      <input
-        type="text"
-        name="description"
-        id="description"
-        placeholder="A brief description"
-      />
+      <div class="form-group">
+        <label for="description">Description <span class="text-muted">(optional)</span></label>
+        <input
+          type="text"
+          name="description"
+          id="description"
+          placeholder="A short description of your repository"
+        />
+      </div>
 
-      <button type="submit" class="btn">Create repository</button>
+      <button type="submit" class="btn btn-primary">Create repository</button>
     </form>
   </div>
 </Layout>
+
+<style>
+  .error-banner {
+    padding: 12px 16px;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    border-radius: var(--radius);
+    color: var(--error);
+    font-size: 13px;
+  }
+</style>

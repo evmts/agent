@@ -10,7 +10,6 @@ const { comment } = Astro.props;
 
 function formatDate(date: Date): string {
   return new Date(date).toLocaleDateString("en-US", {
-    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -22,7 +21,7 @@ function formatDate(date: Date): string {
 <div class="comment">
   <div class="comment-header">
     <strong>{comment.author_username}</strong>
-    <span style="color: var(--gray)"> commented on {formatDate(comment.created_at)}</span>
+    <span class="time">· {formatDate(comment.created_at)}</span>
   </div>
   <div class="comment-body">
     <Markdown content={comment.body} />

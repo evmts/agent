@@ -18,14 +18,14 @@ const repos = await sql`
 <Layout title="plue">
   <Header currentPath="/" />
   <div class="container">
-    <div class="flex-between mb-2">
-      <h1>repositories</h1>
-      <a href="/new" class="btn">+ new</a>
+    <div class="flex-between mb-3">
+      <h1 class="page-title">Repositories</h1>
+      <a href="/new" class="btn btn-primary">Create new</a>
     </div>
 
     {repos.length === 0 ? (
       <div class="empty-state">
-        <p>No repositories yet.</p>
+        <p>No repositories yet</p>
         <a href="/new" class="btn mt-2">Create your first repository</a>
       </div>
     ) : (

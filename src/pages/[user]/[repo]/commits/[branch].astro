@@ -20,46 +20,58 @@ if (!repo) return Astro.redirect("/404");
 const commits = await getCommits(username!, reponame!, branch!, 50);
 
 function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString("en-US", {
-    year: "numeric",
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
   });
 }
 ---
 
-<Layout title={`Commits - ${username}/${reponame} - plue`}>
+<Layout title={`Commits · ${username}/${reponame} · plue`}>
   <Header />
 
   <div class="breadcrumb">
     <a href={`/${username}`}>{username}</a>
-    <span>/</span>
+    <span class="sep">/</span>
     <a href={`/${username}/${reponame}`}>{reponame}</a>
-    <span>/</span>
+    <span class="sep">/</span>
     <span class="current">commits</span>
   </div>
 
   <nav class="repo-nav">
-    <a href={`/${username}/${reponame}`}>code</a>
-    <a href={`/${username}/${reponame}/issues`}>issues</a>
-    <a href={`/${username}/${reponame}/commits/${branch}`} class="active">commits</a>
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/commits/${branch}`} class="active">Commits</a>
   </nav>
 
   <div class="container">
-    <h1>commits on {branch}</h1>
+    <h1 class="page-title mb-3">
+      Commits on <code>{branch}</code>
+    </h1>
 
     {commits.length === 0 ? (
       <div class="empty-state">
-        <p>No commits yet.</p>
+        <p>No commits yet</p>
       </div>
     ) : (
-      <div class="mt-2">
+      <div class="commit-list">
         {commits.map((commit) => (
           <div class="commit-item">
             <div class="commit-message">
-              <div>{commit.message}</div>
+              <div class="msg">{commit.message}</div>
               <div class="commit-meta">
-                {commit.authorName} committed on {formatDate(commit.timestamp)}
+                {commit.authorName} · {formatDate(commit.timestamp)}
               </div>
             </div>
             <code class="commit-hash">{commit.shortHash}</code>

@@ -3,13 +3,37 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 ---
 
-<Layout title="Not Found - plue">
+<Layout title="404 · plue">
   <Header />
   <div class="container">
-    <div class="empty-state" style="margin-top: 4rem;">
-      <h1 style="font-size: 3rem; margin-bottom: 1rem;">404</h1>
-      <p>Page not found.</p>
-      <a href="/" class="btn mt-2">Go home</a>
+    <div class="not-found">
+      <div class="code">404</div>
+      <p>This page could not be found.</p>
+      <a href="/" class="btn mt-3">Go home</a>
     </div>
   </div>
 </Layout>
+
+<style>
+  .not-found {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
+  }
+
+  .code {
+    font-size: 72px;
+    font-weight: 600;
+    letter-spacing: -0.05em;
+    color: var(--gray-700);
+    line-height: 1;
+    margin-bottom: 16px;
+  }
+
+  p {
+    color: var(--gray-400);
+  }
+</style>

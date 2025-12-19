@@ -12,22 +12,24 @@ const issueUrl = `/${user}/${repo}/issues/${issue.issue_number}`;
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return "now";
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return `${months}mo`;
 }
 ---
 
 <a href={issueUrl} class="issue-item">
   <span class:list={["issue-state", issue.state]}>{issue.state}</span>
-  <div>
+  <div class="issue-content">
     <div class="issue-title">{issue.title}</div>
     <div class="issue-meta">
-      #{issue.issue_number} opened {timeAgo(issue.created_at)} by {issue.author_username}
+      #{issue.issue_number} · {issue.author_username} · {timeAgo(issue.created_at)}
     </div>
   </div>
 </a>
