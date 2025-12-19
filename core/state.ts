@@ -6,7 +6,6 @@
  * Runtime-only state (active tasks, abort controllers) remains in-memory.
  */
 
-import type { Snapshot } from '../native/src/snapshot';
 import * as db from '../db/agent-state';
 
 // =============================================================================
@@ -23,7 +22,7 @@ export type { MessageWithParts, FileTimeTracker } from '../db/agent-state';
 export const activeTasks = new Map<string, AbortController>();
 
 /** Session snapshots: sessionID -> Snapshot instance (native, runtime-only) */
-export const sessionSnapshots = new Map<string, Snapshot>();
+export const sessionSnapshots = new Map<string, any>();
 
 // =============================================================================
 // Session Operations (Database-Backed)

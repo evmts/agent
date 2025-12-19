@@ -3,14 +3,11 @@
  *
  * Provides functions for tracking file changes using the jj-based snapshot system.
  * This wraps the native/src/snapshot.ts module for session-based management.
+ *
+ * NOTE: Native module is optional - when unavailable (e.g., in Docker),
+ * snapshot functionality is disabled but the server continues to work.
  */
 
-import {
-  Snapshot,
-  SnapshotSessionManager,
-  type FileDiff,
-  type SnapshotInfo,
-} from '../native/src/snapshot';
 import {
   sessionSnapshots,
   appendSnapshotHistory as appendSnapshotHistoryToDB,
@@ -18,11 +15,43 @@ import {
 } from './state';
 import { NotFoundError } from './exceptions';
 
-// Re-export types for convenience
-export type { FileDiff, SnapshotInfo };
+// Types (defined locally to avoid native dependency)
+export interface FileDiff {
+  path: string;
+  changeType: 'added' | 'modified' | 'deleted';
+  beforeContent?: string;
+  afterContent?: string;
+  addedLines: number;
+  deletedLines: number;
+}
 
-// Global session manager instance
-const sessionManager = new SnapshotSessionManager();
+export interface SnapshotInfo {
+  changeId: string;
+  commitId: string;
+  description: string;
+  timestamp: number;
+  isEmpty: boolean;
+}
+
+// Try to load native module - gracefully degrade if unavailable
+let Snapshot: any = null;
+let SnapshotSessionManager: any = null;
+let nativeAvailable = false;
+
+try {
+  // @ts-expect-error - Native module may not exist in all environments
+  const native = await import('../native/src/snapshot');
+  Snapshot = native.Snapshot;
+  SnapshotSessionManager = native.SnapshotSessionManager;
+  nativeAvailable = true;
+  console.log('[snapshots] Native jj module loaded successfully');
+} catch (error) {
+  console.warn('[snapshots] Native jj module not available - snapshot functionality disabled');
+  console.warn('[snapshots] This is expected in Docker/Linux environments without the native binary');
+}
+
+// Global session manager instance (null if native unavailable)
+const sessionManager = nativeAvailable ? new SnapshotSessionManager() : null;
 
 /**
  * Initialize snapshot tracking for a session.
@@ -35,6 +64,11 @@ export async function initSnapshot(
   sessionId: string,
   directory: string
 ): Promise<string | null> {
+  if (!sessionManager) {
+    await setSnapshotHistory(sessionId, []);
+    return null;
+  }
+
   try {
     const changeId = await sessionManager.initSession(sessionId, directory);
     await setSnapshotHistory(sessionId, [changeId]);
@@ -57,6 +91,8 @@ export async function trackSnapshot(
   sessionId: string,
   description?: string
 ): Promise<string | null> {
+  if (!sessionManager) return null;
+
   try {
     const changeId = await sessionManager.trackSnapshot(sessionId, description);
     if (changeId) {
@@ -82,6 +118,8 @@ export async function computeDiff(
   fromChangeId: string,
   toChangeId?: string
 ): Promise<FileDiff[]> {
+  if (!sessionManager) return [];
+
   try {
     return await sessionManager.computeDiff(sessionId, fromChangeId, toChangeId);
   } catch (error) {
@@ -106,6 +144,8 @@ export async function getChangedFiles(
   fromChangeId: string,
   toChangeId?: string
 ): Promise<string[]> {
+  if (!sessionManager) return [];
+
   const snapshot = sessionManager.getSession(sessionId);
   if (!snapshot) {
     return [];
@@ -133,6 +173,11 @@ export async function restoreSnapshot(
   sessionId: string,
   changeId: string
 ): Promise<void> {
+  if (!sessionManager) {
+    console.warn('[snapshots] Cannot restore - native module not available');
+    return;
+  }
+
   try {
     await sessionManager.restoreSnapshot(sessionId, changeId);
   } catch (error) {
@@ -150,6 +195,7 @@ export async function restoreSnapshot(
  * @returns Array of change IDs in order
  */
 export function getSnapshotHistory(sessionId: string): string[] {
+  if (!sessionManager) return [];
   return sessionManager.getHistory(sessionId);
 }
 
@@ -169,7 +215,9 @@ export async function appendSnapshotHistory(sessionId: string, changeId: string)
  * @param sessionId - The session to clean up
  */
 export async function cleanupSnapshots(sessionId: string): Promise<void> {
-  sessionManager.cleanupSession(sessionId);
+  if (sessionManager) {
+    sessionManager.cleanupSession(sessionId);
+  }
   sessionSnapshots.delete(sessionId);
   // Database cleanup is handled by foreign key cascades when session is deleted
 }
@@ -180,7 +228,8 @@ export async function cleanupSnapshots(sessionId: string): Promise<void> {
  * @param sessionId - The session to get snapshot for
  * @returns The Snapshot instance, or null if not found
  */
-export function getSessionSnapshot(sessionId: string): Snapshot | null {
+export function getSessionSnapshot(sessionId: string): any | null {
+  if (!sessionManager) return null;
   return sessionManager.getSession(sessionId);
 }
 
@@ -196,6 +245,11 @@ export async function revertFiles(
   changeId: string,
   files: string[]
 ): Promise<void> {
+  if (!sessionManager) {
+    console.warn('[snapshots] Cannot revert files - native module not available');
+    return;
+  }
+
   const snapshot = sessionManager.getSession(sessionId);
   if (!snapshot) {
     throw new NotFoundError('session snapshot', sessionId);
@@ -217,6 +271,8 @@ export async function getFileAtSnapshot(
   changeId: string,
   filePath: string
 ): Promise<string | null> {
+  if (!sessionManager) return null;
+
   const snapshot = sessionManager.getSession(sessionId);
   if (!snapshot) {
     return null;
@@ -231,6 +287,11 @@ export async function getFileAtSnapshot(
  * @param sessionId - The session to undo in
  */
 export async function undoLastOperation(sessionId: string): Promise<void> {
+  if (!sessionManager) {
+    console.warn('[snapshots] Cannot undo - native module not available');
+    return;
+  }
+
   const snapshot = sessionManager.getSession(sessionId);
   if (!snapshot) {
     throw new NotFoundError('session snapshot', sessionId);
