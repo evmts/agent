@@ -20,7 +20,7 @@ async def update_session_route(
     request: UpdateSessionRequest,
     directory: str | None = Query(None),
 ) -> Session:
-    """Update session title, archived status, model, or reasoning effort."""
+    """Update session title, archived status, model, reasoning effort, or plugins."""
     try:
         archived = None
         if request.time and "archived" in request.time:
@@ -44,6 +44,16 @@ async def update_session_route(
                     detail=f"Invalid reasoning_effort: {request.reasoning_effort}. Valid levels: {', '.join(valid_levels)}"
                 )
 
+        # Validate plugins if provided
+        if request.plugins is not None:
+            from plugins import plugin_exists
+            for plugin_name in request.plugins:
+                if not plugin_exists(plugin_name):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Plugin not found: {plugin_name}"
+                    )
+
         return await update_session(
             session_id=sessionID,
             event_bus=get_event_bus(),
@@ -51,6 +61,7 @@ async def update_session_route(
             archived=archived,
             model=request.model,
             reasoning_effort=request.reasoning_effort,
+            plugins=request.plugins,
         )
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")

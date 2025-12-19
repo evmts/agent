@@ -147,9 +147,10 @@ async def update_session(
     archived: float | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    plugins: list[str] | None = None,
 ) -> Session:
     """
-    Update a session's title, archived status, model, or reasoning effort.
+    Update a session's title, archived status, model, reasoning effort, or plugins.
 
     Args:
         session_id: The session ID
@@ -158,6 +159,7 @@ async def update_session(
         archived: Archived timestamp (optional)
         model: Model ID to use (optional)
         reasoning_effort: Reasoning effort level (optional)
+        plugins: List of plugin names to activate (optional)
 
     Returns:
         The updated session
@@ -175,6 +177,8 @@ async def update_session(
         session.model = model
     if reasoning_effort is not None:
         session.reasoning_effort = reasoning_effort
+    if plugins is not None:
+        session.plugins = plugins
     session.time.updated = time.time()
     sessions[session_id] = session
 
