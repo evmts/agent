@@ -14,9 +14,9 @@ async function migrate() {
   for (const statement of statements) {
     try {
       await sql.unsafe(statement);
-      console.log("✓", statement.slice(0, 50) + "...");
+      console.log("✓", `${statement.slice(0, 50)}...`);
     } catch (error) {
-      console.error("✗", statement.slice(0, 50) + "...");
+      console.error("✗", `${statement.slice(0, 50)}...`);
       console.error("  Error:", (error as Error).message);
     }
   }

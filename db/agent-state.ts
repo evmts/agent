@@ -8,6 +8,7 @@ import sql from "./client";
 import type {
   Session,
   Message,
+  MessageStatus,
   UserMessage,
   AssistantMessage,
   Part,
@@ -168,7 +169,7 @@ export async function getSessionMessages(
 }
 
 export async function appendMessage(
-  sessionId: string,
+  _sessionId: string,
   message: MessageWithParts
 ): Promise<void> {
   await saveMessage(message.info);
@@ -186,6 +187,7 @@ export async function saveMessage(message: Message): Promise<void> {
     await sql`
       INSERT INTO messages (
         id, session_id, role, time_created, time_completed,
+        status, thinking_text, error_message,
         agent, model_provider_id, model_model_id, system_prompt, tools
       ) VALUES (
         ${userMsg.id},
@@ -193,6 +195,9 @@ export async function saveMessage(message: Message): Promise<void> {
         ${userMsg.role},
         ${userMsg.time.created},
         ${userMsg.time.completed ?? null},
+        ${userMsg.status},
+        ${userMsg.thinkingText ?? null},
+        ${userMsg.errorMessage ?? null},
         ${userMsg.agent},
         ${userMsg.model.providerID},
         ${userMsg.model.modelID},
@@ -201,6 +206,9 @@ export async function saveMessage(message: Message): Promise<void> {
       )
       ON CONFLICT (id) DO UPDATE SET
         time_completed = EXCLUDED.time_completed,
+        status = EXCLUDED.status,
+        thinking_text = EXCLUDED.thinking_text,
+        error_message = EXCLUDED.error_message,
         system_prompt = EXCLUDED.system_prompt,
         tools = EXCLUDED.tools
     `;
@@ -209,6 +217,7 @@ export async function saveMessage(message: Message): Promise<void> {
     await sql`
       INSERT INTO messages (
         id, session_id, role, time_created, time_completed,
+        status, thinking_text, error_message,
         parent_id, mode, path_cwd, path_root,
         cost, tokens_input, tokens_output, tokens_reasoning,
         tokens_cache_read, tokens_cache_write,
@@ -220,6 +229,9 @@ export async function saveMessage(message: Message): Promise<void> {
         ${assistantMsg.role},
         ${assistantMsg.time.created},
         ${assistantMsg.time.completed ?? null},
+        ${assistantMsg.status},
+        ${assistantMsg.thinkingText ?? null},
+        ${assistantMsg.errorMessage ?? null},
         ${assistantMsg.parentID},
         ${assistantMsg.mode},
         ${assistantMsg.path.cwd},
@@ -238,6 +250,9 @@ export async function saveMessage(message: Message): Promise<void> {
       )
       ON CONFLICT (id) DO UPDATE SET
         time_completed = EXCLUDED.time_completed,
+        status = EXCLUDED.status,
+        thinking_text = EXCLUDED.thinking_text,
+        error_message = EXCLUDED.error_message,
         cost = EXCLUDED.cost,
         tokens_input = EXCLUDED.tokens_input,
         tokens_output = EXCLUDED.tokens_output,
@@ -348,6 +363,9 @@ function rowToMessage(row: Record<string, unknown>): Message {
         created: Number(row.time_created),
         completed: row.time_completed ? Number(row.time_completed) : undefined,
       },
+      status: (row.status as string) || 'pending',
+      thinkingText: row.thinking_text as string | undefined,
+      errorMessage: row.error_message as string | undefined,
       agent: row.agent as string,
       model: {
         providerID: row.model_provider_id as string,
@@ -365,6 +383,9 @@ function rowToMessage(row: Record<string, unknown>): Message {
         created: Number(row.time_created),
         completed: row.time_completed ? Number(row.time_completed) : undefined,
       },
+      status: (row.status as string) || 'pending',
+      thinkingText: row.thinking_text as string | undefined,
+      errorMessage: row.error_message as string | undefined,
       parentID: row.parent_id as string,
       modelID: row.model_model_id as string,
       providerID: row.model_provider_id as string,
@@ -572,6 +593,154 @@ export async function updateFileTracker(
 
 export async function clearFileTrackers(sessionId: string): Promise<void> {
   await sql`DELETE FROM file_trackers WHERE session_id = ${sessionId}`;
+}
+
+// =============================================================================
+// Streaming Part Operations
+// =============================================================================
+
+/**
+ * Generate a unique part ID.
+ */
+function generatePartId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id = 'part_';
+  for (let i = 0; i < 12; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return id;
+}
+
+/**
+ * Append a single part to a message during streaming.
+ * Used for real-time persistence as events are generated.
+ */
+export async function appendStreamingPart(
+  sessionId: string,
+  messageId: string,
+  partData: {
+    type: 'text' | 'reasoning' | 'tool';
+    text?: string;
+    tool_name?: string;
+    tool_state?: Record<string, unknown>;
+    sort_order: number;
+    time_start?: number;
+    time_end?: number;
+  }
+): Promise<string> {
+  const partId = generatePartId();
+
+  const base = {
+    id: partId,
+    session_id: sessionId,
+    message_id: messageId,
+    type: partData.type,
+    sort_order: partData.sort_order,
+    time_start: partData.time_start ?? null,
+    time_end: partData.time_end ?? null,
+  };
+
+  if (partData.type === 'text' || partData.type === 'reasoning') {
+    await sql`
+      INSERT INTO parts (id, session_id, message_id, type, text, time_start, time_end, sort_order)
+      VALUES (
+        ${base.id}, ${base.session_id}, ${base.message_id}, ${base.type},
+        ${partData.text ?? ''},
+        ${base.time_start},
+        ${base.time_end},
+        ${base.sort_order}
+      )
+    `;
+  } else if (partData.type === 'tool') {
+    await sql`
+      INSERT INTO parts (id, session_id, message_id, type, tool_name, tool_state, time_start, time_end, sort_order)
+      VALUES (
+        ${base.id}, ${base.session_id}, ${base.message_id}, ${base.type},
+        ${partData.tool_name ?? ''},
+        ${partData.tool_state ? JSON.stringify(partData.tool_state) : null},
+        ${base.time_start},
+        ${base.time_end},
+        ${base.sort_order}
+      )
+    `;
+  }
+
+  return partId;
+}
+
+/**
+ * Update an existing part (e.g., to append text or update tool state).
+ */
+export async function updateStreamingPart(
+  partId: string,
+  updates: {
+    text?: string;
+    tool_state?: Record<string, unknown>;
+    time_end?: number;
+  }
+): Promise<void> {
+  // Build dynamic update query based on what's provided
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+
+  if (updates.text !== undefined) {
+    setClauses.push('text = $' + (values.length + 1));
+    values.push(updates.text);
+  }
+
+  if (updates.tool_state !== undefined) {
+    setClauses.push('tool_state = $' + (values.length + 1));
+    values.push(JSON.stringify(updates.tool_state));
+  }
+
+  if (updates.time_end !== undefined) {
+    setClauses.push('time_end = $' + (values.length + 1));
+    values.push(updates.time_end);
+  }
+
+  if (setClauses.length > 0) {
+    values.push(partId);
+    const query = `UPDATE parts SET ${setClauses.join(', ')} WHERE id = $${values.length}`;
+    await sql.unsafe(query, values as never[]);
+  }
+}
+
+/**
+ * Update message status and related fields during streaming.
+ */
+export async function updateMessageStatus(
+  messageId: string,
+  updates: {
+    status?: 'pending' | 'streaming' | 'completed' | 'failed' | 'aborted';
+    thinking_text?: string;
+    error_message?: string;
+    time_completed?: number;
+    finish?: string;
+    error?: Record<string, unknown>;
+    cost?: number;
+    tokens_input?: number;
+    tokens_output?: number;
+    tokens_reasoning?: number;
+    tokens_cache_read?: number;
+    tokens_cache_write?: number;
+  }
+): Promise<void> {
+  await sql`
+    UPDATE messages SET
+      status = COALESCE(${updates.status ?? null}, status),
+      thinking_text = COALESCE(${updates.thinking_text ?? null}, thinking_text),
+      error_message = COALESCE(${updates.error_message ?? null}, error_message),
+      time_completed = COALESCE(${updates.time_completed ?? null}, time_completed),
+      finish = COALESCE(${updates.finish ?? null}, finish),
+      error = COALESCE(${updates.error ? JSON.stringify(updates.error) : null}, error),
+      cost = COALESCE(${updates.cost ?? null}, cost),
+      tokens_input = COALESCE(${updates.tokens_input ?? null}, tokens_input),
+      tokens_output = COALESCE(${updates.tokens_output ?? null}, tokens_output),
+      tokens_reasoning = COALESCE(${updates.tokens_reasoning ?? null}, tokens_reasoning),
+      tokens_cache_read = COALESCE(${updates.tokens_cache_read ?? null}, tokens_cache_read),
+      tokens_cache_write = COALESCE(${updates.tokens_cache_write ?? null}, tokens_cache_write)
+    WHERE id = ${messageId}
+  `;
 }
 
 // =============================================================================

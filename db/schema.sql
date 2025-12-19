@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS messages (
   role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant')),
   time_created BIGINT NOT NULL,
   time_completed BIGINT,
+  -- Status tracking
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'streaming', 'completed', 'failed', 'aborted')),
+  thinking_text TEXT,
+  error_message TEXT,
   -- User message fields
   agent VARCHAR(255),
   model_provider_id VARCHAR(255),
