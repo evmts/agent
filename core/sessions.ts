@@ -18,6 +18,7 @@ import {
   computeDiff,
   getChangedFiles,
   restoreSnapshot,
+  getSnapshotHistory,
 } from './snapshots';
 import {
   getSession as getSessionFromDB,
@@ -25,7 +26,7 @@ import {
   saveSession,
   getSessionMessages,
   setSessionMessages,
-  getSnapshotHistory,
+  getSnapshotHistory as getSnapshotHistoryFromDB,
   setSnapshotHistory,
   activeTasks,
   clearSessionState,
@@ -217,7 +218,7 @@ export async function getSessionDiff(
     throw new NotFoundError('Session', sessionId);
   }
 
-  const history = await getSnapshotHistory(sessionId);
+  const history = await getSnapshotHistoryFromDB(sessionId);
 
   if (history.length < 2) {
     return [];
@@ -305,7 +306,7 @@ export async function revertSession(
   partId?: string
 ): Promise<Session> {
   const session = await getSession(sessionId);
-  const history = await getSnapshotHistory(sessionId);
+  const history = await getSnapshotHistoryFromDB(sessionId);
   const messages = await getSessionMessages(sessionId);
 
   // Find the snapshot hash corresponding to the target message
@@ -400,7 +401,7 @@ export async function undoTurns(
 ): Promise<[number, number, string[], string | null]> {
   const session = await getSession(sessionId);
   const messages = await getSessionMessages(sessionId);
-  const history = await getSnapshotHistory(sessionId);
+  const history = await getSnapshotHistoryFromDB(sessionId);
 
   if (messages.length === 0) {
     return [0, 0, [], null];

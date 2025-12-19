@@ -122,15 +122,15 @@ function rowToSession(row: Record<string, unknown>): Session {
     },
     parentID: row.parent_id as string | undefined,
     forkPoint: row.fork_point as string | undefined,
-    summary: row.summary as Session["summary"],
-    revert: row.revert as Session["revert"],
-    compaction: row.compaction as Session["compaction"],
+    summary: row.summary ? JSON.parse(row.summary as string) as Session["summary"] : undefined,
+    revert: row.revert ? JSON.parse(row.revert as string) as Session["revert"] : undefined,
+    compaction: row.compaction ? JSON.parse(row.compaction as string) as Session["compaction"] : undefined,
     tokenCount: Number(row.token_count),
     bypassMode: row.bypass_mode as boolean,
     model: row.model as string | undefined,
     reasoningEffort: row.reasoning_effort as Session["reasoningEffort"],
-    ghostCommit: row.ghost_commit as Session["ghostCommit"],
-    plugins: (row.plugins as string[]) ?? [],
+    ghostCommit: row.ghost_commit ? JSON.parse(row.ghost_commit as string) as Session["ghostCommit"] : undefined,
+    plugins: JSON.parse((row.plugins as string) ?? '[]') as string[],
   };
 }
 
@@ -363,7 +363,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
         created: Number(row.time_created),
         completed: row.time_completed ? Number(row.time_completed) : undefined,
       },
-      status: (row.status as string) || 'pending',
+      status: (row.status as MessageStatus) || 'pending',
       thinkingText: row.thinking_text as string | undefined,
       errorMessage: row.error_message as string | undefined,
       agent: row.agent as string,
@@ -372,7 +372,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
         modelID: row.model_model_id as string,
       },
       system: row.system_prompt as string | undefined,
-      tools: row.tools as Record<string, boolean> | undefined,
+      tools: row.tools ? JSON.parse(row.tools as string) as Record<string, boolean> : undefined,
     } as UserMessage;
   } else {
     return {
@@ -383,7 +383,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
         created: Number(row.time_created),
         completed: row.time_completed ? Number(row.time_completed) : undefined,
       },
-      status: (row.status as string) || 'pending',
+      status: (row.status as MessageStatus) || 'pending',
       thinkingText: row.thinking_text as string | undefined,
       errorMessage: row.error_message as string | undefined,
       parentID: row.parent_id as string,
@@ -409,7 +409,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
       },
       finish: row.finish as string | undefined,
       summary: row.is_summary as boolean | undefined,
-      error: row.error as Record<string, unknown> | undefined,
+      error: row.error ? JSON.parse(row.error as string) as Record<string, unknown> : undefined,
     } as AssistantMessage;
   }
 }
@@ -452,7 +452,7 @@ function rowToPart(row: Record<string, unknown>): Part {
         ...base,
         type: "tool",
         tool: row.tool_name as string,
-        state: row.tool_state as ToolPart["state"],
+        state: JSON.parse((row.tool_state as string) ?? '{}') as ToolPart["state"],
       } as ToolPart;
 
     case "file":
@@ -529,7 +529,7 @@ export async function getSubtasks(
     WHERE session_id = ${sessionId}
     ORDER BY created_at ASC
   `;
-  return rows.map((r) => r.result as Record<string, unknown>);
+  return rows.map((r) => JSON.parse((r.result as string) ?? '{}') as Record<string, unknown>);
 }
 
 export async function appendSubtask(
@@ -711,7 +711,7 @@ export async function updateStreamingPart(
 export async function updateMessageStatus(
   messageId: string,
   updates: {
-    status?: 'pending' | 'streaming' | 'completed' | 'failed' | 'aborted';
+    status?: MessageStatus;
     thinking_text?: string;
     error_message?: string;
     time_completed?: number;
