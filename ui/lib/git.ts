@@ -6,7 +6,7 @@ import type { TreeEntry, Commit } from "./types";
 
 const execAsync = promisify(exec);
 
-const REPOS_DIR = process.cwd() + "/repos";
+const REPOS_DIR = `${process.cwd()}/repos`;
 
 async function run(cmd: string, cwd?: string): Promise<string> {
   try {
@@ -140,7 +140,7 @@ function parseGitLog(output: string): Commit[] {
         shortHash: parts[1] ?? '',
         authorName: parts[2] ?? '',
         authorEmail: parts[3] ?? '',
-        timestamp: parseInt(parts[4] ?? '0') * 1000,
+        timestamp: parseInt(parts[4] ?? '0', 10) * 1000,
         message: parts.slice(5).join("|"),
       };
     });
