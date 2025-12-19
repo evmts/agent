@@ -114,6 +114,135 @@ export async function repoExists(user: string, name: string): Promise<boolean> {
   return existsSync(`${repoPath}/HEAD`);
 }
 
+// =============================================================================
+// Branch Management Functions
+// =============================================================================
+
+export async function createBranch(
+  user: string,
+  repo: string,
+  newBranchName: string,
+  fromRef: string
+): Promise<void> {
+  const repoPath = `${REPOS_DIR}/${user}/${repo}`;
+
+  // Validate branch name
+  if (!isValidBranchName(newBranchName)) {
+    throw new Error("Invalid branch name");
+  }
+
+  // Check if branch already exists
+  const exists = await branchExists(user, repo, newBranchName);
+  if (exists) {
+    throw new Error("Branch already exists");
+  }
+
+  // Create branch from ref (commit/branch/tag)
+  await run(`git branch "${newBranchName}" "${fromRef}"`, repoPath);
+}
+
+export async function deleteBranch(
+  user: string,
+  repo: string,
+  branchName: string
+): Promise<void> {
+  const repoPath = `${REPOS_DIR}/${user}/${repo}`;
+
+  // Cannot delete default branch
+  const defaultBranch = await getDefaultBranch(user, repo);
+  if (branchName === defaultBranch) {
+    throw new Error("Cannot delete default branch");
+  }
+
+  await run(`git branch -D "${branchName}"`, repoPath);
+}
+
+export async function renameBranch(
+  user: string,
+  repo: string,
+  oldName: string,
+  newName: string
+): Promise<void> {
+  const repoPath = `${REPOS_DIR}/${user}/${repo}`;
+
+  // Validate new name
+  if (!isValidBranchName(newName)) {
+    throw new Error("Invalid branch name");
+  }
+
+  // Check if new name already exists
+  const exists = await branchExists(user, repo, newName);
+  if (exists) {
+    throw new Error("Branch with new name already exists");
+  }
+
+  // Rename branch
+  await run(`git branch -m "${oldName}" "${newName}"`, repoPath);
+
+  // Update HEAD if renaming default branch
+  const defaultBranch = await getDefaultBranch(user, repo);
+  if (oldName === defaultBranch) {
+    await run(`git symbolic-ref HEAD refs/heads/${newName}`, repoPath);
+  }
+}
+
+export async function getBranchCommit(
+  user: string,
+  repo: string,
+  branchName: string
+): Promise<{ hash: string; message: string; author: string; timestamp: number }> {
+  const repoPath = `${REPOS_DIR}/${user}/${repo}`;
+  const format = "%H|%s|%an|%at";
+  
+  try {
+    const result = await run(`git log -1 --format="${format}" "${branchName}"`, repoPath);
+    const [hash, message, author, timestamp] = result.trim().split("|");
+    return {
+      hash: hash || "",
+      message: message || "",
+      author: author || "",
+      timestamp: parseInt(timestamp || "0", 10) * 1000,
+    };
+  } catch {
+    // Return default values if branch doesn't exist
+    return {
+      hash: "",
+      message: "",
+      author: "",
+      timestamp: 0,
+    };
+  }
+}
+
+export async function getDefaultBranch(user: string, repo: string): Promise<string> {
+  const repoPath = `${REPOS_DIR}/${user}/${repo}`;
+  try {
+    const result = await run(`git symbolic-ref --short HEAD`, repoPath);
+    return result.trim();
+  } catch {
+    return "main"; // fallback
+  }
+}
+
+async function isValidBranchName(name: string): Promise<boolean> {
+  // Git branch name rules
+  if (!name || name.length === 0) return false;
+  if (name.startsWith(".") || name.endsWith(".")) return false;
+  if (name.includes("..")) return false;
+  if (name.includes("~") || name.includes("^") || name.includes(":")) return false;
+  if (name.includes(" ") || name.includes("\t")) return false;
+  if (name.includes("//")) return false;
+  if (name.includes("@{")) return false;
+  if (name.endsWith("/")) return false;
+  if (name.endsWith(".lock")) return false;
+  return true;
+}
+
+async function branchExists(user: string, repo: string, branchName: string): Promise<boolean> {
+  const branches = await listBranches(user, repo);
+  return branches.includes(branchName);
+}
+
 /**
  * Compare two refs and generate diff information
  */
@@ -135,7 +264,20 @@ export async function compareRefs(
   const baseCommitId = await run(`git rev-parse "${baseRef}"`, repoPath);
   const headCommitId = await run(`git rev-parse "${headRef}"`, repoPath);
 
-  // Get commits between base and head (using three-dot notation)
+  // Get commits ahead and behind (more precise calculation)
+  const commitsAheadResult = await run(
+    `git rev-list --count "${baseRef}..${headRef}"`,
+    repoPath
+  );
+  const commitsBehindResult = await run(
+    `git rev-list --count "${headRef}..${baseRef}"`,
+    repoPath
+  );
+
+  const commitsAhead = parseInt(commitsAheadResult.trim(), 10) || 0;
+  const commitsBehind = parseInt(commitsBehindResult.trim(), 10) || 0;
+
+  // Get the actual commits for display (unique commits in head)
   const commits = await getCommits(user, name, `${baseRef}...${headRef}`, 100);
 
   // Get diff stats
@@ -188,6 +330,8 @@ export async function compareRefs(
     total_additions: totalAdditions,
     total_deletions: totalDeletions,
     total_files: files.length,
+    commits_ahead: commitsAhead,
+    commits_behind: commitsBehind,
   };
 }
 

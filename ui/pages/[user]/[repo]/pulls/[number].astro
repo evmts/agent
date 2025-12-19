@@ -35,6 +35,7 @@ const reviews = await sql`
 `;
 
 const canMerge = pr.status === 'mergeable' && !pr.has_merged && pr.state === 'open';
+const canReview = pr.state === 'open' && !pr.has_merged;
 
 const [{ issue_count }] = await sql`
   SELECT COUNT(*) as issue_count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
@@ -46,6 +47,23 @@ const [{ pr_count }] = await sql`
   JOIN issues i ON pr_c.issue_id = i.id 
   WHERE pr_c.base_repo_id = ${repo.id} AND i.state = 'open' AND pr_c.has_merged = false
 `;
+
+// Parse conflicted files properly
+let conflictedFiles: string[] = [];
+if (pr.conflicted_files) {
+  try {
+    // If it's already an array, use it directly
+    if (Array.isArray(pr.conflicted_files)) {
+      conflictedFiles = pr.conflicted_files;
+    } else {
+      // If it's a string, try to parse it
+      conflictedFiles = typeof pr.conflicted_files === 'string' ? JSON.parse(pr.conflicted_files) : [];
+    }
+  } catch {
+    // If parsing fails, treat as empty array
+    conflictedFiles = [];
+  }
+}
 ---
 
 <Layout title={`PR #${number} · ${pr.title}`}>
@@ -84,9 +102,9 @@ const [{ pr_count }] = await sql`
         <span class:list={["status-badge", pr.has_merged ? "merged" : pr.status]}>
           {pr.has_merged ? "Merged" : pr.status}
         </span>
-        {pr.conflicted_files && pr.conflicted_files.length > 0 && (
+        {conflictedFiles.length > 0 && (
           <span class="conflict-warning">
-            {JSON.parse(pr.conflicted_files).length} conflicted files
+            {conflictedFiles.length} conflicted files
           </span>
         )}
       </div>
@@ -148,13 +166,56 @@ const [{ pr_count }] = await sql`
       )}
     </div>
 
+    {canReview && (
+      <div class="review-form-section">
+        <h3>Add a review</h3>
+        <form method="POST" action={`/api/${username}/${reponame}/pulls/${number}/reviews`}>
+          <div class="form-group">
+            <label for="type">Review type:</label>
+            <select name="type" id="type" required>
+              <option value="">Select review type</option>
+              <option value="comment">Comment</option>
+              <option value="approve">Approve</option>
+              <option value="request_changes">Request changes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="content">Review comment:</label>
+            <textarea
+              name="content"
+              id="content"
+              rows="4"
+              placeholder="Leave a comment..."
+            ></textarea>
+          </div>
+          <input type="hidden" name="commit_id" value={pr.head_commit_id || ''} />
+          <button type="submit" class="btn btn-primary">Submit review</button>
+        </form>
+      </div>
+    )}
+
+    {conflictedFiles.length > 0 && (
+      <div class="conflicts-section">
+        <h2>Conflicts</h2>
+        <p>This pull request has conflicts in the following files:</p>
+        <ul class="conflict-files">
+          {conflictedFiles.map((file) => (
+            <li><code>{file}</code></li>
+          ))}
+        </ul>
+        <p class="conflict-help">
+          These conflicts need to be resolved before the pull request can be merged.
+        </p>
+      </div>
+    )}
+
     {canMerge && (
       <div class="merge-section">
         <h2>Merge Pull Request</h2>
         <form method="POST" action={`/api/${username}/${reponame}/pulls/${number}/merge`}>
           <div class="form-group">
             <label for="merge_style">Merge Strategy:</label>
-            <select name="merge_style" id="merge_style">
+            <select name="merge_style" id="merge_style" required>
               <option value="merge">Create a merge commit</option>
               <option value="squash">Squash and merge</option>
               <option value="rebase">Rebase and merge</option>
@@ -166,6 +227,7 @@ const [{ pr_count }] = await sql`
               name="merge_message"
               id="merge_message"
               rows="3"
+              required
             >Merge pull request #{pr.issue_number} from {pr.head_branch}
 
 {pr.title}</textarea>
@@ -219,6 +281,18 @@ const [{ pr_count }] = await sql`
 
   .status-badge.conflict {
     background: #f8d7da;
+  }
+
+  .status-badge.checking {
+    background: #fff3cd;
+  }
+
+  .status-badge.error {
+    background: #f8d7da;
+  }
+
+  .status-badge.empty {
+    background: #d1ecf1;
   }
 
   .conflict-warning {
@@ -300,8 +374,47 @@ const [{ pr_count }] = await sql`
     background: #f8d7da;
   }
 
+  .review-type.comment {
+    background: #e2e3e5;
+  }
+
   .review-content {
     margin-top: 0.5rem;
+  }
+
+  .review-form-section {
+    border: 1px solid black;
+    padding: 1rem;
+    margin: 2rem 0;
+    background: #f9f9f9;
+  }
+
+  .review-form-section h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+  }
+
+  .conflicts-section {
+    border: 1px solid #dc3545;
+    padding: 1rem;
+    margin: 2rem 0;
+    background: #f8d7da;
+  }
+
+  .conflict-files {
+    margin: 1rem 0;
+    list-style: none;
+    padding: 0;
+  }
+
+  .conflict-files li {
+    padding: 0.25rem 0;
+  }
+
+  .conflict-help {
+    font-size: 0.875rem;
+    color: #721c24;
+    margin-bottom: 0;
   }
 
   .merge-section {
@@ -326,7 +439,31 @@ const [{ pr_count }] = await sql`
     width: 100%;
     padding: 0.5rem;
     border: 1px solid black;
+    font-family: inherit;
+  }
+
+  .review-form-section .form-group select,
+  .review-form-section .form-group textarea {
+    font-family: inherit;
+  }
+
+  .merge-section .form-group select,
+  .merge-section .form-group textarea {
     font-family: monospace;
+  }
+
+  .btn-primary {
+    background: #007bff;
+    color: white;
+    border: 1px solid #007bff;
+    padding: 0.5rem 1rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .btn-primary:hover {
+    background: #0056b3;
+    border-color: #0056b3;
   }
 
   .btn-success {
@@ -341,5 +478,11 @@ const [{ pr_count }] = await sql`
   .btn-success:hover {
     background: #218838;
     border-color: #218838;
+  }
+
+  .btn-success:disabled {
+    background: #6c757d;
+    border-color: #6c757d;
+    cursor: not-allowed;
   }
 </style>

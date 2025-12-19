@@ -37,6 +37,24 @@ const [{ pr_count }] = await sql`
   JOIN issues i ON pr_c.issue_id = i.id 
   WHERE pr_c.base_repo_id = ${repo.id} AND i.state = 'open' AND pr_c.has_merged = false
 `;
+
+// Function to parse diff into lines with types
+function parseDiff(patch: string) {
+  const lines = patch.split('\n');
+  return lines.map((line, index) => {
+    if (line.startsWith('@@')) {
+      return { content: line, type: 'hunk' };
+    } else if (line.startsWith('+')) {
+      return { content: line, type: 'addition' };
+    } else if (line.startsWith('-')) {
+      return { content: line, type: 'deletion' };
+    } else if (line.startsWith('\\')) {
+      return { content: line, type: 'meta' };
+    } else {
+      return { content: line, type: 'context' };
+    }
+  });
+}
 ---
 
 <Layout title={`Files · PR #${number}`}>
@@ -74,31 +92,55 @@ const [{ pr_count }] = await sql`
     </div>
 
     <div class="diff-stats">
-      <strong>{compareInfo.total_files}</strong> files changed,
+      <strong>{compareInfo.total_files}</strong> file{compareInfo.total_files === 1 ? '' : 's'} changed,
       <span class="add">+{compareInfo.total_additions}</span>,
       <span class="del">-{compareInfo.total_deletions}</span>
     </div>
 
     <div class="files-list">
-      {compareInfo.files.map((file) => (
-        <div class="file-diff">
-          <div class="file-header">
-            <span class:list={["file-status", file.status]}>{file.status}</span>
-            <span class="file-name">{file.name}</span>
-            <span class="file-stats">
-              <span class="add">+{file.additions}</span>
-              <span class="del">-{file.deletions}</span>
-            </span>
-          </div>
+      {compareInfo.files.map((file, fileIndex) => {
+        const diffLines = parseDiff(file.patch);
+        return (
+          <div class="file-diff" id={`file-${fileIndex}`}>
+            <div class="file-header">
+              <span class:list={["file-status", file.status]}>{file.status}</span>
+              <span class="file-name">{file.name}</span>
+              <span class="file-stats">
+                {file.additions > 0 && <span class="add">+{file.additions}</span>}
+                {file.deletions > 0 && <span class="del">-{file.deletions}</span>}
+              </span>
+            </div>
 
-          {file.isBinary ? (
-            <div class="binary-file">Binary file</div>
-          ) : (
-            <pre class="diff-patch"><code>{file.patch}</code></pre>
-          )}
-        </div>
-      ))}
+            {file.isBinary ? (
+              <div class="binary-file">Binary file</div>
+            ) : file.patch.trim() === '' ? (
+              <div class="empty-file">Empty file or no changes</div>
+            ) : (
+              <div class="diff-content">
+                <table class="diff-table">
+                  <tbody>
+                    {diffLines.map((line, lineIndex) => (
+                      <tr class:list={["diff-line", `line-${line.type}`]} key={lineIndex}>
+                        <td class="line-number"></td>
+                        <td class="line-content">
+                          <code class="diff-code">{line.content}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
+
+    {compareInfo.files.length === 0 && (
+      <div class="no-changes">
+        <p>No file changes in this pull request.</p>
+      </div>
+    )}
   </div>
 </Layout>
 
@@ -113,14 +155,17 @@ const [{ pr_count }] = await sql`
     padding: 1rem;
     border: 1px solid black;
     background: #f9f9f9;
+    font-family: monospace;
   }
 
   .add {
-    color: green;
+    color: #22863a;
+    font-weight: bold;
   }
 
   .del {
-    color: red;
+    color: #cb2431;
+    font-weight: bold;
   }
 
   .files-list {
@@ -130,12 +175,13 @@ const [{ pr_count }] = await sql`
   .file-diff {
     border: 1px solid black;
     margin-bottom: 2rem;
+    background: white;
   }
 
   .file-header {
-    background: #f5f5f5;
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid black;
+    background: #f6f8fa;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #d0d7de;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -146,64 +192,141 @@ const [{ pr_count }] = await sql`
     font-size: 0.75rem;
     text-transform: uppercase;
     border: 1px solid black;
+    font-weight: bold;
   }
 
   .file-status.added {
     background: #d4edda;
+    color: #155724;
   }
 
   .file-status.modified {
     background: #fff3cd;
+    color: #856404;
   }
 
   .file-status.deleted {
     background: #f8d7da;
+    color: #721c24;
   }
 
   .file-status.renamed {
     background: #cce5ff;
+    color: #0c5ba6;
   }
 
   .file-name {
     flex: 1;
     font-family: monospace;
     font-weight: bold;
+    font-size: 0.875rem;
   }
 
   .file-stats {
     font-family: monospace;
     font-size: 0.875rem;
+    display: flex;
+    gap: 0.5rem;
   }
 
-  .diff-patch {
-    padding: 1rem;
-    overflow-x: auto;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    background: white;
-    margin: 0;
-  }
-
-  .binary-file {
+  .binary-file, .empty-file {
     padding: 2rem;
     text-align: center;
     color: #666;
     background: #f9f9f9;
+    font-style: italic;
   }
 
-  /* Syntax highlighting for diffs */
-  .diff-patch code {
-    color: inherit;
+  .diff-content {
+    overflow-x: auto;
   }
 
-  /* Basic diff coloring - this could be enhanced with more sophisticated parsing */
-  .diff-patch :global(.line-added) {
-    background: #e6ffed;
-    color: #24292f;
+  .diff-table {
+    width: 100%;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    border-collapse: collapse;
   }
 
-  .diff-patch :global(.line-removed) {
-    background: #ffebe9;
-    color: #24292f;
+  .diff-line {
+    border: none;
+  }
+
+  .diff-line.line-addition {
+    background-color: #e6ffed;
+  }
+
+  .diff-line.line-deletion {
+    background-color: #ffebe9;
+  }
+
+  .diff-line.line-hunk {
+    background-color: #f1f8ff;
+  }
+
+  .diff-line.line-meta {
+    background-color: #f6f8fa;
+    color: #6a737d;
+  }
+
+  .diff-line.line-context {
+    background-color: white;
+  }
+
+  .line-number {
+    width: 1%;
+    min-width: 50px;
+    padding: 0 0.5rem;
+    color: #6a737d;
+    text-align: right;
+    font-size: 0.75rem;
+    user-select: none;
+    vertical-align: top;
+    border-right: 1px solid #e1e4e8;
+  }
+
+  .line-content {
+    padding: 0 0.5rem;
+    vertical-align: top;
+    white-space: pre;
+    word-wrap: normal;
+    overflow-wrap: normal;
+  }
+
+  .diff-code {
+    font-family: inherit;
+    font-size: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    white-space: pre;
+  }
+
+  /* Enhanced diff syntax highlighting */
+  .line-addition .diff-code {
+    color: #22863a;
+  }
+
+  .line-deletion .diff-code {
+    color: #cb2431;
+  }
+
+  .line-hunk .diff-code {
+    color: #005cc5;
+    font-weight: bold;
+  }
+
+  .line-meta .diff-code {
+    color: #6a737d;
+    font-style: italic;
+  }
+
+  .no-changes {
+    text-align: center;
+    padding: 2rem;
+    color: #666;
+    border: 1px solid #d0d7de;
+    background: #f6f8fa;
   }
 </style>

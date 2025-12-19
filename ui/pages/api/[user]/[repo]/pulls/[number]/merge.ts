@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { sql } from '../../../../../../lib/db';
+import sql from '../../../../../../../db/client';
 import { getUserBySession } from '../../../../../../lib/auth-helpers';
 import { mergePullRequest } from '../../../../../../lib/git';
 import type { User, Repository, PullRequest, MergeStyle } from '../../../../../../lib/types';
@@ -22,8 +22,24 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    if (!mergeStyle || !mergeMessage) {
-      return new Response(JSON.stringify({ error: 'Merge style and message are required' }), {
+    // Validate required fields
+    if (!mergeStyle) {
+      return new Response(JSON.stringify({ error: 'Merge style is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!mergeMessage?.trim()) {
+      return new Response(JSON.stringify({ error: 'Merge message is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate merge style
+    if (!['merge', 'squash', 'rebase'].includes(mergeStyle)) {
+      return new Response(JSON.stringify({ error: 'Invalid merge style' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -48,11 +64,19 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
+    const pullNumber = parseInt(number!, 10);
+    if (isNaN(pullNumber)) {
+      return new Response(JSON.stringify({ error: 'Invalid pull request number' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const [pr] = await sql`
       SELECT pr.*, i.state
       FROM pull_requests pr
       JOIN issues i ON pr.issue_id = i.id
-      WHERE i.repository_id = ${repo.id} AND i.issue_number = ${parseInt(number!, 10)}
+      WHERE i.repository_id = ${repo.id} AND i.issue_number = ${pullNumber}
     ` as PullRequest[];
 
     if (!pr) {
@@ -63,7 +87,14 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
 
     if (pr.has_merged) {
-      return new Response(JSON.stringify({ error: 'Already merged' }), {
+      return new Response(JSON.stringify({ error: 'Pull request is already merged' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (pr.state !== 'open') {
+      return new Response(JSON.stringify({ error: 'Pull request is closed' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -83,7 +114,7 @@ export const POST: APIRoute = async ({ params, request }) => {
       pr.base_branch,
       pr.head_branch,
       mergeStyle,
-      mergeMessage,
+      mergeMessage.trim(),
       authUser.username,
       `${authUser.username}@plue.local`
     );
@@ -97,7 +128,8 @@ export const POST: APIRoute = async ({ params, request }) => {
         merged_by = ${authUser.id},
         merged_commit_id = ${mergeCommitId},
         merge_style = ${mergeStyle},
-        status = 'merged'
+        status = 'merged',
+        updated_at = NOW()
       WHERE id = ${pr.id}
     `;
 
@@ -117,7 +149,10 @@ export const POST: APIRoute = async ({ params, request }) => {
     });
   } catch (error) {
     console.error('Merge PR error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    return new Response(JSON.stringify({ 
+      error: 'Failed to merge pull request',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });

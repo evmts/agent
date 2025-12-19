@@ -1,14 +1,41 @@
+/// <reference path="../.astro/types.d.ts" />
 /// <reference types="astro/client" />
-/// <reference types="vite-plugin-pwa/client" />
 
-declare module 'virtual:pwa-register' {
-  export interface RegisterSWOptions {
-    immediate?: boolean;
-    onNeedRefresh?: () => void;
-    onOfflineReady?: () => void;
-    onRegisteredSW?: (swUrl: string, r?: ServiceWorkerRegistration) => void;
-    onRegisterError?: (error: Error) => void;
+declare namespace App {
+  interface Locals {}
+}
+
+declare module '*.astro' {
+  const Component: any;
+  export default Component;
+}
+
+// Global type augmentations
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      NODE_ENV: 'development' | 'production' | 'test';
+      DATABASE_URL: string;
+      PUBLIC_CLIENT_API_URL?: string;
+      ANTHROPIC_API_KEY?: string;
+      HOST?: string;
+      PORT?: string;
+      WORKING_DIR?: string;
+    }
   }
+}
 
-  export function registerSW(options?: RegisterSWOptions): (reloadPage?: boolean) => Promise<void>;
+// Astro specific types
+declare module 'astro:content' {
+  export { z } from 'astro/zod';
+}
+
+// Import meta environment
+interface ImportMetaEnv {
+  readonly PUBLIC_CLIENT_API_URL?: string;
+  // Add other env variables that are accessed via import.meta.env
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
 }

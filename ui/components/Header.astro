@@ -7,13 +7,13 @@ const { currentPath = "/" } = Astro.props;
 
 // Check if user is authenticated
 let user = null;
-const sessionCookie = Astro.cookies.get('plue_session');
+const sessionCookie = Astro.cookies.get('session');
 
 if (sessionCookie) {
   try {
     const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
       headers: {
-        Cookie: `plue_session=${sessionCookie.value}`,
+        Cookie: `session=${sessionCookie.value}`,
       },
     });
 

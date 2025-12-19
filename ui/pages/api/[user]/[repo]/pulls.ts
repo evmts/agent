@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
-import { sql } from '../../../../../lib/db';
-import { getUserBySession } from '../../../../../lib/auth-helpers';
-import { compareRefs, checkMergeable } from '../../../../../lib/git';
-import type { User, Repository, Issue, PullRequest } from '../../../../../lib/types';
+import sql from '../../../../../db/client';
+import { getUserBySession } from '../../../../lib/auth-helpers';
+import { compareRefs, checkMergeable } from '../../../../lib/git';
+import type { User, Repository, Issue, PullRequest } from '../../../../lib/types';
 
 // Create a pull request
 export const POST: APIRoute = async ({ params, request }) => {
@@ -11,7 +11,7 @@ export const POST: APIRoute = async ({ params, request }) => {
     const formData = await request.formData();
     
     const title = formData.get('title') as string;
-    const description = formData.get('description') as string || '';
+    const description = formData.get('description') as string;
     const headBranch = formData.get('head_branch') as string;
     const baseBranch = formData.get('base_branch') as string;
 
@@ -24,8 +24,30 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    if (!title || !headBranch || !baseBranch) {
-      return new Response(JSON.stringify({ error: 'Title, head branch, and base branch are required' }), {
+    // Validate required fields
+    if (!title?.trim()) {
+      return new Response(JSON.stringify({ error: 'Title is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!headBranch?.trim()) {
+      return new Response(JSON.stringify({ error: 'Head branch is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!baseBranch?.trim()) {
+      return new Response(JSON.stringify({ error: 'Base branch is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (headBranch === baseBranch) {
+      return new Response(JSON.stringify({ error: 'Head branch cannot be the same as base branch' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -62,12 +84,12 @@ export const POST: APIRoute = async ({ params, request }) => {
       INSERT INTO issues (
         repository_id, author_id, issue_number, title, body, state
       ) VALUES (
-        ${repo.id}, ${authUser.id}, ${next_num}, ${title}, ${description}, 'open'
+        ${repo.id}, ${authUser.id}, ${next_num}, ${title.trim()}, ${description?.trim() || ''}, 'open'
       )
       RETURNING *
     ` as Issue[];
 
-    // Compare branches
+    // Compare branches to get stats
     const compareInfo = await compareRefs(username, reponame, baseBranch, headBranch);
 
     // Check for conflicts
@@ -77,6 +99,9 @@ export const POST: APIRoute = async ({ params, request }) => {
       baseBranch,
       headBranch
     );
+
+    // Handle conflicted files array properly for PostgreSQL
+    const conflictedFilesArray = conflictedFiles.length > 0 ? conflictedFiles : null;
 
     // Create pull request
     const [pr] = await sql`
@@ -95,9 +120,9 @@ export const POST: APIRoute = async ({ params, request }) => {
         ${repo.id}, ${baseBranch},
         ${compareInfo.merge_base},
         ${mergeable ? 'mergeable' : 'conflict'},
-        ${compareInfo.commits.length}, 0,
+        ${compareInfo.commits_ahead}, ${compareInfo.commits_behind},
         ${compareInfo.total_additions}, ${compareInfo.total_deletions}, ${compareInfo.total_files},
-        ${conflictedFiles.length > 0 ? JSON.stringify(conflictedFiles) : null}
+        ${conflictedFilesArray}
       )
       RETURNING *
     ` as PullRequest[];
@@ -111,7 +136,10 @@ export const POST: APIRoute = async ({ params, request }) => {
     });
   } catch (error) {
     console.error('Create PR error:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    return new Response(JSON.stringify({ 
+      error: 'Failed to create pull request',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });

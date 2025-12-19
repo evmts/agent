@@ -71,6 +71,86 @@ export interface Commit {
 }
 
 // =============================================================================
+// Branch Management Types
+// =============================================================================
+
+export interface Branch {
+  id: number;
+  repository_id: number;
+  name: string;
+  commit_id: string;
+  commit_message: string | null;
+  pusher_id: number | null;
+  is_deleted: boolean;
+  deleted_by_id: number | null;
+  deleted_at: Date | null;
+  commit_time: Date;
+  created_at: Date;
+  updated_at: Date;
+  
+  // Joined fields
+  pusher_username?: string;
+}
+
+export interface ProtectedBranch {
+  id: number;
+  repository_id: number;
+  rule_name: string;
+  priority: number;
+
+  // Push protection
+  can_push: boolean;
+  enable_whitelist: boolean;
+  whitelist_user_ids: number[];
+  whitelist_team_ids: number[];
+  whitelist_deploy_keys: boolean;
+
+  // Force push protection
+  can_force_push: boolean;
+  enable_force_push_allowlist: boolean;
+  force_push_allowlist_user_ids: number[];
+  force_push_allowlist_team_ids: number[];
+  force_push_allowlist_deploy_keys: boolean;
+
+  // Merge protection
+  enable_merge_whitelist: boolean;
+  merge_whitelist_user_ids: number[];
+  merge_whitelist_team_ids: number[];
+
+  // Status checks
+  enable_status_check: boolean;
+  status_check_contexts: string[];
+
+  // Approvals
+  enable_approvals_whitelist: boolean;
+  approvals_whitelist_user_ids: number[];
+  approvals_whitelist_team_ids: number[];
+  required_approvals: number;
+  block_on_rejected_reviews: boolean;
+  block_on_official_review_requests: boolean;
+  block_on_outdated_branch: boolean;
+  dismiss_stale_approvals: boolean;
+  ignore_stale_approvals: boolean;
+
+  // Advanced
+  require_signed_commits: boolean;
+  protected_file_patterns: string | null;
+  unprotected_file_patterns: string | null;
+  block_admin_merge_override: boolean;
+
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface RenamedBranch {
+  id: number;
+  repository_id: number;
+  from_name: string;
+  to_name: string;
+  created_at: Date;
+}
+
+// =============================================================================
 // Pull Request Types
 // =============================================================================
 
@@ -183,4 +263,6 @@ export interface CompareInfo {
   total_additions: number;
   total_deletions: number;
   total_files: number;
+  commits_ahead: number;
+  commits_behind: number;
 }
