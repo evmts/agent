@@ -1402,6 +1402,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "pollster",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

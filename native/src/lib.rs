@@ -176,65 +176,39 @@ impl JjWorkspace {
         Ok(self.commit_to_info(&commit, repo.as_ref()))
     }
 
-    /// List all local branches
+    /// List all bookmarks (formerly branches)
     #[napi]
-    pub fn list_branches(&self) -> Result<Vec<JjBranchInfo>> {
+    pub fn list_bookmarks(&self) -> Result<Vec<JjBranchInfo>> {
         let (_workspace, repo) = self.load_repo()?;
         let view = repo.view();
 
-        let mut branches = Vec::new();
+        let mut bookmarks = Vec::new();
 
-        for (name, target) in view.local_branches() {
-            branches.push(JjBranchInfo {
-                name: name.to_string(),
+        for (name, target) in view.local_bookmarks() {
+            bookmarks.push(JjBranchInfo {
+                name: name.as_str().to_string(),
                 target_id: target.as_normal().map(|id| id.hex()),
                 is_local: true,
                 remote: None,
             });
         }
 
-        for ((name, remote), target) in view.remote_branches() {
-            branches.push(JjBranchInfo {
-                name: name.to_string(),
-                target_id: target.target.as_normal().map(|id| id.hex()),
-                is_local: false,
-                remote: Some(remote.to_string()),
-            });
-        }
-
-        Ok(branches)
+        Ok(bookmarks)
     }
 
-    /// Get operation history
+    /// Get the current operation info
     #[napi]
-    pub fn list_operations(&self, limit: Option<u32>) -> Result<Vec<JjOperationInfo>> {
+    pub fn get_current_operation(&self) -> Result<JjOperationInfo> {
         let (_workspace, repo) = self.load_repo()?;
 
-        let limit = limit.unwrap_or(50) as usize;
-        let mut operations = Vec::new();
+        let current_op = repo.operation();
+        let metadata = current_op.metadata();
 
-        let op_store = repo.op_store();
-        let mut current_op = repo.operation().clone();
-
-        for _ in 0..limit {
-            let metadata = current_op.metadata();
-            operations.push(JjOperationInfo {
-                id: current_op.id().hex(),
-                description: metadata.description.clone(),
-                timestamp: metadata.end_time.timestamp.0 as i64,
-            });
-
-            let parent_ids = current_op.parent_ids();
-            if parent_ids.is_empty() {
-                break;
-            }
-
-            current_op = op_store
-                .read_operation(&parent_ids[0])
-                .map_err(|e| napi::Error::from_reason(format!("Failed to read operation: {}", e)))?;
-        }
-
-        Ok(operations)
+        Ok(JjOperationInfo {
+            id: current_op.id().hex(),
+            description: metadata.description.clone(),
+            timestamp: metadata.time.end.timestamp.0 as i64,
+        })
     }
 
     /// Get the root commit (empty initial commit)
