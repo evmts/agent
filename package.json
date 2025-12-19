@@ -11,7 +11,7 @@
     "native:setup": "bun run native/scripts/download-webui.ts",
     "build": "astro build",
     "preview": "astro preview",
-    "start": "node ./dist/server/entry.mjs",
+    "start": "bun ./dist/server/entry.mjs",
     "start:api": "bun run server/main.ts",
     "db:migrate": "bun run db/migrate.ts",
     "db:up": "docker compose up postgres electric -d",
@@ -20,9 +20,14 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "check": "biome check ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.10",
     "@types/bun": "latest"
   },
   "peerDependencies": {
