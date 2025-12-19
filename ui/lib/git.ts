@@ -224,7 +224,7 @@ export async function getDefaultBranch(user: string, repo: string): Promise<stri
   }
 }
 
-async function isValidBranchName(name: string): Promise<boolean> {
+function isValidBranchName(name: string): boolean {
   // Git branch name rules
   if (!name || name.length === 0) return false;
   if (name.startsWith(".") || name.endsWith(".")) return false;
