@@ -1,0 +1,68 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="footer-content">
+    <span class="copyright">plue</span>
+    <nav class="footer-nav">
+      <a href="/">explore</a>
+      <span class="sep">·</span>
+      <a href="/new">new</a>
+      <span class="sep">·</span>
+      <span class="text-muted">minimal git hosting</span>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: auto;
+    padding: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .footer-content {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+
+  .copyright {
+    color: var(--gray-500);
+    font-weight: 500;
+  }
+
+  .footer-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .footer-nav a {
+    color: var(--gray-500);
+  }
+
+  .footer-nav a:hover {
+    color: var(--fg);
+  }
+
+  .sep {
+    color: var(--gray-600);
+  }
+
+  .text-muted {
+    color: var(--gray-600);
+  }
+
+  @media (max-width: 640px) {
+    .footer-content {
+      flex-direction: column;
+      gap: 12px;
+      text-align: center;
+    }
+  }
+</style>

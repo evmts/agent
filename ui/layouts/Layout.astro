@@ -1,11 +1,14 @@
 ---
 import { ClientRouter } from "astro:transitions";
+import Footer from "../components/Footer.astro";
 
 interface Props {
   title: string;
+  description?: string;
 }
 
-const { title } = Astro.props;
+const { title, description = "Minimal git hosting" } = Astro.props;
+const canonicalURL = new URL(Astro.url.pathname, Astro.site || "http://localhost:5173");
 ---
 
 <!DOCTYPE html>
@@ -14,11 +17,18 @@ const { title } = Astro.props;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#000000" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonicalURL} />
     <title>{title}</title>
     <ClientRouter />
   </head>
   <body>
-    <slot />
+    <div class="app">
+      <slot />
+      <Footer />
+    </div>
   </body>
 </html>
 
@@ -29,38 +39,32 @@ const { title } = Astro.props;
 
   ::view-transition-old(root),
   ::view-transition-new(root) {
-    animation-duration: 150ms;
-    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    animation-duration: 120ms;
+    animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
   }
 
   ::view-transition-old(root) {
-    animation-name: fade-out;
+    animation-name: fade-and-slide-out;
   }
 
   ::view-transition-new(root) {
-    animation-name: fade-in;
+    animation-name: fade-and-slide-in;
   }
 
-  @keyframes fade-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
+  @keyframes fade-and-slide-out {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-4px); }
   }
 
-  @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+  @keyframes fade-and-slide-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
-  /* Shared element transitions */
   ::view-transition-old(header),
   ::view-transition-new(header) {
     animation: none;
     mix-blend-mode: normal;
-  }
-
-  ::view-transition-old(main-content),
-  ::view-transition-new(main-content) {
-    animation-duration: 200ms;
   }
 
   * {
@@ -72,6 +76,7 @@ const { title } = Astro.props;
   :root {
     --bg: #000;
     --fg: #fafafa;
+    --gray-50: #f5f5f5;
     --gray-100: #ededed;
     --gray-200: #a1a1a1;
     --gray-300: #888;
@@ -81,18 +86,31 @@ const { title } = Astro.props;
     --gray-700: #222;
     --gray-800: #1a1a1a;
     --gray-900: #111;
+    --gray-950: #0a0a0a;
     --border: #262626;
-    --hover: rgba(255, 255, 255, 0.03);
+    --border-hover: #404040;
+    --hover: rgba(255, 255, 255, 0.04);
+    --active: rgba(255, 255, 255, 0.08);
     --success: #00d26a;
+    --success-dim: rgba(0, 210, 106, 0.15);
     --error: #ff4444;
+    --error-dim: rgba(255, 68, 68, 0.15);
+    --warning: #f5a623;
+    --radius-sm: 4px;
     --radius: 6px;
-    --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --radius-lg: 8px;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --transition-fast: 100ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    --transition: 150ms cubic-bezier(0.25, 0.1, 0.25, 1);
+    --transition-slow: 250ms cubic-bezier(0.25, 0.1, 0.25, 1);
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
   }
 
   body {
@@ -105,11 +123,17 @@ const { title } = Astro.props;
     letter-spacing: -0.01em;
   }
 
+  .app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
   /* Typography */
   a {
     color: var(--fg);
     text-decoration: none;
-    transition: color var(--transition);
+    transition: color var(--transition-fast);
   }
 
   a:hover {
@@ -120,6 +144,7 @@ const { title } = Astro.props;
     text-decoration: underline;
     text-underline-offset: 3px;
     text-decoration-color: var(--gray-500);
+    transition: text-decoration-color var(--transition-fast);
   }
 
   .link:hover {
@@ -137,19 +162,28 @@ const { title } = Astro.props;
   }
 
   h2 {
-    font-size: 13px;
-    color: var(--gray-300);
-    font-weight: 400;
+    font-size: 12px;
+    color: var(--gray-400);
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
   }
 
   p {
     color: var(--gray-300);
   }
 
+  strong {
+    font-weight: 500;
+    color: var(--fg);
+  }
+
   small, .text-sm {
     font-size: 12px;
+  }
+
+  .text-xs {
+    font-size: 11px;
   }
 
   .text-muted {
@@ -161,7 +195,7 @@ const { title } = Astro.props;
     max-width: 960px;
     margin: 0 auto;
     padding: 32px 24px;
-    view-transition-name: main-content;
+    flex: 1;
   }
 
   /* Site Header */
@@ -177,23 +211,44 @@ const { title } = Astro.props;
     top: 0;
     z-index: 100;
     view-transition-name: header;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 
   .site-header .logo {
     font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.03em;
+    color: var(--fg);
+  }
+
+  .site-header .logo:hover {
+    color: var(--gray-200);
   }
 
   .site-header nav {
     display: flex;
-    gap: 24px;
+    gap: 20px;
   }
 
   .site-header nav a {
     color: var(--gray-400);
     font-size: 13px;
-    transition: color var(--transition);
+    padding: 4px 0;
+    position: relative;
+    transition: color var(--transition-fast);
+  }
+
+  .site-header nav a::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--fg);
+    transform: scaleX(0);
+    transition: transform var(--transition);
   }
 
   .site-header nav a:hover,
@@ -201,23 +256,30 @@ const { title } = Astro.props;
     color: var(--fg);
   }
 
+  .site-header nav a.active::after {
+    transform: scaleX(1);
+  }
+
   /* Repo Navigation */
   .repo-nav {
     display: flex;
-    gap: 0;
+    gap: 2px;
     padding: 0 24px;
-    height: 40px;
+    height: 44px;
     align-items: center;
     border-bottom: 1px solid var(--border);
-    background: var(--gray-900);
+    background: var(--gray-950);
   }
 
   .repo-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     color: var(--gray-400);
     font-size: 13px;
-    padding: 8px 16px;
+    padding: 6px 12px;
     border-radius: var(--radius);
-    transition: all var(--transition);
+    transition: all var(--transition-fast);
   }
 
   .repo-nav a:hover {
@@ -227,22 +289,28 @@ const { title } = Astro.props;
 
   .repo-nav a.active {
     color: var(--fg);
-    background: var(--gray-700);
+    background: var(--gray-800);
   }
 
   /* Breadcrumb */
   .breadcrumb {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 12px 24px;
+    gap: 6px;
+    padding: 10px 24px;
     border-bottom: 1px solid var(--border);
     font-size: 13px;
     background: var(--bg);
+    overflow-x: auto;
+  }
+
+  .breadcrumb::-webkit-scrollbar {
+    display: none;
   }
 
   .breadcrumb a {
     color: var(--gray-400);
+    white-space: nowrap;
   }
 
   .breadcrumb a:hover {
@@ -251,10 +319,12 @@ const { title } = Astro.props;
 
   .breadcrumb .sep {
     color: var(--gray-600);
+    flex-shrink: 0;
   }
 
   .breadcrumb .current {
     color: var(--fg);
+    white-space: nowrap;
   }
 
   /* Buttons */
@@ -271,29 +341,42 @@ const { title } = Astro.props;
     color: var(--fg);
     font-family: inherit;
     font-size: 13px;
+    font-weight: 400;
     cursor: pointer;
-    transition: all var(--transition);
+    transition: all var(--transition-fast);
     white-space: nowrap;
+    user-select: none;
   }
 
   .btn:hover {
-    background: var(--gray-800);
-    border-color: var(--gray-500);
+    background: var(--gray-900);
+    border-color: var(--border-hover);
   }
 
   .btn:active {
     transform: scale(0.98);
+    background: var(--gray-800);
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--gray-400);
+    outline-offset: 2px;
   }
 
   .btn-primary {
     background: var(--fg);
     color: var(--bg);
     border-color: var(--fg);
+    font-weight: 500;
   }
 
   .btn-primary:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-100);
+  }
+
+  .btn-primary:active {
     background: var(--gray-200);
-    border-color: var(--gray-200);
   }
 
   .btn-sm {
@@ -303,11 +386,16 @@ const { title } = Astro.props;
   }
 
   .btn-danger {
-    border-color: var(--error);
+    border-color: rgba(255, 68, 68, 0.4);
     color: var(--error);
   }
 
   .btn-danger:hover {
+    background: var(--error-dim);
+    border-color: var(--error);
+  }
+
+  .btn-danger:active {
     background: var(--error);
     color: var(--bg);
   }
@@ -334,7 +422,7 @@ const { title } = Astro.props;
     gap: 10px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
-    transition: background var(--transition);
+    transition: all var(--transition-fast);
   }
 
   .file-tree-item:last-child {
@@ -345,10 +433,14 @@ const { title } = Astro.props;
     background: var(--hover);
   }
 
+  .file-tree-item:active {
+    background: var(--active);
+  }
+
   .file-tree-item .icon {
     width: 16px;
-    color: var(--gray-400);
-    font-size: 12px;
+    color: var(--gray-500);
+    font-size: 11px;
     text-align: center;
     flex-shrink: 0;
   }
@@ -361,13 +453,17 @@ const { title } = Astro.props;
     color: var(--gray-300);
   }
 
+  .file-tree-item.directory .name {
+    color: var(--gray-100);
+  }
+
   /* Code & Pre */
   pre, code {
     font-family: inherit;
   }
 
   pre {
-    background: var(--gray-900);
+    background: var(--gray-950);
     padding: 16px;
     overflow-x: auto;
     border: 1px solid var(--border);
@@ -379,7 +475,7 @@ const { title } = Astro.props;
   code {
     background: var(--gray-800);
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
   }
 
@@ -405,12 +501,12 @@ const { title } = Astro.props;
   }
 
   th {
-    background: var(--gray-900);
-    font-weight: 400;
+    background: var(--gray-950);
+    font-weight: 500;
     color: var(--gray-400);
     font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
   }
 
   tr:last-child td {
@@ -431,8 +527,9 @@ const { title } = Astro.props;
     margin-bottom: 8px;
     color: var(--gray-300);
     font-size: 12px;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
   }
 
   input, textarea, select {
@@ -440,16 +537,21 @@ const { title } = Astro.props;
     padding: 10px 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--bg);
+    background: var(--gray-950);
     color: var(--fg);
     font-family: inherit;
     font-size: 13px;
-    transition: border-color var(--transition);
+    transition: all var(--transition-fast);
+  }
+
+  input:hover, textarea:hover, select:hover {
+    border-color: var(--border-hover);
   }
 
   input:focus, textarea:focus, select:focus {
     outline: none;
     border-color: var(--gray-400);
+    background: var(--bg);
   }
 
   input::placeholder, textarea::placeholder {
@@ -484,7 +586,7 @@ const { title } = Astro.props;
     gap: 12px;
     padding: 14px 16px;
     border-bottom: 1px solid var(--border);
-    transition: background var(--transition);
+    transition: background var(--transition-fast);
   }
 
   .issue-item:last-child {
@@ -496,8 +598,8 @@ const { title } = Astro.props;
   }
 
   .issue-state {
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 10px;
+    font-weight: 600;
     padding: 3px 8px;
     border-radius: 99px;
     text-transform: uppercase;
@@ -506,7 +608,7 @@ const { title } = Astro.props;
   }
 
   .issue-state.open {
-    background: rgba(0, 210, 106, 0.15);
+    background: var(--success-dim);
     color: var(--success);
   }
 
@@ -524,6 +626,7 @@ const { title } = Astro.props;
     font-weight: 500;
     color: var(--fg);
     margin-bottom: 4px;
+    line-height: 1.4;
   }
 
   .issue-meta {
@@ -541,12 +644,12 @@ const { title } = Astro.props;
 
   .comment-header {
     padding: 12px 16px;
-    background: var(--gray-900);
+    background: var(--gray-950);
     border-bottom: 1px solid var(--border);
     font-size: 13px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
   }
 
   .comment-header strong {
@@ -555,11 +658,12 @@ const { title } = Astro.props;
   }
 
   .comment-header .time {
-    color: var(--gray-400);
+    color: var(--gray-500);
   }
 
   .comment-body {
     padding: 16px;
+    background: var(--bg);
   }
 
   /* Clone URL */
@@ -567,7 +671,6 @@ const { title } = Astro.props;
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 16px;
   }
 
   .clone-url code {
@@ -576,10 +679,11 @@ const { title } = Astro.props;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     font-size: 12px;
-    background: var(--gray-900);
+    background: var(--gray-950);
     color: var(--gray-200);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Markdown Body */
@@ -587,11 +691,12 @@ const { title } = Astro.props;
     padding: 24px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--gray-900);
+    background: var(--gray-950);
   }
 
   .markdown-body h1 {
     font-size: 20px;
+    font-weight: 600;
     margin-bottom: 16px;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--border);
@@ -602,19 +707,22 @@ const { title } = Astro.props;
     color: var(--fg);
     text-transform: none;
     letter-spacing: -0.02em;
-    margin-top: 24px;
+    margin-top: 28px;
     margin-bottom: 12px;
+    font-weight: 600;
   }
 
   .markdown-body h3 {
     font-size: 14px;
-    margin-top: 20px;
+    font-weight: 600;
+    margin-top: 24px;
     margin-bottom: 8px;
   }
 
   .markdown-body p {
     margin-bottom: 16px;
     color: var(--gray-200);
+    line-height: 1.7;
   }
 
   .markdown-body ul, .markdown-body ol {
@@ -624,41 +732,59 @@ const { title } = Astro.props;
   }
 
   .markdown-body li {
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+    line-height: 1.6;
   }
 
   .markdown-body pre {
     margin-bottom: 16px;
+    border-color: var(--border);
+  }
+
+  .markdown-body code {
+    background: var(--gray-800);
   }
 
   .markdown-body hr {
     border: none;
     border-top: 1px solid var(--border);
-    margin: 24px 0;
+    margin: 28px 0;
   }
 
   .markdown-body a {
     color: var(--fg);
     text-decoration: underline;
     text-underline-offset: 2px;
+    text-decoration-color: var(--gray-500);
+  }
+
+  .markdown-body a:hover {
+    text-decoration-color: var(--fg);
   }
 
   /* Repo List */
   .repo-list {
     list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .repo-item {
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    margin-bottom: 8px;
-    transition: all var(--transition);
+    transition: all var(--transition-fast);
     overflow: hidden;
   }
 
   .repo-item:hover {
-    border-color: var(--gray-500);
+    border-color: var(--border-hover);
     background: var(--hover);
+    transform: translateY(-1px);
+  }
+
+  .repo-item:active {
+    transform: translateY(0);
   }
 
   .repo-item a {
@@ -670,6 +796,9 @@ const { title } = Astro.props;
     font-size: 14px;
     font-weight: 500;
     margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .repo-item h3 .owner {
@@ -681,6 +810,7 @@ const { title } = Astro.props;
     font-size: 13px;
     color: var(--gray-400);
     margin: 0;
+    line-height: 1.5;
   }
 
   /* Commits */
@@ -697,7 +827,7 @@ const { title } = Astro.props;
     gap: 16px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
-    transition: background var(--transition);
+    transition: background var(--transition-fast);
   }
 
   .commit-item:last-child {
@@ -724,7 +854,7 @@ const { title } = Astro.props;
 
   .commit-meta {
     font-size: 12px;
-    color: var(--gray-400);
+    color: var(--gray-500);
   }
 
   .commit-hash {
@@ -733,7 +863,7 @@ const { title } = Astro.props;
     font-family: inherit;
     background: var(--gray-800);
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     flex-shrink: 0;
   }
 
@@ -748,6 +878,7 @@ const { title } = Astro.props;
 
   .empty-state p {
     margin-bottom: 16px;
+    color: var(--gray-400);
   }
 
   /* File Viewer */
@@ -762,7 +893,7 @@ const { title } = Astro.props;
     justify-content: space-between;
     align-items: center;
     padding: 10px 14px;
-    background: var(--gray-900);
+    background: var(--gray-950);
     border-bottom: 1px solid var(--border);
     font-size: 13px;
   }
@@ -773,7 +904,7 @@ const { title } = Astro.props;
   }
 
   .file-header .meta {
-    color: var(--gray-400);
+    color: var(--gray-500);
     font-size: 12px;
   }
 
@@ -823,24 +954,29 @@ const { title } = Astro.props;
     display: flex;
     gap: 4px;
     margin-bottom: 16px;
+    padding: 4px;
+    background: var(--gray-950);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    width: fit-content;
   }
 
   .tab {
     padding: 6px 12px;
     font-size: 12px;
     color: var(--gray-400);
-    border-radius: var(--radius);
-    transition: all var(--transition);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    font-weight: 500;
   }
 
   .tab:hover {
     color: var(--fg);
-    background: var(--hover);
   }
 
   .tab.active {
     color: var(--fg);
-    background: var(--gray-800);
+    background: var(--gray-700);
   }
 
   /* Badge */
@@ -852,10 +988,11 @@ const { title } = Astro.props;
     height: 18px;
     padding: 0 5px;
     font-size: 11px;
-    font-weight: 500;
-    background: var(--gray-800);
+    font-weight: 600;
+    background: var(--gray-700);
     border-radius: 99px;
-    color: var(--gray-300);
+    color: var(--gray-200);
+    margin-left: 6px;
   }
 
   /* Skeleton loading */
@@ -876,6 +1013,20 @@ const { title } = Astro.props;
     100% { background-position: -200% 0; }
   }
 
+  /* Spinner */
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--gray-700);
+    border-top-color: var(--fg);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
   /* Focus styles */
   :focus-visible {
     outline: 2px solid var(--gray-400);
@@ -884,7 +1035,7 @@ const { title } = Astro.props;
 
   /* Selection */
   ::selection {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
   }
 
   /* Scrollbar */
@@ -904,5 +1055,45 @@ const { title } = Astro.props;
 
   ::-webkit-scrollbar-thumb:hover {
     background: var(--gray-600);
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .container {
+      padding: 24px 16px;
+    }
+
+    .site-header {
+      padding: 0 16px;
+    }
+
+    .breadcrumb {
+      padding: 10px 16px;
+    }
+
+    .repo-nav {
+      padding: 0 16px;
+      overflow-x: auto;
+    }
+
+    .flex-between {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+  }
+
+  /* Print */
+  @media print {
+    .site-header,
+    .site-footer,
+    .repo-nav,
+    .btn {
+      display: none;
+    }
+
+    body {
+      background: white;
+      color: black;
+    }
   }
 </style>

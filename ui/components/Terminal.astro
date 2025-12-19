@@ -1,0 +1,190 @@
+---
+/**
+ * Terminal component using ghostty-web.
+ *
+ * Usage:
+ *   <Terminal ptyId="abc123" />
+ */
+
+interface Props {
+  ptyId?: string;
+  class?: string;
+}
+
+const { ptyId, class: className } = Astro.props;
+---
+
+<div
+  class:list={["terminal-container", className]}
+  data-terminal
+  data-pty-id={ptyId}
+>
+</div>
+
+<style>
+  .terminal-container {
+    width: 100%;
+    height: 100%;
+    min-height: 300px;
+    background: #1a1a1a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+</style>
+
+<script>
+  import { Ghostty, Terminal, FitAddon } from "ghostty-web";
+
+  interface TerminalInstance {
+    terminal: Terminal;
+    fitAddon: FitAddon;
+    ws: WebSocket | null;
+    dispose: () => void;
+  }
+
+  const instances = new Map<HTMLElement, TerminalInstance>();
+
+  async function initTerminal(container: HTMLElement): Promise<TerminalInstance> {
+    const ptyId = container.dataset.ptyId;
+
+    // Load WASM module
+    const ghostty = await Ghostty.load();
+
+    // Create terminal
+    const terminal = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",
+      allowTransparency: true,
+      scrollback: 10_000,
+      ghostty,
+      theme: {
+        background: "#1a1a1a",
+        foreground: "#e0e0e0",
+        cursor: "#e0e0e0",
+        cursorAccent: "#1a1a1a",
+        selectionBackground: "#404040",
+        black: "#1a1a1a",
+        red: "#ff6b6b",
+        green: "#69db7c",
+        yellow: "#ffd43b",
+        blue: "#74c0fc",
+        magenta: "#da77f2",
+        cyan: "#66d9e8",
+        white: "#e0e0e0",
+        brightBlack: "#505050",
+        brightRed: "#ff8787",
+        brightGreen: "#8ce99a",
+        brightYellow: "#ffe066",
+        brightBlue: "#a5d8ff",
+        brightMagenta: "#e599f7",
+        brightCyan: "#99e9f2",
+        brightWhite: "#ffffff",
+      },
+    });
+
+    // Create fit addon
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+
+    // Open terminal in container
+    terminal.open(container);
+    fitAddon.fit();
+
+    // Handle window resize
+    const handleResize = () => fitAddon.fit();
+    window.addEventListener("resize", handleResize);
+
+    // Observe container resize
+    const resizeObserver = new ResizeObserver(() => fitAddon.fit());
+    resizeObserver.observe(container);
+
+    let ws: WebSocket | null = null;
+
+    // Connect to PTY if ID provided
+    if (ptyId) {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const apiHost = import.meta.env.PUBLIC_API_URL || `${window.location.hostname}:4000`;
+      ws = new WebSocket(`${protocol}//${apiHost}/pty/${ptyId}/ws`);
+
+      ws.addEventListener("open", () => {
+        console.log("Terminal WebSocket connected");
+        // Send initial size
+        ws!.send(JSON.stringify({
+          type: "resize",
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }));
+      });
+
+      ws.addEventListener("message", (event) => {
+        if (typeof event.data === "string") {
+          terminal.write(event.data);
+        }
+      });
+
+      ws.addEventListener("error", (error) => {
+        console.error("Terminal WebSocket error:", error);
+      });
+
+      ws.addEventListener("close", () => {
+        console.log("Terminal WebSocket closed");
+      });
+
+      // Send terminal input to PTY
+      terminal.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
+      });
+
+      // Send resize events
+      terminal.onResize((size) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "resize",
+            cols: size.cols,
+            rows: size.rows,
+          }));
+        }
+      });
+    }
+
+    const instance: TerminalInstance = {
+      terminal,
+      fitAddon,
+      ws,
+      dispose: () => {
+        window.removeEventListener("resize", handleResize);
+        resizeObserver.disconnect();
+        ws?.close();
+        terminal.dispose();
+        instances.delete(container);
+      },
+    };
+
+    instances.set(container, instance);
+    return instance;
+  }
+
+  // Initialize all terminal containers
+  document.querySelectorAll<HTMLElement>("[data-terminal]").forEach((container) => {
+    if (!instances.has(container)) {
+      initTerminal(container);
+    }
+  });
+
+  // Re-initialize on Astro page transitions
+  document.addEventListener("astro:page-load", () => {
+    document.querySelectorAll<HTMLElement>("[data-terminal]").forEach((container) => {
+      if (!instances.has(container)) {
+        initTerminal(container);
+      }
+    });
+  });
+
+  // Cleanup on page unload
+  document.addEventListener("astro:before-preparation", () => {
+    instances.forEach((instance) => instance.dispose());
+  });
+</script>
