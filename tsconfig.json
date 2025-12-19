@@ -24,6 +24,11 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
-  }
+    "noPropertyAccessFromIndexSignature": false,
+
+    // Types
+    "types": ["vite-plugin-pwa/client"]
+  },
+  "include": ["ui/env.d.ts", "**/*.ts", "**/*.tsx", "**/*.astro"],
+  "exclude": ["node_modules", "dist", "gitea", "electric-ai-chat", "snapshot"]
 }
