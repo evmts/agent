@@ -14,8 +14,8 @@ export async function getUserBySession(sessionId: string): Promise<AuthUser | nu
   const rows = await sql`
     SELECT u.id, u.username, u.email, u.display_name, u.is_admin, u.is_active
     FROM users u
-    JOIN sessions s ON s.user_id = u.id
-    WHERE s.id = ${sessionId} AND s.expires_at > NOW()
+    JOIN auth_sessions s ON s.user_id = u.id
+    WHERE s.session_key = ${sessionId} AND s.expires_at > NOW()
   `;
 
   if (rows.length === 0) {
@@ -71,20 +71,20 @@ export async function createUser(userData: {
 
 export async function createSession(userId: number, sessionId: string, expiresAt: Date) {
   await sql`
-    INSERT INTO sessions (id, user_id, expires_at)
+    INSERT INTO auth_sessions (session_key, user_id, expires_at)
     VALUES (${sessionId}, ${userId}, ${expiresAt})
   `;
 }
 
 export async function deleteSession(sessionId: string) {
   await sql`
-    DELETE FROM sessions WHERE id = ${sessionId}
+    DELETE FROM auth_sessions WHERE session_key = ${sessionId}
   `;
 }
 
 export async function deleteAllUserSessions(userId: number) {
   await sql`
-    DELETE FROM sessions WHERE user_id = ${userId}
+    DELETE FROM auth_sessions WHERE user_id = ${userId}
   `;
 }
 

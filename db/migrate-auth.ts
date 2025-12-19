@@ -71,9 +71,4 @@ async function migrateUsersAuth() {
   }
 }
 
-// Only run if this file is executed directly
-if (import.meta.main) {
-  migrateUsersAuth().then(() => process.exit(0));
-}
-
 export { migrateUsersAuth };
