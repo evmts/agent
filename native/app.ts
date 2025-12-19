@@ -19,7 +19,7 @@ import { Window, webui, Browser } from "./index";
 import { spawn } from "bun";
 
 const ASTRO_PORT = 5173;
-const API_PORT = 4000;
+const _API_PORT = 4000;
 const ASTRO_URL = `http://localhost:${ASTRO_PORT}`;
 
 interface AppOptions {

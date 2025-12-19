@@ -5,7 +5,7 @@
  * For a higher-level API, use the WebUI class from ./webui.ts
  */
 
-import { dlopen, FFIType, ptr, suffix, CString, toArrayBuffer } from "bun:ffi";
+import { dlopen, FFIType, type ptr, CString, } from "bun:ffi";
 import { join } from "node:path";
 
 // Platform-specific library name

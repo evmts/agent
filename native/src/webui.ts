@@ -15,7 +15,7 @@ import {
   type RuntimeType,
   type ConfigType,
 } from "./ffi";
-import { ptr, CString } from "bun:ffi";
+import { ptr, } from "bun:ffi";
 
 export { Browser, Runtime, Config };
 
@@ -136,7 +136,7 @@ export class Window {
    */
   show(content: string): boolean {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(content + "\0", "utf8");
+    const buffer = Buffer.from(`${content}\0`, "utf8");
     return symbols.webui_show(this.id, ptr(buffer));
   }
 
@@ -148,7 +148,7 @@ export class Window {
    */
   showBrowser(content: string, browser: BrowserType): boolean {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(content + "\0", "utf8");
+    const buffer = Buffer.from(`${content}\0`, "utf8");
     return symbols.webui_show_browser(this.id, ptr(buffer), BigInt(browser));
   }
 
@@ -159,7 +159,7 @@ export class Window {
    */
   showWebView(content: string): boolean {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(content + "\0", "utf8");
+    const buffer = Buffer.from(`${content}\0`, "utf8");
     return symbols.webui_show_wv(this.id, ptr(buffer));
   }
 
@@ -169,7 +169,7 @@ export class Window {
    */
   navigate(url: string): void {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(url + "\0", "utf8");
+    const buffer = Buffer.from(`${url}\0`, "utf8");
     symbols.webui_navigate(this.id, ptr(buffer));
   }
 
@@ -235,8 +235,8 @@ export class Window {
    */
   setProfile(name: string, path: string): void {
     this.ensureNotDestroyed();
-    const nameBuffer = Buffer.from(name + "\0", "utf8");
-    const pathBuffer = Buffer.from(path + "\0", "utf8");
+    const nameBuffer = Buffer.from(`${name}\0`, "utf8");
+    const pathBuffer = Buffer.from(`${path}\0`, "utf8");
     symbols.webui_set_profile(this.id, ptr(nameBuffer), ptr(pathBuffer));
   }
 
@@ -245,7 +245,7 @@ export class Window {
    */
   setProxy(proxyUrl: string): void {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(proxyUrl + "\0", "utf8");
+    const buffer = Buffer.from(`${proxyUrl}\0`, "utf8");
     symbols.webui_set_proxy(this.id, ptr(buffer));
   }
 
@@ -271,7 +271,7 @@ export class Window {
    */
   setRootFolder(path: string): boolean {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(path + "\0", "utf8");
+    const buffer = Buffer.from(`${path}\0`, "utf8");
     return symbols.webui_set_root_folder(this.id, ptr(buffer));
   }
 
@@ -280,8 +280,8 @@ export class Window {
    */
   setIcon(icon: string, iconType: string = "image/svg+xml"): void {
     this.ensureNotDestroyed();
-    const iconBuffer = Buffer.from(icon + "\0", "utf8");
-    const typeBuffer = Buffer.from(iconType + "\0", "utf8");
+    const iconBuffer = Buffer.from(`${icon}\0`, "utf8");
+    const typeBuffer = Buffer.from(`${iconType}\0`, "utf8");
     symbols.webui_set_icon(this.id, ptr(iconBuffer), ptr(typeBuffer));
   }
 
@@ -290,7 +290,7 @@ export class Window {
    */
   run(script: string): void {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(script + "\0", "utf8");
+    const buffer = Buffer.from(`${script}\0`, "utf8");
     symbols.webui_run(this.id, ptr(buffer));
   }
 
@@ -302,7 +302,7 @@ export class Window {
    */
   script(script: string, timeout: number = 30): string | null {
     this.ensureNotDestroyed();
-    const scriptBuffer = Buffer.from(script + "\0", "utf8");
+    const scriptBuffer = Buffer.from(`${script}\0`, "utf8");
     const bufferSize = 8192;
     const resultBuffer = Buffer.alloc(bufferSize);
 
@@ -339,7 +339,7 @@ export class Window {
    */
   startServer(content: string): string | null {
     this.ensureNotDestroyed();
-    const buffer = Buffer.from(content + "\0", "utf8");
+    const buffer = Buffer.from(`${content}\0`, "utf8");
     const urlPtr = symbols.webui_start_server(this.id, ptr(buffer));
     if (!urlPtr) return null;
     return ptrToString(urlPtr);
@@ -446,7 +446,7 @@ export const webui = {
    * Set the default root folder for all windows.
    */
   setDefaultRootFolder(path: string): boolean {
-    const buffer = Buffer.from(path + "\0", "utf8");
+    const buffer = Buffer.from(`${path}\0`, "utf8");
     return symbols.webui_set_default_root_folder(ptr(buffer));
   },
 
@@ -456,8 +456,8 @@ export const webui = {
    * @param key - Private key PEM content (or empty for self-signed)
    */
   setTlsCertificate(cert: string, key: string): boolean {
-    const certBuffer = Buffer.from(cert + "\0", "utf8");
-    const keyBuffer = Buffer.from(key + "\0", "utf8");
+    const certBuffer = Buffer.from(`${cert}\0`, "utf8");
+    const keyBuffer = Buffer.from(`${key}\0`, "utf8");
     return symbols.webui_set_tls_certificate(ptr(certBuffer), ptr(keyBuffer));
   },
 
@@ -486,7 +486,7 @@ export const webui = {
    * Open a URL in the default browser.
    */
   openUrl(url: string): void {
-    const buffer = Buffer.from(url + "\0", "utf8");
+    const buffer = Buffer.from(`${url}\0`, "utf8");
     symbols.webui_open_url(ptr(buffer));
   },
 
@@ -509,7 +509,7 @@ export const webui = {
    * Encode a string to Base64.
    */
   encode(str: string): string | null {
-    const buffer = Buffer.from(str + "\0", "utf8");
+    const buffer = Buffer.from(`${str}\0`, "utf8");
     const resultPtr = symbols.webui_encode(ptr(buffer));
     if (!resultPtr) return null;
     const result = ptrToString(resultPtr);
@@ -521,7 +521,7 @@ export const webui = {
    * Decode a Base64 string.
    */
   decode(str: string): string | null {
-    const buffer = Buffer.from(str + "\0", "utf8");
+    const buffer = Buffer.from(`${str}\0`, "utf8");
     const resultPtr = symbols.webui_decode(ptr(buffer));
     if (!resultPtr) return null;
     const result = ptrToString(resultPtr);
