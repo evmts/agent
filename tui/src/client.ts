@@ -7,11 +7,20 @@ export interface Session {
   title?: string;
   directory: string;
   model?: string;
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
   status: string;
+  tokenCount?: number;
   time: {
     created: number;
     updated?: number;
   };
+}
+
+export interface UndoResult {
+  turnsUndone: number;
+  messagesRemoved: number;
+  filesReverted: string[];
+  snapshotRestored: string | null;
 }
 
 export interface Message {
@@ -265,5 +274,49 @@ export class PlueClient {
 
     const data = await res.json();
     return data.diffs || [];
+  }
+
+  /**
+   * Update a session's settings
+   */
+  async updateSession(
+    sessionId: string,
+    options: {
+      title?: string;
+      model?: string;
+      reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+    }
+  ): Promise<Session> {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update session');
+    }
+
+    const data = await res.json();
+    return data.session;
+  }
+
+  /**
+   * Undo turns in a session
+   */
+  async undoTurns(sessionId: string, count: number = 1): Promise<UndoResult> {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/sessions/${sessionId}/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to undo turns');
+    }
+
+    return res.json();
   }
 }

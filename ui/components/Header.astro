@@ -4,12 +4,150 @@ interface Props {
 }
 
 const { currentPath = "/" } = Astro.props;
+
+// Check if user is authenticated
+let user = null;
+const sessionCookie = Astro.cookies.get('plue_session');
+
+if (sessionCookie) {
+  try {
+    const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+      headers: {
+        Cookie: `plue_session=${sessionCookie.value}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      user = data.user;
+    }
+  } catch (error) {
+    console.error('Failed to fetch user:', error);
+  }
+}
 ---
 
 <header class="site-header">
-  <a href="/" class="logo">plue</a>
-  <nav>
-    <a href="/" class:list={[{ active: currentPath === "/" }]}>explore</a>
-    <a href="/new" class:list={[{ active: currentPath === "/new" }]}>new</a>
-  </nav>
+  <div class="header-left">
+    <a href="/" class="logo">plue</a>
+    <nav>
+      <a href="/" class:list={[{ active: currentPath === "/" }]}>explore</a>
+      <a href="/new" class:list={[{ active: currentPath === "/new" }]}>new</a>
+    </nav>
+  </div>
+
+  <div class="header-right">
+    {user ? (
+      <div class="user-menu">
+        <span class="user-greeting">Signed in as <strong>{user.username}</strong></span>
+        <a href={`/${user.username}`}>Profile</a>
+        <a href="/settings">Settings</a>
+        <button id="logout-btn" class="btn-link">Sign out</button>
+      </div>
+    ) : (
+      <div class="auth-links">
+        <a href="/login" class="link">Sign in</a>
+        <a href="/register" class="btn btn-primary">Sign up</a>
+      </div>
+    )}
+  </div>
 </header>
+
+<style>
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .user-menu {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 13px;
+  }
+
+  .user-greeting {
+    color: var(--gray-400);
+  }
+
+  .user-greeting strong {
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  .user-menu a {
+    color: var(--gray-400);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+
+  .user-menu a:hover {
+    color: var(--fg);
+  }
+
+  .auth-links {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .link {
+    color: var(--gray-400);
+    font-size: 13px;
+    transition: color var(--transition-fast);
+  }
+
+  .link:hover {
+    color: var(--fg);
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--gray-400);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    transition: color var(--transition-fast);
+  }
+
+  .btn-link:hover {
+    color: var(--fg);
+  }
+
+  @media (max-width: 640px) {
+    .user-menu {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .user-greeting {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import { logout } from '../lib/client-auth';
+
+  const logoutBtn = document.getElementById('logout-btn');
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await logout();
+        window.location.href = '/login';
+      } catch (error) {
+        console.error('Logout failed:', error);
+      }
+    });
+  }
+</script>

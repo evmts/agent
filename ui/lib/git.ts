@@ -12,9 +12,9 @@ async function run(cmd: string, cwd?: string): Promise<string> {
   try {
     const { stdout } = await execAsync(cmd, { cwd });
     return stdout;
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Return empty string on error (e.g., empty repo)
-    return error.stdout || "";
+    return (error as { stdout?: string })?.stdout || "";
   }
 }
 

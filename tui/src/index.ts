@@ -9,6 +9,8 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { PlueClient, type Session, type StreamEvent } from './client';
 import { runExec } from './exec';
+import { StatusIndicator, formatTokenUsage, formatKeyboardHints } from './status-indicator';
+import { formatToolCall, formatToolResult, ToolCallTracker } from './render/tools';
 
 // Configuration
 const API_URL = process.env.PLUE_API_URL || 'http://localhost:4000';
@@ -18,9 +20,21 @@ const VERSION = '0.0.1';
 let client: PlueClient;
 let currentSession: Session | null = null;
 let isRunning = true;
+let pendingMention: string | null = null;
 
 // Braille spinner frames
 const _spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+// Available models and reasoning efforts
+const AVAILABLE_MODELS = [
+  'claude-sonnet-4-20250514',
+  'claude-opus-4-20250514',
+  'claude-3-5-sonnet-20241022',
+  'claude-3-5-haiku-20241022',
+];
+
+const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * Display the logo/header
@@ -72,45 +86,27 @@ function displayMessage(role: 'user' | 'assistant' | 'tool', content: string) {
 }
 
 /**
- * Display tool call info
- */
-function displayToolCall(name: string, input?: Record<string, any>) {
-  console.log(pc.cyan(`  🔧 ${name}`));
-  if (input && Object.keys(input).length > 0) {
-    const preview = JSON.stringify(input);
-    console.log(pc.dim(`     ${truncate(preview, 60)}`));
-  }
-}
-
-/**
- * Display tool result
- */
-function displayToolResult(_name: string, output?: string) {
-  if (output) {
-    const preview = truncate(output.replace(/\n/g, ' '), 80);
-    console.log(pc.dim(`  ← ${preview}`));
-  }
-}
-
-/**
  * Handle streaming response with inline display
  */
 async function handleStreamingResponse(
   stream: AsyncGenerator<StreamEvent>
 ): Promise<string> {
   let textContent = '';
-  const _spinnerIdx = 0;
-  let _lastToolName = '';
-
-  // Start spinner
-  process.stdout.write(pc.green('⏺ '));
+  const indicator = new StatusIndicator();
+  const toolTracker = new ToolCallTracker();
+  let isStreaming = false;
 
   for await (const event of stream) {
     switch (event.type) {
       case 'part.updated': {
         const delta = event.properties.delta;
         if (delta) {
-          // Clear spinner if present, write text
+          // Stop indicator and start text output
+          if (!isStreaming) {
+            indicator.stop();
+            process.stdout.write(pc.green('⏺ '));
+            isStreaming = true;
+          }
           process.stdout.write(delta);
           textContent += delta;
         }
@@ -119,32 +115,64 @@ async function handleStreamingResponse(
 
       case 'tool.call': {
         const { toolName, input } = event.properties;
-        _lastToolName = toolName;
+
         // New line before tool
-        if (textContent) {
+        if (isStreaming && textContent) {
           console.log();
+          isStreaming = false;
         }
-        displayToolCall(toolName, input);
+
+        // Start tracking duration
+        toolTracker.start(toolName);
+        indicator.start(`Running ${toolName}`);
+
+        // Display tool call
+        console.log(formatToolCall(toolName, input));
         break;
       }
 
       case 'tool.result': {
         const { toolName, output } = event.properties;
-        displayToolResult(toolName, output);
-        // Resume with new prompt
-        process.stdout.write(pc.green('⏺ '));
+
+        // Get duration and stop tracking
+        const duration = toolTracker.getDuration(toolName);
+        toolTracker.clear(toolName);
+
+        // Stop indicator and show result
+        indicator.stop();
+        console.log(formatToolResult(toolName, output, duration));
+
+        // Start waiting indicator for next action
+        indicator.start('Working');
         break;
       }
 
       case 'message.completed': {
+        indicator.stop();
         // Finish with newline
-        if (textContent) {
+        if (isStreaming && textContent) {
           console.log();
+        }
+
+        // Display token usage if available
+        const tokens = event.properties.tokens || event.properties.usage;
+        if (tokens) {
+          console.log(formatTokenUsage(tokens));
+        }
+        break;
+      }
+
+      case 'usage': {
+        // Handle dedicated usage event
+        const tokens = event.properties.tokens || event.properties;
+        if (tokens) {
+          console.log(formatTokenUsage(tokens));
         }
         break;
       }
 
       case 'error': {
+        indicator.stop();
         console.log();
         console.log(pc.red(`Error: ${event.properties.error}`));
         break;
@@ -152,6 +180,7 @@ async function handleStreamingResponse(
     }
   }
 
+  indicator.stop();
   console.log();
   return textContent;
 }
@@ -162,14 +191,20 @@ async function handleStreamingResponse(
 function showHelp() {
   console.log();
   console.log(pc.bold('Commands:'));
-  console.log(`${pc.dim('  /new           ')}Create a new session`);
-  console.log(`${pc.dim('  /sessions      ')}List all sessions`);
-  console.log(`${pc.dim('  /switch <id>   ')}Switch to a session`);
-  console.log(`${pc.dim('  /clear         ')}Clear the screen`);
-  console.log(`${pc.dim('  /diff          ')}Show session diff`);
-  console.log(`${pc.dim('  /abort         ')}Abort current task`);
-  console.log(`${pc.dim('  /help          ')}Show this help`);
-  console.log(`${pc.dim('  /quit          ')}Exit the TUI`);
+  console.log(`${pc.dim('  /new             ')}Create a new session`);
+  console.log(`${pc.dim('  /sessions        ')}List all sessions`);
+  console.log(`${pc.dim('  /switch <id>     ')}Switch to a session`);
+  console.log(`${pc.dim('  /model [name]    ')}List or set the model`);
+  console.log(`${pc.dim('  /effort [level]  ')}Set reasoning effort`);
+  console.log(`${pc.dim('  /status          ')}Show session status`);
+  console.log(`${pc.dim('  /undo [n]        ')}Undo last N turns`);
+  console.log(`${pc.dim('  /mention <file>  ')}Include file in next message`);
+  console.log(`${pc.dim('  /review          ')}Show changes with stats`);
+  console.log(`${pc.dim('  /diff            ')}Show session diff`);
+  console.log(`${pc.dim('  /abort           ')}Abort current task`);
+  console.log(`${pc.dim('  /clear           ')}Clear the screen`);
+  console.log(`${pc.dim('  /help            ')}Show this help`);
+  console.log(`${pc.dim('  /quit            ')}Exit the TUI`);
   console.log();
 }
 
@@ -311,6 +346,267 @@ async function handleCommand(input: string): Promise<boolean> {
       return true;
     }
 
+    case 'model': {
+      const modelArg = args[0];
+
+      if (!modelArg) {
+        // List available models
+        console.log();
+        console.log(pc.bold('Available models:'));
+        for (const model of AVAILABLE_MODELS) {
+          const isCurrent = currentSession?.model === model;
+          const marker = isCurrent ? pc.green('● ') : '  ';
+          console.log(`${marker}${pc.cyan(model)}`);
+        }
+        if (currentSession?.model && !AVAILABLE_MODELS.includes(currentSession.model)) {
+          console.log(`${pc.green('● ')}${pc.cyan(currentSession.model)} ${pc.dim('(custom)')}`);
+        }
+        console.log();
+        console.log(pc.dim('Usage: /model <name> to set'));
+        console.log();
+        return true;
+      }
+
+      if (!currentSession) {
+        console.log(pc.yellow('No active session'));
+        return true;
+      }
+
+      const s = p.spinner();
+      s.start(`Setting model to ${modelArg}`);
+      try {
+        currentSession = await client.updateSession(currentSession.id, { model: modelArg });
+        s.stop(`Model set to: ${pc.cyan(currentSession.model || modelArg)}`);
+      } catch (err: any) {
+        s.stop(pc.red(`Failed: ${err.message}`));
+      }
+      return true;
+    }
+
+    case 'effort': {
+      const effortArg = args[0]?.toLowerCase() as ReasoningEffort | undefined;
+
+      if (!effortArg) {
+        // Show current effort
+        console.log();
+        console.log(pc.bold('Reasoning effort levels:'));
+        const descriptions: Record<ReasoningEffort, string> = {
+          minimal: 'Fastest, least thorough',
+          low: 'Quick responses',
+          medium: 'Balanced (default)',
+          high: 'Most thorough, slowest',
+        };
+        for (const level of REASONING_EFFORTS) {
+          const isCurrent = currentSession?.reasoningEffort === level;
+          const marker = isCurrent ? pc.green('● ') : '  ';
+          console.log(`${marker}${pc.cyan(level)} ${pc.dim(`- ${descriptions[level]}`)}`);
+        }
+        console.log();
+        console.log(pc.dim('Usage: /effort <level> to set'));
+        console.log();
+        return true;
+      }
+
+      if (!REASONING_EFFORTS.includes(effortArg)) {
+        console.log(pc.yellow(`Invalid effort level. Choose: ${REASONING_EFFORTS.join(', ')}`));
+        return true;
+      }
+
+      if (!currentSession) {
+        console.log(pc.yellow('No active session'));
+        return true;
+      }
+
+      const s = p.spinner();
+      s.start(`Setting reasoning effort to ${effortArg}`);
+      try {
+        currentSession = await client.updateSession(currentSession.id, {
+          reasoningEffort: effortArg,
+        });
+        s.stop(`Reasoning effort set to: ${pc.cyan(effortArg)}`);
+      } catch (err: any) {
+        s.stop(pc.red(`Failed: ${err.message}`));
+      }
+      return true;
+    }
+
+    case 'status': {
+      if (!currentSession) {
+        console.log(pc.yellow('No active session'));
+        return true;
+      }
+
+      const s = p.spinner();
+      s.start('Loading session status');
+      try {
+        // Refresh session data
+        currentSession = await client.getSession(currentSession.id);
+        s.stop('Session Status:');
+
+        console.log();
+        console.log(`  ${pc.dim('ID:')}           ${pc.cyan(currentSession.id)}`);
+        console.log(`  ${pc.dim('Title:')}        ${currentSession.title || 'Untitled'}`);
+        console.log(`  ${pc.dim('Model:')}        ${pc.cyan(currentSession.model || 'default')}`);
+        console.log(`  ${pc.dim('Effort:')}       ${pc.cyan(currentSession.reasoningEffort || 'medium')}`);
+        console.log(`  ${pc.dim('Directory:')}    ${currentSession.directory}`);
+        console.log(`  ${pc.dim('Tokens:')}       ${currentSession.tokenCount?.toLocaleString() ?? 'N/A'}`);
+        console.log(`  ${pc.dim('Created:')}      ${formatTime(currentSession.time.created)}`);
+        if (currentSession.time.updated) {
+          console.log(`  ${pc.dim('Updated:')}      ${formatTime(currentSession.time.updated)}`);
+        }
+        console.log();
+      } catch (err: any) {
+        s.stop(pc.red(`Failed: ${err.message}`));
+      }
+      return true;
+    }
+
+    case 'undo': {
+      if (!currentSession) {
+        console.log(pc.yellow('No active session'));
+        return true;
+      }
+
+      const count = parseInt(args[0] || '1', 10);
+      if (isNaN(count) || count < 1) {
+        console.log(pc.yellow('Usage: /undo [n] where n is a positive number'));
+        return true;
+      }
+
+      const s = p.spinner();
+      s.start(`Undoing ${count} turn${count > 1 ? 's' : ''}`);
+      try {
+        const result = await client.undoTurns(currentSession.id, count);
+
+        if (result.turnsUndone === 0) {
+          s.stop(pc.yellow('Nothing to undo'));
+        } else {
+          s.stop(`Undone: ${pc.cyan(result.turnsUndone.toString())} turn${result.turnsUndone > 1 ? 's' : ''}`);
+          console.log(pc.dim(`  Messages removed: ${result.messagesRemoved}`));
+          if (result.filesReverted.length > 0) {
+            console.log(pc.dim(`  Files reverted: ${result.filesReverted.length}`));
+            for (const file of result.filesReverted.slice(0, 5)) {
+              console.log(pc.dim(`    - ${file}`));
+            }
+            if (result.filesReverted.length > 5) {
+              console.log(pc.dim(`    ... and ${result.filesReverted.length - 5} more`));
+            }
+          }
+          if (result.snapshotRestored) {
+            console.log(pc.dim(`  Snapshot: ${result.snapshotRestored.slice(0, 8)}`));
+          }
+        }
+      } catch (err: any) {
+        s.stop(pc.red(`Failed: ${err.message}`));
+      }
+      console.log();
+      return true;
+    }
+
+    case 'mention': {
+      const filePath = args.join(' ');
+
+      if (!filePath) {
+        console.log(pc.yellow('Usage: /mention <file-path>'));
+        console.log(pc.dim('  Reads file content and includes it in your next message'));
+        return true;
+      }
+
+      const s = p.spinner();
+      s.start(`Reading ${filePath}`);
+      try {
+        // Resolve path relative to cwd or session directory
+        const basePath = currentSession?.directory || process.cwd();
+        const resolvedPath = filePath.startsWith('/') ? filePath : `${basePath}/${filePath}`;
+
+        const file = Bun.file(resolvedPath);
+        const exists = await file.exists();
+
+        if (!exists) {
+          s.stop(pc.red(`File not found: ${resolvedPath}`));
+          return true;
+        }
+
+        const content = await file.text();
+        const lineCount = content.split('\n').length;
+        const byteSize = file.size;
+
+        // Store for injection into next message
+        pendingMention = `<file path="${filePath}">\n${content}\n</file>`;
+
+        s.stop(`File loaded: ${pc.cyan(filePath)}`);
+        console.log(pc.dim(`  ${lineCount} lines, ${(byteSize / 1024).toFixed(1)} KB`));
+        console.log(pc.dim('  Content will be included in your next message'));
+      } catch (err: any) {
+        s.stop(pc.red(`Failed: ${err.message}`));
+      }
+      console.log();
+      return true;
+    }
+
+    case 'review': {
+      // Enhanced /diff with summary and coloring
+      if (!currentSession) {
+        console.log(pc.yellow('No active session'));
+        return true;
+      }
+
+      const s = p.spinner();
+      s.start('Loading changes');
+      try {
+        const diffs = await client.getSessionDiff(currentSession.id);
+        s.stop(pc.bold('Session Changes:'));
+
+        if (diffs.length === 0) {
+          console.log(pc.dim('  No changes in this session'));
+        } else {
+          console.log();
+          let totalAdditions = 0;
+          let totalDeletions = 0;
+
+          for (const diff of diffs) {
+            // Count additions/deletions
+            const lines = diff.content?.split('\n') || [];
+            const additions = lines.filter((l: string) => l.startsWith('+')).length;
+            const deletions = lines.filter((l: string) => l.startsWith('-')).length;
+            totalAdditions += additions;
+            totalDeletions += deletions;
+
+            // Display file header with stats
+            console.log(pc.cyan(pc.bold(`  ${diff.path}`)));
+            console.log(`    ${pc.green(`+${additions}`)} ${pc.red(`-${deletions}`)}`);
+
+            // Show abbreviated content with syntax highlighting
+            const previewLines = lines.slice(0, 10);
+            for (const line of previewLines) {
+              if (line.startsWith('+')) {
+                console.log(pc.green(`    ${line}`));
+              } else if (line.startsWith('-')) {
+                console.log(pc.red(`    ${line}`));
+              } else if (line.startsWith('@@')) {
+                console.log(pc.cyan(`    ${line}`));
+              } else {
+                console.log(pc.dim(`    ${line}`));
+              }
+            }
+            if (lines.length > 10) {
+              console.log(pc.dim(`    ... ${lines.length - 10} more lines`));
+            }
+            console.log();
+          }
+
+          // Summary
+          console.log(pc.bold('  Summary:'));
+          console.log(`    ${diffs.length} file${diffs.length > 1 ? 's' : ''} changed`);
+          console.log(`    ${pc.green(`+${totalAdditions}`)} additions, ${pc.red(`-${totalDeletions}`)} deletions`);
+        }
+      } catch (err: any) {
+        s.stop(pc.red(`Failed: ${err.message}`));
+      }
+      console.log();
+      return true;
+    }
+
     case 'help': {
       showHelp();
       return true;
@@ -389,7 +685,14 @@ async function chatLoop() {
 
     // Send message and stream response
     try {
-      const stream = client.sendMessage(currentSession.id, trimmed);
+      // Include pending mention if present
+      let messageContent = trimmed;
+      if (pendingMention) {
+        messageContent = `${pendingMention}\n\n${trimmed}`;
+        pendingMention = null; // Clear after use
+      }
+
+      const stream = client.sendMessage(currentSession.id, messageContent);
       await handleStreamingResponse(stream);
     } catch (err: any) {
       console.log(pc.red(`Error: ${err.message}`));
@@ -518,6 +821,7 @@ ${pc.bold('INTERACTIVE COMMANDS:')}
 
   console.log();
   console.log(pc.dim('Type a message to chat, or /help for commands'));
+  console.log(formatKeyboardHints('idle'));
   console.log();
 
   // Start chat loop

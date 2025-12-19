@@ -3,7 +3,17 @@ export interface User {
   username: string;
   display_name: string | null;
   bio: string | null;
+  avatar_url: string | null;
   created_at: Date;
+}
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  email: string;
+  displayName: string | null;
+  isAdmin: boolean;
+  isActive: boolean;
 }
 
 export interface Repository {
