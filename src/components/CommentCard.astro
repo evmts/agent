@@ -1,0 +1,30 @@
+---
+import type { Comment } from "../lib/types";
+import Markdown from "./Markdown.astro";
+
+interface Props {
+  comment: Comment;
+}
+
+const { comment } = Astro.props;
+
+function formatDate(date: Date): string {
+  return new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+---
+
+<div class="comment">
+  <div class="comment-header">
+    <strong>{comment.author_username}</strong>
+    <span style="color: var(--gray)"> commented on {formatDate(comment.created_at)}</span>
+  </div>
+  <div class="comment-body">
+    <Markdown content={comment.body} />
+  </div>
+</div>

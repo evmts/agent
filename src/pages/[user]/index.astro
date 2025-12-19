@@ -1,0 +1,47 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+import RepoCard from "../../components/RepoCard.astro";
+import { sql } from "../../lib/db";
+import type { User, Repository } from "../../lib/types";
+
+const { user: username } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+
+if (!user) {
+  return Astro.redirect("/404");
+}
+
+const repos = await sql`
+  SELECT r.*, u.username
+  FROM repositories r
+  JOIN users u ON r.user_id = u.id
+  WHERE r.user_id = ${user.id} AND r.is_public = true
+  ORDER BY r.updated_at DESC
+` as Repository[];
+---
+
+<Layout title={`${user.display_name || user.username} - plue`}>
+  <Header />
+  <div class="container">
+    <div class="mb-2">
+      <h1>{user.display_name || user.username}</h1>
+      {user.bio && <p>{user.bio}</p>}
+    </div>
+
+    <h2>repositories</h2>
+
+    {repos.length === 0 ? (
+      <div class="empty-state">
+        <p>No repositories yet.</p>
+      </div>
+    ) : (
+      <ul class="repo-list">
+        {repos.map((repo) => (
+          <RepoCard repo={repo} showUser={false} />
+        ))}
+      </ul>
+    )}
+  </div>
+</Layout>

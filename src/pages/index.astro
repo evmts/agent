@@ -1,0 +1,39 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import RepoCard from "../components/RepoCard.astro";
+import { sql } from "../lib/db";
+import type { Repository } from "../lib/types";
+
+const repos = await sql`
+  SELECT r.*, u.username
+  FROM repositories r
+  JOIN users u ON r.user_id = u.id
+  WHERE r.is_public = true
+  ORDER BY r.updated_at DESC
+  LIMIT 50
+` as Repository[];
+---
+
+<Layout title="plue">
+  <Header currentPath="/" />
+  <div class="container">
+    <div class="flex-between mb-2">
+      <h1>repositories</h1>
+      <a href="/new" class="btn">+ new</a>
+    </div>
+
+    {repos.length === 0 ? (
+      <div class="empty-state">
+        <p>No repositories yet.</p>
+        <a href="/new" class="btn mt-2">Create your first repository</a>
+      </div>
+    ) : (
+      <ul class="repo-list">
+        {repos.map((repo) => (
+          <RepoCard repo={repo} />
+        ))}
+      </ul>
+    )}
+  </div>
+</Layout>

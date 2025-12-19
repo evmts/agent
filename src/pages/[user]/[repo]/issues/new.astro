@@ -1,0 +1,105 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository } from "../../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+
+if (!repo) return Astro.redirect("/404");
+
+const users = await sql`SELECT * FROM users ORDER BY username` as User[];
+
+let error = "";
+
+if (Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+  const authorId = formData.get("author_id") as string;
+  const title = (formData.get("title") as string)?.trim();
+  const body = formData.get("body") as string;
+
+  if (!authorId || !title) {
+    error = "Author and title are required";
+  } else {
+    try {
+      // Get next issue number
+      const [{ next_num }] = await sql`
+        SELECT COALESCE(MAX(issue_number), 0) + 1 as next_num
+        FROM issues WHERE repository_id = ${repo.id}
+      `;
+
+      await sql`
+        INSERT INTO issues (repository_id, author_id, issue_number, title, body)
+        VALUES (${repo.id}, ${authorId}, ${next_num}, ${title}, ${body})
+      `;
+
+      return Astro.redirect(`/${username}/${reponame}/issues/${next_num}`);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }
+}
+---
+
+<Layout title={`New Issue - ${username}/${reponame} - plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}/issues`}>issues</a>
+    <span>/</span>
+    <span class="current">new</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>code</a>
+    <a href={`/${username}/${reponame}/issues`} class="active">issues</a>
+    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>commits</a>
+  </nav>
+
+  <div class="container">
+    <h1>new issue</h1>
+
+    {error && <p style="color: #f44; margin-bottom: 1rem;">{error}</p>}
+
+    <form method="POST">
+      <div class="user-select">
+        <label for="author_id">Author</label>
+        <select name="author_id" id="author_id" required>
+          {users.map((u) => (
+            <option value={u.id}>{u.username}</option>
+          ))}
+        </select>
+      </div>
+
+      <label for="title">Title</label>
+      <input
+        type="text"
+        name="title"
+        id="title"
+        required
+        placeholder="Issue title"
+      />
+
+      <label for="body">Description (optional, supports markdown)</label>
+      <textarea
+        name="body"
+        id="body"
+        placeholder="Describe the issue..."
+      ></textarea>
+
+      <button type="submit" class="btn">Create issue</button>
+    </form>
+  </div>
+</Layout>

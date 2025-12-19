@@ -1,0 +1,66 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import FileTree from "../../../../components/FileTree.astro";
+import { sql } from "../../../../lib/db";
+import { getTree } from "../../../../lib/git";
+import type { User, Repository } from "../../../../lib/types";
+
+const { user: username, repo: reponame, path: pathParam } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+
+if (!repo) return Astro.redirect("/404");
+
+// Parse path: first segment is branch, rest is file path
+const pathParts = pathParam?.split("/") || [];
+const branch = pathParts[0] || repo.default_branch || "main";
+const filePath = pathParts.slice(1).join("/");
+
+const tree = await getTree(username!, reponame!, branch, filePath);
+
+// Build breadcrumb parts
+const breadcrumbParts = filePath ? filePath.split("/") : [];
+---
+
+<Layout title={`${filePath || "root"} - ${username}/${reponame} - plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}/tree/${branch}`}>{branch}</a>
+    {breadcrumbParts.map((part, i) => {
+      const partPath = breadcrumbParts.slice(0, i + 1).join("/");
+      const isLast = i === breadcrumbParts.length - 1;
+      return (
+        <>
+          <span>/</span>
+          {isLast ? (
+            <span class="current">{part}</span>
+          ) : (
+            <a href={`/${username}/${reponame}/tree/${branch}/${partPath}`}>{part}</a>
+          )}
+        </>
+      );
+    })}
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`} class="active">code</a>
+    <a href={`/${username}/${reponame}/issues`}>issues</a>
+    <a href={`/${username}/${reponame}/commits/${branch}`}>commits</a>
+  </nav>
+
+  <div class="container">
+    <FileTree tree={tree} user={username!} repo={reponame!} branch={branch} path={filePath} />
+  </div>
+</Layout>

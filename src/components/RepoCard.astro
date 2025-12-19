@@ -1,0 +1,21 @@
+---
+import type { Repository } from "../lib/types";
+
+interface Props {
+  repo: Repository;
+  showUser?: boolean;
+}
+
+const { repo, showUser = true } = Astro.props;
+const repoUrl = `/${repo.username}/${repo.name}`;
+---
+
+<li class="repo-item">
+  <a href={repoUrl}>
+    <h3>
+      {showUser && <span style="color: var(--gray)">{repo.username}/</span>}
+      {repo.name}
+    </h3>
+    {repo.description && <p>{repo.description}</p>}
+  </a>
+</li>

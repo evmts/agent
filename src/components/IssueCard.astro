@@ -1,0 +1,33 @@
+---
+import type { Issue } from "../lib/types";
+
+interface Props {
+  issue: Issue;
+  user: string;
+  repo: string;
+}
+
+const { issue, user, repo } = Astro.props;
+const issueUrl = `/${user}/${repo}/issues/${issue.issue_number}`;
+
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+---
+
+<a href={issueUrl} class="issue-item">
+  <span class:list={["issue-state", issue.state]}>{issue.state}</span>
+  <div>
+    <div class="issue-title">{issue.title}</div>
+    <div class="issue-meta">
+      #{issue.issue_number} opened {timeAgo(issue.created_at)} by {issue.author_username}
+    </div>
+  </div>
+</a>

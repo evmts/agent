@@ -1,0 +1,40 @@
+---
+import type { TreeEntry } from "../lib/types";
+
+interface Props {
+  tree: TreeEntry[];
+  user: string;
+  repo: string;
+  branch: string;
+  path?: string;
+}
+
+const { tree, user, repo, branch, path = "" } = Astro.props;
+
+// Sort: directories first, then files
+const sorted = [...tree].sort((a, b) => {
+  if (a.type === b.type) return a.name.localeCompare(b.name);
+  return a.type === "tree" ? -1 : 1;
+});
+
+function getUrl(entry: TreeEntry) {
+  const basePath = path ? `${path}/${entry.name}` : entry.name;
+  if (entry.type === "tree") {
+    return `/${user}/${repo}/tree/${branch}/${basePath}`;
+  }
+  return `/${user}/${repo}/blob/${branch}/${basePath}`;
+}
+---
+
+<div class="file-tree">
+  {sorted.length === 0 ? (
+    <div class="empty-state">No files</div>
+  ) : (
+    sorted.map((entry) => (
+      <a href={getUrl(entry)} class="file-tree-item">
+        <span class="icon">{entry.type === "tree" ? ">" : "-"}</span>
+        <span>{entry.name}</span>
+      </a>
+    ))
+  )}
+</div>

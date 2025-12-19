@@ -1,0 +1,94 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import { sql } from "../lib/db";
+import { initRepo } from "../lib/git";
+import type { User, Repository } from "../lib/types";
+
+const users = await sql`SELECT * FROM users ORDER BY username` as User[];
+
+let error = "";
+let success = "";
+
+if (Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+  const userId = formData.get("user_id") as string;
+  const name = (formData.get("name") as string)?.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const description = formData.get("description") as string;
+
+  if (!userId || !name) {
+    error = "User and repository name are required";
+  } else {
+    try {
+      const [user] = await sql`SELECT * FROM users WHERE id = ${userId}` as User[];
+
+      if (!user) {
+        error = "User not found";
+      } else {
+        // Check if repo exists
+        const [existing] = await sql`
+          SELECT * FROM repositories WHERE user_id = ${userId} AND name = ${name}
+        ` as Repository[];
+
+        if (existing) {
+          error = "Repository already exists";
+        } else {
+          // Create database record
+          await sql`
+            INSERT INTO repositories (user_id, name, description)
+            VALUES (${userId}, ${name}, ${description})
+          `;
+
+          // Initialize git repo
+          await initRepo(user.username, name);
+
+          return Astro.redirect(`/${user.username}/${name}`);
+        }
+      }
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }
+}
+---
+
+<Layout title="New Repository - plue">
+  <Header currentPath="/new" />
+  <div class="container">
+    <h1>new repository</h1>
+
+    {error && <p style="color: #f44; margin-bottom: 1rem;">{error}</p>}
+    {success && <p style="color: #4f4; margin-bottom: 1rem;">{success}</p>}
+
+    <form method="POST">
+      <div class="user-select">
+        <label for="user_id">Owner</label>
+        <select name="user_id" id="user_id" required>
+          {users.map((user) => (
+            <option value={user.id}>{user.username}</option>
+          ))}
+        </select>
+      </div>
+
+      <label for="name">Repository name</label>
+      <input
+        type="text"
+        name="name"
+        id="name"
+        required
+        pattern="[a-zA-Z0-9-]+"
+        placeholder="my-project"
+      />
+
+      <label for="description">Description (optional)</label>
+      <input
+        type="text"
+        name="description"
+        id="description"
+        placeholder="A brief description"
+      />
+
+      <button type="submit" class="btn">Create repository</button>
+    </form>
+  </div>
+</Layout>

@@ -1,0 +1,44 @@
+---
+interface Props {
+  content: string;
+  filename: string;
+}
+
+const { content, filename } = Astro.props;
+const lines = content.split("\n");
+const extension = filename.split(".").pop() || "";
+
+// Format lines with line numbers
+const formattedContent = lines
+  .map((line, i) => `${String(i + 1).padStart(4, " ")}  ${line}`)
+  .join("\n");
+---
+
+<div class="file-viewer">
+  <div class="file-header">
+    <span>{filename}</span>
+    <span style="color: var(--gray)">{lines.length} lines</span>
+  </div>
+  <pre><code class={`lang-${extension}`}>{formattedContent}</code></pre>
+</div>
+
+<style>
+  .file-viewer {
+    border: 1px solid var(--border);
+  }
+
+  .file-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+
+  pre {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+  }
+</style>

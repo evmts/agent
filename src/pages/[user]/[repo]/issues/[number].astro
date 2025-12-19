@@ -1,0 +1,173 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import Markdown from "../../../../components/Markdown.astro";
+import CommentCard from "../../../../components/CommentCard.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository, Issue, Comment } from "../../../../lib/types";
+
+const { user: username, repo: reponame, number: issueNumber } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+
+if (!repo) return Astro.redirect("/404");
+
+const [issue] = await sql`
+  SELECT i.*, u.username as author_username
+  FROM issues i
+  JOIN users u ON i.author_id = u.id
+  WHERE i.repository_id = ${repo.id} AND i.issue_number = ${issueNumber}
+` as Issue[];
+
+if (!issue) return Astro.redirect("/404");
+
+const comments = await sql`
+  SELECT c.*, u.username as author_username
+  FROM comments c
+  JOIN users u ON c.author_id = u.id
+  WHERE c.issue_id = ${issue.id}
+  ORDER BY c.created_at ASC
+` as Comment[];
+
+const users = await sql`SELECT * FROM users ORDER BY username` as User[];
+
+let error = "";
+
+if (Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+  const action = formData.get("action") as string;
+
+  if (action === "comment") {
+    const authorId = formData.get("author_id") as string;
+    const body = (formData.get("body") as string)?.trim();
+
+    if (!authorId || !body) {
+      error = "Author and comment body are required";
+    } else {
+      await sql`
+        INSERT INTO comments (issue_id, author_id, body)
+        VALUES (${issue.id}, ${authorId}, ${body})
+      `;
+      await sql`UPDATE issues SET updated_at = NOW() WHERE id = ${issue.id}`;
+      return Astro.redirect(Astro.url.pathname);
+    }
+  } else if (action === "close") {
+    await sql`
+      UPDATE issues
+      SET state = 'closed', closed_at = NOW(), updated_at = NOW()
+      WHERE id = ${issue.id}
+    `;
+    return Astro.redirect(Astro.url.pathname);
+  } else if (action === "reopen") {
+    await sql`
+      UPDATE issues
+      SET state = 'open', closed_at = NULL, updated_at = NOW()
+      WHERE id = ${issue.id}
+    `;
+    return Astro.redirect(Astro.url.pathname);
+  }
+}
+
+function formatDate(date: Date): string {
+  return new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+---
+
+<Layout title={`${issue.title} - ${username}/${reponame} - plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}/issues`}>issues</a>
+    <span>/</span>
+    <span class="current">#{issue.issue_number}</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>code</a>
+    <a href={`/${username}/${reponame}/issues`} class="active">issues</a>
+    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>commits</a>
+  </nav>
+
+  <div class="container">
+    <div class="flex-between mb-1">
+      <h1>{issue.title}</h1>
+      <span class:list={["issue-state", issue.state]}>{issue.state}</span>
+    </div>
+
+    <p class="issue-meta" style="margin-bottom: 2rem;">
+      #{issue.issue_number} opened by {issue.author_username} on {formatDate(issue.created_at)}
+    </p>
+
+    {issue.body && (
+      <div class="comment mb-2">
+        <div class="comment-header">
+          <strong>{issue.author_username}</strong>
+          <span style="color: var(--gray)"> opened this issue</span>
+        </div>
+        <div class="comment-body">
+          <Markdown content={issue.body} />
+        </div>
+      </div>
+    )}
+
+    {comments.map((comment) => (
+      <CommentCard comment={comment} />
+    ))}
+
+    <h2 class="mt-2 mb-1">add a comment</h2>
+
+    {error && <p style="color: #f44; margin-bottom: 1rem;">{error}</p>}
+
+    <form method="POST">
+      <input type="hidden" name="action" value="comment" />
+
+      <div class="user-select">
+        <label for="author_id">Comment as</label>
+        <select name="author_id" id="author_id" required>
+          {users.map((u) => (
+            <option value={u.id}>{u.username}</option>
+          ))}
+        </select>
+      </div>
+
+      <label for="body">Comment</label>
+      <textarea
+        name="body"
+        id="body"
+        required
+        placeholder="Write a comment..."
+        style="min-height: 100px;"
+      ></textarea>
+
+      <div class="flex gap-1">
+        <button type="submit" class="btn">Comment</button>
+
+        {issue.state === "open" ? (
+          <button type="submit" name="action" value="close" class="btn btn-danger">
+            Close issue
+          </button>
+        ) : (
+          <button type="submit" name="action" value="reopen" class="btn">
+            Reopen issue
+          </button>
+        )}
+      </div>
+    </form>
+  </div>
+</Layout>

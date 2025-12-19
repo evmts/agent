@@ -1,0 +1,502 @@
+---
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  :root {
+    --bg: #000;
+    --fg: #fff;
+    --gray: #666;
+    --light-gray: #999;
+    --border: #333;
+    --code-bg: #0a0a0a;
+    --hover: #111;
+  }
+
+  body {
+    font-family: "SF Mono", "Fira Code", "JetBrains Mono", "Consolas", monospace;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    min-height: 100vh;
+    font-size: 14px;
+  }
+
+  a {
+    color: var(--fg);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  a:hover {
+    text-decoration: none;
+  }
+
+  .container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  h1, h2, h3, h4 {
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+
+  h1 {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+  }
+
+  h2 {
+    font-size: 1rem;
+    color: var(--gray);
+    margin-bottom: 0.75rem;
+  }
+
+  p {
+    color: var(--light-gray);
+    margin-bottom: 1rem;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--fg);
+    background: transparent;
+    color: var(--fg);
+    text-decoration: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.875rem;
+    transition: all 0.1s;
+  }
+
+  .btn:hover {
+    background: var(--fg);
+    color: var(--bg);
+  }
+
+  .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .btn-danger {
+    border-color: #f44;
+    color: #f44;
+  }
+
+  .btn-danger:hover {
+    background: #f44;
+    color: var(--bg);
+  }
+
+  /* Header */
+  .site-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .site-header h1 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .site-header a {
+    text-decoration: none;
+  }
+
+  .site-header nav {
+    display: flex;
+    gap: 1.5rem;
+  }
+
+  .site-header nav a {
+    color: var(--gray);
+  }
+
+  .site-header nav a:hover {
+    color: var(--fg);
+  }
+
+  /* Repo navigation */
+  .repo-nav {
+    display: flex;
+    gap: 2rem;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--code-bg);
+  }
+
+  .repo-nav a {
+    text-decoration: none;
+    color: var(--gray);
+  }
+
+  .repo-nav a:hover,
+  .repo-nav a.active {
+    color: var(--fg);
+  }
+
+  /* File tree */
+  .file-tree {
+    border: 1px solid var(--border);
+  }
+
+  .file-tree-item {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: var(--fg);
+  }
+
+  .file-tree-item:last-child {
+    border-bottom: none;
+  }
+
+  .file-tree-item:hover {
+    background: var(--hover);
+  }
+
+  .file-tree-item .icon {
+    width: 1rem;
+    margin-right: 0.75rem;
+    color: var(--gray);
+    text-align: center;
+  }
+
+  /* Code blocks */
+  pre, code {
+    font-family: inherit;
+  }
+
+  pre {
+    background: var(--code-bg);
+    padding: 1rem;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  code {
+    background: var(--code-bg);
+    padding: 0.125rem 0.375rem;
+  }
+
+  pre code {
+    padding: 0;
+    background: none;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border);
+  }
+
+  th, td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    background: var(--code-bg);
+    font-weight: 400;
+    color: var(--gray);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  tr:hover {
+    background: var(--hover);
+  }
+
+  /* Forms */
+  input, textarea, select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 14px;
+    margin-bottom: 1rem;
+  }
+
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--fg);
+  }
+
+  textarea {
+    min-height: 200px;
+    resize: vertical;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--gray);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Issues */
+  .issue-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    margin-bottom: -1px;
+  }
+
+  .issue-item:hover {
+    background: var(--hover);
+  }
+
+  .issue-state {
+    font-size: 0.75rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid;
+  }
+
+  .issue-state.open {
+    color: #4f4;
+    border-color: #4f4;
+  }
+
+  .issue-state.closed {
+    color: var(--gray);
+    border-color: var(--gray);
+  }
+
+  .issue-title {
+    font-weight: 400;
+  }
+
+  .issue-meta {
+    font-size: 0.75rem;
+    color: var(--gray);
+    margin-top: 0.25rem;
+  }
+
+  /* Comments */
+  .comment {
+    border: 1px solid var(--border);
+    margin-bottom: 1rem;
+  }
+
+  .comment-header {
+    padding: 0.75rem 1rem;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+
+  .comment-body {
+    padding: 1rem;
+  }
+
+  /* Clone URL */
+  .clone-url {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .clone-url code {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+
+  /* Markdown body */
+  .markdown-body {
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    margin-top: 1rem;
+  }
+
+  .markdown-body h1 {
+    font-size: 1.5rem;
+    margin-top: 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .markdown-body h2 {
+    font-size: 1.25rem;
+    color: var(--fg);
+    margin-top: 1.5rem;
+  }
+
+  .markdown-body h3 {
+    font-size: 1rem;
+    margin-top: 1rem;
+  }
+
+  .markdown-body ul, .markdown-body ol {
+    margin-left: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .markdown-body li {
+    margin-bottom: 0.25rem;
+  }
+
+  .markdown-body hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.5rem 0;
+  }
+
+  /* Breadcrumbs */
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+
+  .breadcrumb a {
+    color: var(--gray);
+  }
+
+  .breadcrumb span {
+    color: var(--gray);
+  }
+
+  .breadcrumb .current {
+    color: var(--fg);
+  }
+
+  /* Repo list */
+  .repo-list {
+    list-style: none;
+  }
+
+  .repo-item {
+    padding: 1rem;
+    border: 1px solid var(--border);
+    margin-bottom: -1px;
+  }
+
+  .repo-item:hover {
+    background: var(--hover);
+  }
+
+  .repo-item a {
+    text-decoration: none;
+  }
+
+  .repo-item h3 {
+    font-size: 1rem;
+    font-weight: 400;
+    margin-bottom: 0.25rem;
+  }
+
+  .repo-item p {
+    font-size: 0.875rem;
+    margin: 0;
+  }
+
+  /* Commits */
+  .commit-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    margin-bottom: -1px;
+  }
+
+  .commit-item:hover {
+    background: var(--hover);
+  }
+
+  .commit-message {
+    flex: 1;
+  }
+
+  .commit-meta {
+    font-size: 0.75rem;
+    color: var(--gray);
+    margin-top: 0.25rem;
+  }
+
+  .commit-hash {
+    font-size: 0.875rem;
+    color: var(--gray);
+  }
+
+  /* User select dropdown */
+  .user-select {
+    margin-bottom: 1rem;
+  }
+
+  /* Empty state */
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    border: 1px solid var(--border);
+    color: var(--gray);
+  }
+
+  /* Flex utilities */
+  .flex {
+    display: flex;
+  }
+
+  .flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .gap-1 { gap: 0.5rem; }
+  .gap-2 { gap: 1rem; }
+
+  .mt-1 { margin-top: 0.5rem; }
+  .mt-2 { margin-top: 1rem; }
+  .mb-1 { margin-bottom: 0.5rem; }
+  .mb-2 { margin-bottom: 1rem; }
+</style>

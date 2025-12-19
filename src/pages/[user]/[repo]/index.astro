@@ -1,0 +1,75 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import FileTree from "../../../components/FileTree.astro";
+import Markdown from "../../../components/Markdown.astro";
+import { sql } from "../../../lib/db";
+import { getTree, getFileContent, getCloneUrl, listBranches } from "../../../lib/git";
+import type { User, Repository } from "../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+
+if (!repo) return Astro.redirect("/404");
+
+const branches = await listBranches(username!, reponame!);
+const defaultBranch = repo.default_branch || "main";
+const tree = await getTree(username!, reponame!, defaultBranch);
+
+// Try to get README
+let readme = "";
+const readmeFile = tree.find(
+  (f) => f.name.toLowerCase().startsWith("readme") && f.type === "blob"
+);
+if (readmeFile) {
+  readme = (await getFileContent(username!, reponame!, defaultBranch, readmeFile.name)) || "";
+}
+
+const cloneUrl = getCloneUrl(username!, reponame!);
+
+// Get issue count
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+---
+
+<Layout title={`${username}/${reponame} - plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span>/</span>
+    <span class="current">{reponame}</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`} class="active">code</a>
+    <a href={`/${username}/${reponame}/issues`}>issues ({issueCount})</a>
+    <a href={`/${username}/${reponame}/commits/${defaultBranch}`}>commits</a>
+  </nav>
+
+  <div class="container">
+    {repo.description && <p>{repo.description}</p>}
+
+    <div class="clone-url">
+      <code>{cloneUrl}</code>
+    </div>
+
+    <div class="mt-2">
+      <FileTree tree={tree} user={username!} repo={reponame!} branch={defaultBranch} />
+    </div>
+
+    {readme && (
+      <div class="mt-2">
+        <Markdown content={readme} />
+      </div>
+    )}
+  </div>
+</Layout>

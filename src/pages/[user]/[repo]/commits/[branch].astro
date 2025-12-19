@@ -1,0 +1,71 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import { getCommits } from "../../../../lib/git";
+import type { User, Repository } from "../../../../lib/types";
+
+const { user: username, repo: reponame, branch } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+
+if (!repo) return Astro.redirect("/404");
+
+const commits = await getCommits(username!, reponame!, branch!, 50);
+
+function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+---
+
+<Layout title={`Commits - ${username}/${reponame} - plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span>/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span>/</span>
+    <span class="current">commits</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>code</a>
+    <a href={`/${username}/${reponame}/issues`}>issues</a>
+    <a href={`/${username}/${reponame}/commits/${branch}`} class="active">commits</a>
+  </nav>
+
+  <div class="container">
+    <h1>commits on {branch}</h1>
+
+    {commits.length === 0 ? (
+      <div class="empty-state">
+        <p>No commits yet.</p>
+      </div>
+    ) : (
+      <div class="mt-2">
+        {commits.map((commit) => (
+          <div class="commit-item">
+            <div class="commit-message">
+              <div>{commit.message}</div>
+              <div class="commit-meta">
+                {commit.authorName} committed on {formatDate(commit.timestamp)}
+              </div>
+            </div>
+            <code class="commit-hash">{commit.shortHash}</code>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+</Layout>
