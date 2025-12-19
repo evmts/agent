@@ -1,0 +1,217 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+
+// If already logged in, redirect
+const sessionCookie = Astro.cookies.get('plue_session');
+if (sessionCookie) {
+  return Astro.redirect('/');
+}
+---
+
+<Layout title="Sign In - plue">
+  <Header currentPath="/login" />
+  <div class="container">
+    <div class="auth-container">
+      <h1>Sign In</h1>
+
+      <form id="login-form" class="auth-form">
+        <div class="form-group">
+          <label for="usernameOrEmail">Username or Email</label>
+          <input
+            type="text"
+            id="usernameOrEmail"
+            name="usernameOrEmail"
+            required
+            autocomplete="username"
+          />
+          <div id="username-feedback" class="validation-feedback"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            required
+            autocomplete="current-password"
+          />
+          <div id="password-feedback" class="validation-feedback"></div>
+        </div>
+
+        <div id="error" class="error-message" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="submit-btn">
+          Sign In
+        </button>
+      </form>
+
+      <div class="auth-links">
+        <a href="/register">Don't have an account? Sign up</a>
+        <a href="/password/reset">Forgot password?</a>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .auth-container {
+    max-width: 400px;
+    margin: 4rem auto;
+    padding: 2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--gray-950);
+  }
+
+  .auth-form {
+    margin-top: 2rem;
+  }
+
+  .validation-feedback {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    display: none;
+  }
+
+  .validation-feedback.invalid {
+    color: var(--error);
+    background: var(--error-dim);
+    display: block;
+  }
+
+  .error-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--error-dim);
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    color: var(--error);
+  }
+
+  .btn-block {
+    width: 100%;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .auth-links {
+    margin-top: 2rem;
+    text-align: center;
+  }
+
+  .auth-links a {
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--gray-300);
+    text-decoration: underline;
+  }
+
+  .auth-links a:hover {
+    color: var(--fg);
+  }
+</style>
+
+<script>
+  import { login } from '../lib/client-auth';
+
+  const form = document.getElementById('login-form') as HTMLFormElement;
+  const errorDiv = document.getElementById('error') as HTMLDivElement;
+  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+
+  // Form inputs
+  const usernameOrEmailInput = document.getElementById('usernameOrEmail') as HTMLInputElement;
+  const passwordInput = document.getElementById('password') as HTMLInputElement;
+
+  // Feedback elements
+  const usernameFeedback = document.getElementById('username-feedback') as HTMLDivElement;
+  const passwordFeedback = document.getElementById('password-feedback') as HTMLDivElement;
+
+  // Validation functions
+  function validateUsernameOrEmail(value: string) {
+    if (!value.trim()) {
+      return { valid: false, message: 'Username or email is required' };
+    }
+    return { valid: true, message: '' };
+  }
+
+  function validatePassword(value: string) {
+    if (!value) {
+      return { valid: false, message: 'Password is required' };
+    }
+    return { valid: true, message: '' };
+  }
+
+  function showValidationFeedback(element: HTMLDivElement, validation: { valid: boolean; message: string }) {
+    if (validation.valid || !validation.message) {
+      element.style.display = 'none';
+    } else {
+      element.textContent = validation.message;
+      element.className = 'validation-feedback invalid';
+    }
+  }
+
+  // Real-time validation (on blur to avoid being too aggressive)
+  usernameOrEmailInput.addEventListener('blur', () => {
+    const validation = validateUsernameOrEmail(usernameOrEmailInput.value);
+    showValidationFeedback(usernameFeedback, validation);
+  });
+
+  passwordInput.addEventListener('blur', () => {
+    const validation = validatePassword(passwordInput.value);
+    showValidationFeedback(passwordFeedback, validation);
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    errorDiv.style.display = 'none';
+
+    // Validate all fields
+    const usernameValidation = validateUsernameOrEmail(usernameOrEmailInput.value);
+    const passwordValidation = validatePassword(passwordInput.value);
+
+    showValidationFeedback(usernameFeedback, usernameValidation);
+    showValidationFeedback(passwordFeedback, passwordValidation);
+
+    if (!usernameValidation.valid || !passwordValidation.valid) {
+      errorDiv.textContent = 'Please fill in all required fields';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    // Disable submit button to prevent double submission
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Signing in...';
+
+    const formData = new FormData(form);
+    const data = {
+      usernameOrEmail: formData.get('usernameOrEmail') as string,
+      password: formData.get('password') as string,
+    };
+
+    try {
+      await login(data);
+      // Redirect will happen automatically on successful login
+      window.location.href = '/';
+    } catch (error) {
+      let errorMessage = 'Login failed';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      errorDiv.textContent = errorMessage;
+      errorDiv.style.display = 'block';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Sign In';
+    }
+  });
+</script>

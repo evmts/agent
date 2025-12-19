@@ -1,0 +1,442 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+
+const { user: username } = Astro.params;
+
+// Check if user is authenticated and viewing their own profile
+let currentUser = null;
+let userProfile = null;
+const sessionCookie = Astro.cookies.get('plue_session');
+
+if (sessionCookie) {
+  try {
+    const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+      headers: {
+        Cookie: `plue_session=${sessionCookie.value}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      currentUser = data.user;
+    }
+  } catch (error) {
+    console.error('Failed to fetch current user:', error);
+  }
+}
+
+// Redirect to login if not viewing own profile
+if (!currentUser || currentUser.username !== username) {
+  return Astro.redirect('/login');
+}
+
+// Get full user profile data
+try {
+  const response = await fetch(`${Astro.url.origin}/api/users/${username}`);
+  if (response.ok) {
+    const data = await response.json();
+    userProfile = data.user;
+  }
+} catch (error) {
+  console.error('Failed to fetch user profile:', error);
+}
+---
+
+<Layout title="Settings - plue">
+  <Header />
+  <div class="container">
+    <div class="settings-container">
+      <h1>Profile Settings</h1>
+
+      <form id="profile-form" class="settings-form">
+        <div class="form-group">
+          <label for="displayName">Display Name</label>
+          <input
+            type="text"
+            id="displayName"
+            name="displayName"
+            maxlength="255"
+            value={userProfile?.display_name || currentUser.displayName || ''}
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="bio">Bio</label>
+          <textarea
+            id="bio"
+            name="bio"
+            maxlength="2000"
+            rows="4"
+            placeholder="Tell us about yourself..."
+          >{userProfile?.bio || ''}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="avatarUrl">Avatar URL</label>
+          <input
+            type="url"
+            id="avatarUrl"
+            name="avatarUrl"
+            maxlength="2048"
+            placeholder="https://..."
+            value={userProfile?.avatar_url || ''}
+          />
+          <small>Link to your profile picture</small>
+        </div>
+
+        <div id="profile-error" class="error-message" style="display: none;"></div>
+        <div id="profile-success" class="success-message" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary" id="profile-submit">
+          Update Profile
+        </button>
+      </form>
+
+      <hr class="divider" />
+
+      <h2>Change Password</h2>
+
+      <form id="password-form" class="settings-form">
+        <div class="form-group">
+          <label for="currentPassword">Current Password</label>
+          <input
+            type="password"
+            id="currentPassword"
+            name="currentPassword"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="newPassword">New Password</label>
+          <input
+            type="password"
+            id="newPassword"
+            name="newPassword"
+            required
+            minlength="8"
+            autocomplete="new-password"
+          />
+          <small>At least 8 characters with uppercase, lowercase, and digit</small>
+          <div id="password-strength" class="password-strength" style="display: none;"></div>
+        </div>
+
+        <div id="password-error" class="error-message" style="display: none;"></div>
+        <div id="password-success" class="success-message" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary" id="password-submit">
+          Change Password
+        </button>
+      </form>
+
+      <hr class="divider" />
+
+      <div class="danger-zone">
+        <h2>Account Information</h2>
+        <div class="info-grid">
+          <div class="info-item">
+            <label>Username</label>
+            <span>{currentUser.username}</span>
+          </div>
+          <div class="info-item">
+            <label>Email</label>
+            <span>{currentUser.email}</span>
+          </div>
+          <div class="info-item">
+            <label>Account Status</label>
+            <span class={currentUser.isActive ? 'status-active' : 'status-inactive'}>
+              {currentUser.isActive ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .settings-container {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .settings-form {
+    margin-bottom: 2rem;
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--gray-400);
+  }
+
+  .password-strength {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    background: var(--gray-800);
+  }
+
+  .password-strength.weak {
+    color: var(--error);
+    background: var(--error-dim);
+  }
+
+  .password-strength.strong {
+    color: var(--success);
+    background: var(--success-dim);
+  }
+
+  .error-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--error-dim);
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    color: var(--error);
+  }
+
+  .success-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--success-dim);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    color: var(--success);
+  }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 3rem 0 2rem 0;
+  }
+
+  h2 {
+    font-size: 16px;
+    color: var(--fg);
+    margin-bottom: 1rem;
+    text-transform: none;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+
+  .danger-zone {
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--gray-950);
+  }
+
+  .info-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .info-item:last-child {
+    border-bottom: none;
+  }
+
+  .info-item label {
+    color: var(--gray-400);
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 13px;
+    margin: 0;
+  }
+
+  .info-item span {
+    color: var(--fg);
+    font-family: monospace;
+  }
+
+  .status-active {
+    color: var(--success) !important;
+  }
+
+  .status-inactive {
+    color: var(--error) !important;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+</style>
+
+<script>
+  const profileForm = document.getElementById('profile-form') as HTMLFormElement;
+  const profileErrorDiv = document.getElementById('profile-error') as HTMLDivElement;
+  const profileSuccessDiv = document.getElementById('profile-success') as HTMLDivElement;
+  const profileSubmitBtn = document.getElementById('profile-submit') as HTMLButtonElement;
+
+  const passwordForm = document.getElementById('password-form') as HTMLFormElement;
+  const passwordErrorDiv = document.getElementById('password-error') as HTMLDivElement;
+  const passwordSuccessDiv = document.getElementById('password-success') as HTMLDivElement;
+  const passwordSubmitBtn = document.getElementById('password-submit') as HTMLButtonElement;
+  const newPasswordInput = document.getElementById('newPassword') as HTMLInputElement;
+  const strengthDiv = document.getElementById('password-strength') as HTMLDivElement;
+
+  // Password strength validation
+  function validatePasswordStrength(password: string) {
+    const errors: string[] = [];
+
+    if (password.length < 8) {
+      errors.push('at least 8 characters');
+    }
+    if (!/[a-z]/.test(password)) {
+      errors.push('one lowercase letter');
+    }
+    if (!/[A-Z]/.test(password)) {
+      errors.push('one uppercase letter');
+    }
+    if (!/[0-9]/.test(password)) {
+      errors.push('one digit');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  // Real-time password validation
+  newPasswordInput.addEventListener('input', () => {
+    const password = newPasswordInput.value;
+    
+    if (password.length === 0) {
+      strengthDiv.style.display = 'none';
+      return;
+    }
+
+    const validation = validatePasswordStrength(password);
+    strengthDiv.style.display = 'block';
+
+    if (validation.valid) {
+      strengthDiv.textContent = 'Password meets requirements ✓';
+      strengthDiv.className = 'password-strength strong';
+    } else {
+      strengthDiv.textContent = `Needs: ${validation.errors.join(', ')}`;
+      strengthDiv.className = 'password-strength weak';
+    }
+  });
+
+  // Profile form handler
+  profileForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    profileErrorDiv.style.display = 'none';
+    profileSuccessDiv.style.display = 'none';
+    profileSubmitBtn.disabled = true;
+    profileSubmitBtn.textContent = 'Updating...';
+
+    const formData = new FormData(profileForm);
+    const data: Record<string, string> = {};
+
+    const displayName = formData.get('displayName') as string;
+    const bio = formData.get('bio') as string;
+    const avatarUrl = formData.get('avatarUrl') as string;
+
+    if (displayName.trim()) {
+      data.displayName = displayName.trim();
+    }
+
+    if (bio.trim()) {
+      data.bio = bio.trim();
+    }
+
+    if (avatarUrl.trim()) {
+      data.avatarUrl = avatarUrl.trim();
+    }
+
+    try {
+      const response = await fetch('/api/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update profile');
+      }
+
+      profileSuccessDiv.textContent = result.message;
+      profileSuccessDiv.style.display = 'block';
+    } catch (error) {
+      profileErrorDiv.textContent = error instanceof Error ? error.message : 'Failed to update profile';
+      profileErrorDiv.style.display = 'block';
+    } finally {
+      profileSubmitBtn.disabled = false;
+      profileSubmitBtn.textContent = 'Update Profile';
+    }
+  });
+
+  // Password form handler
+  passwordForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    passwordErrorDiv.style.display = 'none';
+    passwordSuccessDiv.style.display = 'none';
+
+    const formData = new FormData(passwordForm);
+    const newPassword = formData.get('newPassword') as string;
+
+    // Validate password strength
+    const validation = validatePasswordStrength(newPassword);
+    if (!validation.valid) {
+      passwordErrorDiv.textContent = `Password requirements: ${validation.errors.join(', ')}`;
+      passwordErrorDiv.style.display = 'block';
+      return;
+    }
+
+    passwordSubmitBtn.disabled = true;
+    passwordSubmitBtn.textContent = 'Changing...';
+
+    const data = {
+      currentPassword: formData.get('currentPassword') as string,
+      newPassword,
+    };
+
+    try {
+      const response = await fetch('/api/users/me/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to change password');
+      }
+
+      passwordSuccessDiv.textContent = result.message;
+      passwordSuccessDiv.style.display = 'block';
+      passwordForm.reset();
+      strengthDiv.style.display = 'none';
+    } catch (error) {
+      passwordErrorDiv.textContent = error instanceof Error ? error.message : 'Failed to change password';
+      passwordErrorDiv.style.display = 'block';
+    } finally {
+      passwordSubmitBtn.disabled = false;
+      passwordSubmitBtn.textContent = 'Change Password';
+    }
+  });
+</script>

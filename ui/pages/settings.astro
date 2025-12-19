@@ -1,0 +1,28 @@
+---
+// Get current user and redirect to their profile page
+let currentUser = null;
+const sessionCookie = Astro.cookies.get('plue_session');
+
+if (sessionCookie) {
+  try {
+    const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+      headers: {
+        Cookie: `plue_session=${sessionCookie.value}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      currentUser = data.user;
+    }
+  } catch (error) {
+    console.error('Failed to fetch current user:', error);
+  }
+}
+
+if (!currentUser) {
+  return Astro.redirect('/login');
+}
+
+return Astro.redirect(`/${currentUser.username}/profile`);
+---

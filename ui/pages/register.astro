@@ -1,0 +1,313 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+
+// If already logged in, redirect
+const sessionCookie = Astro.cookies.get('plue_session');
+if (sessionCookie) {
+  return Astro.redirect('/');
+}
+---
+
+<Layout title="Sign Up - plue">
+  <Header currentPath="/register" />
+  <div class="container">
+    <div class="auth-container">
+      <h1>Sign Up</h1>
+
+      <form id="register-form" class="auth-form">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            required
+            pattern="^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$"
+            minlength="3"
+            maxlength="39"
+            autocomplete="username"
+          />
+          <small>3-39 characters, alphanumeric with hyphens/underscores</small>
+          <div id="username-feedback" class="validation-feedback"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            required
+            autocomplete="email"
+          />
+          <div id="email-feedback" class="validation-feedback"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+          />
+          <small>At least 8 characters with uppercase, lowercase, and digit</small>
+          <div id="password-feedback" class="validation-feedback"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="displayName">Display Name (optional)</label>
+          <input
+            type="text"
+            id="displayName"
+            name="displayName"
+            maxlength="255"
+          />
+        </div>
+
+        <div id="error" class="error-message" style="display: none;"></div>
+        <div id="success" class="success-message" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="submit-btn">
+          Sign Up
+        </button>
+      </form>
+
+      <div class="auth-links">
+        <a href="/login">Already have an account? Sign in</a>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .auth-container {
+    max-width: 400px;
+    margin: 4rem auto;
+    padding: 2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--gray-950);
+  }
+
+  .auth-form {
+    margin-top: 2rem;
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--gray-400);
+  }
+
+  .validation-feedback {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    display: none;
+  }
+
+  .validation-feedback.valid {
+    color: var(--success);
+    background: var(--success-dim);
+    display: block;
+  }
+
+  .validation-feedback.invalid {
+    color: var(--error);
+    background: var(--error-dim);
+    display: block;
+  }
+
+  .error-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--error-dim);
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    color: var(--error);
+  }
+
+  .success-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--success-dim);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    color: var(--success);
+  }
+
+  .btn-block {
+    width: 100%;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .auth-links {
+    margin-top: 2rem;
+    text-align: center;
+  }
+
+  .auth-links a {
+    color: var(--gray-300);
+    text-decoration: underline;
+  }
+
+  .auth-links a:hover {
+    color: var(--fg);
+  }
+</style>
+
+<script>
+  import { register } from '../lib/client-auth';
+
+  const form = document.getElementById('register-form') as HTMLFormElement;
+  const errorDiv = document.getElementById('error') as HTMLDivElement;
+  const successDiv = document.getElementById('success') as HTMLDivElement;
+  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
+
+  // Form inputs
+  const usernameInput = document.getElementById('username') as HTMLInputElement;
+  const emailInput = document.getElementById('email') as HTMLInputElement;
+  const passwordInput = document.getElementById('password') as HTMLInputElement;
+
+  // Feedback elements
+  const usernameFeedback = document.getElementById('username-feedback') as HTMLDivElement;
+  const emailFeedback = document.getElementById('email-feedback') as HTMLDivElement;
+  const passwordFeedback = document.getElementById('password-feedback') as HTMLDivElement;
+
+  // Validation functions
+  function validateUsername(username: string) {
+    if (username.length < 3) {
+      return { valid: false, message: 'Username must be at least 3 characters' };
+    }
+    if (username.length > 39) {
+      return { valid: false, message: 'Username must be at most 39 characters' };
+    }
+    if (!/^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$/.test(username)) {
+      return { valid: false, message: 'Username must start and end with alphanumeric' };
+    }
+    return { valid: true, message: 'Username looks good ✓' };
+  }
+
+  function validateEmail(email: string) {
+    if (!email) {
+      return { valid: false, message: 'Email is required' };
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { valid: false, message: 'Please enter a valid email address' };
+    }
+    return { valid: true, message: 'Email looks good ✓' };
+  }
+
+  function validatePassword(password: string) {
+    const errors: string[] = [];
+
+    if (password.length < 8) {
+      errors.push('at least 8 characters');
+    }
+    if (!/[a-z]/.test(password)) {
+      errors.push('one lowercase letter');
+    }
+    if (!/[A-Z]/.test(password)) {
+      errors.push('one uppercase letter');
+    }
+    if (!/[0-9]/.test(password)) {
+      errors.push('one digit');
+    }
+
+    if (errors.length > 0) {
+      return { valid: false, message: `Password needs: ${errors.join(', ')}` };
+    }
+
+    return { valid: true, message: 'Password meets requirements ✓' };
+  }
+
+  function showValidationFeedback(element: HTMLDivElement, validation: { valid: boolean; message: string }) {
+    element.textContent = validation.message;
+    element.className = `validation-feedback ${validation.valid ? 'valid' : 'invalid'}`;
+  }
+
+  // Real-time validation
+  usernameInput.addEventListener('input', () => {
+    const validation = validateUsername(usernameInput.value);
+    showValidationFeedback(usernameFeedback, validation);
+  });
+
+  emailInput.addEventListener('input', () => {
+    const validation = validateEmail(emailInput.value);
+    showValidationFeedback(emailFeedback, validation);
+  });
+
+  passwordInput.addEventListener('input', () => {
+    const validation = validatePassword(passwordInput.value);
+    showValidationFeedback(passwordFeedback, validation);
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+
+    // Validate all fields
+    const usernameValidation = validateUsername(usernameInput.value);
+    const emailValidation = validateEmail(emailInput.value);
+    const passwordValidation = validatePassword(passwordInput.value);
+
+    showValidationFeedback(usernameFeedback, usernameValidation);
+    showValidationFeedback(emailFeedback, emailValidation);
+    showValidationFeedback(passwordFeedback, passwordValidation);
+
+    if (!usernameValidation.valid || !emailValidation.valid || !passwordValidation.valid) {
+      errorDiv.textContent = 'Please fix the validation errors above';
+      errorDiv.style.display = 'block';
+      return;
+    }
+
+    // Disable submit button to prevent double submission
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Signing up...';
+
+    const formData = new FormData(form);
+    const data = {
+      username: formData.get('username') as string,
+      email: formData.get('email') as string,
+      password: formData.get('password') as string,
+      displayName: formData.get('displayName') as string || undefined,
+    };
+
+    try {
+      const result = await register(data);
+      successDiv.textContent = result.message;
+      successDiv.style.display = 'block';
+      form.reset();
+      
+      // Clear validation feedback
+      usernameFeedback.style.display = 'none';
+      emailFeedback.style.display = 'none';
+      passwordFeedback.style.display = 'none';
+    } catch (error) {
+      let errorMessage = 'Registration failed';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      errorDiv.textContent = errorMessage;
+      errorDiv.style.display = 'block';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Sign Up';
+    }
+  });
+</script>
