@@ -1,0 +1,394 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository, ProtectedBranch } from "../../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+` as Repository[];
+
+if (!repo) return Astro.redirect("/404");
+
+const protectionRules = await sql<ProtectedBranch[]>`
+  SELECT * FROM protected_branches
+  WHERE repository_id = ${repo.id}
+  ORDER BY priority DESC
+`;
+---
+
+<Layout title={`Branch Protection · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">settings</span>
+    <span class="sep">/</span>
+    <span class="current">branches</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/branches`}>Branches</a>
+    <a href={`/${username}/${reponame}/settings/branches`} class="active">Settings</a>
+  </nav>
+
+  <div class="container">
+    <h2>Branch Protection Rules</h2>
+
+    <button class="btn mb-3" data-action="new-rule">Add rule</button>
+
+    <div class="rules-list">
+      {protectionRules.length === 0 && (
+        <p class="text-muted">No protection rules configured</p>
+      )}
+
+      {protectionRules.map((rule) => (
+        <div class="rule-item">
+          <div class="rule-header">
+            <code>{rule.rule_name}</code>
+            <span class="badge">Priority: {rule.priority}</span>
+          </div>
+
+          <div class="rule-details">
+            <div>Push: {rule.can_push ? 'Allowed' : 'Blocked'}</div>
+            <div>Force Push: {rule.can_force_push ? 'Allowed' : 'Blocked'}</div>
+            <div>Required Approvals: {rule.required_approvals}</div>
+            {rule.enable_status_check && (
+              <div>Status Checks: Required</div>
+            )}
+          </div>
+
+          <div class="rule-actions">
+            <button
+              class="btn-sm"
+              data-action="edit"
+              data-rule-id={rule.id}
+              data-rule-name={rule.rule_name}
+              data-can-push={rule.can_push}
+              data-can-force-push={rule.can_force_push}
+              data-required-approvals={rule.required_approvals}
+              data-enable-status-check={rule.enable_status_check}
+            >
+              Edit
+            </button>
+            <button
+              class="btn-sm btn-danger"
+              data-action="delete"
+              data-rule-id={rule.id}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <!-- New Rule Modal -->
+  <dialog id="new-rule-modal">
+    <form id="new-rule-form">
+      <h3>Add Protection Rule</h3>
+
+      <label>
+        Branch name or pattern
+        <input type="text" name="rule_name" placeholder="main, develop, release/*" required />
+        <small>Supports exact names or glob patterns like release/*</small>
+      </label>
+
+      <label>
+        <input type="checkbox" name="can_push" />
+        Allow pushes
+      </label>
+
+      <label>
+        <input type="checkbox" name="can_force_push" />
+        Allow force pushes
+      </label>
+
+      <label>
+        Required approvals
+        <input type="number" name="required_approvals" min="0" max="10" value="0" />
+      </label>
+
+      <label>
+        <input type="checkbox" name="enable_status_check" />
+        Require status checks
+      </label>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn">Create</button>
+        <button type="button" class="btn-secondary" data-action="close-modal">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Edit Rule Modal -->
+  <dialog id="edit-rule-modal">
+    <form id="edit-rule-form">
+      <h3>Edit Protection Rule</h3>
+      
+      <input type="hidden" name="rule_id" />
+
+      <div class="rule-name-display">
+        Branch: <code id="edit-rule-name-display"></code>
+      </div>
+
+      <label>
+        <input type="checkbox" name="can_push" />
+        Allow pushes
+      </label>
+
+      <label>
+        <input type="checkbox" name="can_force_push" />
+        Allow force pushes
+      </label>
+
+      <label>
+        Required approvals
+        <input type="number" name="required_approvals" min="0" max="10" value="0" />
+      </label>
+
+      <label>
+        <input type="checkbox" name="enable_status_check" />
+        Require status checks
+      </label>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn">Update</button>
+        <button type="button" class="btn-secondary" data-action="close-modal">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </dialog>
+</Layout>
+
+<style>
+  .mb-3 {
+    margin-bottom: 1.5rem;
+  }
+
+  .text-muted {
+    color: var(--text-muted);
+  }
+
+  .rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .rule-item {
+    border: 2px solid var(--border);
+    padding: 1rem;
+  }
+
+  .rule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .rule-header code {
+    font-size: 16px;
+    font-weight: bold;
+    background: var(--background-muted);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .rule-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 14px;
+  }
+
+  .rule-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  dialog {
+    border: 2px solid var(--border);
+    padding: 2rem;
+    max-width: 500px;
+    background: var(--background);
+  }
+
+  dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+
+  .badge {
+    background: var(--primary);
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+  }
+
+  .btn-danger {
+    background: #dc2626;
+    color: white;
+  }
+
+  .btn-danger:hover {
+    background: #b91c1c;
+  }
+
+  .rule-name-display {
+    padding: 0.5rem;
+    background: var(--background-muted);
+    border-radius: 0.25rem;
+    margin-bottom: 1rem;
+  }
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  label input[type="checkbox"] {
+    margin-right: 0.5rem;
+  }
+
+  label small {
+    display: block;
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 0.25rem;
+  }
+</style>
+
+<script>
+  const username = window.location.pathname.split('/')[1];
+  const reponame = window.location.pathname.split('/')[2];
+
+  // Modal handling
+  document.querySelector('[data-action="new-rule"]')?.addEventListener('click', () => {
+    document.getElementById('new-rule-modal')?.showModal();
+  });
+
+  document.querySelectorAll('[data-action="close-modal"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      (e.target as HTMLElement).closest('dialog')?.close();
+    });
+  });
+
+  // Create protection rule
+  document.getElementById('new-rule-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    
+    const response = await fetch(`/api/${username}/${reponame}/branch-protections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rule_name: formData.get('rule_name'),
+        can_push: formData.has('can_push'),
+        can_force_push: formData.has('can_force_push'),
+        required_approvals: parseInt(formData.get('required_approvals') as string),
+        enable_status_check: formData.has('enable_status_check')
+      })
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create protection rule');
+    }
+  });
+
+  // Edit rule
+  document.querySelectorAll('[data-action="edit"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const modal = document.getElementById('edit-rule-modal') as HTMLDialogElement;
+      const form = modal.querySelector('form') as HTMLFormElement;
+      
+      // Populate form with current values
+      form.elements.namedItem('rule_id')!.value = target.dataset.ruleId!;
+      document.getElementById('edit-rule-name-display')!.textContent = target.dataset.ruleName!;
+      (form.elements.namedItem('can_push') as HTMLInputElement).checked = target.dataset.canPush === 'true';
+      (form.elements.namedItem('can_force_push') as HTMLInputElement).checked = target.dataset.canForcePush === 'true';
+      (form.elements.namedItem('required_approvals') as HTMLInputElement).value = target.dataset.requiredApprovals!;
+      (form.elements.namedItem('enable_status_check') as HTMLInputElement).checked = target.dataset.enableStatusCheck === 'true';
+      
+      modal.showModal();
+    });
+  });
+
+  // Handle edit form submission
+  document.getElementById('edit-rule-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    const ruleId = formData.get('rule_id') as string;
+    
+    const response = await fetch(`/api/${username}/${reponame}/branch-protections/${ruleId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        can_push: formData.has('can_push'),
+        can_force_push: formData.has('can_force_push'),
+        required_approvals: parseInt(formData.get('required_approvals') as string),
+        enable_status_check: formData.has('enable_status_check')
+      })
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to update protection rule');
+    }
+  });
+
+  // Delete rule
+  document.querySelectorAll('[data-action="delete"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const ruleId = (e.target as HTMLElement).dataset.ruleId!;
+      
+      if (!confirm('Delete this protection rule?')) return;
+
+      const response = await fetch(`/api/${username}/${reponame}/branch-protections/${ruleId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to delete protection rule');
+      }
+    });
+  });
+</script>
