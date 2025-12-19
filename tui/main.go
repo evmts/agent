@@ -74,10 +74,9 @@ const (
 	normalMode mode = "normal"
 	planMode   mode = "plan"
 	bypassMode mode = "bypass"
-	pluginMode mode = "plugin"
 )
 
-var modes = []mode{normalMode, planMode, bypassMode, pluginMode}
+var modes = []mode{normalMode, planMode, bypassMode}
 
 // Main model
 type model struct {
@@ -710,7 +709,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "/help":
 				m.messages = append(m.messages, message{
 					role:    "system",
-					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /script (create plugin), /help\n\nModes: normal, plan, bypass, plugin (shift+tab to cycle)\n\nKeybindings: esc (abort running agent), ctrl+s (toggle text selection), ctrl+v (paste image), shift+tab (cycle modes)",
+					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /script (create plugin), /help\n\nModes: normal, plan, bypass (shift+tab to cycle)\n\nKeybindings: esc (abort running agent), ctrl+s (toggle text selection), ctrl+v (paste image), shift+tab (cycle modes)",
 				})
 				m.input = ""
 				return m, nil
@@ -795,14 +794,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			nextIndex := (currentIndex + 1) % len(modes)
 			m.currentMode = modes[nextIndex]
-
-			// Show explanation when entering plugin mode
-			if m.currentMode == pluginMode {
-				m.messages = append(m.messages, message{
-					role:    "system",
-					content: "Plugin mode: Plugins are Python scripts that give you low-level control over agent behavior.\n\nUse /script to create a new plugin. Plugins can intercept tool calls, modify responses, and add custom logic.\n\nPlugins are stored in ~/.agent/plugins/",
-				})
-			}
 
 		case tea.KeyUp:
 			if m.showFileSearch && len(m.fileSearchResults) > 0 {
@@ -1400,9 +1391,6 @@ func (m model) View() string {
 	case bypassMode:
 		modeText = "bypass permissions"
 		modeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // Red
-	case pluginMode:
-		modeText = "plugin mode"
-		modeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13")) // Magenta/Purple
 	default:
 		modeStyle = statusStyle
 		if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
