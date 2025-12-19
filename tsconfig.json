@@ -13,7 +13,7 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": false,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "types": ["astro/client", "vite/client", "node"],
@@ -28,7 +28,7 @@
   },
   "include": [
     "ui/**/*.ts",
-    "ui/**/*.tsx",
+    "ui/**/*.tsx", 
     "ui/**/*.astro",
     "core/**/*.ts",
     "db/**/*.ts",

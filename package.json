@@ -23,6 +23,7 @@
     "@node-rs/argon2": "^1.8.3",
     "@types/postgres": "^3.0.0",
     "astro": "^4.15.0",
+    "ghostty-web": "^0.1.0",
     "hono": "^4.6.3",
     "postgres": "^3.4.0",
     "resend": "^4.0.0",
@@ -34,6 +35,7 @@
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "astro-eslint-parser": "^0.16.0",
     "eslint": "^8.57.0",
     "eslint-plugin-astro": "^0.29.0"
   },
