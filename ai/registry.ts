@@ -44,6 +44,12 @@ const buildAgent: AgentConfig = {
   systemPrompt: `${SYSTEM_PROMPT_PREFIX}
 You are the primary development agent. You have full access to all tools
 and can read, write, and modify files as needed to complete tasks.
+
+You can interact with GitHub using the github tool for:
+- Creating and viewing pull requests
+- Cloning and syncing repositories
+- Creating and viewing issues
+- Checking CI/CD status
 `,
   temperature: 0.7,
   topP: 0.95,
@@ -53,6 +59,7 @@ and can read, write, and modify files as needed to complete tasks.
     writeFile: true,
     multiedit: true,
     webFetch: true,
+    github: true,
   },
   allowedShellPatterns: ['*'], // All commands allowed
 };
@@ -73,6 +80,7 @@ Focus on completing your assigned objective efficiently.
     writeFile: true,
     multiedit: true,
     webFetch: true,
+    github: true,
   },
   allowedShellPatterns: ['*'],
 };

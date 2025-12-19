@@ -8,6 +8,7 @@ export { readFileTool, readFileImpl } from './read-file';
 export { writeFileTool, writeFileImpl } from './write-file';
 export { multieditTool, multieditImpl } from './multiedit';
 export { webFetchTool, webFetchImpl } from './web-fetch';
+export { githubTool, githubImpl, validateCommand } from './github';
 
 // Re-export PTY tools
 export {
@@ -55,6 +56,7 @@ import { readFileTool } from './read-file';
 import { writeFileTool } from './write-file';
 import { multieditTool } from './multiedit';
 import { webFetchTool } from './web-fetch';
+import { githubTool } from './github';
 import { unifiedExecTool, writeStdinTool, closePtySessionTool, listPtySessionsTool } from './pty-exec';
 
 /**
@@ -68,6 +70,7 @@ export const agentTools = {
   writeFile: writeFileTool,
   multiedit: multieditTool,
   webFetch: webFetchTool,
+  github: githubTool,
   unifiedExec: unifiedExecTool,
   writeStdin: writeStdinTool,
   closePtySession: closePtySessionTool,

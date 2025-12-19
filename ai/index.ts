@@ -18,6 +18,8 @@ export {
   createAgentWrapper,
   type StreamOptions,
   type WrapperOptions,
+  type TurnSummary,
+  type FileDiff,
 } from './wrapper';
 
 // Registry
