@@ -5,7 +5,7 @@
  * For a higher-level API, use the WebUI class from ./webui.ts
  */
 
-import { dlopen, FFIType, type ptr, CString, } from "bun:ffi";
+import { dlopen, FFIType, type CString } from "bun:ffi";
 import { join } from "node:path";
 
 // Platform-specific library name
@@ -302,9 +302,11 @@ export const symbols = lib.symbols;
 /**
  * Convert a pointer to a string
  */
-export function ptrToString(pointer: ReturnType<typeof ptr>): string | null {
+export function ptrToString(pointer: unknown): string | null {
   if (!pointer) return null;
-  return new CString(pointer).toString();
+  // Cast to the CString type for conversion
+  const cstring = pointer as InstanceType<typeof CString>;
+  return cstring.toString();
 }
 
 /**

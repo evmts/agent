@@ -15,7 +15,7 @@ import {
   type RuntimeType,
   type ConfigType,
 } from "./ffi";
-import { ptr, } from "bun:ffi";
+import { ptr } from "bun:ffi";
 
 export { Browser, Runtime, Config };
 
