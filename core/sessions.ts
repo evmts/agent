@@ -231,7 +231,7 @@ export async function getSessionDiff(
       const msg = messages[i];
       const fromHash = history[0];
       const toHash = history[i];
-      if (msg && msg.info.id === messageId && i < history.length && fromHash && toHash) {
+      if (msg?.info.id === messageId && i < history.length && fromHash && toHash) {
         return computeDiff(sessionId, fromHash, toHash);
       }
     }
@@ -313,7 +313,7 @@ export async function revertSession(
   let targetIndex: number | null = null;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    if (msg && msg.info.id === messageId) {
+    if (msg?.info.id === messageId) {
       targetIndex = i;
       break;
     }
@@ -411,7 +411,7 @@ export async function undoTurns(
   const turnStarts: number[] = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
-    if (msg && msg.info.role === 'user') {
+    if (msg?.info.role === 'user') {
       turnStarts.push(i);
     }
   }

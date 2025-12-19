@@ -8,6 +8,9 @@ import { logger } from 'hono/logger';
 import { authMiddleware } from './middleware/auth';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
+import branchRoutes from './routes/branches';
+import protectedBranchRoutes from './routes/protected-branches';
+import pullRequestRoutes from './routes/pulls';
 import routes from './routes';
 
 export { ServerEventBus, getServerEventBus, setServerEventBus } from './event-bus';
@@ -65,6 +68,11 @@ app.get('/shape', async (c) => {
 // Mount API routes under /api prefix  
 app.route('/api/auth', authRoutes);
 app.route('/api/users', usersRoutes);
+
+// Mount repo-specific API routes
+app.route('/api', branchRoutes);
+app.route('/api', protectedBranchRoutes);
+app.route('/api', pullRequestRoutes);
 
 // Mount existing routes
 app.route('/', routes);
