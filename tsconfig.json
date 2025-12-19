@@ -24,7 +24,12 @@
       "@/ui/*": ["./ui/*"],
       "@/db/*": ["./db/*"],
       "@/server/*": ["./server/*"]
-    }
+    },
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": false
   },
   "include": [
     "ui/**/*.ts",

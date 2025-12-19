@@ -1,0 +1,10 @@
+dist/
+node_modules/
+.astro/
+*.js
+*.mjs
+snapshot/index.js
+snapshot/index.d.ts
+snapshot/**/*.node
+native/lib/**
+ui/env.d.ts

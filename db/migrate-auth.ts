@@ -68,6 +68,8 @@ async function migrateUsersAuth() {
   } catch (error) {
     console.error('Migration failed:', error);
     process.exit(1);
+  } finally {
+    await sql.end();
   }
 }
 
