@@ -1,1 +1,0 @@
-// This file is empty and will be removed - using Astro API routes instead
