@@ -122,6 +122,7 @@ export class NullEventBus implements EventBus {
     // Discard the event
   }
 
+  // biome-ignore lint/correctness/useYield: NullEventBus intentionally never yields
   async *subscribe(_sessionId?: string): AsyncGenerator<Event, void, unknown> {
     // Never yields - immediately returns
     return;

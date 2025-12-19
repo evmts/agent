@@ -15,6 +15,7 @@ export type {
 
 export type {
   Message,
+  MessageStatus,
   UserMessage,
   AssistantMessage,
   MessageTime,

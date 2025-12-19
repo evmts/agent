@@ -2,6 +2,8 @@
  * Message models - user and assistant messages in a session.
  */
 
+export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'aborted';
+
 export interface MessageTime {
   created: number;
   completed?: number;
@@ -32,6 +34,9 @@ export interface UserMessage {
   sessionID: string;
   role: 'user';
   time: MessageTime;
+  status: MessageStatus;
+  thinkingText?: string;
+  errorMessage?: string;
   agent: string;
   model: ModelInfo;
   system?: string;
@@ -43,6 +48,9 @@ export interface AssistantMessage {
   sessionID: string;
   role: 'assistant';
   time: MessageTime;
+  status: MessageStatus;
+  thinkingText?: string;
+  errorMessage?: string;
   parentID: string;
   modelID: string;
   providerID: string;

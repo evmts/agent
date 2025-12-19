@@ -34,18 +34,17 @@ export interface SnapshotInfo {
 }
 
 // Try to load native module - gracefully degrade if unavailable
-let Snapshot: any = null;
+let _Snapshot: any = null;
 let SnapshotSessionManager: any = null;
 let nativeAvailable = false;
 
 try {
-  // @ts-expect-error - Native module may not exist in all environments
-  const native = await import('../native/src/snapshot');
-  Snapshot = native.Snapshot;
+  const native = await import('../snapshot/src/snapshot');
+  _Snapshot = native.Snapshot;
   SnapshotSessionManager = native.SnapshotSessionManager;
   nativeAvailable = true;
   console.log('[snapshots] Native jj module loaded successfully');
-} catch (error) {
+} catch (_error) {
   console.warn('[snapshots] Native jj module not available - snapshot functionality disabled');
   console.warn('[snapshots] This is expected in Docker/Linux environments without the native binary');
 }
