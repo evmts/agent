@@ -66,6 +66,8 @@ BUILTIN_COMMANDS = [
     Command(name="diff", description="Show file changes in session"),
     Command(name="copy", description="Copy last response"),
     Command(name="quit", description="Exit application"),
+    Command(name="plugin", description="Create a new plugin interactively"),
+    Command(name="script", description="Create a new plugin interactively (alias for /plugin)"),
 ]
 
 
@@ -151,6 +153,12 @@ async def expand_command(request: ExpandRequest) -> dict[str, str]:
     Raises:
         HTTPException: If command not found or required arguments missing
     """
+    # Handle special built-in commands
+    if request.name in ("plugin", "script"):
+        from plugins.script_mode import get_plugin_author_prompt
+
+        return {"expanded": get_plugin_author_prompt()}
+
     try:
         expanded = command_registry.expand_command(
             name=request.name,

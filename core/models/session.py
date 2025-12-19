@@ -44,3 +44,7 @@ class Session(BaseModel):
         default=None,
         description="Ghost commit tracking information for this session"
     )
+    plugins: list[str] = Field(
+        default_factory=list,
+        description="List of plugin names to activate for this session"
+    )

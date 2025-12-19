@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
 from config import DEFAULT_MODEL, DEFAULT_REASONING_EFFORT
+from config.features import feature_manager
 from core import NotFoundError, send_message
 from core.state import sessions
 
@@ -53,6 +54,24 @@ async def send_message_route(
             # Get reasoning_effort from session settings (no request override currently)
             reasoning_effort = session.reasoning_effort or DEFAULT_REASONING_EFFORT
 
+            # Load plugins if feature is enabled and session has plugins configured
+            pipeline = None
+            if feature_manager.is_enabled("plugins") and session.plugins:
+                try:
+                    from plugins import PluginPipeline, plugin_registry
+
+                    loaded_plugins = plugin_registry.load_many(session.plugins)
+                    if loaded_plugins:
+                        pipeline = PluginPipeline(loaded_plugins)
+                        logger.info(
+                            "Loaded %d plugins for session %s: %s",
+                            len(loaded_plugins),
+                            sessionID,
+                            [p.name for p in loaded_plugins],
+                        )
+                except Exception as e:
+                    logger.warning("Failed to load plugins for session %s: %s", sessionID, e)
+
             logger.info(
                 "Processing message for session %s with model=%s, reasoning_effort=%s",
                 sessionID,
@@ -70,6 +89,7 @@ async def send_message_route(
                 model_id=model_id,
                 provider_id=provider_id,
                 reasoning_effort=reasoning_effort,
+                pipeline=pipeline,
             ):
                 yield {
                     "event": event.type,

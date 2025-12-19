@@ -5,10 +5,12 @@ Provides functions for managing messages including listing, retrieving,
 and streaming responses from the agent.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import time
-from typing import Any, AsyncGenerator, Protocol
+from typing import Any, AsyncGenerator, Protocol, TYPE_CHECKING
 
 from config.defaults import DEFAULT_AUTO_COMPACT_TOKEN_LIMIT
 from config.features import feature_manager
@@ -24,6 +26,9 @@ from .snapshots import (
     track_snapshot,
 )
 from .state import session_messages, sessions, session_ghost_commits
+
+if TYPE_CHECKING:
+    from plugins.pipeline import PluginPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,7 @@ async def send_message(
     model_id: str = "default",
     provider_id: str = "default",
     reasoning_effort: str | None = None,
+    pipeline: PluginPipeline | None = None,
 ) -> AsyncGenerator[Event, None]:
     """
     Send a message and stream the response.
@@ -109,6 +115,7 @@ async def send_message(
         model_id: Model ID for metadata
         provider_id: Provider ID for metadata
         reasoning_effort: Optional reasoning effort level (minimal, low, medium, high)
+        pipeline: Optional plugin pipeline for hook execution
 
     Yields:
         Events as the message is processed
@@ -155,6 +162,24 @@ async def send_message(
     await event_bus.publish(
         Event(type="message.updated", properties={"info": user_msg["info"]})
     )
+
+    # Extract user text for plugin context
+    user_text = ""
+    for part in parts:
+        if part.get("type") == "text":
+            user_text += part.get("text", "")
+
+    # === PLUGIN HOOK: on_begin ===
+    plugin_ctx = None
+    if pipeline:
+        from plugins.models import PluginContext
+
+        plugin_ctx = PluginContext(
+            session_id=session_id,
+            working_dir=os.getcwd(),
+            user_text=user_text,
+        )
+        await pipeline.on_begin(plugin_ctx)
 
     # Create assistant message
     asst_msg_id = gen_id("msg_")
@@ -207,12 +232,6 @@ async def send_message(
         tool_parts: dict[str, dict[str, Any]] = {}  # tool_id -> tool_part
 
         try:
-            # Extract text from user message
-            user_text = ""
-            for part in parts:
-                if part.get("type") == "text":
-                    user_text += part.get("text", "")
-
             # Expand skill references in user message
             expanded_text, skills_used = expand_skill_references(
                 user_text, get_skill_registry()
@@ -263,17 +282,36 @@ async def send_message(
                 elif event_type == "tool_call":
                     # Tool invocation started
                     logger.info("Tool call: %s", event.tool_name)
+
+                    # === PLUGIN HOOK: on_tool_call ===
+                    tool_name = event.tool_name
+                    tool_input = event.tool_input or {}
+                    if pipeline and plugin_ctx:
+                        from plugins.models import ToolCall as PluginToolCall
+
+                        plugin_call = PluginToolCall(
+                            tool_name=tool_name,
+                            tool_call_id=event.tool_id or "",
+                            input=tool_input,
+                        )
+                        modified_call = await pipeline.on_tool_call(
+                            plugin_ctx, plugin_call
+                        )
+                        # Use potentially modified values
+                        tool_name = modified_call.tool_name
+                        tool_input = modified_call.input
+
                     tool_part_id = gen_id("prt_")
                     tool_part = {
                         "id": tool_part_id,
                         "sessionID": session_id,
                         "messageID": asst_msg_id,
                         "type": "tool",
-                        "tool": event.tool_name,
+                        "tool": tool_name,
                         "state": {
                             "status": "running",
-                            "input": event.tool_input or {},
-                            "title": event.tool_name,
+                            "input": tool_input,
+                            "title": tool_name,
                             "time": {"start": time.time()},
                         },
                     }
@@ -285,10 +323,39 @@ async def send_message(
                     # Tool execution completed
                     if event.tool_id and event.tool_id in tool_parts:
                         tool_part = tool_parts[event.tool_id]
+                        tool_output = event.tool_output
+
+                        # === PLUGIN HOOK: on_tool_result ===
+                        if pipeline and plugin_ctx:
+                            from plugins.models import (
+                                ToolCall as PluginToolCall,
+                                ToolResult as PluginToolResult,
+                            )
+
+                            plugin_call = PluginToolCall(
+                                tool_name=tool_part["tool"],
+                                tool_call_id=event.tool_id,
+                                input=tool_part["state"]["input"],
+                            )
+                            plugin_result = PluginToolResult(
+                                tool_call_id=event.tool_id,
+                                tool_name=tool_part["tool"],
+                                output=tool_output or "",
+                            )
+                            modified_result = await pipeline.on_tool_result(
+                                plugin_ctx, plugin_call, plugin_result
+                            )
+                            # Use potentially modified output
+                            tool_output = modified_result.output
+
                         tool_part["state"]["status"] = "completed"
-                        tool_part["state"]["output"] = event.tool_output
+                        tool_part["state"]["output"] = tool_output
                         tool_part["state"]["time"]["end"] = time.time()
                         yield Event(type="part.updated", properties=tool_part)
+
+            # === PLUGIN HOOK: on_final ===
+            if pipeline and plugin_ctx and text_content:
+                text_content = await pipeline.on_final(plugin_ctx, text_content)
 
             # Final text part
             if text_content:
@@ -423,6 +490,10 @@ async def send_message(
                         "summary": summary
                     }
                 )
+
+    # === PLUGIN HOOK: on_done ===
+    if pipeline and plugin_ctx:
+        await pipeline.on_done(plugin_ctx)
 
     message_duration_ms = (time.perf_counter() - message_start_time) * 1000
     logger.info(

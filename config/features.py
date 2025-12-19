@@ -78,6 +78,12 @@ FEATURE_FLAGS = {
         stage=FeatureStage.EXPERIMENTAL,
         default=False,
     ),
+    "plugins": FeatureFlag(
+        name="plugins",
+        description="Enable plugin system for agent customization",
+        stage=FeatureStage.EXPERIMENTAL,
+        default=False,
+    ),
 }
 
 
