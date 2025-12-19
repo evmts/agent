@@ -1,9 +1,4 @@
-import postgres from "postgres";
-
-const DATABASE_URL = process.env.DATABASE_URL ||
-  "postgresql://postgres:password@localhost:54321/electric";
-
-const sql = postgres(DATABASE_URL);
+import sql from "./client";
 
 async function migrate() {
   console.log("Running migrations...");
