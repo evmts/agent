@@ -134,14 +134,14 @@ function parseGitLog(output: string): Commit[] {
     .split("\n")
     .filter(Boolean)
     .map(line => {
-      const [hash, shortHash, authorName, authorEmail, timestamp, ...messageParts] = line.split("|");
+      const parts = line.split("|");
       return {
-        hash,
-        shortHash,
-        authorName,
-        authorEmail,
-        timestamp: parseInt(timestamp) * 1000,
-        message: messageParts.join("|"),
+        hash: parts[0] ?? '',
+        shortHash: parts[1] ?? '',
+        authorName: parts[2] ?? '',
+        authorEmail: parts[3] ?? '',
+        timestamp: parseInt(parts[4] ?? '0') * 1000,
+        message: parts.slice(5).join("|"),
       };
     });
 }

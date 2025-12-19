@@ -46,6 +46,9 @@ app.post('/:sessionId/message', async (c) => {
     return c.json({ error: 'Message content is required' }, 400);
   }
 
+  // Await the session to get its properties
+  const sessionData = await session;
+
   // Create user message
   const now = Date.now();
   const userMessageId = generateId('msg_');
@@ -57,7 +60,7 @@ app.post('/:sessionId/message', async (c) => {
     agent: body.agent ?? 'build',
     model: {
       providerID: 'anthropic',
-      modelID: body.model?.modelID ?? session.model ?? 'claude-sonnet-4-20250514',
+      modelID: body.model?.modelID ?? sessionData.model ?? 'claude-sonnet-4-20250514',
     },
   };
 
@@ -96,20 +99,20 @@ app.post('/:sessionId/message', async (c) => {
     modelID: userMessage.model.modelID,
     providerID: userMessage.model.providerID,
     mode: 'default',
-    path: { cwd: session.directory, root: session.directory },
+    path: { cwd: sessionData.directory, root: sessionData.directory },
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0 },
   };
 
   // Create agent wrapper
   const wrapper = new AgentWrapper({
-    workingDir: session.directory,
+    workingDir: sessionData.directory,
     defaultModel: userMessage.model.modelID,
     defaultAgentName: body.agent ?? 'build',
   });
 
   // Load conversation history
-  const messages = getSessionMessages(sessionId);
+  const messages = await getSessionMessages(sessionId);
   // Skip the last message (which is the user message we just added)
   for (const msg of messages.slice(0, -1)) {
     if (msg.info.role === 'user') {
@@ -257,12 +260,12 @@ app.get('/:sessionId/messages', async (c) => {
   const limit = parseInt(c.req.query('limit') ?? '50', 10);
 
   try {
-    getSession(sessionId); // Validate session exists
-    const messages = getSessionMessages(sessionId);
+    await getSession(sessionId); // Validate session exists
+    const messages = await getSessionMessages(sessionId);
     const limited = messages.slice(-limit);
 
     return c.json({
-      messages: limited.map((m) => ({
+      messages: limited.map((m: MessageWithParts) => ({
         ...m.info,
         parts: m.parts,
       })),

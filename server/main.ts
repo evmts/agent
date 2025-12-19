@@ -14,7 +14,7 @@ console.log(`Starting API server on ${hostname}:${port}`);
 
 const ptyWsHandler = createPtyWebSocketHandler();
 
-const server = Bun.serve({
+const server = Bun.serve<{ ptyId: string }>({
   fetch(req, server) {
     // Check for PTY WebSocket upgrade
     const ptyWs = isPtyWebSocketRequest(req);

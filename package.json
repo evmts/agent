@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "astro dev",
     "dev:api": "bun --hot run server/main.ts",
+    "dev:tui": "bun run tui/src/index.ts",
+    "dev:native": "bun run native/app.ts",
     "dev:all": "docker compose up postgres electric -d && concurrently \"bun run dev\" \"bun run dev:api\"",
+    "native:setup": "bun run native/scripts/download-webui.ts",
     "build": "astro build",
     "preview": "astro preview",
     "start": "node ./dist/server/entry.mjs",
@@ -16,7 +19,8 @@
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/bun": "latest"

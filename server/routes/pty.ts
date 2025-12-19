@@ -272,7 +272,7 @@ export function isPtyWebSocketRequest(req: Request): { ptyId: string } | null {
   const url = new URL(req.url);
   const match = url.pathname.match(/^\/pty\/([^/]+)\/ws$/);
 
-  if (match && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+  if (match?.[1] && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
     return { ptyId: match[1] };
   }
 

@@ -23,7 +23,7 @@ const app = new Hono();
 
 // List all sessions
 app.get('/', async (c) => {
-  const sessions = listSessions();
+  const sessions = await listSessions();
   return c.json({ sessions });
 });
 
