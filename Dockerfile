@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # =============================================================================
 FROM base AS deps
 COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile --production=false
+RUN bun install --frozen-lockfile
 
 # =============================================================================
 # Build stage
