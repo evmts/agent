@@ -15,10 +15,10 @@ COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
 
 # =============================================================================
-# Native module build stage
+# Snapshot module build stage (Rust/napi-rs for jj-lib)
 # =============================================================================
-FROM base AS native-build
-WORKDIR /app/native
+FROM base AS snapshot-build
+WORKDIR /app/snapshot
 
 # Install Rust and build dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,12 +32,12 @@ RUN apt-get update && apt-get install -y \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Copy native module source
-COPY native/package.json native/bun.lock* ./
-COPY native/Cargo.toml native/Cargo.lock ./
-COPY native/build.rs ./
-COPY native/src ./src
-COPY native/.cargo ./.cargo
+# Copy snapshot module source
+COPY snapshot/package.json snapshot/bun.lock* ./
+COPY snapshot/Cargo.toml snapshot/Cargo.lock ./
+COPY snapshot/build.rs ./
+COPY snapshot/src ./src
+COPY snapshot/.cargo ./.cargo
 
 # Install napi-rs CLI and build
 RUN bun install
@@ -70,10 +70,13 @@ COPY core ./core
 COPY db ./db
 COPY ai ./ai
 
-# Copy native module with built binary
-COPY native/package.json native/index.js native/index.d.ts ./native/
-COPY native/src ./native/src
-COPY --from=native-build /app/native/*.node ./native/
+# Copy native module (TypeScript/WebUI)
+COPY native ./native
+
+# Copy snapshot module with built binary
+COPY snapshot/package.json snapshot/index.js snapshot/index.d.ts ./snapshot/
+COPY snapshot/src ./snapshot/src
+COPY --from=snapshot-build /app/snapshot/*.node ./snapshot/
 
 # Create entrypoint script
 RUN echo '#!/bin/sh\nbun run server/main.ts' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
@@ -97,4 +100,37 @@ COPY package.json ./
 
 EXPOSE 5173
 
-CMD ["node", "./dist/server/entry.mjs"]
+CMD ["bun", "./dist/server/entry.mjs"]
+
+# =============================================================================
+# TUI (Terminal User Interface)
+# =============================================================================
+FROM base AS tui-build
+WORKDIR /app/tui
+
+# Copy TUI source
+COPY tui/package.json tui/bun.lock* ./
+RUN bun install --frozen-lockfile
+
+COPY tui/src ./src
+COPY tui/tsconfig.json ./
+
+# Build TUI binary
+RUN bun build src/index.ts --compile --outfile plue
+
+# =============================================================================
+# TUI Runtime
+# =============================================================================
+FROM base AS tui
+WORKDIR /app
+
+# Copy the compiled binary
+COPY --from=tui-build /app/tui/plue ./plue
+
+# Default API URL for container networking
+ENV PLUE_API_URL=http://api:4000
+
+# Make it executable and add to path
+RUN chmod +x ./plue && ln -s /app/plue /usr/local/bin/plue
+
+CMD ["./plue"]

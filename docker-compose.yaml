@@ -88,6 +88,7 @@ services:
       NODE_ENV: production
       PORT: 5173
       HOST: 0.0.0.0
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
       # API endpoints for SSR
       PUBLIC_API_URL: http://api:4000
       PUBLIC_ELECTRIC_URL: http://electric:3000
@@ -100,6 +101,24 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+
+  # =============================================================================
+  # TUI (Terminal User Interface)
+  # =============================================================================
+  tui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: tui
+    environment:
+      PLUE_API_URL: http://api:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    profiles:
+      - tui
 
   # =============================================================================
   # Development Services (optional)
