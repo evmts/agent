@@ -51,8 +51,9 @@ export async function createUser(userData: {
   displayName?: string;
   activationToken: string;
 }) {
-  const rows = await sql`
-    INSERT INTO users (username, lower_username, email, lower_email, password_hash, display_name, activation_token, is_active)
+  // Create user first
+  const [user] = await sql`
+    INSERT INTO users (username, lower_username, email, lower_email, password_hash, display_name, is_active)
     VALUES (
       ${userData.username},
       ${userData.username.toLowerCase()},
@@ -60,13 +61,19 @@ export async function createUser(userData: {
       ${userData.email.toLowerCase()},
       ${userData.passwordHash},
       ${userData.displayName || null},
-      ${userData.activationToken},
       false
     )
     RETURNING id, username, email, display_name
   `;
 
-  return rows[0];
+  // Create activation token
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  await sql`
+    INSERT INTO email_verification_tokens (user_id, email, token_hash, token_type, expires_at)
+    VALUES (${user.id}, ${userData.email}, ${userData.activationToken}, 'activate', ${expiresAt})
+  `;
+
+  return user;
 }
 
 export async function createSession(userId: number, sessionId: string, expiresAt: Date) {
@@ -89,45 +96,65 @@ export async function deleteAllUserSessions(userId: number) {
 }
 
 export async function activateUser(token: string) {
-  const rows = await sql`
+  // Find the token
+  const [tokenData] = await sql`
+    SELECT user_id, email
+    FROM email_verification_tokens
+    WHERE token_hash = ${token} AND token_type = 'activate' AND expires_at > NOW()
+  `;
+
+  if (!tokenData) {
+    return null;
+  }
+
+  // Activate the user
+  const [user] = await sql`
     UPDATE users 
-    SET is_active = true, activation_token = NULL
-    WHERE activation_token = ${token} AND is_active = false
+    SET is_active = true
+    WHERE id = ${tokenData.user_id}
     RETURNING id, username, email, display_name
   `;
 
-  return rows[0] || null;
+  // Delete the used token
+  await sql`
+    DELETE FROM email_verification_tokens
+    WHERE token_hash = ${token} AND token_type = 'activate'
+  `;
+
+  return user;
 }
 
 export async function getUserByActivationToken(token: string) {
-  const rows = await sql`
-    SELECT id, username, email
-    FROM users
-    WHERE activation_token = ${token} AND is_active = false
+  const [tokenData] = await sql`
+    SELECT u.id, u.username, u.email
+    FROM users u
+    JOIN email_verification_tokens t ON t.user_id = u.id
+    WHERE t.token_hash = ${token} AND t.token_type = 'activate' AND t.expires_at > NOW()
+    AND u.is_active = false
   `;
 
-  return rows[0] || null;
+  return tokenData || null;
 }
 
 export async function createPasswordResetToken(userId: number, token: string, expiresAt: Date) {
+  const [user] = await sql`SELECT email FROM users WHERE id = ${userId}`;
+  
   await sql`
-    INSERT INTO password_reset_tokens (user_id, token, expires_at)
-    VALUES (${userId}, ${token}, ${expiresAt})
-    ON CONFLICT (user_id) DO UPDATE SET
-      token = EXCLUDED.token,
-      expires_at = EXCLUDED.expires_at,
-      created_at = NOW()
+    INSERT INTO email_verification_tokens (user_id, email, token_hash, token_type, expires_at)
+    VALUES (${userId}, ${user.email}, ${token}, 'reset_password', ${expiresAt})
+    ON CONFLICT (token_hash) DO UPDATE SET
+      expires_at = EXCLUDED.expires_at
   `;
 }
 
 export async function getUserByResetToken(token: string) {
-  const rows = await sql`
+  const [tokenData] = await sql`
     SELECT user_id
-    FROM password_reset_tokens
-    WHERE token = ${token} AND expires_at > NOW()
+    FROM email_verification_tokens
+    WHERE token_hash = ${token} AND token_type = 'reset_password' AND expires_at > NOW()
   `;
 
-  return rows[0] || null;
+  return tokenData || null;
 }
 
 export async function updateUserPassword(userId: number, passwordHash: string) {
@@ -140,8 +167,8 @@ export async function updateUserPassword(userId: number, passwordHash: string) {
 
 export async function deletePasswordResetToken(token: string) {
   await sql`
-    DELETE FROM password_reset_tokens
-    WHERE token = ${token}
+    DELETE FROM email_verification_tokens
+    WHERE token_hash = ${token} AND token_type = 'reset_password'
   `;
 }
 
@@ -177,7 +204,7 @@ export async function updateUserProfile(userId: number, updates: {
       bio = COALESCE(${updates.bio || null}, bio),
       avatar_url = COALESCE(${updates.avatar_url || null}, avatar_url)
     WHERE id = ${userId}
-    RETURNING id, username, email, display_name, bio, avatar_url, is_admin, is_active, created_at
+    RETURNING id, username, email, display_name, bio, avatar_url, is_admin, is_admin, created_at
   `;
 
   return rows[0] || null;
