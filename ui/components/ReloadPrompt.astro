@@ -1,0 +1,113 @@
+---
+---
+
+<div id="pwa-toast" class="pwa-toast" role="alert" aria-labelledby="toast-message">
+  <div class="pwa-message">
+    <span id="toast-message">New content available</span>
+  </div>
+  <div class="pwa-buttons">
+    <button id="pwa-refresh" class="btn btn-sm btn-primary">Reload</button>
+    <button id="pwa-close" class="btn btn-sm btn-ghost">Close</button>
+  </div>
+</div>
+
+<script>
+  async function registerSW() {
+    if ('serviceWorker' in navigator) {
+      const { registerSW } = await import('virtual:pwa-register');
+
+      const updateSW = registerSW({
+        immediate: true,
+        onNeedRefresh() {
+          const toast = document.getElementById('pwa-toast');
+          if (toast) {
+            toast.classList.add('show');
+          }
+        },
+        onOfflineReady() {
+          console.log('App ready to work offline');
+        },
+        onRegisteredSW(swUrl, r) {
+          if (r) {
+            // Check for updates every hour
+            setInterval(async () => {
+              if (!(!r.installing && navigator)) return;
+              if (('connection' in navigator) && !navigator.onLine) return;
+
+              const resp = await fetch(swUrl, {
+                cache: 'no-store',
+                headers: {
+                  'cache': 'no-store',
+                  'cache-control': 'no-cache',
+                },
+              });
+
+              if (resp?.status === 200) {
+                await r.update();
+              }
+            }, 60 * 60 * 1000);
+          }
+        },
+      });
+
+      const refreshBtn = document.getElementById('pwa-refresh');
+      const closeBtn = document.getElementById('pwa-close');
+      const toast = document.getElementById('pwa-toast');
+
+      refreshBtn?.addEventListener('click', () => {
+        updateSW(true);
+      });
+
+      closeBtn?.addEventListener('click', () => {
+        toast?.classList.remove('show');
+      });
+    }
+  }
+
+  registerSW();
+</script>
+
+<style>
+  .pwa-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 16px;
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: var(--shadow);
+    z-index: 9999;
+    opacity: 0;
+    transform: translateY(100%);
+    pointer-events: none;
+    transition: all 0.3s ease;
+  }
+
+  .pwa-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .pwa-message {
+    font-size: 13px;
+    color: var(--fg);
+  }
+
+  .pwa-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  @media (max-width: 640px) {
+    .pwa-toast {
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+    }
+  }
+</style>
