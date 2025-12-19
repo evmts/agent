@@ -1,34 +1,37 @@
 {
+  "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
-    // Environment setup & latest features
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowJs": true,
-
-    // Bundler mode
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-
-    // Best practices
     "strict": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false,
-
-    // Types
-    "types": ["vite-plugin-pwa/client"]
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@/core/*": ["./core/*"],
+      "@/ui/*": ["./ui/*"],
+      "@/db/*": ["./db/*"]
+    }
   },
-  "include": ["ui/env.d.ts", "**/*.ts", "**/*.tsx", "**/*.astro"],
-  "exclude": ["node_modules", "dist", "gitea", "electric-ai-chat", "snapshot"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.astro",
+    ".astro/types.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".astro"
+  ]
 }

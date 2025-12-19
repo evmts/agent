@@ -1,49 +1,42 @@
 {
   "name": "plue",
+  "version": "1.0.0",
+  "description": "Plue - Collaborative Development Platform",
   "type": "module",
-  "private": true,
   "scripts": {
     "dev": "astro dev",
-    "dev:api": "bun --hot run server/main.ts",
-    "dev:tui": "bun run tui/src/index.ts",
-    "dev:native": "bun run native/app.ts",
-    "dev:all": "docker compose up postgres electric -d && concurrently \"bun run dev\" \"bun run dev:api\"",
-    "native:setup": "bun run native/scripts/download-webui.ts",
-    "build": "astro build",
+    "build": "astro check && astro build",
     "preview": "astro preview",
-    "start": "bun ./dist/server/entry.mjs",
-    "start:api": "bun run server/main.ts",
-    "db:migrate": "bun run db/migrate.ts",
-    "db:up": "docker compose up postgres electric -d",
-    "db:down": "docker compose down",
-    "docker:build": "docker compose build",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome lint .",
-    "lint:fix": "biome lint --write .",
-    "format": "biome format --write .",
-    "check": "biome check ."
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.3.10",
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "start": "astro dev",
+    "check": "astro check",
+    "lint": "eslint . --ext .js,.ts,.astro --max-warnings 0",
+    "lint:fix": "eslint . --ext .js,.ts,.astro --fix",
+    "type-check": "astro check && tsc --noEmit",
+    "db:migrate": "node -e \"console.log('Database migration placeholder')\"",
+    "postinstall": "astro sync"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.56",
-    "@astrojs/node": "^9.5.1",
-    "@electric-sql/client": "^1.3.0",
-    "@vite-pwa/astro": "^1.2.0",
-    "ai": "^5.0.115",
-    "astro": "^5.16.6",
-    "ghostty-web": "^0.4.0",
-    "hono": "^4.11.1",
-    "postgres": "^3.4.7",
-    "workbox-window": "^7.4.0",
-    "zod": "^4.2.1"
+    "@astrojs/node": "^8.0.0",
+    "@astrojs/tailwind": "^5.0.0",
+    "@hono/zod-validator": "^0.2.2",
+    "@node-rs/argon2": "^1.8.3",
+    "@types/postgres": "^3.0.0",
+    "astro": "^4.15.0",
+    "hono": "^4.6.3",
+    "postgres": "^3.4.0",
+    "resend": "^4.0.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.6.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-astro": "^0.29.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
