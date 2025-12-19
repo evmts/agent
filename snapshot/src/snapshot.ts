@@ -16,37 +16,7 @@
  * - Operation: An atomic jj operation that can be undone
  */
 
-// Import the native bindings with proper type handling
-let JjWorkspace: any;
-let isJjWorkspace: any;
-
-// Lazy load the native module to handle potential loading failures
-async function loadNative() {
-  try {
-    // Try importing as ESM first
-    const native = await import('../index.js');
-    JjWorkspace = native.JjWorkspace;
-    isJjWorkspace = native.isJjWorkspace;
-    return true;
-  } catch (err) {
-    try {
-      // Fall back to require for CommonJS
-      const native = require('../index.js');
-      JjWorkspace = native.JjWorkspace;
-      isJjWorkspace = native.isJjWorkspace;
-      return true;
-    } catch (err2) {
-      console.warn('[snapshot] Failed to load native jj bindings:', err2);
-      return false;
-    }
-  }
-}
-
-// Initialize immediately
-let nativeLoaded = false;
-loadNative().then(loaded => {
-  nativeLoaded = loaded;
-});
+import { JjWorkspace, isJjWorkspace } from '../index.js';
 
 // ============================================================================
 // Types
@@ -110,10 +80,6 @@ export class Snapshot {
    * Otherwise, initializes a new jj workspace (colocated with git if present).
    */
   static init(directory: string): Snapshot {
-    if (!nativeLoaded || !JjWorkspace || !isJjWorkspace) {
-      throw new Error('Native jj bindings not available');
-    }
-
     let workspace: any;
 
     if (isJjWorkspace(directory)) {
@@ -140,10 +106,6 @@ export class Snapshot {
    * Throws if the directory is not a jj workspace.
    */
   static open(directory: string): Snapshot {
-    if (!nativeLoaded || !JjWorkspace || !isJjWorkspace) {
-      throw new Error('Native jj bindings not available');
-    }
-
     if (!isJjWorkspace(directory)) {
       throw new Error(`Not a jj workspace: ${directory}`);
     }
@@ -174,9 +136,7 @@ export class Snapshot {
     }
 
     // Reload workspace to get fresh state
-    if (JjWorkspace) {
-      this.workspace = JjWorkspace.open(this.workspacePath);
-    }
+    this.workspace = JjWorkspace.open(this.workspacePath);
 
     // The snapshot is the parent of the current working copy
     const parentResult = await this.execJj(['log', '-r', '@-', '--no-graph', '-T', 'change_id']);
@@ -389,9 +349,7 @@ export class Snapshot {
     }
 
     // Reload workspace
-    if (JjWorkspace) {
-      this.workspace = JjWorkspace.open(this.workspacePath);
-    }
+    this.workspace = JjWorkspace.open(this.workspacePath);
   }
 
   /**
@@ -427,9 +385,7 @@ export class Snapshot {
       throw new Error(`Failed to restore operation: ${result.stderr}`);
     }
 
-    if (JjWorkspace) {
-      this.workspace = JjWorkspace.open(this.workspacePath);
-    }
+    this.workspace = JjWorkspace.open(this.workspacePath);
   }
 
   // ==========================================================================
