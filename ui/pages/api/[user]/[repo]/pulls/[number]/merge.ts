@@ -2,14 +2,25 @@ import type { APIRoute } from 'astro';
 import sql from '../../../../../../../db/client';
 import { getUserBySession } from '../../../../../../lib/auth-helpers';
 import { mergePullRequest } from '../../../../../../lib/git';
-import type { User, Repository, PullRequest, MergeStyle } from '../../../../../../lib/types';
+import type { User, Repository, PullRequest, MergeStyle, Issue } from '../../../../../../lib/types';
+
+type PullRequestWithIssueState = PullRequest & { state: Issue['state'] };
 
 // Merge a pull request
 export const POST: APIRoute = async ({ params, request }) => {
   try {
     const { user: username, repo: reponame, number } = params;
+
+    // Validate route params
+    if (!username || !reponame || !number) {
+      return new Response(JSON.stringify({ error: 'Invalid route parameters' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const formData = await request.formData();
-    
+
     const mergeStyle = formData.get('merge_style') as MergeStyle;
     const mergeMessage = formData.get('merge_message') as string;
 
@@ -45,7 +56,7 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+    const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
     if (!user) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
@@ -53,10 +64,10 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [repo] = await sql`
+    const [repo] = await sql<Repository[]>`
       SELECT * FROM repositories
       WHERE user_id = ${user.id} AND name = ${reponame}
-    ` as Repository[];
+    `;
     if (!repo) {
       return new Response(JSON.stringify({ error: 'Repository not found' }), {
         status: 404,
@@ -64,7 +75,7 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const pullNumber = parseInt(number!, 10);
+    const pullNumber = parseInt(number, 10);
     if (isNaN(pullNumber)) {
       return new Response(JSON.stringify({ error: 'Invalid pull request number' }), {
         status: 400,
@@ -72,12 +83,12 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [pr] = await sql`
+    const [pr] = await sql<PullRequestWithIssueState[]>`
       SELECT pr.*, i.state
       FROM pull_requests pr
       JOIN issues i ON pr.issue_id = i.id
       WHERE i.repository_id = ${repo.id} AND i.issue_number = ${pullNumber}
-    ` as PullRequest[];
+    `;
 
     if (!pr) {
       return new Response(JSON.stringify({ error: 'Pull request not found' }), {

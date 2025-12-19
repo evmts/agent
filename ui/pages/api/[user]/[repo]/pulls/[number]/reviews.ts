@@ -1,14 +1,25 @@
 import type { APIRoute } from 'astro';
 import sql from '../../../../../../../db/client';
 import { getUserBySession } from '../../../../../../lib/auth-helpers';
-import type { User, Repository, PullRequest, Review, ReviewType } from '../../../../../../lib/types';
+import type { User, Repository, PullRequest, Review, ReviewType, Issue } from '../../../../../../lib/types';
+
+type PullRequestWithIssueState = PullRequest & { state: Issue['state'] };
 
 // Create a review for a pull request
 export const POST: APIRoute = async ({ params, request }) => {
   try {
     const { user: username, repo: reponame, number } = params;
+
+    // Validate route params
+    if (!username || !reponame || !number) {
+      return new Response(JSON.stringify({ error: 'Invalid route parameters' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const formData = await request.formData();
-    
+
     const reviewType = formData.get('type') as ReviewType;
     const content = formData.get('content') as string;
     const commitId = formData.get('commit_id') as string;
@@ -38,7 +49,7 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+    const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
     if (!user) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
@@ -46,10 +57,10 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [repo] = await sql`
+    const [repo] = await sql<Repository[]>`
       SELECT * FROM repositories
       WHERE user_id = ${user.id} AND name = ${reponame}
-    ` as Repository[];
+    `;
     if (!repo) {
       return new Response(JSON.stringify({ error: 'Repository not found' }), {
         status: 404,
@@ -57,7 +68,7 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const pullNumber = parseInt(number!, 10);
+    const pullNumber = parseInt(number, 10);
     if (isNaN(pullNumber)) {
       return new Response(JSON.stringify({ error: 'Invalid pull request number' }), {
         status: 400,
@@ -65,12 +76,12 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [pr] = await sql`
+    const [pr] = await sql<PullRequestWithIssueState[]>`
       SELECT pr.*, i.state
       FROM pull_requests pr
       JOIN issues i ON pr.issue_id = i.id
       WHERE i.repository_id = ${repo.id} AND i.issue_number = ${pullNumber}
-    ` as PullRequest[];
+    `;
 
     if (!pr) {
       return new Response(JSON.stringify({ error: 'Pull request not found' }), {
@@ -87,14 +98,14 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
 
     // Create review
-    const [review] = await sql`
+    const [review] = await sql<Review[]>`
       INSERT INTO reviews (
         pull_request_id, reviewer_id, type, content, commit_id
       ) VALUES (
         ${pr.id}, ${authUser.id}, ${reviewType}, ${content?.trim() || null}, ${commitId || null}
       )
       RETURNING *
-    ` as Review[];
+    `;
 
     // Redirect back to the pull request
     return new Response('', {
@@ -120,7 +131,15 @@ export const GET: APIRoute = async ({ params }) => {
   try {
     const { user: username, repo: reponame, number } = params;
 
-    const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+    // Validate route params
+    if (!username || !reponame || !number) {
+      return new Response(JSON.stringify({ error: 'Invalid route parameters' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
     if (!user) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
@@ -128,10 +147,10 @@ export const GET: APIRoute = async ({ params }) => {
       });
     }
 
-    const [repo] = await sql`
+    const [repo] = await sql<Repository[]>`
       SELECT * FROM repositories
       WHERE user_id = ${user.id} AND name = ${reponame}
-    ` as Repository[];
+    `;
     if (!repo) {
       return new Response(JSON.stringify({ error: 'Repository not found' }), {
         status: 404,
@@ -139,7 +158,7 @@ export const GET: APIRoute = async ({ params }) => {
       });
     }
 
-    const pullNumber = parseInt(number!, 10);
+    const pullNumber = parseInt(number, 10);
     if (isNaN(pullNumber)) {
       return new Response(JSON.stringify({ error: 'Invalid pull request number' }), {
         status: 400,
@@ -147,12 +166,12 @@ export const GET: APIRoute = async ({ params }) => {
       });
     }
 
-    const [pr] = await sql`
+    const [pr] = await sql<PullRequest[]>`
       SELECT pr.*
       FROM pull_requests pr
       JOIN issues i ON pr.issue_id = i.id
       WHERE i.repository_id = ${repo.id} AND i.issue_number = ${pullNumber}
-    ` as PullRequest[];
+    `;
 
     if (!pr) {
       return new Response(JSON.stringify({ error: 'Pull request not found' }), {
@@ -161,13 +180,13 @@ export const GET: APIRoute = async ({ params }) => {
       });
     }
 
-    const reviews = await sql`
+    const reviews = await sql<(Review & { reviewer_username: string })[]>`
       SELECT r.*, u.username as reviewer_username
       FROM reviews r
       JOIN users u ON r.reviewer_id = u.id
       WHERE r.pull_request_id = ${pr.id}
       ORDER BY r.created_at DESC
-    ` as Review[];
+    `;
 
     return new Response(JSON.stringify({ reviews }), {
       headers: { 'Content-Type': 'application/json' }

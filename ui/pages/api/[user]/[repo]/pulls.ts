@@ -8,8 +8,17 @@ import type { User, Repository, Issue, PullRequest } from '../../../../lib/types
 export const POST: APIRoute = async ({ params, request }) => {
   try {
     const { user: username, repo: reponame } = params;
+
+    // Validate route params
+    if (!username || !reponame) {
+      return new Response(JSON.stringify({ error: 'Invalid route parameters' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const formData = await request.formData();
-    
+
     const title = formData.get('title') as string;
     const description = formData.get('description') as string;
     const headBranch = formData.get('head_branch') as string;
@@ -53,7 +62,7 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+    const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
     if (!user) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
@@ -61,10 +70,10 @@ export const POST: APIRoute = async ({ params, request }) => {
       });
     }
 
-    const [repo] = await sql`
+    const [repo] = await sql<Repository[]>`
       SELECT * FROM repositories
       WHERE user_id = ${user.id} AND name = ${reponame}
-    ` as Repository[];
+    `;
     if (!repo) {
       return new Response(JSON.stringify({ error: 'Repository not found' }), {
         status: 404,
@@ -73,21 +82,21 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
 
     // Get next issue number
-    const [{ next_num }] = await sql`
+    const [{ next_num }] = await sql<{ next_num: number }[]>`
       SELECT COALESCE(MAX(issue_number), 0) + 1 as next_num
       FROM issues
       WHERE repository_id = ${repo.id}
     `;
 
     // Create issue first
-    const [issue] = await sql`
+    const [issue] = await sql<Issue[]>`
       INSERT INTO issues (
         repository_id, author_id, issue_number, title, body, state
       ) VALUES (
         ${repo.id}, ${authUser.id}, ${next_num}, ${title.trim()}, ${description?.trim() || ''}, 'open'
       )
       RETURNING *
-    ` as Issue[];
+    `;
 
     // Compare branches to get stats
     const compareInfo = await compareRefs(username, reponame, baseBranch, headBranch);
@@ -104,7 +113,7 @@ export const POST: APIRoute = async ({ params, request }) => {
     const conflictedFilesArray = conflictedFiles.length > 0 ? conflictedFiles : null;
 
     // Create pull request
-    const [pr] = await sql`
+    const [pr] = await sql<PullRequest[]>`
       INSERT INTO pull_requests (
         issue_id,
         head_repo_id, head_branch, head_commit_id,
@@ -125,7 +134,7 @@ export const POST: APIRoute = async ({ params, request }) => {
         ${conflictedFilesArray}
       )
       RETURNING *
-    ` as PullRequest[];
+    `;
 
     // Redirect to the new pull request
     return new Response('', {

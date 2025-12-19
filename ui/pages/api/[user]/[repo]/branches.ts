@@ -20,7 +20,13 @@ export const GET: APIRoute = async ({ params, url }) => {
 
   try {
     // Get repository
-    const [repository] = await sql`
+    const [repository] = await sql<Array<{
+      id: number;
+      name: string;
+      user_id: number;
+      username: string;
+      default_branch: string;
+    }>>`
       SELECT r.*, u.username
       FROM repositories r
       JOIN users u ON r.user_id = u.id
@@ -28,7 +34,7 @@ export const GET: APIRoute = async ({ params, url }) => {
     `;
 
     if (!repository) {
-      return new Response(JSON.stringify({ error: 'Repository not found' }), { 
+      return new Response(JSON.stringify({ error: 'Repository not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -47,7 +53,7 @@ export const GET: APIRoute = async ({ params, url }) => {
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const [{ count }] = await sql`
+    const [{ count }] = await sql<[{ count: number }]>`
       SELECT COUNT(*) as count FROM branches
       WHERE repository_id = ${repository.id} AND is_deleted = false
     `;
@@ -90,7 +96,13 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
 
     // Get repository
-    const [repository] = await sql`
+    const [repository] = await sql<Array<{
+      id: number;
+      name: string;
+      user_id: number;
+      username: string;
+      default_branch: string;
+    }>>`
       SELECT r.*, u.username
       FROM repositories r
       JOIN users u ON r.user_id = u.id
@@ -105,7 +117,7 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
 
     // Check if branch exists
-    const [existing] = await sql`
+    const [existing] = await sql<Array<{ id: number }>>`
       SELECT id FROM branches
       WHERE repository_id = ${repository.id}
         AND name = ${name}
@@ -126,7 +138,7 @@ export const POST: APIRoute = async ({ params, request }) => {
     const commitInfo = await git.getBranchCommit(user, repo, name);
 
     // Create branch record
-    const [branch] = await sql`
+    const [branch] = await sql<Branch[]>`
       INSERT INTO branches (
         repository_id, name, commit_id, commit_message,
         commit_time, pusher_id
