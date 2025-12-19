@@ -1,37 +1,123 @@
-name: 'electric_quickstart'
+name: plue
 
 services:
+  # =============================================================================
+  # Database
+  # =============================================================================
   postgres:
-    image: docker.io/postgres:16-alpine
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: electric
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     ports:
       - '54321:5432'
-    tmpfs:
-      - /var/lib/postgresql/data
-      - /tmp
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - postgres_data:/var/lib/postgresql/data
     command:
       - -c
       - listen_addresses=*
       - -c
       - wal_level=logical
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d electric']
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
+  # =============================================================================
+  # ElectricSQL Sync Service
+  # =============================================================================
   electric:
-    image: docker.io/electricsql/electric:latest
+    image: electricsql/electric:latest
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
-      # Not suitable for production. Only use insecure mode in development or if you've otherwise secured the Electric API.
-      # See https://electric-sql.com/docs/guides/security
       ELECTRIC_INSECURE: true
+      ELECTRIC_WRITE_TO_PG_MODE: direct_writes
     ports:
       - '3000:3000'
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/v1/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # API Server (Hono)
+  # =============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
+      ELECTRIC_URL: http://electric:3000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      electric:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:4000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # Web Frontend (Astro SSR)
+  # =============================================================================
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    environment:
+      NODE_ENV: production
+      PORT: 5173
+      HOST: 0.0.0.0
+      # API endpoints for SSR
+      PUBLIC_API_URL: http://api:4000
+      PUBLIC_ELECTRIC_URL: http://electric:3000
+      # Client-side URLs (browser accessible)
+      PUBLIC_CLIENT_API_URL: ${PUBLIC_CLIENT_API_URL:-http://localhost:4000}
+      PUBLIC_CLIENT_ELECTRIC_URL: ${PUBLIC_CLIENT_ELECTRIC_URL:-http://localhost:3000}
+    ports:
+      - '5173:5173'
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # =============================================================================
+  # Development Services (optional)
+  # =============================================================================
+  adminer:
+    image: adminer:latest
+    ports:
+      - '8080:8080'
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: plue_network
