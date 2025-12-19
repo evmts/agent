@@ -732,3 +732,24 @@ func (c *Client) ListCommands(ctx context.Context) ([]Command, error) {
 	}
 	return result, nil
 }
+
+// ExpandCommandRequest is the request body for expanding a command.
+type ExpandCommandRequest struct {
+	Name   string            `json:"name"`
+	Args   []string          `json:"args,omitempty"`
+	Kwargs map[string]string `json:"kwargs,omitempty"`
+}
+
+// ExpandCommandResponse is the response from expanding a command.
+type ExpandCommandResponse struct {
+	Expanded string `json:"expanded"`
+}
+
+// ExpandCommand expands a slash command template with arguments.
+func (c *Client) ExpandCommand(ctx context.Context, req *ExpandCommandRequest) (*ExpandCommandResponse, error) {
+	var result ExpandCommandResponse
+	if err := c.doRequest(ctx, http.MethodPost, "/command/expand", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

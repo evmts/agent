@@ -42,7 +42,7 @@ var (
 	statusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
 
-	availableCommands = []string{"/model", "/new", "/sessions", "/clear", "/help", "/diff"}
+	availableCommands = []string{"/model", "/new", "/sessions", "/clear", "/help", "/diff", "/script"}
 )
 
 // Message types
@@ -74,9 +74,10 @@ const (
 	normalMode mode = "normal"
 	planMode   mode = "plan"
 	bypassMode mode = "bypass"
+	pluginMode mode = "plugin"
 )
 
-var modes = []mode{normalMode, planMode, bypassMode}
+var modes = []mode{normalMode, planMode, bypassMode, pluginMode}
 
 // Main model
 type model struct {
@@ -159,6 +160,13 @@ type setProgramMsg struct {
 type imagePastedMsg struct {
 	path     string
 	filename string
+}
+type scriptExpandedMsg struct {
+	prompt string
+	err    error
+}
+type sessionAbortedMsg struct {
+	err error
 }
 
 func initialModel(client *agent.Client, project *agent.Project, cwd, version string, initialPrompt *string) model {
@@ -597,6 +605,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.waiting {
+			// Allow Escape to abort the running agent
+			if msg.Type == tea.KeyEsc {
+				return m, m.abortSession()
+			}
 			return m, nil
 		}
 
@@ -698,10 +710,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "/help":
 				m.messages = append(m.messages, message{
 					role:    "system",
-					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /help\n\nKeybindings: ctrl+s (toggle text selection mode), ctrl+v (paste image), shift+tab (cycle modes)",
+					content: "Commands: /model (switch model), /new (new session), /clear (clear messages), /diff (show changes), /script (create plugin), /help\n\nModes: normal, plan, bypass, plugin (shift+tab to cycle)\n\nKeybindings: esc (abort running agent), ctrl+s (toggle text selection), ctrl+v (paste image), shift+tab (cycle modes)",
 				})
 				m.input = ""
 				return m, nil
+			case "/script":
+				// Expand the script command and send as a message
+				return m, m.handleScriptCommand()
 			}
 
 			// Handle /diff command
@@ -780,6 +795,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			nextIndex := (currentIndex + 1) % len(modes)
 			m.currentMode = modes[nextIndex]
+
+			// Show explanation when entering plugin mode
+			if m.currentMode == pluginMode {
+				m.messages = append(m.messages, message{
+					role:    "system",
+					content: "Plugin mode: Plugins are Python scripts that give you low-level control over agent behavior.\n\nUse /script to create a new plugin. Plugins can intercept tool calls, modify responses, and add custom logic.\n\nPlugins are stored in ~/.agent/plugins/",
+				})
+			}
 
 		case tea.KeyUp:
 			if m.showFileSearch && len(m.fileSearchResults) > 0 {
@@ -1107,6 +1130,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Reset seen tools for next message
 			m.seenToolIDs = make(map[string]bool)
 		}
+
+	case scriptExpandedMsg:
+		if msg.err != nil {
+			m.messages = append(m.messages, message{
+				role:    "system",
+				content: fmt.Sprintf("Error expanding /script command: %v", msg.err),
+			})
+			return m, nil
+		}
+		// Send the expanded prompt as a message
+		userMsg := message{role: "user", content: msg.prompt}
+		m.messages = append(m.messages, userMsg)
+		m.input = ""
+		m.waiting = true
+		m.streamingText = ""
+		m.streamingReasoning = ""
+		m.spinnerFrame = 0
+		m.seenToolIDs = make(map[string]bool)
+		m.err = nil
+		if m.program != nil {
+			return m, tea.Batch(m.sendMessage(msg.prompt, m.program), spinnerTick(), timeoutTick())
+		}
+
+	case sessionAbortedMsg:
+		m.waiting = false
+		m.streamingText = ""
+		m.streamingReasoning = ""
+		m.seenToolIDs = make(map[string]bool)
+		if msg.err != nil {
+			m.messages = append(m.messages, message{
+				role:    "system",
+				content: fmt.Sprintf("Failed to abort: %v", msg.err),
+			})
+		} else {
+			m.messages = append(m.messages, message{
+				role:    "system",
+				content: "Aborted",
+			})
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -1337,6 +1400,9 @@ func (m model) View() string {
 	case bypassMode:
 		modeText = "bypass permissions"
 		modeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // Red
+	case pluginMode:
+		modeText = "plugin mode"
+		modeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13")) // Magenta/Purple
 	default:
 		modeStyle = statusStyle
 		if m.showAutocomplete && len(m.autocompleteOptions) > 0 {
@@ -1506,6 +1572,37 @@ func formatDiff(raw string) string {
 	}
 
 	return sb.String()
+}
+
+// handleScriptCommand expands the /script command and returns a tea.Cmd
+func (m model) handleScriptCommand() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
+		defer cancel()
+
+		resp, err := m.client.ExpandCommand(ctx, &agent.ExpandCommandRequest{
+			Name: "script",
+		})
+		if err != nil {
+			return scriptExpandedMsg{err: err}
+		}
+		return scriptExpandedMsg{prompt: resp.Expanded}
+	}
+}
+
+// abortSession aborts the current running session
+func (m model) abortSession() tea.Cmd {
+	return func() tea.Msg {
+		if m.session == nil {
+			return sessionAbortedMsg{err: fmt.Errorf("no active session")}
+		}
+
+		ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+		defer cancel()
+
+		err := m.client.AbortSession(ctx, m.session.ID)
+		return sessionAbortedMsg{err: err}
+	}
 }
 
 func printUsage() {

@@ -50,6 +50,7 @@ type Session struct {
 	ForkPoint *string         `json:"fork_point,omitempty"`
 	Summary   *SessionSummary `json:"summary,omitempty"`
 	Revert    *RevertInfo     `json:"revert,omitempty"`
+	Plugins   []string        `json:"plugins,omitempty"`
 }
 
 // ModelInfo identifies a model and provider.
@@ -343,8 +344,9 @@ type CreateSessionRequest struct {
 
 // UpdateSessionRequest is the request body for updating a session.
 type UpdateSessionRequest struct {
-	Title *string                `json:"title,omitempty"`
-	Time  map[string]interface{} `json:"time,omitempty"`
+	Title   *string                `json:"title,omitempty"`
+	Time    map[string]interface{} `json:"time,omitempty"`
+	Plugins []string               `json:"plugins,omitempty"`
 }
 
 // TextPartInput represents text input for a message.
