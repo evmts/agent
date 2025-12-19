@@ -3,7 +3,7 @@
  */
 
 import { Hono } from 'hono';
-import { getPtyManager, type PTYSession } from '../../ai/tools/pty-manager';
+import { getPtyManager, } from '../../ai/tools/pty-manager';
 
 const app = new Hono();
 
@@ -73,7 +73,7 @@ app.get('/:id', (c) => {
       ...session,
       ...status,
     });
-  } catch (error) {
+  } catch (_error) {
     return c.json({ error: 'Session not found' }, 404);
   }
 });
@@ -96,7 +96,9 @@ app.delete('/:id', async (c) => {
     // Close all WebSocket connections
     const connections = wsConnections.get(id);
     if (connections) {
-      connections.forEach((ws) => ws.close());
+      for (const ws of connections) {
+        ws.close();
+      }
       wsConnections.delete(id);
     }
 
@@ -112,7 +114,7 @@ app.delete('/:id', async (c) => {
  * Resize a PTY session.
  */
 app.post('/:id/resize', async (c) => {
-  const id = c.req.param('id');
+  const _id = c.req.param('id');
   const body = await c.req.json<{ cols: number; rows: number }>();
 
   // PTY resize is handled by the WebSocket message, but we expose this for direct API use
@@ -143,7 +145,7 @@ export function createPtyWebSocketHandler() {
       if (!wsConnections.has(ptyId)) {
         wsConnections.set(ptyId, new Set());
       }
-      wsConnections.get(ptyId)!.add(ws);
+      wsConnections.get(ptyId)?.add(ws);
 
       // Start reading output from PTY
       startOutputReader(ptyId);
@@ -247,7 +249,7 @@ function startOutputReader(ptyId: string) {
 
         // Small delay to prevent busy loop
         await new Promise((resolve) => setTimeout(resolve, 10));
-      } catch (error) {
+      } catch (_error) {
         // Session might have been closed
         break;
       }

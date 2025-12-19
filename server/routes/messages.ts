@@ -4,12 +4,15 @@
 
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { getSession, getSessionMessages, appendSessionMessage } from '../../core';
+import { getSession, getSessionMessages, appendSessionMessage, activeTasks } from '../../core';
 import { NotFoundError } from '../../core/exceptions';
 import { getServerEventBus } from '../event-bus';
-import { AgentWrapper } from '../../ai';
+import { persistedStreamAgent } from '../../ai';
+import { saveMessage } from '../../db/agent-state';
+import type { CoreMessage } from 'ai';
 import type { MessageWithParts } from '../../core/state';
-import type { UserMessage, AssistantMessage, TextPart, ToolPart } from '../../core/models';
+import type { UserMessage, AssistantMessage, TextPart } from '../../core/models';
+import type { Session } from '../../core/models/session';
 
 const app = new Hono();
 
@@ -30,9 +33,9 @@ app.post('/:sessionId/message', async (c) => {
   const eventBus = getServerEventBus();
 
   // Validate session exists
-  let session;
+  let session: Session;
   try {
-    session = getSession(sessionId);
+    session = await getSession(sessionId);
   } catch (error) {
     if (error instanceof NotFoundError) {
       return c.json({ error: error.message }, 404);
@@ -57,6 +60,7 @@ app.post('/:sessionId/message', async (c) => {
     sessionID: sessionId,
     role: 'user',
     time: { created: now },
+    status: 'completed',
     agent: body.agent ?? 'build',
     model: {
       providerID: 'anthropic',
@@ -95,6 +99,7 @@ app.post('/:sessionId/message', async (c) => {
     sessionID: sessionId,
     role: 'assistant',
     time: { created: now },
+    status: 'pending',
     parentID: userMessageId,
     modelID: userMessage.model.modelID,
     providerID: userMessage.model.providerID,
@@ -104,41 +109,34 @@ app.post('/:sessionId/message', async (c) => {
     tokens: { input: 0, output: 0, reasoning: 0 },
   };
 
-  // Create agent wrapper
-  const wrapper = new AgentWrapper({
-    workingDir: sessionData.directory,
-    defaultModel: userMessage.model.modelID,
-    defaultAgentName: body.agent ?? 'build',
-  });
+  // Save assistant message to DB with pending status
+  await saveMessage(assistantMessage);
 
   // Load conversation history
-  const messages = await getSessionMessages(sessionId);
-  // Skip the last message (which is the user message we just added)
-  for (const msg of messages.slice(0, -1)) {
-    if (msg.info.role === 'user') {
-      const textPart = msg.parts.find((p) => p.type === 'text');
-      if (textPart && 'text' in textPart) {
-        wrapper.setHistory([
-          ...wrapper.getHistory(),
-          { role: 'user', content: textPart.text },
-        ]);
-      }
-    } else if (msg.info.role === 'assistant') {
-      const textPart = msg.parts.find((p) => p.type === 'text');
-      if (textPart && 'text' in textPart) {
-        wrapper.setHistory([
-          ...wrapper.getHistory(),
-          { role: 'assistant', content: textPart.text },
-        ]);
-      }
+  const messageHistory = await getSessionMessages(sessionId);
+  // Build CoreMessage array from history (skip the last user message we just added)
+  const coreMessages: CoreMessage[] = [];
+  for (const msg of messageHistory.slice(0, -1)) {
+    const textPart = msg.parts.find((p) => p.type === 'text');
+    if (textPart && 'text' in textPart) {
+      coreMessages.push({
+        role: msg.info.role,
+        content: textPart.text,
+      });
     }
   }
+  // Add the current user message
+  coreMessages.push({
+    role: 'user',
+    content: userText,
+  });
+
+  // Create AbortController for this task
+  const abortController = new AbortController();
+  activeTasks.set(sessionId, abortController);
 
   // Stream the response
   return streamSSE(c, async (stream) => {
-    const parts: Array<TextPart | ToolPart> = [];
-    let textContent = '';
-
     try {
       // Publish assistant message created event
       await stream.writeSSE({
@@ -152,11 +150,21 @@ app.post('/:sessionId/message', async (c) => {
         }),
       });
 
-      // Stream agent response
-      for await (const event of wrapper.streamAsync(userText)) {
+      // Stream agent response with database persistence
+      for await (const event of persistedStreamAgent(
+        sessionId,
+        assistantMessageId,
+        coreMessages,
+        {
+          modelId: userMessage.model.modelID,
+          agentName: body.agent ?? 'build',
+          workingDir: sessionData.directory,
+          abortSignal: abortController.signal,
+          sessionId, // For duplicate detection
+        }
+      )) {
         switch (event.type) {
           case 'text':
-            textContent += event.data ?? '';
             await stream.writeSSE({
               event: 'part.updated',
               data: JSON.stringify({
@@ -165,6 +173,21 @@ app.post('/:sessionId/message', async (c) => {
                   sessionID: sessionId,
                   messageID: assistantMessageId,
                   type: 'text',
+                  delta: event.data,
+                },
+              }),
+            });
+            break;
+
+          case 'reasoning':
+            await stream.writeSSE({
+              event: 'part.updated',
+              data: JSON.stringify({
+                type: 'part.updated',
+                properties: {
+                  sessionID: sessionId,
+                  messageID: assistantMessageId,
+                  type: 'reasoning',
                   delta: event.data,
                 },
               }),
@@ -198,6 +221,7 @@ app.post('/:sessionId/message', async (c) => {
                   toolId: event.toolId,
                   toolName: event.toolName,
                   output: event.toolOutput,
+                  cached: event.cached,
                 },
               }),
             });
@@ -218,27 +242,6 @@ app.post('/:sessionId/message', async (c) => {
             break;
         }
       }
-
-      // Create text part
-      if (textContent) {
-        parts.push({
-          id: generateId('part_'),
-          sessionID: sessionId,
-          messageID: assistantMessageId,
-          type: 'text',
-          text: textContent,
-        });
-      }
-
-      // Update assistant message time
-      assistantMessage.time.completed = Date.now();
-
-      // Store assistant message
-      const assistantMessageWithParts: MessageWithParts = {
-        info: assistantMessage,
-        parts,
-      };
-      appendSessionMessage(sessionId, assistantMessageWithParts);
     } catch (error) {
       await stream.writeSSE({
         event: 'error',
@@ -250,8 +253,28 @@ app.post('/:sessionId/message', async (c) => {
           },
         }),
       });
+    } finally {
+      // Clean up AbortController
+      activeTasks.delete(sessionId);
     }
   });
+});
+
+// Abort a running message stream
+app.post('/:sessionId/abort', async (c) => {
+  const sessionId = c.req.param('sessionId');
+
+  // Check if session has an active task
+  const abortController = activeTasks.get(sessionId);
+  if (!abortController) {
+    return c.json({ error: 'No active task found for this session' }, 404);
+  }
+
+  // Abort the task
+  abortController.abort();
+  activeTasks.delete(sessionId);
+
+  return c.json({ success: true, message: 'Task aborted successfully' });
 });
 
 // List messages for a session
