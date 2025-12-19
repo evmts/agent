@@ -1,6 +1,7 @@
 ---
 import { ClientRouter } from "astro:transitions";
 import Footer from "../components/Footer.astro";
+import ReloadPrompt from "../components/ReloadPrompt.astro";
 
 interface Props {
   title: string;
@@ -29,6 +30,7 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || "http://localhost
       <slot />
       <Footer />
     </div>
+    <ReloadPrompt />
   </body>
 </html>
 
