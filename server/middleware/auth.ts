@@ -1,4 +1,5 @@
 import { Context, Next } from 'hono';
+import { getCookie, setCookie } from 'hono/cookie';
 import { getSession, refreshSession } from '../lib/session';
 import sql from '../../db/client';
 
@@ -25,7 +26,7 @@ const SESSION_COOKIE_NAME = 'plue_session';
  * Does not require authentication, just loads if present
  */
 export async function authMiddleware(c: Context, next: Next) {
-  const sessionKey = c.req.cookie(SESSION_COOKIE_NAME);
+  const sessionKey = getCookie(c, SESSION_COOKIE_NAME);
 
   if (!sessionKey) {
     c.set('user', null);
@@ -133,7 +134,7 @@ export async function requireAdmin(c: Context, next: Next) {
  * Helper to set session cookie
  */
 export function setSessionCookie(c: Context, sessionKey: string) {
-  c.cookie(SESSION_COOKIE_NAME, sessionKey, {
+  setCookie(c, SESSION_COOKIE_NAME, sessionKey, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'Lax',
@@ -146,7 +147,7 @@ export function setSessionCookie(c: Context, sessionKey: string) {
  * Helper to clear session cookie
  */
 export function clearSessionCookie(c: Context) {
-  c.cookie(SESSION_COOKIE_NAME, '', {
+  setCookie(c, SESSION_COOKIE_NAME, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'Lax',

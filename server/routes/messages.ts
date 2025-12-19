@@ -5,12 +5,20 @@
  * This is a stub implementation to resolve import errors.
  */
 
+import { Hono } from 'hono';
 import type { MessageWithParts } from '../../core/state';
 import { saveMessage } from '../../db/agent-state';
 
 // Re-export for compatibility
 export { saveMessage };
 export type { MessageWithParts };
+
+const app = new Hono();
+
+// Placeholder route
+app.get('/health', (c) => {
+  return c.json({ status: 'ok' });
+});
 
 /**
  * Placeholder for message route handlers.
@@ -37,3 +45,5 @@ export async function handleUpdateMessage(messageId: string, updates: Partial<Me
   // Placeholder implementation
   console.log('Message update requested:', messageId, updates);
 }
+
+export default app;

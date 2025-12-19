@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { getCookie } from 'hono/cookie';
 import { createHash } from 'crypto';
 import {
   registerSchema,
@@ -238,7 +239,7 @@ app.post('/login', authRateLimit, zValidator('json', loginSchema), async (c) => 
  */
 app.post('/logout', async (c) => {
   try {
-    const sessionKey = c.req.cookie('plue_session');
+    const sessionKey = getCookie(c, 'plue_session');
 
     if (sessionKey) {
       await deleteSession(sessionKey);
