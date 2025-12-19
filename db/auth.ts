@@ -184,7 +184,7 @@ export async function getUserByEmail(email: string) {
 
 export async function getUserById(userId: number) {
   const rows = await sql`
-    SELECT id, username, email, display_name, bio, avatar_url, is_admin, is_active, created_at
+    SELECT id, username, email, display_name, bio, avatar_url, is_admin, is_active, created_at, password_hash
     FROM users
     WHERE id = ${userId}
   `;
@@ -204,7 +204,7 @@ export async function updateUserProfile(userId: number, updates: {
       bio = COALESCE(${updates.bio || null}, bio),
       avatar_url = COALESCE(${updates.avatar_url || null}, avatar_url)
     WHERE id = ${userId}
-    RETURNING id, username, email, display_name, bio, avatar_url, is_admin, is_admin, created_at
+    RETURNING id, username, email, display_name, bio, avatar_url, is_admin, is_active, created_at
   `;
 
   return rows[0] || null;
