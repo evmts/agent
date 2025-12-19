@@ -9,8 +9,8 @@
     "preview": "astro preview",
     "start": "astro dev",
     "check": "astro check --minimumFailingSeverity error",
-    "lint": "eslint . --ext .js,.ts,.astro --max-warnings 0 --fix",
-    "lint:check": "eslint . --ext .js,.ts,.astro --max-warnings 0",
+    "lint": "eslint . --max-warnings 0 --fix",
+    "lint:check": "eslint . --max-warnings 0",
     "type-check": "astro check --minimumFailingSeverity error && tsc --noEmit",
     "db:migrate": "node -e \"console.log('Database migration placeholder')\"",
     "postinstall": "astro sync"
@@ -33,6 +33,8 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.6",
+    "@types/bun": "^1.3.5",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
