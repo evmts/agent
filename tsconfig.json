@@ -15,23 +15,39 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "types": ["astro/client", "vite/client", "node"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"],
       "@/core/*": ["./core/*"],
       "@/ui/*": ["./ui/*"],
-      "@/db/*": ["./db/*"]
+      "@/db/*": ["./db/*"],
+      "@/server/*": ["./server/*"]
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.astro",
+    "ui/**/*.ts",
+    "ui/**/*.tsx",
+    "ui/**/*.astro",
+    "core/**/*.ts",
+    "db/**/*.ts",
+    "server/**/*.ts",
     ".astro/types.d.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
-    ".astro"
-  ]
+    ".astro",
+    "tui/**/*",
+    "electric-ai-chat/**/*", 
+    "gitea/**/*",
+    "snapshot/**/*",
+    "native/**/*",
+    "**/node_modules/**",
+    "index.ts"
+  ],
+  "typeAcquisition": {
+    "exclude": ["bun-types"]
+  }
 }

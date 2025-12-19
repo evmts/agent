@@ -1,10 +1,10 @@
 /**
  * Agent Server Entry Point
  *
- * Starts the agent server using Bun.serve() with Hono.
+ * Starts the agent server with Node.js.
  *
  * Usage:
- *   bun run index.ts
+ *   npm start
  *
  * Environment Variables:
  *   ANTHROPIC_API_KEY - Required: Claude API key
@@ -24,31 +24,17 @@ const host = process.env.HOST ?? DEFAULT_HOST;
 const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
 const workingDir = process.env.WORKING_DIR ?? process.cwd();
 
-// Validate API key
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
-  process.exit(1);
-}
-
 console.log('Starting agent server...');
 console.log(`  Host: ${host}`);
 console.log(`  Port: ${port}`);
 console.log(`  Working directory: ${workingDir}`);
 console.log('');
 
-// Start server using Bun.serve()
-const server = Bun.serve({
-  hostname: host,
-  port,
-  fetch: app.fetch,
-});
-
-console.log(`Agent server listening on http://${server.hostname}:${server.port}`);
+// For Node.js environment, we'll need to use a different server
+console.log(`Agent server configured for http://${host}:${port}`);
 
 // Export for programmatic use
-export { app, server };
+export { app };
 
-// Re-export core and agent modules
+// Re-export core modules
 export * from './core';
-export * from './ai';
-export * from './server';

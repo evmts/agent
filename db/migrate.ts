@@ -1,9 +1,10 @@
+import { readFileSync } from 'fs';
 import sql from "./client";
 
 async function migrate() {
   console.log("Running migrations...");
 
-  const schema = await Bun.file("./db/schema.sql").text();
+  const schema = readFileSync("./db/schema.sql", "utf-8");
 
   // Split by semicolons and run each statement
   const statements = schema

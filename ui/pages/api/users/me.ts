@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserBySession, updateUserProfile } from '../../../lib/auth-helpers';
+import { getUserBySession } from '../../../lib/auth-helpers';
 import { getUserById, updateUserProfile as dbUpdateUserProfile } from '../../../../db/auth';
 
 export const GET: APIRoute = async ({ request }) => {
