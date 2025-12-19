@@ -64,6 +64,7 @@ const [{ count: prCount }] = await sql`
       Pull Requests
       {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
     </a>
+    <a href={`/${username}/${reponame}/branches`}>Branches</a>
     <a href={`/${username}/${reponame}/commits/${defaultBranch}`}>Commits</a>
   </nav>
 
