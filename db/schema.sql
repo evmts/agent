@@ -1,18 +1,104 @@
 -- Plue Database Schema
 
--- Users (seeded, no auth)
+-- Users table with authentication
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(255) UNIQUE NOT NULL,
+  lower_username VARCHAR(255) UNIQUE NOT NULL, -- for case-insensitive lookups
+  email VARCHAR(255) UNIQUE NOT NULL,
+  lower_email VARCHAR(255) UNIQUE NOT NULL, -- for case-insensitive lookups
+
+  -- Display info
   display_name VARCHAR(255),
   bio TEXT,
+  avatar_url VARCHAR(2048),
+
+  -- Authentication
+  password_hash VARCHAR(255) NOT NULL,
+  password_algo VARCHAR(50) NOT NULL DEFAULT 'argon2id',
+  salt VARCHAR(64) NOT NULL,
+
+  -- Account status
+  is_active BOOLEAN NOT NULL DEFAULT false, -- email verified
+  is_admin BOOLEAN NOT NULL DEFAULT false,
+  prohibit_login BOOLEAN NOT NULL DEFAULT false,
+  must_change_password BOOLEAN NOT NULL DEFAULT false,
+
+  -- Timestamps
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  last_login_at TIMESTAMP
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_users_lower_username ON users(lower_username);
+CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(lower_email);
+CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
+
+-- Email addresses (supports multiple per user)
+CREATE TABLE IF NOT EXISTS email_addresses (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email VARCHAR(255) NOT NULL,
+  lower_email VARCHAR(255) NOT NULL,
+  is_activated BOOLEAN NOT NULL DEFAULT false,
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(email),
+  UNIQUE(lower_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_addresses_user_id ON email_addresses(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_addresses_lower_email ON email_addresses(lower_email);
+
+-- Auth sessions (for cookie-based authentication)
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  session_key VARCHAR(64) PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  data BYTEA,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);
+
+-- Access tokens for API authentication
+CREATE TABLE IF NOT EXISTS access_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL, -- user-defined name
+  token_hash VARCHAR(64) UNIQUE NOT NULL, -- sha256 hash
+  token_last_eight VARCHAR(8) NOT NULL, -- for display
+  scopes VARCHAR(512) NOT NULL DEFAULT 'all', -- comma-separated
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  last_used_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_access_tokens_token_hash ON access_tokens(token_hash);
+
+-- Email verification tokens
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email VARCHAR(255) NOT NULL,
+  token_hash VARCHAR(64) UNIQUE NOT NULL,
+  token_type VARCHAR(20) NOT NULL CHECK (token_type IN ('activate', 'reset_password')),
+  expires_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_token_hash ON email_verification_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires_at ON email_verification_tokens(expires_at);
 
 -- Repositories
 CREATE TABLE IF NOT EXISTS repositories (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   name VARCHAR(255) NOT NULL,
   description TEXT,
   is_public BOOLEAN DEFAULT true,
@@ -26,7 +112,7 @@ CREATE TABLE IF NOT EXISTS repositories (
 CREATE TABLE IF NOT EXISTS issues (
   id SERIAL PRIMARY KEY,
   repository_id INTEGER REFERENCES repositories(id) ON DELETE CASCADE,
-  author_id INTEGER REFERENCES users(id),
+  author_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   issue_number INTEGER NOT NULL,
   title VARCHAR(512) NOT NULL,
   body TEXT,
@@ -41,7 +127,7 @@ CREATE TABLE IF NOT EXISTS issues (
 CREATE TABLE IF NOT EXISTS comments (
   id SERIAL PRIMARY KEY,
   issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
-  author_id INTEGER REFERENCES users(id),
+  author_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   body TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -172,12 +258,19 @@ CREATE TABLE IF NOT EXISTS file_trackers (
 CREATE INDEX IF NOT EXISTS idx_file_trackers_session ON file_trackers(session_id);
 
 -- =============================================================================
--- Seed Data
+-- Seed Data (with temporary passwords for existing users)
 -- =============================================================================
 
--- Seed mock users
-INSERT INTO users (username, display_name, bio) VALUES
-  ('evilrabbit', 'Evil Rabbit', 'Building dark things'),
-  ('ghost', 'Ghost', 'Spectral presence'),
-  ('null', 'Null', 'Exception handler')
-ON CONFLICT (username) DO NOTHING;
+-- Seed mock users with auth fields
+INSERT INTO users (username, lower_username, email, lower_email, display_name, bio, password_hash, password_algo, salt, is_active) VALUES
+  ('evilrabbit', 'evilrabbit', 'evilrabbit@plue.local', 'evilrabbit@plue.local', 'Evil Rabbit', 'Building dark things', 'temp_hash', 'argon2id', 'temp_salt', false),
+  ('ghost', 'ghost', 'ghost@plue.local', 'ghost@plue.local', 'Ghost', 'Spectral presence', 'temp_hash', 'argon2id', 'temp_salt', false),
+  ('null', 'null', 'null@plue.local', 'null@plue.local', 'Null', 'Exception handler', 'temp_hash', 'argon2id', 'temp_salt', false)
+ON CONFLICT (username) DO UPDATE SET
+  lower_username = EXCLUDED.lower_username,
+  email = EXCLUDED.email,
+  lower_email = EXCLUDED.lower_email,
+  password_hash = EXCLUDED.password_hash,
+  password_algo = EXCLUDED.password_algo,
+  salt = EXCLUDED.salt,
+  is_active = EXCLUDED.is_active;
