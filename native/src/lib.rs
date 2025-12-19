@@ -12,7 +12,6 @@ use jj_lib::object_id::ObjectId;
 use jj_lib::repo::{ReadonlyRepo, Repo, StoreFactories};
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, Workspace};
-use pollster::FutureExt;
 
 /// Commit information returned to JavaScript
 #[napi(object)]
