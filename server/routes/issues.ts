@@ -6,7 +6,20 @@
  */
 
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
+import {
+  createIssueSchema,
+  updateIssueSchema,
+  createCommentSchema,
+  updateCommentSchema,
+  createLabelSchema,
+  addLabelsSchema,
+  dependencySchema,
+  addAssigneeSchema,
+  addReactionSchema,
+} from "../lib/validation";
 import {
   listIssues,
   getIssue,
@@ -104,18 +117,10 @@ app.get("/:user/:repo/issues/:number", async (c) => {
 });
 
 // Create a new issue
-app.post("/:user/:repo/issues", requireAuth, async (c) => {
+app.post("/:user/:repo/issues", requireAuth, zValidator("json", createIssueSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
-  const body = await c.req.json();
-
-  if (!body.title) {
-    return c.json({ error: "Title is required" }, 400);
-  }
-
-  if (!body.author || !body.author.id || !body.author.username) {
-    return c.json({ error: "Author with id and username is required" }, 400);
-  }
+  const body = c.req.valid("json");
 
   try {
     await ensureIssuesRepo(user, repo);
@@ -138,11 +143,11 @@ app.post("/:user/:repo/issues", requireAuth, async (c) => {
 });
 
 // Update an issue
-app.patch("/:user/:repo/issues/:number", requireAuth, async (c) => {
+app.patch("/:user/:repo/issues/:number", requireAuth, zValidator("json", updateIssueSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number)) {
     return c.json({ error: "Invalid issue number" }, 400);
@@ -152,7 +157,6 @@ app.patch("/:user/:repo/issues/:number", requireAuth, async (c) => {
     const issue = await updateIssue(user, repo, number, {
       title: body.title,
       body: body.body,
-      state: body.state,
       labels: body.labels,
       assignees: body.assignees,
       milestone: body.milestone,
@@ -306,22 +310,14 @@ app.get("/:user/:repo/issues/:number/comments", async (c) => {
 });
 
 // Add a comment to an issue
-app.post("/:user/:repo/issues/:number/comments", requireAuth, async (c) => {
+app.post("/:user/:repo/issues/:number/comments", requireAuth, zValidator("json", createCommentSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number)) {
     return c.json({ error: "Invalid issue number" }, 400);
-  }
-
-  if (!body.body) {
-    return c.json({ error: "Comment body is required" }, 400);
-  }
-
-  if (!body.author || !body.author.id || !body.author.username) {
-    return c.json({ error: "Author with id and username is required" }, 400);
   }
 
   try {
@@ -343,12 +339,12 @@ app.post("/:user/:repo/issues/:number/comments", requireAuth, async (c) => {
 });
 
 // Update a comment
-app.patch("/:user/:repo/issues/:number/comments/:commentId", requireAuth, async (c) => {
+app.patch("/:user/:repo/issues/:number/comments/:commentId", requireAuth, zValidator("json", updateCommentSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
   const commentId = parseInt(c.req.param("commentId"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number)) {
     return c.json({ error: "Invalid issue number" }, 400);
@@ -356,10 +352,6 @@ app.patch("/:user/:repo/issues/:number/comments/:commentId", requireAuth, async 
 
   if (isNaN(commentId)) {
     return c.json({ error: "Invalid comment ID" }, 400);
-  }
-
-  if (!body.body) {
-    return c.json({ error: "Comment body is required" }, 400);
   }
 
   try {
@@ -472,24 +464,15 @@ app.get("/:user/:repo/labels", async (c) => {
 });
 
 // Create a new label
-app.post("/:user/:repo/labels", requireAuth, async (c) => {
+app.post("/:user/:repo/labels", requireAuth, zValidator("json", createLabelSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
-  const body = await c.req.json();
-
-  if (!body.name || !body.color) {
-    return c.json({ error: "Name and color are required" }, 400);
-  }
-
-  // Validate color format (hex)
-  if (!/^#[0-9A-Fa-f]{6}$/.test(body.color)) {
-    return c.json({ error: "Color must be a valid hex color (e.g., #ff0000)" }, 400);
-  }
+  const body = c.req.valid("json");
 
   try {
     await createLabel(user, repo, {
       name: body.name,
-      color: body.color,
+      color: `#${body.color}`,
       description: body.description,
     });
 
@@ -554,18 +537,14 @@ app.delete("/:user/:repo/labels/:name", requireAuth, async (c) => {
 });
 
 // Add labels to an issue
-app.post("/:user/:repo/issues/:number/labels", requireAuth, async (c) => {
+app.post("/:user/:repo/issues/:number/labels", requireAuth, zValidator("json", addLabelsSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number)) {
     return c.json({ error: "Invalid issue number" }, 400);
-  }
-
-  if (!Array.isArray(body.labels) || body.labels.length === 0) {
-    return c.json({ error: "Labels array is required" }, 400);
   }
 
   try {
@@ -632,18 +611,14 @@ app.get("/:user/:repo/issues/:number/assignees", async (c) => {
 });
 
 // Add an assignee to an issue
-app.post("/:user/:repo/issues/:number/assignees", requireAuth, async (c) => {
+app.post("/:user/:repo/issues/:number/assignees", requireAuth, zValidator("json", addAssigneeSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number)) {
     return c.json({ error: "Invalid issue number" }, 400);
-  }
-
-  if (!body.username) {
-    return c.json({ error: "Username is required" }, 400);
   }
 
   try {
@@ -760,18 +735,14 @@ app.get("/:user/:repo/issues/:number/reactions", async (c) => {
 });
 
 // Add a reaction to an issue
-app.post("/:user/:repo/issues/:number/reactions", requireAuth, async (c) => {
+app.post("/:user/:repo/issues/:number/reactions", requireAuth, zValidator("json", addReactionSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number)) {
     return c.json({ error: "Invalid issue number" }, 400);
-  }
-
-  if (!body.user_id || !body.emoji) {
-    return c.json({ error: "user_id and emoji are required" }, 400);
   }
 
   try {
@@ -896,19 +867,15 @@ app.get("/:user/:repo/issues/:number/comments/:commentId/reactions", async (c) =
 });
 
 // Add a reaction to a comment
-app.post("/:user/:repo/issues/:number/comments/:commentId/reactions", requireAuth, async (c) => {
+app.post("/:user/:repo/issues/:number/comments/:commentId/reactions", requireAuth, zValidator("json", addReactionSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
   const commentId = parseInt(c.req.param("commentId"), 10);
-  const body = await c.req.json();
+  const body = c.req.valid("json");
 
   if (isNaN(number) || isNaN(commentId)) {
     return c.json({ error: "Invalid issue or comment number" }, 400);
-  }
-
-  if (!body.user_id || !body.emoji) {
-    return c.json({ error: "user_id and emoji are required" }, 400);
   }
 
   try {

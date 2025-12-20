@@ -1,20 +1,11 @@
 import { Hono } from 'hono';
 import { createHash, randomBytes } from 'crypto';
+import { zValidator } from '@hono/zod-validator';
 import { requireAuth, requireActiveAccount } from '../middleware/auth';
 import { sql } from '../../db/client';
+import { createAccessTokenSchema } from '../lib/validation';
 
 const app = new Hono();
-
-// Validate scopes
-const VALID_SCOPES = ['repo', 'user', 'admin'];
-
-function validateScopes(scopes: string[]): boolean {
-  if (!Array.isArray(scopes) || scopes.length === 0) {
-    return false;
-  }
-
-  return scopes.every(scope => VALID_SCOPES.includes(scope));
-}
 
 // GET /user/tokens - List current user's access tokens
 app.get('/', requireAuth, requireActiveAccount, async (c) => {
@@ -37,28 +28,9 @@ app.get('/', requireAuth, requireActiveAccount, async (c) => {
 });
 
 // POST /user/tokens - Create new access token
-app.post('/', requireAuth, requireActiveAccount, async (c) => {
+app.post('/', requireAuth, requireActiveAccount, zValidator('json', createAccessTokenSchema), async (c) => {
   const user = c.get('user');
-
-  let body;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-
-  const { name, scopes } = body;
-
-  // Validate input
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    return c.json({ error: 'Token name is required' }, 400);
-  }
-
-  if (!validateScopes(scopes)) {
-    return c.json({
-      error: `Invalid scopes. Valid scopes are: ${VALID_SCOPES.join(', ')}`
-    }, 400);
-  }
+  const { name, scopes } = c.req.valid('json');
 
   // Generate random token (32 bytes = 64 hex characters)
   const token = randomBytes(32).toString('hex');

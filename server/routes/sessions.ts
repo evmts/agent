@@ -3,6 +3,7 @@
  */
 
 import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
 import { requireAuth, requireActiveAccount } from '../middleware/auth';
 import {
   createSession,
@@ -30,6 +31,13 @@ import {
 } from '../../core/snapshots';
 import { NotFoundError, InvalidOperationError } from '../../core/exceptions';
 import { getServerEventBus } from '../event-bus';
+import {
+  createSessionSchema,
+  updateSessionSchema,
+  forkSessionSchema,
+  revertSessionSchema,
+  undoTurnsSchema,
+} from '../lib/validation';
 
 const app = new Hono();
 
@@ -43,8 +51,8 @@ app.get('/', async (c) => {
 });
 
 // Create a new session
-app.post('/', async (c) => {
-  const body = await c.req.json();
+app.post('/', zValidator('json', createSessionSchema), async (c) => {
+  const body = c.req.valid('json');
   const eventBus = getServerEventBus();
 
   const session = await createSession(
@@ -79,9 +87,9 @@ app.get('/:sessionId', async (c) => {
 });
 
 // Update a session
-app.patch('/:sessionId', async (c) => {
+app.patch('/:sessionId', zValidator('json', updateSessionSchema), async (c) => {
   const sessionId = c.req.param('sessionId');
-  const body = await c.req.json();
+  const body = c.req.valid('json');
   const eventBus = getServerEventBus();
 
   try {
@@ -152,9 +160,9 @@ app.get('/:sessionId/diff', async (c) => {
 });
 
 // Fork a session
-app.post('/:sessionId/fork', async (c) => {
+app.post('/:sessionId/fork', zValidator('json', forkSessionSchema), async (c) => {
   const sessionId = c.req.param('sessionId');
-  const body = await c.req.json();
+  const body = c.req.valid('json');
   const eventBus = getServerEventBus();
 
   try {
@@ -174,9 +182,9 @@ app.post('/:sessionId/fork', async (c) => {
 });
 
 // Revert a session
-app.post('/:sessionId/revert', async (c) => {
+app.post('/:sessionId/revert', zValidator('json', revertSessionSchema), async (c) => {
   const sessionId = c.req.param('sessionId');
-  const body = await c.req.json();
+  const body = c.req.valid('json');
   const eventBus = getServerEventBus();
 
   try {
@@ -215,9 +223,9 @@ app.post('/:sessionId/unrevert', async (c) => {
 });
 
 // Undo turns
-app.post('/:sessionId/undo', async (c) => {
+app.post('/:sessionId/undo', zValidator('json', undoTurnsSchema), async (c) => {
   const sessionId = c.req.param('sessionId');
-  const body = await c.req.json();
+  const body = c.req.valid('json');
   const eventBus = getServerEventBus();
 
   try {

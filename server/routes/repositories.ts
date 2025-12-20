@@ -3,7 +3,9 @@
  */
 
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import { sql } from "../../ui/lib/db";
+import { updateTopicsSchema } from "../lib/validation";
 
 const app = new Hono();
 
@@ -40,29 +42,13 @@ app.get("/:user/:repo/topics", async (c) => {
 });
 
 // Update repository topics
-app.put("/:user/:repo/topics", async (c) => {
+app.put("/:user/:repo/topics", zValidator("json", updateTopicsSchema), async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
-  const body = await c.req.json();
+  const { topics } = c.req.valid("json");
 
-  if (!Array.isArray(body.topics)) {
-    return c.json({ error: "Topics must be an array" }, 400);
-  }
-
-  // Validate topics: max 20 topics, each max 35 chars, alphanumeric + hyphens
-  const topics = body.topics.slice(0, 20).map((t: string) =>
-    t.toLowerCase().trim().slice(0, 35)
-  );
-
-  const invalidTopic = topics.find((t: string) => !/^[a-z0-9-]+$/.test(t));
-  if (invalidTopic) {
-    return c.json(
-      {
-        error: `Invalid topic "${invalidTopic}". Topics must contain only lowercase letters, numbers, and hyphens.`,
-      },
-      400
-    );
-  }
+  // Normalize topics to lowercase
+  const normalizedTopics = topics.map((t: string) => t.toLowerCase().trim());
 
   try {
     const [userRecord] = await sql`
@@ -75,7 +61,7 @@ app.put("/:user/:repo/topics", async (c) => {
 
     const [repository] = await sql`
       UPDATE repositories
-      SET topics = ${topics}, updated_at = NOW()
+      SET topics = ${normalizedTopics}, updated_at = NOW()
       WHERE user_id = ${userRecord.id} AND name = ${repo}
       RETURNING topics
     `;

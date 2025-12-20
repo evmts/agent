@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { createHash } from 'crypto';
+import { zValidator } from '@hono/zod-validator';
 import { requireAuth, requireActiveAccount } from '../middleware/auth';
 import { sql } from '../../db/client';
+import { createSshKeySchema } from '../lib/validation';
 
 const app = new Hono();
 
@@ -20,12 +22,6 @@ function parseKeyType(publicKey: string): string {
   return parts[0];
 }
 
-function validatePublicKey(publicKey: string): boolean {
-  const validKeyTypes = ['ssh-rsa', 'ssh-ed25519', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521'];
-  const keyType = parseKeyType(publicKey);
-  return validKeyTypes.includes(keyType);
-}
-
 // GET /ssh-keys - List current user's SSH keys
 app.get('/', requireAuth, requireActiveAccount, async (c) => {
   const user = c.get('user');
@@ -41,33 +37,9 @@ app.get('/', requireAuth, requireActiveAccount, async (c) => {
 });
 
 // POST /ssh-keys - Add new SSH key
-app.post('/', requireAuth, requireActiveAccount, async (c) => {
+app.post('/', requireAuth, requireActiveAccount, zValidator('json', createSshKeySchema), async (c) => {
   const user = c.get('user');
-
-  let body;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
-  }
-
-  const { name, publicKey } = body;
-
-  // Validate input
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    return c.json({ error: 'Name is required' }, 400);
-  }
-
-  if (!publicKey || typeof publicKey !== 'string') {
-    return c.json({ error: 'Public key is required' }, 400);
-  }
-
-  // Validate public key format
-  if (!validatePublicKey(publicKey)) {
-    return c.json({
-      error: 'Invalid public key format. Must start with ssh-rsa, ssh-ed25519, or ecdsa-sha2-nistp*'
-    }, 400);
-  }
+  const { name, publicKey } = c.req.valid('json');
 
   // Calculate fingerprint and key type
   let fingerprint: string;
