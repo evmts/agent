@@ -41,6 +41,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Rust build artifacts
 native/target
+snapshot/target
+snapshot/*.node
 
 # Reference code (not part of project)
 gitea/
