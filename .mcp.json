@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "zig-docs": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": ["zig-mcp@latest"],
+      "env": {}
+    }
+  }
+}
