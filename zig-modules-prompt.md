@@ -11,10 +11,13 @@ Plue is a GitHub clone with an integrated AI agent system. The server runs on Bu
 2. **JWT Library** - Token signing/verification (currently uses `jose` npm package)
 3. **Rate Limiter** - Request rate limiting (currently in-memory TypeScript)
 
-Existing Zig modules have been created in this codebase:
-- `zig-webui/` - Native desktop window (uses zig-webui library)
-- `zig-grep/` - Text search with glob matching
-- `zig-pty/` - PTY session management
+Existing Zig modules have been created in this codebase (all in `tools/`):
+- `tools/webui/` - Native desktop window (uses zig-webui library)
+- `tools/grep/` - Text search with glob matching
+- `tools/pty/` - PTY session management
+- `tools/jwt/` - JWT signing/verification (HS256)
+- `tools/ratelimit/` - In-memory rate limiting
+- `tools/ssh/` - SSH server for Git operations (libssh)
 
 All modules follow the same pattern: Zig shared library with C-compatible exports, called via Bun FFI.
 </context>
@@ -32,8 +35,8 @@ All modules follow the same pattern: Zig shared library with C-compatible export
 
 <technical_spec>
 ```
-Location: /zig-ssh/
-Dependencies: libssh2 (via C interop)
+Location: /tools/ssh/
+Dependencies: libssh (via C interop)
 Exports: C-compatible functions for Bun FFI
 
 Key Functions:
@@ -97,7 +100,7 @@ exe.linkLibC();
 
 <technical_spec>
 ```
-Location: /zig-jwt/
+Location: /tools/jwt/
 Dependencies: None (use Zig std crypto)
 Exports: C-compatible functions for Bun FFI
 
@@ -165,7 +168,7 @@ const base64url = std.base64.url_safe_no_pad;
 
 <technical_spec>
 ```
-Location: /zig-ratelimit/
+Location: /tools/ratelimit/
 Dependencies: None
 Exports: C-compatible functions for Bun FFI
 
@@ -224,7 +227,7 @@ const Entry = struct {
 <project_structure>
 Each module should follow this structure:
 ```
-zig-{module}/
+tools/{module}/
 ├── build.zig           # Build configuration
 ├── build.zig.zon       # Package manifest
 ├── src/
@@ -283,7 +286,7 @@ After building the Zig library, integrate with Bun like this:
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import { join } from "path";
 
-const libPath = join(import.meta.dirname, "zig-jwt/zig-out/lib/libplue_jwt.dylib");
+const libPath = join(import.meta.dirname, "tools/jwt/zig-out/lib/libplue_jwt.dylib");
 
 const lib = dlopen(libPath, {
   jwt_init: {
@@ -363,7 +366,10 @@ Performance targets:
 
 <existing_code_reference>
 Reference these existing Zig modules for patterns:
-- `zig-grep/src/lib.zig` - Example of search with C exports
-- `zig-pty/src/lib.zig` - Example of system calls with C exports
-- `zig-webui/src/main.zig` - Example of external library integration
+- `tools/grep/src/lib.zig` - Example of search with C exports
+- `tools/pty/src/lib.zig` - Example of system calls with C exports
+- `tools/webui/src/main.zig` - Example of external library integration
+- `tools/jwt/src/lib.zig` - Example of crypto with C exports
+- `tools/ratelimit/src/lib.zig` - Example of thread-safe data structures
+- `tools/ssh/src/lib.zig` - Example of libssh integration
 </existing_code_reference>

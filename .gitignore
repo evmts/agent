@@ -40,9 +40,14 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cursor
 
 # Rust build artifacts
-native/target
+tools/native/target
 snapshot/target
 snapshot/*.node
+
+# Zig build artifacts
+tools/*/zig-out/
+tools/*/.zig-cache/
+tools/*/zig-cache/
 
 # Reference code (not part of project)
 gitea/

@@ -1,9 +1,0 @@
-# Downloaded WebUI library
-lib/
-!lib/.gitkeep
-
-# Node modules
-node_modules/
-
-# Bun lock file (if separate from root)
-bun.lock
