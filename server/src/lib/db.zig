@@ -67,8 +67,8 @@ pub fn createSession(
     var key_bytes: [32]u8 = undefined;
     std.crypto.random.bytes(&key_bytes);
 
-    const session_key = try std.fmt.allocPrint(allocator, "{}", .{
-        std.fmt.fmtSliceHexLower(&key_bytes),
+    const session_key = try std.fmt.allocPrint(allocator, "{s}", .{
+        &std.fmt.bytesToHex(key_bytes, .lower),
     });
 
     // Session expiration time

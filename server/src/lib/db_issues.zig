@@ -1023,7 +1023,7 @@ pub fn deleteMilestone(pool: *Pool, repo_id: i64, milestone_id: i64) !bool {
     const result = try pool.exec(
         \\DELETE FROM milestones WHERE id = $1 AND repository_id = $2
     , .{ milestone_id, repo_id });
-    return result > 0;
+    return if (result) |r| r > 0 else false;
 }
 
 pub fn assignMilestoneToIssue(pool: *Pool, repo_id: i64, issue_number: i64, milestone_id: i64) !void {
