@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const httpz = @import("httpz");
+const primitives = @import("primitives");
 const Context = @import("../main.zig").Context;
 const db = @import("../lib/db.zig");
 const siwe = @import("../lib/siwe.zig");
