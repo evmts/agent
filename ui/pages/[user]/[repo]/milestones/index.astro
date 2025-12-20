@@ -1,0 +1,387 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository, Milestone } from "../../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+const state = Astro.url.searchParams.get("state") || "open";
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get milestones with issue counts
+let milestones;
+if (state === "all") {
+  milestones = await sql<Milestone[]>`
+    SELECT m.*,
+      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open')::int as open_issues,
+      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed')::int as closed_issues
+    FROM milestones m
+    WHERE m.repository_id = ${repo.id}
+    ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+  `;
+} else {
+  milestones = await sql<Milestone[]>`
+    SELECT m.*,
+      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open')::int as open_issues,
+      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed')::int as closed_issues
+    FROM milestones m
+    WHERE m.repository_id = ${repo.id} AND m.state = ${state}
+    ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+  `;
+}
+
+// Count milestones by state
+const [counts] = await sql<{open: number, closed: number}[]>`
+  SELECT
+    COUNT(*) FILTER (WHERE state = 'open')::int as open,
+    COUNT(*) FILTER (WHERE state = 'closed')::int as closed
+  FROM milestones
+  WHERE repository_id = ${repo.id}
+`;
+
+// Count pending landing requests
+let landingCount = 0;
+try {
+  const [result] = await sql`
+    SELECT COUNT(*) as count
+    FROM landing_queue
+    WHERE repository_id = ${repo.id} AND status = 'pending'
+  `;
+  landingCount = result?.count || 0;
+} catch {
+  // landing_queue table may not exist yet
+}
+
+// Get open issue count
+const [issueCount] = await sql`
+  SELECT COUNT(*) as count
+  FROM issues
+  WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+let error = "";
+let showCreateForm = false;
+
+if (Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+  const action = formData.get("action") as string;
+
+  if (action === "create") {
+    const title = (formData.get("title") as string)?.trim();
+    const description = (formData.get("description") as string)?.trim();
+    const due_date = (formData.get("due_date") as string)?.trim();
+
+    if (!title) {
+      error = "Title is required";
+    } else {
+      try {
+        await sql`
+          INSERT INTO milestones (repository_id, title, description, due_date)
+          VALUES (${repo.id}, ${title}, ${description || null}, ${due_date || null})
+        `;
+        return Astro.redirect(Astro.url.pathname);
+      } catch (e) {
+        error = (e as Error).message;
+      }
+    }
+  } else if (action === "show_form") {
+    showCreateForm = true;
+  }
+}
+
+function formatDate(date: string | Date | null): string {
+  if (!date) return "";
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function calculateProgress(open: number, closed: number): number {
+  const total = open + closed;
+  if (total === 0) return 0;
+  return Math.round((closed / total) * 100);
+}
+---
+
+<Layout title={`Milestones · ${username}/${reponame} · plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">milestones</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {issueCount.count > 0 && <span class="badge">{issueCount.count}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {landingCount > 0 && <span class="badge">{landingCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/milestones`} class="active">Milestones</a>
+  </nav>
+
+  <div class="container">
+    <div class="flex-between mb-3">
+      <h1 class="page-title">Milestones</h1>
+      <form method="POST">
+        <input type="hidden" name="action" value="show_form" />
+        <button type="submit" class="btn btn-primary">New milestone</button>
+      </form>
+    </div>
+
+    {showCreateForm && (
+      <div class="card mb-3">
+        <h2 class="mb-2">Create milestone</h2>
+
+        {error && (
+          <div class="error-banner mb-2">
+            {error}
+          </div>
+        )}
+
+        <form method="POST">
+          <input type="hidden" name="action" value="create" />
+
+          <div class="form-group">
+            <label for="title">Title</label>
+            <input
+              type="text"
+              name="title"
+              id="title"
+              required
+              placeholder="Milestone title"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="description">Description</label>
+            <textarea
+              name="description"
+              id="description"
+              rows="3"
+              placeholder="Milestone description (optional)"
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="due_date">Due date</label>
+            <input
+              type="date"
+              name="due_date"
+              id="due_date"
+            />
+          </div>
+
+          <div class="flex gap-1">
+            <button type="submit" class="btn btn-primary">Create milestone</button>
+            <a href={`/${username}/${reponame}/milestones`} class="btn">Cancel</a>
+          </div>
+        </form>
+      </div>
+    )}
+
+    <div class="tabs">
+      <a
+        href={`/${username}/${reponame}/milestones?state=open`}
+        class:list={["tab", { active: state === "open" }]}
+      >
+        {counts.open} Open
+      </a>
+      <a
+        href={`/${username}/${reponame}/milestones?state=closed`}
+        class:list={["tab", { active: state === "closed" }]}
+      >
+        {counts.closed} Closed
+      </a>
+      <a
+        href={`/${username}/${reponame}/milestones?state=all`}
+        class:list={["tab", { active: state === "all" }]}
+      >
+        {counts.open + counts.closed} All
+      </a>
+    </div>
+
+    {milestones.length === 0 ? (
+      <div class="empty-state">
+        <p>No {state} milestones</p>
+        <form method="POST">
+          <input type="hidden" name="action" value="show_form" />
+          <button type="submit" class="btn mt-2">Create a milestone</button>
+        </form>
+      </div>
+    ) : (
+      <div class="milestone-list">
+        {milestones.map((milestone) => {
+          const total = (milestone.open_issues || 0) + (milestone.closed_issues || 0);
+          const progress = calculateProgress(milestone.open_issues || 0, milestone.closed_issues || 0);
+          const isOverdue = milestone.due_date && new Date(milestone.due_date) < new Date() && milestone.state === 'open';
+
+          return (
+            <div class="milestone-card">
+              <div class="milestone-header">
+                <div>
+                  <a href={`/${username}/${reponame}/milestones/${milestone.id}`} class="milestone-title">
+                    {milestone.title}
+                  </a>
+                  {milestone.due_date && (
+                    <span class:list={["milestone-due", { overdue: isOverdue }]}>
+                      Due {formatDate(milestone.due_date)}
+                    </span>
+                  )}
+                </div>
+                <span class:list={["milestone-state", milestone.state]}>{milestone.state}</span>
+              </div>
+
+              {milestone.description && (
+                <p class="milestone-description">{milestone.description}</p>
+              )}
+
+              <div class="milestone-progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" style={`width: ${progress}%`}></div>
+                </div>
+                <div class="progress-text">
+                  <span>{progress}% complete</span>
+                  <span class="text-muted">
+                    {milestone.closed_issues || 0} closed, {milestone.open_issues || 0} open
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .milestone-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .milestone-card {
+    padding: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .milestone-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+
+  .milestone-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--fg);
+    text-decoration: none;
+    display: inline-block;
+    margin-right: 12px;
+  }
+
+  .milestone-title:hover {
+    text-decoration: underline;
+  }
+
+  .milestone-due {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .milestone-due.overdue {
+    color: var(--error);
+    font-weight: 500;
+  }
+
+  .milestone-state {
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+  }
+
+  .milestone-state.open {
+    color: var(--success);
+    border-color: var(--success);
+  }
+
+  .milestone-state.closed {
+    color: var(--muted);
+  }
+
+  .milestone-description {
+    margin: 0 0 16px 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .milestone-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--success);
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+
+  .error-banner {
+    padding: 12px 16px;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    color: var(--error);
+    font-size: 13px;
+  }
+
+  .card {
+    padding: 24px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+</style>
