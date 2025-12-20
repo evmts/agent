@@ -185,7 +185,7 @@ function formatDate(date: string | Date): string {
               <span class="time">· opened this issue</span>
             </div>
             <div class="comment-body">
-              <Markdown content={issue.body} />
+              <Markdown content={issue.body} owner={username} repo={reponame} />
             </div>
           </div>
         )}

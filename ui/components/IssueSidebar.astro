@@ -4,14 +4,17 @@ interface Props {
     id: number;
     issue_number: number;
     state: 'open' | 'closed';
+    assignees?: string[];
   };
   users: Array<{ id: number; username: string }>;
 }
 
 const { issue, users } = Astro.props;
 
+// Get assignees from issue
+const assignees = issue.assignees || [];
+
 // Placeholder data - will be implemented later
-const assignees: Array<{ id: number; username: string }> = [];
 const labels: Array<{ id: number; name: string; color: string }> = [];
 const milestone: { title: string; dueDate?: string } | null = null;
 const isSubscribed = false;
@@ -21,21 +24,39 @@ const isSubscribed = false;
   <div class="sidebar-section">
     <h3 class="sidebar-heading">Assignees</h3>
     <div class="sidebar-content">
-      {assignees.length === 0 ? (
-        <div class="sidebar-empty">
-          <p class="text-muted text-xs">No one assigned</p>
-          <button type="button" class="sidebar-link">Assign yourself</button>
-        </div>
-      ) : (
-        <div class="assignee-list">
-          {assignees.map(assignee => (
-            <div class="assignee-item">
-              <span class="assignee-name">{assignee.username}</span>
-              <button type="button" class="btn-remove" aria-label="Remove assignee">×</button>
-            </div>
+      <div id="assignees-list" class="assignee-list">
+        {assignees.length === 0 && (
+          <p class="text-muted text-xs" id="no-assignees">No one assigned</p>
+        )}
+        {assignees.map(username => (
+          <div class="assignee-item" data-username={username}>
+            <span class="assignee-name">{username}</span>
+            <button
+              type="button"
+              class="btn-remove remove-assignee"
+              data-username={username}
+              aria-label="Remove assignee"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <details class="assignee-picker">
+        <summary class="sidebar-link">Add assignee</summary>
+        <div class="picker-list">
+          {users.map(user => (
+            <button
+              type="button"
+              class="picker-item add-assignee"
+              data-username={user.username}
+              data-disabled={assignees.includes(user.username)}
+            >
+              {user.username}
+            </button>
           ))}
         </div>
-      )}
+      </details>
     </div>
   </div>
 
@@ -259,4 +280,104 @@ const isSubscribed = false;
     flex: 1;
     text-align: left;
   }
+
+  /* Assignee Picker */
+  .assignee-picker {
+    margin-top: 8px;
+  }
+
+  .assignee-picker summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .assignee-picker summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .picker-list {
+    margin-top: 8px;
+    padding: 8px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .picker-item {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: var(--fg);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--radius);
+    transition: background var(--transition-fast);
+    font-family: inherit;
+  }
+
+  .picker-item:hover:not([data-disabled="true"]) {
+    background: var(--gray-900);
+  }
+
+  .picker-item[data-disabled="true"] {
+    color: var(--gray-600);
+    cursor: default;
+  }
 </style>
+
+<script>
+  // Get issue number from URL
+  const pathParts = window.location.pathname.split('/');
+  const issueNumber = pathParts[pathParts.length - 1];
+  const reponame = pathParts[pathParts.length - 3];
+  const username = pathParts[pathParts.length - 4];
+
+  // Handle add assignee
+  document.querySelectorAll('.add-assignee').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const button = e.currentTarget as HTMLButtonElement;
+      const assigneeUsername = button.dataset.username;
+
+      if (button.dataset.disabled === 'true') return;
+
+      try {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: assigneeUsername })
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to add assignee:', error);
+      }
+    });
+  });
+
+  // Handle remove assignee
+  document.querySelectorAll('.remove-assignee').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const button = e.currentTarget as HTMLButtonElement;
+      const assigneeUsername = button.dataset.username;
+
+      try {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to remove assignee:', error);
+      }
+    });
+  });
+</script>

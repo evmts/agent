@@ -31,6 +31,7 @@ import {
   IssuesRepoNotInitializedError,
   GitOperationError,
 } from "../../ui/lib/git-issues";
+import { sql } from "../../ui/lib/db";
 
 const app = new Hono();
 
@@ -277,6 +278,78 @@ app.post("/:user/:repo/issues/:number/comments", async (c) => {
     return c.json(comment, 201);
   } catch (error) {
     if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof GitOperationError) {
+      return c.json({ error: error.message }, 500);
+    }
+    throw error;
+  }
+});
+
+// Update a comment
+app.patch("/:user/:repo/issues/:number/comments/:commentId", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const commentId = parseInt(c.req.param("commentId"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (isNaN(commentId)) {
+    return c.json({ error: "Invalid comment ID" }, 400);
+  }
+
+  if (!body.body) {
+    return c.json({ error: "Comment body is required" }, 400);
+  }
+
+  try {
+    const comment = await updateComment(user, repo, number, commentId, {
+      body: body.body,
+    });
+
+    return c.json(comment);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof Error && error.message.includes("not found")) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof GitOperationError) {
+      return c.json({ error: error.message }, 500);
+    }
+    throw error;
+  }
+});
+
+// Delete a comment
+app.delete("/:user/:repo/issues/:number/comments/:commentId", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const commentId = parseInt(c.req.param("commentId"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (isNaN(commentId)) {
+    return c.json({ error: "Invalid comment ID" }, 400);
+  }
+
+  try {
+    await deleteComment(user, repo, number, commentId);
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof Error && error.message.includes("not found")) {
       return c.json({ error: error.message }, 404);
     }
     if (error instanceof GitOperationError) {

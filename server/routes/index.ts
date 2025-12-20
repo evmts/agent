@@ -10,6 +10,7 @@ import issues from './issues';
 import runners from './runners';
 import workflows from './workflows';
 import repositories from './repositories';
+import stars from './stars';
 
 const app = new Hono();
 
@@ -26,6 +27,9 @@ app.route('/repos', issues);
 
 // Repository routes
 app.route('/', repositories);
+
+// Stars and watches
+app.route('/', stars); // Mounts at /:user/:repo/star, /:user/:repo/watch, etc.
 
 // Workflow system routes
 app.route('/runners', runners);

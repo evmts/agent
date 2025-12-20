@@ -303,6 +303,7 @@ const {
   function initEditor(wrapper: HTMLElement): EditorInstance {
     const container = wrapper.querySelector<HTMLElement>(".editor-container");
     const textarea = wrapper.querySelector<HTMLTextAreaElement>(".editor-hidden-textarea");
+    const autocompleteElement = wrapper.querySelector<HTMLElement>("[data-mention-autocomplete]");
 
     if (!container || !textarea) {
       throw new Error("MarkdownEditor: Missing required elements");
@@ -329,6 +330,69 @@ const {
         ["code", "codeblock"],
       ],
       autofocus: false,
+    });
+
+    // Initialize mention autocomplete
+    let mentionAutocomplete: any = null;
+    if (autocompleteElement && (window as any).MentionAutocomplete) {
+      mentionAutocomplete = new (window as any).MentionAutocomplete(autocompleteElement);
+    }
+
+    // Track mention trigger
+    let mentionTrigger: { start: number; query: string } | null = null;
+
+    // Handle @ key for mentions
+    editor.on("keyup", (editorType: string, event: KeyboardEvent) => {
+      if (!mentionAutocomplete) return;
+
+      const markdown = editor.getMarkdown();
+      const cursorPos = getCursorPosition(editor);
+
+      // Check if we should trigger autocomplete
+      if (event.key === "@") {
+        mentionTrigger = { start: cursorPos - 1, query: "" };
+        const rect = getCursorRect(editor);
+        if (rect) {
+          mentionAutocomplete.show("", rect, (username: string) => {
+            insertMention(editor, mentionTrigger!.start, username);
+            mentionTrigger = null;
+          });
+        }
+      } else if (mentionTrigger && mentionAutocomplete.isVisible()) {
+        // Update query as user types
+        const textAfterTrigger = markdown.substring(mentionTrigger.start + 1, cursorPos);
+        const match = textAfterTrigger.match(/^([a-zA-Z0-9_-]*)$/);
+
+        if (match) {
+          mentionTrigger.query = match[1];
+          const rect = getCursorRect(editor);
+          if (rect) {
+            mentionAutocomplete.show(mentionTrigger.query, rect, (username: string) => {
+              insertMention(editor, mentionTrigger!.start, username);
+              mentionTrigger = null;
+            });
+          }
+        } else {
+          // Invalid character, close autocomplete
+          mentionAutocomplete.hide();
+          mentionTrigger = null;
+        }
+
+        // Handle arrow keys
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          mentionAutocomplete.selectPrevious();
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          mentionAutocomplete.selectNext();
+        } else if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+          mentionAutocomplete.selectCurrent();
+        } else if (event.key === "Escape") {
+          mentionAutocomplete.hide();
+          mentionTrigger = null;
+        }
+      }
     });
 
     // Save mode preference when user switches
@@ -364,6 +428,38 @@ const {
 
     instances.set(wrapper, instance);
     return instance;
+  }
+
+  function getCursorPosition(editor: Editor): number {
+    try {
+      const markdown = editor.getMarkdown();
+      // Simple approximation - TOAST UI doesn't expose cursor position directly
+      return markdown.length;
+    } catch {
+      return 0;
+    }
+  }
+
+  function getCursorRect(editor: Editor): { x: number; y: number } | null {
+    try {
+      // Get the editor container and use its position as approximation
+      const editorEl = editor.getEditorElements().mdEditor || editor.getEditorElements().wwEditor;
+      if (editorEl) {
+        const rect = editorEl.getBoundingClientRect();
+        // Position dropdown near cursor (approximation)
+        return { x: rect.left + 50, y: rect.top + 50 };
+      }
+    } catch {
+      // Fallback
+    }
+    return null;
+  }
+
+  function insertMention(editor: Editor, startPos: number, username: string) {
+    const markdown = editor.getMarkdown();
+    const beforeMention = markdown.substring(0, startPos);
+    const afterMention = markdown.substring(startPos).replace(/^@[a-zA-Z0-9_-]*/, `@${username} `);
+    editor.setMarkdown(beforeMention + afterMention, false);
   }
 
   // Initialize all editor containers

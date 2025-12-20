@@ -259,81 +259,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
         <!-- Files Changed Tab -->
         {activeTab === 'files' && (
           <div class="files-changed-section">
-            <div class="files-stats">
-              <span class="stat">
-                <span class="additions">+{diff.reduce((sum, f) => sum + f.additions, 0)}</span>
-                <span class="deletions">-{diff.reduce((sum, f) => sum + f.deletions, 0)}</span>
-              </span>
-              <span class="file-count">{diff.length} {diff.length === 1 ? 'file' : 'files'} changed</span>
-            </div>
-
-            <div class="files-content">
-              <div class="files-sidebar">
-                <h3>Files</h3>
-                <div class="file-tree">
-                  {diff.map(file => (
-                    <a href={`#file-${file.path.replace(/\//g, '-')}`} class="file-tree-item">
-                      <span class={`file-status ${file.status}`}>
-                        {file.status === 'added' ? 'A' :
-                         file.status === 'deleted' ? 'D' :
-                         file.status === 'renamed' ? 'R' : 'M'}
-                      </span>
-                      <span class="file-path">{file.path}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-
-              <div class="files-diff">
-                {diff.map(file => (
-                  <div class="diff-file" id={`file-${file.path.replace(/\//g, '-')}`}>
-                    <div class="diff-file-header">
-                      <div class="diff-file-info">
-                        <span class={`file-status ${file.status}`}>
-                          {file.status === 'added' ? 'A' :
-                           file.status === 'deleted' ? 'D' :
-                           file.status === 'renamed' ? 'R' : 'M'}
-                        </span>
-                        <span class="file-path">{file.path}</span>
-                      </div>
-                      <div class="diff-stats">
-                        {file.additions > 0 && <span class="additions">+{file.additions}</span>}
-                        {file.deletions > 0 && <span class="deletions">-{file.deletions}</span>}
-                      </div>
-                    </div>
-
-                    {file.isBinary ? (
-                      <div class="diff-binary">Binary file</div>
-                    ) : file.hunks.length > 0 ? (
-                      <div class="diff-hunks">
-                        {file.hunks.map(hunk => (
-                          <div class="diff-hunk">
-                            <div class="diff-hunk-header">
-                              @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
-                            </div>
-                            <pre class="diff-content">{hunk.content}</pre>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div class="diff-simple">
-                        <div class="diff-simple-stats">
-                          {file.additions > 0 && (
-                            <div class="stat-bar">
-                              <div class="stat-bar-fill additions" style={`width: ${Math.min(100, (file.additions / (file.additions + file.deletions)) * 100)}%`}></div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {diff.length === 0 && (
-                  <div class="empty-state">No files changed</div>
-                )}
-              </div>
-            </div>
+            <DiffView files={diff} defaultExpandAll={false} />
           </div>
         )}
       </div>
@@ -460,12 +386,19 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
     color: var(--text-muted);
   }
 
-  .description {
+  .description-section {
+    margin-bottom: 2rem;
+  }
+
+  .description-content {
     background: var(--background-alt, #f9fafb);
     padding: 1rem;
     border: 1px solid var(--border);
-    margin-bottom: 1.5rem;
     white-space: pre-wrap;
+  }
+
+  .files-changed-section {
+    margin-bottom: 2rem;
   }
 
   .content-grid {
@@ -746,7 +679,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
       window.location.reload();
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to land change');
+      window.toast.error(data.error || 'Failed to land change');
     }
   });
 

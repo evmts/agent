@@ -279,10 +279,23 @@ const shortSha = run.commit_sha?.slice(0, 7);
     margin-top: 2rem;
   }
 
-  .jobs-section h2, .logs-section h2 {
+  .jobs-section h2 {
     font-size: 1.125rem;
     font-weight: 600;
     margin-bottom: 1rem;
+  }
+
+  .logs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .logs-header h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
   }
 
   .empty-jobs {
@@ -430,6 +443,32 @@ const shortSha = run.commit_sha?.slice(0, 7);
   }
 
   loadLogs();
+
+  // Download logs button
+  const downloadLogsBtn = document.getElementById('download-logs-btn');
+  if (downloadLogsBtn) {
+    downloadLogsBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/logs`);
+        if (response.ok) {
+          const logs = await response.text();
+          const blob = new Blob([logs], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `workflow-run-${runId}-logs.txt`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } else {
+          alert('Failed to download logs');
+        }
+      } catch (e) {
+        alert('Error downloading logs');
+      }
+    });
+  }
 
   // Cancel button
   const cancelBtn = document.getElementById('cancel-btn');

@@ -30,6 +30,21 @@ export interface Repository {
   username?: string;
 }
 
+export interface Milestone {
+  id: number;
+  repository_id: number;
+  title: string;
+  description: string | null;
+  due_date: Date | null;
+  state: 'open' | 'closed';
+  created_at: Date;
+  updated_at: Date;
+  closed_at: Date | null;
+  // Computed fields
+  open_issues?: number;
+  closed_issues?: number;
+}
+
 export interface Issue {
   id: number;
   repository_id: number;
@@ -38,11 +53,13 @@ export interface Issue {
   title: string;
   body: string | null;
   state: 'open' | 'closed';
+  milestone_id: number | null;
   created_at: Date;
   updated_at: Date;
   closed_at: Date | null;
   // Joined fields
   author_username?: string;
+  milestone?: Milestone;
 }
 
 export interface Comment {
