@@ -6,10 +6,11 @@ import sql from '../../db/client';
 export interface AuthUser {
   id: number;
   username: string;
-  email: string;
+  email: string | null;
   displayName: string | null;
   isAdmin: boolean;
   isActive: boolean;
+  walletAddress: string | null;
 }
 
 declare module 'hono' {
@@ -49,13 +50,14 @@ export async function authMiddleware(c: Context, next: Next) {
   const [user] = await sql<Array<{
     id: number;
     username: string;
-    email: string;
+    email: string | null;
     display_name: string | null;
     is_admin: boolean;
     is_active: boolean;
     prohibit_login: boolean;
+    wallet_address: string | null;
   }>>`
-    SELECT id, username, email, display_name, is_admin, is_active, prohibit_login
+    SELECT id, username, email, display_name, is_admin, is_active, prohibit_login, wallet_address
     FROM users
     WHERE id = ${sessionData.userId}
   `;
@@ -77,6 +79,7 @@ export async function authMiddleware(c: Context, next: Next) {
     displayName: user.display_name,
     isAdmin: user.is_admin,
     isActive: user.is_active,
+    walletAddress: user.wallet_address,
   });
   c.set('sessionKey', sessionKey);
 

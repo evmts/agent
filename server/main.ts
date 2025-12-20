@@ -7,6 +7,7 @@
 import app from './index';
 import { isPtyWebSocketRequest, createPtyWebSocketHandler } from './routes/pty';
 import { startSessionCleanup } from './lib/session';
+import { startSSHServer } from './ssh/server';
 
 const port = Number(process.env.PORT) || 4000;
 const hostname = process.env.HOST || '0.0.0.0';
@@ -51,6 +52,10 @@ const _server = Bun.serve<{ ptyId: string }>({
 });
 
 console.log(`API server running at http://${hostname}:${port}`);
+
+// Start SSH server for git operations
+const sshPort = Number(process.env.SSH_PORT) || 2222;
+startSSHServer(sshPort);
 
 // Graceful shutdown
 process.on('SIGINT', () => {
