@@ -17,7 +17,8 @@ const log = std.log.scoped(.user_routes);
 pub fn search(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    const query = req.query.get("q") orelse {
+    const query_params = try req.query();
+    const query = query_params.get("q") orelse {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing query parameter 'q'\"}");
         return;

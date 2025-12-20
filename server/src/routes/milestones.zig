@@ -52,7 +52,8 @@ pub fn listMilestones(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     }
 
-    const state = req.url.query.get("state") orelse "open";
+    const query_params = try req.query();
+    const state = query_params.get("state") orelse "open";
 
     // List milestones
     const milestones = db_issues.listMilestones(ctx.pool, allocator, repo.?.id, state) catch |err| {

@@ -16,14 +16,16 @@ const log = std.log.scoped(.tokens);
 fn generateToken(allocator: std.mem.Allocator) ![]const u8 {
     var token_bytes: [32]u8 = undefined;
     std.crypto.random.bytes(&token_bytes);
-    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&token_bytes)});
+    const hex = std.fmt.bytesToHex(token_bytes, .lower);
+    return allocator.dupe(u8, &hex);
 }
 
 /// Calculate SHA256 hash of token
 fn hashToken(allocator: std.mem.Allocator, token: []const u8) ![]const u8 {
     var hash: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(token, &hash, .{});
-    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hash)});
+    const hex = std.fmt.bytesToHex(hash, .lower);
+    return allocator.dupe(u8, &hex);
 }
 
 /// GET /api/user/tokens - List user's access tokens
@@ -175,12 +177,12 @@ pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const token_last_eight = if (token.len >= 8) token[token.len - 8 ..] else token;
 
     // Join scopes with comma
-    var scopes_str = std.ArrayList(u8).init(ctx.allocator);
-    defer scopes_str.deinit();
+    var scopes_str = std.ArrayList(u8){};
+    defer scopes_str.deinit(ctx.allocator);
 
     for (scopes, 0..) |scope, i| {
-        if (i > 0) try scopes_str.appendSlice(",");
-        try scopes_str.appendSlice(scope);
+        if (i > 0) try scopes_str.appendSlice(ctx.allocator, ",");
+        try scopes_str.appendSlice(ctx.allocator, scope);
     }
 
     // Insert token into database

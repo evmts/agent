@@ -32,7 +32,8 @@ pub fn listOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     };
 
     // Parse limit query parameter (default: 20)
-    const limit_str = req.query("limit") orelse "20";
+    const query_params = try req.query();
+    const limit_str = query_params.get("limit") orelse "20";
     const limit = std.fmt.parseInt(i32, limit_str, 10) catch 20;
 
     // Get repository
@@ -51,7 +52,7 @@ pub fn listOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 
     // TODO: Get operations from jj using jj-ffi
     // For now, return operations from database cache
-    const operations = db.getOperationsByRepository(ctx.pool, ctx.allocator, repository.?.id, limit) catch |err| {
+    var operations = db.getOperationsByRepository(ctx.pool, ctx.allocator, repository.?.id, limit) catch |err| {
         log.err("Failed to get operations: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to retrieve operations\"}");

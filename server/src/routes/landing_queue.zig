@@ -61,7 +61,7 @@ pub fn listLandingRequests(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
 
     // Parse query parameters
-    const query = req.query();
+    const query = try req.query();
     const status_filter = query.get("status");
     const page_str = query.get("page") orelse "1";
     const limit_str = query.get("limit") orelse "20";

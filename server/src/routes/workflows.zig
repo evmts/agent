@@ -122,7 +122,7 @@ pub fn listRuns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
 
     for (runs, 0..) |run, i| {
         if (i > 0) try writer.writeAll(",");
-        const status = (WorkflowStatus.fromString(run.status) orelse .unknown).toString();
+        const status = (WorkflowStatus.fromString(run.status) orelse WorkflowStatus.unknown).toString();
         try writer.print(
             \\{{"id":{d},"runNumber":{d},"title":"{s}","status":"{s}","triggerEvent":"{s}","createdAt":"{s}"}}
         , .{
@@ -358,7 +358,7 @@ pub fn cancelRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     const current_status = WorkflowStatus.fromString(r.status) orelse WorkflowStatus.unknown;
 
     // Can only cancel running or waiting workflows
-    if (current_status != .running and current_status != .waiting) {
+    if (current_status != WorkflowStatus.running and current_status != WorkflowStatus.waiting) {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Cannot cancel completed workflow\"}");
         return;
