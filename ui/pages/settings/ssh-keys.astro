@@ -31,7 +31,7 @@ try {
 }
 
 // Fetch user's SSH keys
-let sshKeys = [];
+let sshKeys: Array<{ id: number; name: string; fingerprint: string; created_at: string }> = [];
 try {
   sshKeys = await sql`
     SELECT id, name, fingerprint, created_at

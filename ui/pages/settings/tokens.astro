@@ -31,7 +31,7 @@ try {
 }
 
 // Fetch user's access tokens
-let tokens = [];
+let tokens: Array<{ id: number; name: string; token_last_eight: string; scopes: string; created_at: string; last_used_at: string | null }> = [];
 try {
   tokens = await sql`
     SELECT
