@@ -44,8 +44,13 @@ async function readFileImpl(
 
     // Track file read time for read-before-write safety
     if (sessionId) {
-      const stats = await file.stat();
-      await updateFileTracker(sessionId, absPath, Date.now(), stats.mtime.getTime());
+      try {
+        const stats = await file.stat();
+        await updateFileTracker(sessionId, absPath, Date.now(), stats.mtime.getTime());
+      } catch (error) {
+        // Ignore tracker update errors - graceful degradation
+        console.warn('Failed to update file tracker:', error);
+      }
     }
 
     // Apply offset and limit
