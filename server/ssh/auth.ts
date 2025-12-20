@@ -7,7 +7,7 @@
 import { timingSafeEqual, createHash } from 'crypto';
 import type { AuthContext } from 'ssh2';
 import { utils } from 'ssh2';
-import sql from '../../db/client';
+import sql from '../db/client';
 
 // The SSH username must be 'git' (like GitHub)
 const ALLOWED_USER = Buffer.from('git');

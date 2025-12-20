@@ -5,7 +5,7 @@
 
 import { generateSiweNonce, parseSiweMessage } from 'viem/siwe';
 import { verifyMessage } from 'viem';
-import sql from '../../db/client';
+import sql from '../db/client';
 
 const NONCE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 

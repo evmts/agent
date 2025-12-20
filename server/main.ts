@@ -9,7 +9,7 @@ import { isPtyWebSocketRequest, createPtyWebSocketHandler } from './routes/pty';
 import { startSessionCleanup, getSession } from './lib/session';
 import { startSSHServer } from './ssh/server';
 import { repoWatcherService } from './lib/repo-watcher';
-import sql from '../db/client';
+import sql from './db/client';
 
 const SESSION_COOKIE_NAME = 'plue_session';
 

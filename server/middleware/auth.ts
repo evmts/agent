@@ -1,7 +1,7 @@
 import { Context, Next } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import { getSession, refreshSession } from '../lib/session';
-import sql from '../../db/client';
+import sql from '../db/client';
 
 export interface AuthUser {
   id: number;

@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import sql from '../../db/client';
+import sql from '../db/client';
 
 export interface SessionData {
   userId: number;
