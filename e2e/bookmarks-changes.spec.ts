@@ -59,10 +59,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
       }
     });
 
-    // Skip: This test requires jj bookmarks to be imported from git branches,
-    // which doesn't happen automatically in colocated mode without jj CLI.
-    // TODO: Enable when jj git import is implemented in native bindings
-    test.skip('should mark default bookmark with badge', async ({ page }) => {
+    test('should mark default bookmark with badge', async ({ page }) => {
       await page.goto(`/${user}/${repo}/bookmarks`);
 
       const defaultBadge = page.locator('.badge.default');
