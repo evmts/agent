@@ -906,3 +906,45 @@ CREATE INDEX IF NOT EXISTS idx_issue_events_repo_issue ON issue_events(repositor
 CREATE INDEX IF NOT EXISTS idx_issue_events_actor ON issue_events(actor_id);
 CREATE INDEX IF NOT EXISTS idx_issue_events_type ON issue_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_issue_events_created ON issue_events(created_at);
+
+-- =============================================================================
+-- Issue Dependencies (Blocking/Blocked By)
+-- =============================================================================
+
+-- Track which issues block other issues
+-- blocker_issue_id blocks blocked_issue_id
+CREATE TABLE IF NOT EXISTS issue_dependencies (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  blocker_issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  blocked_issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(blocker_issue_id, blocked_issue_id),
+  -- Prevent self-blocking
+  CHECK (blocker_issue_id != blocked_issue_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_dependencies_blocker ON issue_dependencies(blocker_issue_id);
+CREATE INDEX IF NOT EXISTS idx_issue_dependencies_blocked ON issue_dependencies(blocked_issue_id);
+CREATE INDEX IF NOT EXISTS idx_issue_dependencies_repo ON issue_dependencies(repository_id);
+
+-- =============================================================================
+-- Pinned Issues
+-- =============================================================================
+
+-- Track pinned issues (max 3 per repository)
+CREATE TABLE IF NOT EXISTS pinned_issues (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  pin_order INTEGER NOT NULL DEFAULT 0, -- 0 = first, 1 = second, 2 = third
+  pinned_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, issue_id),
+  UNIQUE(repository_id, pin_order),
+  CHECK (pin_order >= 0 AND pin_order <= 2)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pinned_issues_repo ON pinned_issues(repository_id);
+CREATE INDEX IF NOT EXISTS idx_pinned_issues_issue ON pinned_issues(issue_id);
+CREATE INDEX IF NOT EXISTS idx_pinned_issues_order ON pinned_issues(repository_id, pin_order);
