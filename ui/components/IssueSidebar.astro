@@ -423,7 +423,7 @@ const isSubscribed = false;
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, {
+        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: assigneeUsername })
@@ -445,7 +445,7 @@ const isSubscribed = false;
       const assigneeUsername = button.dataset.username;
 
       try {
-        const response = await fetch(`/api/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
+        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
           method: 'DELETE'
         });
 
@@ -467,7 +467,7 @@ const isSubscribed = false;
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/api/${username}/${reponame}/issues/${issueNumber}/labels`, {
+        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/labels`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ labels: [labelName] })
@@ -489,7 +489,7 @@ const isSubscribed = false;
       const labelName = button.dataset.label;
 
       try {
-        const response = await fetch(`/api/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, {
+        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, {
           method: 'DELETE'
         });
 

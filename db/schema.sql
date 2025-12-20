@@ -149,21 +149,17 @@ CREATE TABLE IF NOT EXISTS comments (
   edited BOOLEAN NOT NULL DEFAULT false
 );
 
--- Mentions (for potential notifications)
+-- Mentions (for potential notifications in git-based issues)
 CREATE TABLE IF NOT EXISTS mentions (
   id SERIAL PRIMARY KEY,
-  issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
-  comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  issue_number INTEGER NOT NULL,
+  comment_id VARCHAR(10), -- NULL for issue body, or comment ID like "001"
   mentioned_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  CONSTRAINT mentions_target_check CHECK (
-    (issue_id IS NOT NULL AND comment_id IS NULL) OR
-    (issue_id IS NULL AND comment_id IS NOT NULL)
-  )
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_mentions_issue ON mentions(issue_id);
-CREATE INDEX IF NOT EXISTS idx_mentions_comment ON mentions(comment_id);
+CREATE INDEX IF NOT EXISTS idx_mentions_repo_issue ON mentions(repository_id, issue_number);
 CREATE INDEX IF NOT EXISTS idx_mentions_user ON mentions(mentioned_user_id);
 
 -- Issue assignees (many-to-many relationship)

@@ -2,16 +2,20 @@
 /**
  * DiffView - Display full diff for a change
  * Shows all file changes with expand/collapse functionality
+ * Supports inline comments when landingId is provided
  */
-import type { FileDiff } from "../lib/jj-types";
+import type { FileDiff, LineComment } from "../lib/jj-types";
 import FileDiffCard from "./FileDiffCard.astro";
 
 interface Props {
   files: FileDiff[];
   defaultExpandAll?: boolean;
+  landingId?: number;
+  comments?: LineComment[];
+  canComment?: boolean;
 }
 
-const { files, defaultExpandAll = false } = Astro.props;
+const { files, defaultExpandAll = false, landingId, comments = [], canComment = false } = Astro.props;
 
 const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
 const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);

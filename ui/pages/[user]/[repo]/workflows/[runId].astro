@@ -207,6 +207,35 @@ const shortSha = run.commit_sha?.slice(0, 7);
       )}
     </div>
 
+    <div class="artifacts-section">
+      <h2>Artifacts</h2>
+
+      {artifacts.length === 0 ? (
+        <div class="empty-artifacts">No artifacts for this run.</div>
+      ) : (
+        <div class="artifacts-list">
+          {artifacts.map((artifact: any) => (
+            <div class="artifact-item">
+              <div class="artifact-info">
+                <span class="artifact-icon">📦</span>
+                <div class="artifact-details">
+                  <span class="artifact-name">{artifact.name}</span>
+                  <span class="artifact-size">{formatFileSize(artifact.file_size)}</span>
+                </div>
+              </div>
+              <a
+                href={`/${username}/${reponame}/workflows/runs/${runId}/artifacts/${artifact.id}/download`}
+                class="btn btn-sm"
+                download
+              >
+                Download
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
     <div class="logs-section">
       <div class="logs-header">
         <h2>Logs</h2>
@@ -292,11 +321,11 @@ const shortSha = run.commit_sha?.slice(0, 7);
     border-color: var(--error, #ef4444);
   }
 
-  .jobs-section, .logs-section {
+  .jobs-section, .artifacts-section, .logs-section {
     margin-top: 2rem;
   }
 
-  .jobs-section h2 {
+  .jobs-section h2, .artifacts-section h2 {
     font-size: 1.125rem;
     font-weight: 600;
     margin-bottom: 1rem;
