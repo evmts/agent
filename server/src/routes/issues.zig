@@ -1640,11 +1640,13 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     defer allocator.free(reactions);
 
     // Group by emoji (like TypeScript implementation)
-    var grouped = std.StringHashMap(struct {
+    const ReactionUser = struct { id: i64, username: []const u8 };
+    const ReactionGroup = struct {
         emoji: []const u8,
         count: usize,
-        users: std.ArrayList(struct { id: i64, username: []const u8 }),
-    }).init(allocator);
+        users: std.ArrayList(ReactionUser),
+    };
+    var grouped = std.StringHashMap(ReactionGroup).init(allocator);
     defer {
         var it = grouped.iterator();
         while (it.next()) |entry| {
@@ -1656,11 +1658,11 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     for (reactions) |r| {
         if (grouped.getPtr(r.emoji)) |group| {
             group.count += 1;
-            try group.users.append(allocator, .{ .id = r.user_id, .username = r.username });
+            try group.users.append(allocator, ReactionUser{ .id = r.user_id, .username = r.username });
         } else {
-            var users = std.ArrayList(struct { id: i64, username: []const u8 }){};
-            try users.append(allocator, .{ .id = r.user_id, .username = r.username });
-            try grouped.put(r.emoji, .{
+            var users = std.ArrayList(ReactionUser){};
+            try users.append(allocator, ReactionUser{ .id = r.user_id, .username = r.username });
+            try grouped.put(r.emoji, ReactionGroup{
                 .emoji = r.emoji,
                 .count = 1,
                 .users = users,

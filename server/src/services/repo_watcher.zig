@@ -293,7 +293,8 @@ pub const RepoWatcher = struct {
             log.err("Failed to open workspace: {s}", .{err_msg});
             return error.WorkspaceOpenFailed;
         }
-        defer jj.jj_workspace_free(workspace_result.workspace);
+        const workspace = workspace_result.workspace orelse return error.WorkspaceOpenFailed;
+        defer jj.jj_workspace_free(workspace);
 
         // Sync in parallel
         const sync_results = try self.allocator.alloc(SyncResult, 4);
@@ -306,7 +307,7 @@ pub const RepoWatcher = struct {
         for (0..4) |i| {
             thread_args[i] = .{
                 .service = self,
-                .workspace = workspace_result.workspace,
+                .workspace = workspace,
                 .watched_repo = watched_repo,
                 .result = &sync_results[i],
                 .sync_type = @enumFromInt(i),
@@ -394,7 +395,9 @@ pub const RepoWatcher = struct {
         // Insert/update each change
         var i: usize = 0;
         while (i < changes_result.len) : (i += 1) {
-            const change = changes_result.commits[i];
+            const change_ptr = changes_result.commits[i];
+            if (change_ptr == null) continue;
+            const change = change_ptr.*;
 
             const change_id = std.mem.span(change.change_id);
             const commit_id = std.mem.span(change.id);
