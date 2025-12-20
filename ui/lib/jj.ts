@@ -476,7 +476,7 @@ export async function getTree(
 }
 
 /**
- * Get file content at a specific change
+ * Get file content at a specific change using native jj-lib bindings
  */
 export async function getFileContent(
   user: string,
@@ -486,17 +486,25 @@ export async function getFileContent(
 ): Promise<string | null> {
   const repoPath = getRepoPath(user, name);
 
-  // Try jj first
+  // Use native jj-lib bindings
+  if (isJjWorkspace(repoPath)) {
+    try {
+      const workspace = JjWorkspace.open(repoPath);
+      const content = workspace.getFileContent(changeId, path);
+      return content;
+    } catch (e) {
+      console.error('Native jj-lib failed for getFileContent:', e);
+    }
+  }
+
+  // Fallback to CLI for non-jj workspaces
   const result = await runJj(['file', 'show', '-r', changeId, path], repoPath);
 
   if (result.exitCode === 0 && result.stdout) {
     return result.stdout;
   }
 
-  // Fall back to git show for bare repos or when jj isn't available
-  const gitRef = changeId === 'main' || changeId.match(/^[a-z]{8,}$/) ? 'HEAD' : changeId;
-  const gitResult = await run(`git show ${gitRef}:${path}`, repoPath);
-  return gitResult || null;
+  return null;
 }
 
 /**
