@@ -80,6 +80,7 @@ export class SSEEventBus implements EventBus {
   }
 
   async *subscribe(sessionId?: string): AsyncGenerator<Event, void, unknown> {
+    const MAX_QUEUE_SIZE = 1000; // Prevent unbounded queue growth
     const queue: Event[] = [];
     let resolveNext: ((event: Event) => void) | null = null;
 
@@ -90,6 +91,10 @@ export class SSEEventBus implements EventBus {
           resolveNext(event);
           resolveNext = null;
         } else {
+          // Enforce queue size limit - drop oldest events if queue is full
+          if (queue.length >= MAX_QUEUE_SIZE) {
+            queue.shift(); // Remove oldest event
+          }
           queue.push(event);
         }
       },

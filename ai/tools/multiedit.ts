@@ -115,15 +115,20 @@ async function multieditImpl(
 
   // Check read-before-write for existing files
   if (sessionId && await fileExists(absPath)) {
-    const tracker = await getFileTracker(sessionId);
-    const lastRead = tracker.readTimes.get(absPath);
-    if (!lastRead) {
-      return {
-        success: false,
-        filePath: relPath,
-        editCount: 0,
-        error: 'File has not been read in this session. Read the file first.',
-      };
+    try {
+      const tracker = await getFileTracker(sessionId);
+      const lastRead = tracker.readTimes.get(absPath);
+      if (!lastRead) {
+        return {
+          success: false,
+          filePath: relPath,
+          editCount: 0,
+          error: 'File has not been read in this session. Read the file first.',
+        };
+      }
+    } catch (error) {
+      // If session doesn't exist, skip the check
+      console.warn('Failed to get file tracker:', error);
     }
   }
 
@@ -191,9 +196,14 @@ async function multieditImpl(
 
     // Update tracker
     if (sessionId) {
-      const file = Bun.file(absPath);
-      const stats = await file.stat();
-      await updateFileTracker(sessionId, absPath, Date.now(), stats.mtime.getTime());
+      try {
+        const file = Bun.file(absPath);
+        const stats = await file.stat();
+        await updateFileTracker(sessionId, absPath, Date.now(), stats.mtime.getTime());
+      } catch (error) {
+        // Ignore tracker update errors - don't fail the operation
+        console.warn('Failed to update file tracker:', error);
+      }
     }
 
     return {
