@@ -17,6 +17,7 @@ import {
 } from '../lib/password';
 import { createSession, deleteSession } from '../lib/session';
 import { setSessionCookie, clearSessionCookie } from '../middleware/auth';
+import { signJWT, setJWTCookie, clearJWTCookie } from '../lib/jwt';
 import { sendActivationEmail, sendPasswordResetEmail } from '../lib/email';
 import { authRateLimit, emailRateLimit } from '../middleware/rate-limit';
 import sql from '../../db/client';
@@ -207,6 +208,13 @@ app.post('/login', authRateLimit, zValidator('json', loginSchema), async (c) => 
     // Create session
     const sessionKey = await createSession(user.id, user.username, user.is_admin);
 
+    // Generate JWT for edge authentication
+    const jwt = await signJWT({
+      userId: user.id,
+      username: user.username,
+      isAdmin: user.is_admin,
+    });
+
     // Update last login
     await sql`
       UPDATE users
@@ -214,8 +222,9 @@ app.post('/login', authRateLimit, zValidator('json', loginSchema), async (c) => 
       WHERE id = ${user.id}
     `;
 
-    // Set session cookie
+    // Set session cookie (for origin) and JWT cookie (for edge)
     setSessionCookie(c, sessionKey);
+    setJWTCookie(c.res.headers, jwt);
 
     return c.json({
       message: 'Login successful',
@@ -245,7 +254,9 @@ app.post('/logout', async (c) => {
       await deleteSession(sessionKey);
     }
 
+    // Clear both session cookie (origin) and JWT cookie (edge)
     clearSessionCookie(c);
+    clearJWTCookie(c.res.headers);
 
     return c.json({ message: 'Logout successful' });
   } catch (error) {

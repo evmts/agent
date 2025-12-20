@@ -11,6 +11,11 @@ import usersRoutes from './routes/users';
 import branchRoutes from './routes/branches';
 import protectedBranchRoutes from './routes/protected-branches';
 import pullRequestRoutes from './routes/pulls';
+// JJ-native routes
+import bookmarkRoutes from './routes/bookmarks';
+import changesRoutes from './routes/changes';
+import operationsRoutes from './routes/operations';
+import landingRoutes from './routes/landing';
 import routes from './routes';
 
 export { ServerEventBus, getServerEventBus, setServerEventBus } from './event-bus';
@@ -69,10 +74,16 @@ app.get('/shape', async (c) => {
 app.route('/api/auth', authRoutes);
 app.route('/api/users', usersRoutes);
 
-// Mount repo-specific API routes
+// Mount repo-specific API routes (legacy git-based)
 app.route('/api', branchRoutes);
 app.route('/api', protectedBranchRoutes);
 app.route('/api', pullRequestRoutes);
+
+// Mount JJ-native API routes
+app.route('/api', bookmarkRoutes);
+app.route('/api', changesRoutes);
+app.route('/api', operationsRoutes);
+app.route('/api', landingRoutes);
 
 // Mount existing routes
 app.route('/', routes);
