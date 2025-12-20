@@ -1,0 +1,107 @@
+---
+/**
+ * LineComment Component
+ *
+ * Displays a single inline code review comment with resolve/edit/delete actions.
+ */
+import type { LineComment } from "../lib/jj-types";
+
+interface Props {
+  comment: LineComment;
+  canEdit?: boolean;
+}
+
+const { comment, canEdit = false } = Astro.props;
+
+function formatDate(date: Date): string {
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+---
+
+<div class="line-comment" data-comment-id={comment.id} data-resolved={comment.resolved}>
+  <div class="line-comment-header">
+    <span class="author">{comment.author?.username || 'unknown'}</span>
+    <span class="time">· {formatDate(comment.createdAt)}</span>
+    {comment.resolved && <span class="resolved-badge">Resolved</span>}
+  </div>
+  <div class="line-comment-body">
+    {comment.body}
+  </div>
+  {canEdit && (
+    <div class="line-comment-actions">
+      {!comment.resolved ? (
+        <button class="btn-small" data-action="resolve">Resolve</button>
+      ) : (
+        <button class="btn-small" data-action="unresolve">Unresolve</button>
+      )}
+      <button class="btn-small" data-action="delete">Delete</button>
+    </div>
+  )}
+</div>
+
+<style>
+  .line-comment {
+    background: #f9fafb;
+    border: 1px solid var(--border);
+    padding: 0.75rem;
+    font-size: 14px;
+    margin-top: 0.5rem;
+  }
+
+  .line-comment[data-resolved="true"] {
+    opacity: 0.6;
+  }
+
+  .line-comment-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .author {
+    font-weight: 500;
+  }
+
+  .time {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .resolved-badge {
+    background: #16a34a;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .line-comment-body {
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+
+  .line-comment-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-small {
+    padding: 0.25rem 0.5rem;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    background: white;
+    cursor: pointer;
+  }
+
+  .btn-small:hover {
+    background: #f3f4f6;
+  }
+</style>
