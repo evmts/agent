@@ -1,12 +1,23 @@
 import type { APIRoute } from 'astro';
-import { getUserBySession, clearSessionCookie } from '../../../../lib/auth-helpers';
+import {
+  getUserBySession,
+  clearSessionCookie,
+  validateCsrfToken,
+  csrfErrorResponse,
+  validatePassword
+} from '../../../../lib/auth-helpers';
 import { getUserById, updateUserPassword, deleteAllUserSessions } from '../../../../lib/auth-db';
 import { hash, verify } from '@node-rs/argon2';
 
 export const PUT: APIRoute = async ({ request }) => {
   try {
+    // Validate CSRF token
+    if (!validateCsrfToken(request)) {
+      return csrfErrorResponse();
+    }
+
     const user = await getUserBySession(request);
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Not authenticated' }), {
         status: 401,
@@ -24,9 +35,29 @@ export const PUT: APIRoute = async ({ request }) => {
       });
     }
 
+    // Validate input lengths to prevent DoS
+    if (currentPassword.length > 128 || newPassword.length > 128) {
+      return new Response(JSON.stringify({ error: 'Password too long' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate new password complexity
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.valid) {
+      return new Response(JSON.stringify({
+        error: 'New password does not meet requirements',
+        details: passwordValidation.errors
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     // Get user with password hash
     const fullUser = await getUserById(user.id);
-    
+
     if (!fullUser) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
@@ -52,18 +83,18 @@ export const PUT: APIRoute = async ({ request }) => {
     // Invalidate all sessions for this user
     await deleteAllUserSessions(user.id);
 
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       success: true,
       message: 'Password updated successfully. Please log in again.'
     }), {
       status: 200,
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Set-Cookie': clearSessionCookie()
       }
     });
   } catch (error) {
-    console.error('Update password error:', error);
+    console.error('Update password error:', error instanceof Error ? error.message : 'Unknown error');
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }

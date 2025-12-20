@@ -1,11 +1,16 @@
 import type { APIRoute } from 'astro';
-import { getUserBySession } from '../../../lib/auth-helpers';
+import {
+  getUserBySession,
+  validateCsrfToken,
+  csrfErrorResponse,
+  validateTextInput
+} from '../../../lib/auth-helpers';
 import { getUserById, updateUserProfile as dbUpdateUserProfile } from '../../../lib/auth-db';
 
 export const GET: APIRoute = async ({ request }) => {
   try {
     const user = await getUserBySession(request);
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Not authenticated' }), {
         status: 401,
@@ -15,15 +20,15 @@ export const GET: APIRoute = async ({ request }) => {
 
     // Get full user details
     const fullUser = await getUserById(user.id);
-    
+
     if (!fullUser) {
       return new Response(JSON.stringify({ error: 'User not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       user: {
         id: Number(fullUser.id),
         username: fullUser.username,
@@ -40,7 +45,7 @@ export const GET: APIRoute = async ({ request }) => {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
-    console.error('Get current user error:', error);
+    console.error('Get current user error:', error instanceof Error ? error.message : 'Unknown error');
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
@@ -50,23 +55,53 @@ export const GET: APIRoute = async ({ request }) => {
 
 export const PUT: APIRoute = async ({ request }) => {
   try {
+    // Validate CSRF token
+    if (!validateCsrfToken(request)) {
+      return csrfErrorResponse();
+    }
+
     const user = await getUserBySession(request);
-    
+
     if (!user) {
       return new Response(JSON.stringify({ error: 'Not authenticated' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
+
     const body = await request.json();
     const { display_name, bio, avatar_url } = body;
 
+    // Validate inputs
+    const displayNameValidation = validateTextInput(display_name, 'Display name', { maxLength: 100 });
+    if (!displayNameValidation.valid) {
+      return new Response(JSON.stringify({ error: displayNameValidation.error }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const bioValidation = validateTextInput(bio, 'Bio', { maxLength: 500 });
+    if (!bioValidation.valid) {
+      return new Response(JSON.stringify({ error: bioValidation.error }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const avatarUrlValidation = validateTextInput(avatar_url, 'Avatar URL', { maxLength: 500 });
+    if (!avatarUrlValidation.valid) {
+      return new Response(JSON.stringify({ error: avatarUrlValidation.error }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     // Update user profile
     const updatedUser = await dbUpdateUserProfile(user.id, {
-      display_name,
-      bio,
-      avatar_url
+      display_name: displayNameValidation.value || undefined,
+      bio: bioValidation.value || undefined,
+      avatar_url: avatarUrlValidation.value || undefined
     });
 
     if (!updatedUser) {
@@ -76,7 +111,7 @@ export const PUT: APIRoute = async ({ request }) => {
       });
     }
 
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       success: true,
       user: {
         id: Number(updatedUser.id),
@@ -94,7 +129,7 @@ export const PUT: APIRoute = async ({ request }) => {
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
-    console.error('Update user error:', error);
+    console.error('Update user error:', error instanceof Error ? error.message : 'Unknown error');
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
