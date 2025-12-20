@@ -1,0 +1,114 @@
+---
+/**
+ * CommitStatus component - displays individual status check
+ * Shows status icon, name, and optionally links to workflow run
+ */
+
+interface Props {
+  context: string;
+  state: 'pending' | 'success' | 'failure' | 'error';
+  description?: string;
+  targetUrl?: string;
+  compact?: boolean;
+}
+
+const { context, state, description, targetUrl, compact = false } = Astro.props;
+
+const stateInfo: Record<string, { icon: string; label: string; color: string }> = {
+  success: { icon: '✓', label: 'Success', color: '#22c55e' },
+  failure: { icon: '✗', label: 'Failed', color: '#ef4444' },
+  pending: { icon: '○', label: 'Pending', color: '#f59e0b' },
+  error: { icon: '✗', label: 'Error', color: '#dc2626' },
+};
+
+const info = stateInfo[state] || stateInfo.error;
+---
+
+{targetUrl ? (
+  <a href={targetUrl} class={`status-check ${compact ? 'compact' : ''}`}>
+    <span class="status-icon" style={`color: ${info.color}`}>{info.icon}</span>
+    <div class="status-content">
+      <div class="status-name">{context}</div>
+      {!compact && description && <div class="status-desc">{description}</div>}
+    </div>
+    <span class="status-label" style={`color: ${info.color}`}>{info.label}</span>
+  </a>
+) : (
+  <div class={`status-check ${compact ? 'compact' : ''}`}>
+    <span class="status-icon" style={`color: ${info.color}`}>{info.icon}</span>
+    <div class="status-content">
+      <div class="status-name">{context}</div>
+      {!compact && description && <div class="status-desc">{description}</div>}
+    </div>
+    <span class="status-label" style={`color: ${info.color}`}>{info.label}</span>
+  </div>
+)}
+
+<style>
+  .status-check {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  a.status-check:hover {
+    background: var(--background-alt, #f9fafb);
+  }
+
+  .status-check:last-child {
+    border-bottom: none;
+  }
+
+  .status-check.compact {
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .status-icon {
+    font-weight: bold;
+    font-size: 1.125rem;
+    width: 1.5rem;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .status-check.compact .status-icon {
+    font-size: 0.875rem;
+    width: 1rem;
+  }
+
+  .status-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .status-name {
+    font-weight: 500;
+    font-family: var(--font-mono);
+    font-size: 14px;
+  }
+
+  .status-check.compact .status-name {
+    font-size: 12px;
+  }
+
+  .status-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 0.125rem;
+  }
+
+  .status-label {
+    font-size: 12px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .status-check.compact .status-label {
+    font-size: 11px;
+  }
+</style>
