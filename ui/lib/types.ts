@@ -68,6 +68,8 @@ export interface Comment {
   author_id: number;
   body: string;
   created_at: Date;
+  updated_at?: Date;
+  edited?: boolean;
   // Joined fields
   author_username?: string;
 }

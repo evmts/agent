@@ -105,23 +105,81 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
         const lines = parseDiffLines(hunk.content, hunk.oldStart, hunk.newStart);
         return (
           <div class="diff-hunk">
-            {lines.map(line => (
-              <div class={`diff-line diff-line-${line.type}`}>
-                <span class="line-num old-line-num">
-                  {line.oldLineNum !== null ? line.oldLineNum : ''}
-                </span>
-                <span class="line-num new-line-num">
-                  {line.newLineNum !== null ? line.newLineNum : ''}
-                </span>
-                <span class="line-content">{line.content}</span>
-              </div>
-            ))}
+            {lines.map(line => {
+              const oldComments = line.oldLineNum ? commentsByLine.get(`${line.oldLineNum}:old`) || [] : [];
+              const newComments = line.newLineNum ? commentsByLine.get(`${line.newLineNum}:new`) || [] : [];
+
+              return (
+                <>
+                  <div class={`diff-line diff-line-${line.type}`}>
+                    <span
+                      class={`line-num old-line-num ${canComment && line.oldLineNum ? 'commentable' : ''}`}
+                      data-line-num={line.oldLineNum}
+                      data-side="old"
+                      data-file-path={file.path}
+                      data-landing-id={landingId}
+                    >
+                      {canComment && line.oldLineNum && (
+                        <button class="add-comment-btn" data-action="add-comment">+</button>
+                      )}
+                      {line.oldLineNum !== null ? line.oldLineNum : ''}
+                    </span>
+                    <span
+                      class={`line-num new-line-num ${canComment && line.newLineNum ? 'commentable' : ''}`}
+                      data-line-num={line.newLineNum}
+                      data-side="new"
+                      data-file-path={file.path}
+                      data-landing-id={landingId}
+                    >
+                      {canComment && line.newLineNum && (
+                        <button class="add-comment-btn" data-action="add-comment">+</button>
+                      )}
+                      {line.newLineNum !== null ? line.newLineNum : ''}
+                    </span>
+                    <span class="line-content">{line.content}</span>
+                  </div>
+                  {/* Show comments for old side */}
+                  {oldComments.length > 0 && (
+                    <div class="comment-row">
+                      <div class="comments-container">
+                        {oldComments.map(comment => (
+                          <LineComment comment={comment} canEdit={canComment} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Show comments for new side */}
+                  {newComments.length > 0 && (
+                    <div class="comment-row">
+                      <div class="comments-container">
+                        {newComments.map(comment => (
+                          <LineComment comment={comment} canEdit={canComment} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })}
           </div>
         );
       })
     )}
   </div>
 </details>
+
+<!-- Comment form template (hidden by default) -->
+{landingId && canComment && (
+  <div id="comment-form-template" style="display: none;">
+    <div class="comment-form">
+      <textarea placeholder="Add a comment..." rows="3"></textarea>
+      <div class="comment-form-actions">
+        <button class="btn-small" data-action="submit-comment">Add comment</button>
+        <button class="btn-small" data-action="cancel-comment">Cancel</button>
+      </div>
+    </div>
+  </div>
+)}
 
 <style>
   .file-diff-card {

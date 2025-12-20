@@ -6,18 +6,25 @@ async function migrate() {
 
   const schema = readFileSync("./db/migrate-issue-references.sql", "utf-8");
 
-  // Split by semicolons and run each statement
-  const statements = schema
-    .split(";")
+  // Remove comments and split by semicolons at end of statements
+  const lines = schema.split('\n');
+  const cleanedLines = lines.filter(line => !line.trim().startsWith('--'));
+  const cleaned = cleanedLines.join('\n');
+
+  const statements = cleaned
+    .split(/;\s*\n/)
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith("--"));
+    .filter(s => s.length > 0)
+    .map(s => s.endsWith(';') ? s : s + ';');
 
   for (const statement of statements) {
     try {
       await sql.unsafe(statement);
-      console.log("✓", `${statement.slice(0, 60).replace(/\n/g, ' ')}...`);
+      const preview = statement.slice(0, 60).replace(/\n/g, ' ').replace(/\s+/g, ' ');
+      console.log("✓", `${preview}...`);
     } catch (error) {
-      console.error("✗", `${statement.slice(0, 60).replace(/\n/g, ' ')}...`);
+      const preview = statement.slice(0, 60).replace(/\n/g, ' ').replace(/\s+/g, ' ');
+      console.error("✗", `${preview}...`);
       console.error("  Error:", (error as Error).message);
     }
   }

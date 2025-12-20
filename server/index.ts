@@ -9,6 +9,7 @@ import { authMiddleware } from './middleware/auth';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
 import sshKeysRoutes from './routes/ssh-keys';
+import tokensRoutes from './routes/tokens';
 // JJ-native routes (replaces git-based branches, pulls)
 import bookmarkRoutes from './routes/bookmarks';
 import changesRoutes from './routes/changes';
@@ -72,6 +73,7 @@ app.get('/shape', async (c) => {
 app.route('/api/auth', authRoutes);
 app.route('/api/users', usersRoutes);
 app.route('/api/ssh-keys', sshKeysRoutes);
+app.route('/api/user/tokens', tokensRoutes);
 
 // Mount JJ-native API routes (replaces git-based branches/pulls)
 app.route('/api', bookmarkRoutes);

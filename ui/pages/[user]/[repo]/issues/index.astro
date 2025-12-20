@@ -67,10 +67,12 @@ const [authors, assignees, availableLabels] = await Promise.all([
 // Transform to match expected shape
 const issues = gitIssues.map(issue => ({
   ...issue,
+  id: issue.number, // Use issue number as id for now
   issue_number: issue.number,
   author_username: issue.author.username,
   author_id: issue.author.id,
   repository_id: repo.id,
+  milestone_id: null, // Git-based issues don't have milestone_id yet
   created_at: new Date(issue.created_at),
   updated_at: new Date(issue.updated_at),
   closed_at: issue.closed_at ? new Date(issue.closed_at) : null,

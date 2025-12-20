@@ -15,6 +15,7 @@ import {
   closeIssue,
   reopenIssue,
   getIssueCounts,
+  getLabels,
   ensureIssuesRepo,
 } from "../../../../lib/git-issues";
 import type { User, Repository } from "../../../../lib/types";
@@ -68,6 +69,9 @@ const comments = gitComments.map(c => ({
 const users = await sql<User[]>`SELECT * FROM users ORDER BY username`;
 
 const counts = await getIssueCounts(username, reponame);
+
+// Get available labels
+const availableLabels = await getLabels(username, reponame);
 
 // Count pending landing requests
 let landingCount = 0;
@@ -242,7 +246,7 @@ if (Astro.request.method === "POST") {
       </div>
 
       <div class="issue-sidebar-wrapper">
-        <IssueSidebar issue={issue} users={users} />
+        <IssueSidebar issue={issue} users={users} availableLabels={availableLabels} />
       </div>
     </div>
   </div>

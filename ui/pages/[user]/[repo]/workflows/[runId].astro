@@ -462,10 +462,10 @@ const shortSha = run.commit_sha?.slice(0, 7);
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         } else {
-          alert('Failed to download logs');
+          window.toast.error('Failed to download logs');
         }
       } catch (e) {
-        alert('Error downloading logs');
+        window.toast.error('Error downloading logs');
       }
     });
   }
@@ -483,10 +483,10 @@ const shortSha = run.commit_sha?.slice(0, 7);
         if (response.ok) {
           window.location.reload();
         } else {
-          alert('Failed to cancel workflow');
+          window.toast.error('Failed to cancel workflow');
         }
       } catch (e) {
-        alert('Error cancelling workflow');
+        window.toast.error('Error cancelling workflow');
       }
     });
   }
@@ -503,10 +503,10 @@ const shortSha = run.commit_sha?.slice(0, 7);
           const data = await response.json();
           window.location.href = `/${username}/${reponame}/workflows/${data.run.id}`;
         } else {
-          alert('Failed to re-run workflow');
+          window.toast.error('Failed to re-run workflow');
         }
       } catch (e) {
-        alert('Error re-running workflow');
+        window.toast.error('Error re-running workflow');
       }
     });
   }

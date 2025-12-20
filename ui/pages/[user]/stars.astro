@@ -1,0 +1,98 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+import RepoCard from "../../components/RepoCard.astro";
+import { sql } from "../../lib/db";
+import type { User, Repository } from "../../lib/types";
+
+const { user: username } = Astro.params;
+
+if (!username) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+
+if (!user) {
+  return Astro.redirect("/404");
+}
+
+// Get starred repositories with star count
+interface StarredRepo extends Repository {
+  starred_at: Date;
+  star_count: number;
+}
+
+const starredRepos = await sql<StarredRepo[]>`
+  SELECT r.*, u.username, s.created_at as starred_at,
+    (SELECT COUNT(*) FROM stars WHERE repository_id = r.id) as star_count
+  FROM stars s
+  JOIN repositories r ON s.repository_id = r.id
+  JOIN users u ON r.user_id = u.id
+  WHERE s.user_id = ${user.id}
+  ORDER BY s.created_at DESC
+`;
+---
+
+<Layout title={`Stars - ${user.username} · plue`}>
+  <Header />
+  <div class="container">
+    <div class="user-profile mb-3">
+      <h1 class="page-title">{user.display_name || user.username}</h1>
+      {user.bio && <p class="bio">{user.bio}</p>}
+    </div>
+
+    <nav class="profile-nav mb-3">
+      <a href={`/${username}`}>Repositories</a>
+      <a href={`/${username}/stars`} class="active">Stars</a>
+    </nav>
+
+    <h2 class="mb-2">Starred Repositories ({starredRepos.length})</h2>
+
+    {starredRepos.length === 0 ? (
+      <div class="empty-state">
+        <p>{user.username} hasn't starred any repositories yet</p>
+      </div>
+    ) : (
+      <ul class="repo-list">
+        {starredRepos.map((repo) => (
+          <RepoCard repo={repo} showUser={true} starCount={Number(repo.star_count)} />
+        ))}
+      </ul>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .user-profile {
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .bio {
+    margin-top: 8px;
+  }
+
+  .profile-nav {
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+
+  .profile-nav a {
+    padding: 0.5rem 0;
+    border-bottom: 2px solid transparent;
+    text-decoration: none;
+    color: var(--text);
+  }
+
+  .profile-nav a.active {
+    border-bottom-color: var(--text);
+    font-weight: 500;
+  }
+
+  .profile-nav a:hover {
+    border-bottom-color: var(--border-hover);
+  }
+</style>
