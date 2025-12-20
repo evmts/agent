@@ -1,0 +1,349 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import TopicBadge from "../../../components/TopicBadge.astro";
+import { sql } from "../../../lib/db";
+import type { User, Repository } from "../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get all branches for default branch selector
+const branches = await sql`
+  SELECT name FROM branches
+  WHERE repository_id = ${repo.id} AND is_deleted = false
+  ORDER BY name
+`;
+---
+
+<Layout title={`Settings · ${username}/${reponame} · plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">Settings</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/landing`}>Landing</a>
+    <a href={`/${username}/${reponame}/workflows`}>Workflows</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${repo.default_branch}`}>Changes</a>
+    <a href={`/${username}/${reponame}/operations`}>Operations</a>
+    <a href={`/${username}/${reponame}/settings`} class="active">Settings</a>
+  </nav>
+
+  <div class="container">
+    <h1 class="page-title mb-3">Repository Settings</h1>
+
+    <form id="settings-form" class="settings-form">
+      <div class="form-group">
+        <label for="description">Description</label>
+        <textarea
+          id="description"
+          name="description"
+          placeholder="A short description of your repository"
+        >{repo.description || ""}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="topics">Topics</label>
+        <input
+          type="text"
+          id="topics"
+          name="topics"
+          value={repo.topics?.join(", ") || ""}
+          placeholder="rust, blockchain, ethereum (comma-separated)"
+        />
+        <small class="help-text">
+          Topics help people find your repository. Use lowercase, hyphens, max 20 topics.
+        </small>
+        {repo.topics && repo.topics.length > 0 && (
+          <div class="topics-preview mt-1">
+            {repo.topics.map((topic) => (
+              <TopicBadge topic={topic} clickable={false} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div class="form-group">
+        <label for="default_branch">Default Branch</label>
+        <select id="default_branch" name="default_branch">
+          {branches.length > 0 ? (
+            branches.map((branch: any) => (
+              <option value={branch.name} selected={branch.name === repo.default_branch}>
+                {branch.name}
+              </option>
+            ))
+          ) : (
+            <option value={repo.default_branch}>{repo.default_branch}</option>
+          )}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="is_public">Visibility</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input
+              type="radio"
+              name="is_public"
+              value="true"
+              checked={repo.is_public}
+            />
+            <span>Public</span>
+            <small>Anyone can see this repository</small>
+          </label>
+          <label class="radio-label">
+            <input
+              type="radio"
+              name="is_public"
+              value="false"
+              checked={!repo.is_public}
+            />
+            <span>Private</span>
+            <small>Only you can see this repository</small>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href={`/${username}/${reponame}`} class="btn">Cancel</a>
+      </div>
+    </form>
+
+    <div class="danger-zone mt-4">
+      <h2>Danger Zone</h2>
+      <div class="danger-actions">
+        <div class="danger-action">
+          <div>
+            <strong>Delete this repository</strong>
+            <p>Once deleted, it cannot be recovered.</p>
+          </div>
+          <button class="btn btn-danger" id="delete-repo">Delete repository</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  const form = document.getElementById("settings-form") as HTMLFormElement;
+  const topicsInput = document.getElementById("topics") as HTMLInputElement;
+  const topicsPreview = document.querySelector(".topics-preview");
+
+  // Update topics preview on input
+  topicsInput?.addEventListener("input", () => {
+    const topics = topicsInput.value
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t && /^[a-z0-9-]+$/.test(t))
+      .slice(0, 20);
+
+    if (topicsPreview) {
+      if (topics.length > 0) {
+        topicsPreview.innerHTML = topics
+          .map((topic) => `<span class="topic-badge">${topic}</span>`)
+          .join("");
+        topicsPreview.classList.remove("hidden");
+      } else {
+        topicsPreview.classList.add("hidden");
+      }
+    }
+  });
+
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(form);
+    const description = formData.get("description") as string;
+    const topicsStr = formData.get("topics") as string;
+    const defaultBranch = formData.get("default_branch") as string;
+    const isPublic = formData.get("is_public") === "true";
+
+    const topics = topicsStr
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => t && /^[a-z0-9-]+$/.test(t))
+      .slice(0, 20);
+
+    const path = window.location.pathname;
+    const match = path.match(/^\/([^\/]+)\/([^\/]+)/);
+    if (!match) return;
+
+    const [, user, repo] = match;
+
+    try {
+      // Update topics
+      const topicsRes = await fetch(`/api/${user}/${repo}/topics`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topics }),
+      });
+
+      if (!topicsRes.ok) {
+        const error = await topicsRes.json();
+        alert(`Failed to update topics: ${error.error}`);
+        return;
+      }
+
+      // Update other settings (would need another API endpoint)
+      // For now, just show success and reload
+      window.location.href = `/${user}/${repo}`;
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      alert("Failed to save settings");
+    }
+  });
+
+  // Delete repository handler
+  document.getElementById("delete-repo")?.addEventListener("click", () => {
+    const confirmed = confirm(
+      "Are you sure you want to delete this repository? This action cannot be undone."
+    );
+    if (confirmed) {
+      alert("Delete functionality not yet implemented");
+    }
+  });
+</script>
+
+<style>
+  .settings-form {
+    max-width: 640px;
+  }
+
+  .help-text {
+    display: block;
+    margin-top: 6px;
+    color: var(--gray-500);
+    font-size: 11px;
+  }
+
+  .topics-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .topics-preview .topic-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--gray-900);
+    color: var(--gray-300);
+    white-space: nowrap;
+  }
+
+  .topics-preview.hidden {
+    display: none;
+  }
+
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .radio-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .radio-label:hover {
+    border-color: var(--border-hover);
+    background: var(--hover);
+  }
+
+  .radio-label input[type="radio"] {
+    width: auto;
+    margin-right: 8px;
+  }
+
+  .radio-label span {
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .radio-label small {
+    color: var(--gray-500);
+    margin-left: 28px;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  .danger-zone {
+    padding: 20px;
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    border-radius: var(--radius);
+    background: rgba(255, 68, 68, 0.05);
+  }
+
+  .danger-zone h2 {
+    font-size: 14px;
+    color: var(--error);
+    margin-bottom: 16px;
+  }
+
+  .danger-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .danger-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+
+  .danger-action strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--fg);
+  }
+
+  .danger-action p {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin: 0;
+  }
+</style>

@@ -1,0 +1,177 @@
+---
+/**
+ * File History Page
+ *
+ * Shows the commit/change history for a specific file.
+ * Each entry links to view the file at that change.
+ */
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import CommitList from "../../../../components/CommitList.astro";
+import { sql } from "../../../../lib/db";
+import { getFileHistory, getDefaultBookmark } from "../../../../lib/jj";
+import type { User, Repository } from "../../../../lib/types";
+import type { Change } from "../../../../lib/jj-types";
+
+const { user: username, repo: reponame, path: pathParam } = Astro.params;
+
+if (!username || !reponame || !pathParam) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Parse path: first part is the bookmark/change, rest is file path
+const pathParts = pathParam.split("/");
+const bookmark = pathParts[0] || repo.default_bookmark || "main";
+const filePath = pathParts.slice(1).join("/");
+
+if (!filePath) {
+  return Astro.redirect(`/${username}/${reponame}`);
+}
+
+const defaultBookmark = await getDefaultBookmark(username, reponame);
+
+// Get file history
+let changes: Change[] = [];
+let error: string | null = null;
+
+try {
+  changes = await getFileHistory(username, reponame, filePath, bookmark);
+} catch (e) {
+  error = e instanceof Error ? e.message : "Failed to load file history";
+}
+
+// Build breadcrumb parts
+const breadcrumbParts = filePath.split("/");
+const filename = breadcrumbParts[breadcrumbParts.length - 1] || "";
+---
+
+<Layout title={`History: ${filename} · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}/tree/${bookmark}`}>{bookmark}</a>
+    {breadcrumbParts.map((part, i) => {
+      const partPath = breadcrumbParts.slice(0, i + 1).join("/");
+      const isLast = i === breadcrumbParts.length - 1;
+      return (
+        <>
+          <span class="sep">/</span>
+          {isLast ? (
+            <span class="current">{part}</span>
+          ) : (
+            <a href={`/${username}/${reponame}/tree/${bookmark}/${partPath}`}>{part}</a>
+          )}
+        </>
+      );
+    })}
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`} class="active">Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+  </nav>
+
+  <div class="container">
+    <div class="file-header">
+      <div class="file-info">
+        <h2>History: <span class="filename">{filename}</span></h2>
+        <div class="file-path">{filePath}</div>
+      </div>
+      <div class="file-actions">
+        <a href={`/${username}/${reponame}/blob/${bookmark}/${filePath}`} class="btn-secondary">
+          View File
+        </a>
+        <a href={`/${username}/${reponame}/blame/${bookmark}/${filePath}`} class="btn-secondary">
+          Blame
+        </a>
+      </div>
+    </div>
+
+    {error ? (
+      <div class="error">
+        <strong>Error:</strong> {error}
+      </div>
+    ) : (
+      <>
+        <div class="history-info">
+          {changes.length} {changes.length === 1 ? 'change' : 'changes'} modified this file
+        </div>
+        <CommitList
+          changes={changes}
+          username={username}
+          reponame={reponame}
+          bookmark={bookmark}
+          linkToFile={filePath}
+        />
+      </>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .file-info h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.25rem;
+  }
+
+  .filename {
+    font-family: var(--font-mono);
+    color: var(--primary);
+  }
+
+  .file-path {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .file-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .history-info {
+    background: var(--background-alt, #f5f5f5);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .error {
+    background: #fef2f2;
+    border: 2px solid #dc2626;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>
