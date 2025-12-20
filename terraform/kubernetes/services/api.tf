@@ -33,9 +33,28 @@ resource "kubernetes_deployment" "api" {
       spec {
         service_account_name = var.service_account_name
 
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 1000
+          run_as_group    = 1000
+          fs_group        = 1000
+
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name  = "api"
           image = "${var.registry_url}/plue-api:${var.image_tag}"
+
+          security_context {
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = true
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           port {
             container_port = 4000
@@ -90,6 +109,21 @@ resource "kubernetes_deployment" "api" {
           env {
             name  = "SECURE_COOKIES"
             value = "true"
+          }
+
+          env {
+            name = "EDGE_PUSH_SECRET"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.edge_push_secret.metadata[0].name
+                key  = "secret"
+              }
+            }
+          }
+
+          env {
+            name  = "EDGE_URL"
+            value = "https://plue-edge.${var.domain}"
           }
 
           liveness_probe {

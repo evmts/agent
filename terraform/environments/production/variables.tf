@@ -143,6 +143,13 @@ variable "enable_edge" {
   default     = false
 }
 
+variable "edge_push_secret" {
+  description = "Shared secret for K8s to authenticate push invalidations to Workers"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # -----------------------------------------------------------------------------
 # Application
 # -----------------------------------------------------------------------------

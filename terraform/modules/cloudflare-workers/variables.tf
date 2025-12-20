@@ -46,3 +46,9 @@ variable "electric_url" {
   description = "ElectricSQL endpoint URL (via tunnel)"
   default     = "http://electric.internal:3000"
 }
+
+variable "push_secret" {
+  description = "Shared secret for K8s to authenticate push invalidations to Workers"
+  type        = string
+  sensitive   = true
+}

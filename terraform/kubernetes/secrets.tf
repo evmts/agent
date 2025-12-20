@@ -78,3 +78,21 @@ resource "kubernetes_secret" "session_secret" {
 
   type = "Opaque"
 }
+
+resource "kubernetes_secret" "edge_push_secret" {
+  metadata {
+    name      = "edge-push-secret"
+    namespace = kubernetes_namespace.plue.metadata[0].name
+
+    labels = {
+      app        = "plue"
+      managed-by = "terraform"
+    }
+  }
+
+  data = {
+    secret = var.edge_push_secret
+  }
+
+  type = "Opaque"
+}

@@ -235,6 +235,9 @@ module "kubernetes" {
   cloudflare_tunnel_token   = var.enable_edge ? module.cloudflare_tunnel[0].tunnel_token : ""
   enable_external_lb        = !var.enable_edge  # Disable external LB when edge is enabled
 
+  # Edge push secret for K8s to Workers authentication
+  edge_push_secret          = var.enable_edge ? random_password.edge_push_secret[0].result : var.edge_push_secret
+
   # Pass through for services
   providers = {
     kubernetes = kubernetes
@@ -294,6 +297,13 @@ resource "random_password" "jwt_secret" {
   special = false
 }
 
+# Random secret for edge push authentication
+resource "random_password" "edge_push_secret" {
+  count   = var.enable_edge ? 1 : 0
+  length  = 64
+  special = false
+}
+
 # -----------------------------------------------------------------------------
 # Module: Cloudflare Workers (edge rendering)
 # -----------------------------------------------------------------------------
@@ -311,7 +321,8 @@ module "cloudflare_workers" {
   origin_host  = "origin.internal"
   electric_url = "http://electric.internal:3000"
 
-  jwt_secret = random_password.jwt_secret[0].result
+  jwt_secret   = random_password.jwt_secret[0].result
+  push_secret  = random_password.edge_push_secret[0].result
 
   depends_on = [module.cloudflare_tunnel]
 }

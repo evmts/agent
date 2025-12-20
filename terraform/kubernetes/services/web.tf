@@ -60,10 +60,31 @@ resource "kubernetes_deployment" "web" {
       spec {
         service_account_name = var.service_account_name
 
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 1000
+          run_as_group    = 1000
+          fs_group        = 1000
+
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         # Init container to set up git config
         init_container {
           name  = "init-git"
-          image = "alpine/git:latest"
+          image = "alpine/git:2.47.0"
+
+          security_context {
+            allow_privilege_escalation = false
+            # Note: Cannot use read_only_root_filesystem for git config operations
+            # Git needs to write to /root/.gitconfig during initialization
+            read_only_root_filesystem = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           command = ["sh", "-c"]
           args    = ["git config --global user.email 'plue@localhost' && git config --global user.name 'Plue' && git config --global init.defaultBranch main"]
@@ -77,6 +98,16 @@ resource "kubernetes_deployment" "web" {
         container {
           name  = "web"
           image = "${var.registry_url}/plue-web:${var.image_tag}"
+
+          security_context {
+            allow_privilege_escalation = false
+            # Note: Cannot use read_only_root_filesystem due to git operations and Node.js temp files
+            # The container needs to write to repos volume and may need temp directories
+            read_only_root_filesystem = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           port {
             container_port = 5173

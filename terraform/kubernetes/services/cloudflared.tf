@@ -57,9 +57,28 @@ resource "kubernetes_deployment" "cloudflared" {
       spec {
         service_account_name = var.service_account_name
 
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 65532
+          run_as_group    = 65532
+          fs_group        = 65532
+
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name  = "cloudflared"
-          image = "cloudflare/cloudflared:latest"
+          image = "cloudflare/cloudflared:2024.12.2"
+
+          security_context {
+            allow_privilege_escalation = false
+            read_only_root_filesystem  = true
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           args = [
             "tunnel",

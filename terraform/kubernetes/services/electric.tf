@@ -56,9 +56,30 @@ resource "kubernetes_deployment" "electric" {
       spec {
         service_account_name = var.service_account_name
 
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 1000
+          run_as_group    = 1000
+          fs_group        = 1000
+
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name  = "electric"
-          image = "electricsql/electric:latest"
+          image = "electricsql/electric:0.9.0"
+
+          security_context {
+            allow_privilege_escalation = false
+            # Note: Cannot use read_only_root_filesystem as ElectricSQL needs to write to storage volume
+            # The service maintains sync state in /var/lib/electric
+            read_only_root_filesystem = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           port {
             container_port = 3000

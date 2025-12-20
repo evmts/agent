@@ -31,9 +31,29 @@ resource "kubernetes_deployment" "adminer" {
       }
 
       spec {
+        security_context {
+          run_as_non_root = true
+          run_as_user     = 1000
+          run_as_group    = 1000
+          fs_group        = 1000
+
+          seccomp_profile {
+            type = "RuntimeDefault"
+          }
+        }
+
         container {
           name  = "adminer"
-          image = "adminer:latest"
+          image = "adminer:4.8.1"
+
+          security_context {
+            allow_privilege_escalation = false
+            # Note: Cannot use read_only_root_filesystem as Adminer (PHP/Apache) needs to write session and temp files
+            read_only_root_filesystem = false
+            capabilities {
+              drop = ["ALL"]
+            }
+          }
 
           port {
             container_port = 8080

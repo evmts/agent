@@ -59,6 +59,11 @@ resource "cloudflare_workers_script" "edge" {
     name = "JWT_SECRET"
     text = var.jwt_secret
   }
+
+  secret_text_binding {
+    name = "PUSH_SECRET"
+    text = var.push_secret
+  }
 }
 
 # -----------------------------------------------------------------------------

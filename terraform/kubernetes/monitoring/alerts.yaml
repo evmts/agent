@@ -1,0 +1,278 @@
+# =============================================================================
+# Prometheus Alert Rules
+# =============================================================================
+# Alert definitions for critical infrastructure issues.
+
+groups:
+  # Pod Health Alerts
+  - name: pod_health
+    interval: 30s
+    rules:
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total{namespace="plue"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: kubernetes
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times in the last 5 minutes."
+
+      - alert: PodNotReady
+        expr: kube_pod_status_phase{namespace="plue",phase!="Running",phase!="Succeeded"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Pod {{ $labels.pod }} not ready"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been in {{ $labels.phase }} state for more than 10 minutes."
+
+      - alert: PodFrequentRestarts
+        expr: increase(kube_pod_container_status_restarts_total{namespace="plue"}[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Pod {{ $labels.pod }} restarting frequently"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times in the last hour."
+
+  # Resource Utilization Alerts
+  - name: resource_utilization
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: |
+          (sum(rate(container_cpu_usage_seconds_total{namespace="plue",pod!=""}[5m])) by (pod)
+          / sum(container_spec_cpu_quota{namespace="plue",pod!=""}/container_spec_cpu_period{namespace="plue",pod!=""}) by (pod)) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: resources
+        annotations:
+          summary: "High CPU usage on {{ $labels.pod }}"
+          description: "Pod {{ $labels.pod }} is using {{ $value | humanize }}% CPU for more than 10 minutes."
+
+      - alert: HighMemoryUsage
+        expr: |
+          (sum(container_memory_working_set_bytes{namespace="plue",pod!=""}) by (pod)
+          / sum(container_spec_memory_limit_bytes{namespace="plue",pod!=""} > 0) by (pod)) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: resources
+        annotations:
+          summary: "High memory usage on {{ $labels.pod }}"
+          description: "Pod {{ $labels.pod }} is using {{ $value | humanize }}% memory for more than 10 minutes."
+
+      - alert: CriticalCPUUsage
+        expr: |
+          (sum(rate(container_cpu_usage_seconds_total{namespace="plue",pod!=""}[5m])) by (pod)
+          / sum(container_spec_cpu_quota{namespace="plue",pod!=""}/container_spec_cpu_period{namespace="plue",pod!=""}) by (pod)) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: resources
+        annotations:
+          summary: "Critical CPU usage on {{ $labels.pod }}"
+          description: "Pod {{ $labels.pod }} is using {{ $value | humanize }}% CPU and may be throttled."
+
+      - alert: CriticalMemoryUsage
+        expr: |
+          (sum(container_memory_working_set_bytes{namespace="plue",pod!=""}) by (pod)
+          / sum(container_spec_memory_limit_bytes{namespace="plue",pod!=""} > 0) by (pod)) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: resources
+        annotations:
+          summary: "Critical memory usage on {{ $labels.pod }}"
+          description: "Pod {{ $labels.pod }} is using {{ $value | humanize }}% memory and may be OOMKilled."
+
+  # Application Health Alerts
+  - name: application_health
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"api|web|electric"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: application
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 2 minutes."
+
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{namespace="plue",status=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_total{namespace="plue"}[5m])) by (service)) * 100 > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has {{ $value | humanize }}% 5xx error rate for more than 5 minutes."
+
+      - alert: CriticalErrorRate
+        expr: |
+          (sum(rate(http_requests_total{namespace="plue",status=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_total{namespace="plue"}[5m])) by (service)) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          component: application
+        annotations:
+          summary: "Critical 5xx error rate on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} has {{ $value | humanize }}% 5xx error rate."
+
+      - alert: SlowResponseTime
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace="plue"}[5m])) by (le, service)) > 2
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Slow response time on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} p99 response time is {{ $value | humanize }}s."
+
+  # Database Alerts
+  - name: database
+    interval: 30s
+    rules:
+      - alert: DatabaseConnectionFailure
+        expr: |
+          sum(rate(db_connection_errors_total{namespace="plue"}[5m])) by (service) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection failures on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} is experiencing database connection failures."
+
+      - alert: HighDatabaseConnections
+        expr: db_connections_active{namespace="plue"} / db_connections_max{namespace="plue"} > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High database connection usage"
+          description: "Database is using {{ $value | humanizePercentage }} of available connections."
+
+  # Storage Alerts
+  - name: storage
+    interval: 30s
+    rules:
+      - alert: PersistentVolumeSpaceLow
+        expr: |
+          (kubelet_volume_stats_used_bytes{namespace="plue"}
+          / kubelet_volume_stats_capacity_bytes{namespace="plue"}) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} space low"
+          description: "PersistentVolume {{ $labels.persistentvolumeclaim }} is {{ $value | humanize }}% full."
+
+      - alert: PersistentVolumeSpaceCritical
+        expr: |
+          (kubelet_volume_stats_used_bytes{namespace="plue"}
+          / kubelet_volume_stats_capacity_bytes{namespace="plue"}) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} space critical"
+          description: "PersistentVolume {{ $labels.persistentvolumeclaim }} is {{ $value | humanize }}% full."
+
+  # Certificate Alerts
+  - name: certificates
+    interval: 1h
+    rules:
+      - alert: CertificateExpiringSoon
+        expr: (cert_exporter_not_after - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Certificate {{ $labels.cn }} expiring soon"
+          description: "Certificate {{ $labels.cn }} will expire in {{ $value | humanizeDuration }}."
+
+      - alert: CertificateExpiryCritical
+        expr: (cert_exporter_not_after - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "Certificate {{ $labels.cn }} expiring very soon"
+          description: "Certificate {{ $labels.cn }} will expire in {{ $value | humanizeDuration }}."
+
+  # Deployment Alerts
+  - name: deployments
+    interval: 30s
+    rules:
+      - alert: DeploymentReplicasMismatch
+        expr: |
+          kube_deployment_status_replicas_available{namespace="plue"}
+          != kube_deployment_spec_replicas{namespace="plue"}
+        for: 10m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} replica mismatch"
+          description: "Deployment {{ $labels.deployment }} has {{ $value }} available replicas but expects {{ $labels.spec_replicas }}."
+
+      - alert: DeploymentGenerationMismatch
+        expr: |
+          kube_deployment_status_observed_generation{namespace="plue"}
+          != kube_deployment_metadata_generation{namespace="plue"}
+        for: 5m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} generation mismatch"
+          description: "Deployment {{ $labels.deployment }} has not been fully rolled out."
+
+  # Node Alerts
+  - name: nodes
+    interval: 30s
+    rules:
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: kubernetes
+        annotations:
+          summary: "Node {{ $labels.node }} not ready"
+          description: "Node {{ $labels.node }} has been in NotReady state for more than 5 minutes."
+
+      - alert: NodeMemoryPressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Node {{ $labels.node }} under memory pressure"
+          description: "Node {{ $labels.node }} is experiencing memory pressure."
+
+      - alert: NodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Node {{ $labels.node }} under disk pressure"
+          description: "Node {{ $labels.node }} is experiencing disk pressure."

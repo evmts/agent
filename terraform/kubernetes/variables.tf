@@ -92,3 +92,9 @@ variable "enable_external_lb" {
   type        = bool
   default     = true
 }
+
+variable "edge_push_secret" {
+  description = "Shared secret for edge push invalidation"
+  type        = string
+  sensitive   = true
+}

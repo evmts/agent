@@ -44,7 +44,6 @@ resource "kubernetes_ingress_v1" "plue" {
         var.domain,
         "api.${var.domain}",
         "electric.${var.domain}",
-        "adminer.${var.domain}",
       ]
       # Note: When using Cloudflare proxy, Cloudflare handles SSL
       # If using cert-manager, uncomment:
@@ -114,26 +113,10 @@ resource "kubernetes_ingress_v1" "plue" {
       }
     }
 
-    # Adminer (database admin)
-    rule {
-      host = "adminer.${var.domain}"
-
-      http {
-        path {
-          path      = "/"
-          path_type = "Prefix"
-
-          backend {
-            service {
-              name = kubernetes_service.adminer.metadata[0].name
-              port {
-                number = 8080
-              }
-            }
-          }
-        }
-      }
-    }
+    # SECURITY: Adminer removed from public ingress to prevent unauthorized database access.
+    # For admin access to the database, use kubectl port-forward:
+    # kubectl port-forward -n plue svc/adminer 8080:8080
+    # Then access at http://localhost:8080
   }
 
   depends_on = [

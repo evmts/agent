@@ -38,6 +38,14 @@ resource "cloudflare_tunnel_config" "origin" {
       service  = var.origin_web_service
 
       origin_request {
+        # SECURITY NOTE: TLS verification disabled for internal cluster services
+        # Justification: These are ClusterIP services within the private GKE cluster
+        # that do not have TLS configured. The traffic flow is:
+        # 1. External traffic arrives via Cloudflare (TLS terminated at edge)
+        # 2. Cloudflare Tunnel (running in-cluster) connects to ClusterIP services
+        # 3. All traffic stays within the private cluster network
+        # Risk mitigation: GKE network policies and private cluster configuration
+        # prevent external access to these services outside the tunnel.
         no_tls_verify = true
       }
     }
@@ -48,6 +56,7 @@ resource "cloudflare_tunnel_config" "origin" {
       service  = var.origin_api_service
 
       origin_request {
+        # SECURITY NOTE: TLS verification disabled (see web service above for details)
         no_tls_verify = true
       }
     }
@@ -58,6 +67,7 @@ resource "cloudflare_tunnel_config" "origin" {
       service  = var.origin_electric_service
 
       origin_request {
+        # SECURITY NOTE: TLS verification disabled (see web service above for details)
         no_tls_verify = true
       }
     }
