@@ -145,6 +145,56 @@ const totalPages = Math.ceil(totalCount / perPage);
     </button>
   </div>
 
+  <div class="workflow-dispatch-modal" id="dispatch-modal" style="display: none;">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Run Workflow</h2>
+        <button class="modal-close" id="modal-close">×</button>
+      </div>
+      <form id="dispatch-form">
+        <div class="form-group">
+          <label for="workflow-select">Workflow</label>
+          <select id="workflow-select" name="workflow" required>
+            <option value="">Select a workflow</option>
+            {workflowDefinitions.map((def: any) => (
+              <option value={def.id}>{def.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="ref-input">Branch/Tag</label>
+          <input
+            type="text"
+            id="ref-input"
+            name="ref"
+            placeholder="main"
+            value={repo.default_branch}
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="title-input">Title</label>
+          <input
+            type="text"
+            id="title-input"
+            name="title"
+            placeholder="Manual workflow run"
+            required
+          />
+        </div>
+
+        <div id="workflow-inputs"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn" id="cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Run Workflow</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="workflows-layout">
     <aside class="workflow-sidebar">
       <h2>Workflows</h2>
@@ -373,6 +423,89 @@ const totalPages = Math.ceil(totalCount / perPage);
     font-size: 0.875rem;
   }
 
+  .workflow-dispatch-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+
+  .modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-header h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--fg);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--gray-400);
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    transition: all var(--transition-fast);
+  }
+
+  .modal-close:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  #dispatch-form {
+    padding: 1.5rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
   @media (max-width: 768px) {
     .workflows-layout {
       grid-template-columns: 1fr;
@@ -382,29 +515,96 @@ const totalPages = Math.ceil(totalCount / perPage);
       border-right: none;
       border-bottom: 1px solid var(--border);
     }
+
+    .modal-content {
+      width: 95%;
+      max-height: 90vh;
+    }
   }
 </style>
 
 <script>
   const triggerBtn = document.getElementById('trigger-btn');
-  if (triggerBtn) {
-    triggerBtn.addEventListener('click', async () => {
-      // Get repo info from URL
+  const modal = document.getElementById('dispatch-modal');
+  const modalBackdrop = document.getElementById('modal-backdrop');
+  const modalClose = document.getElementById('modal-close');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const dispatchForm = document.getElementById('dispatch-form');
+  const workflowSelect = document.getElementById('workflow-select') as HTMLSelectElement;
+
+  // Open modal
+  if (triggerBtn && modal) {
+    triggerBtn.addEventListener('click', () => {
+      modal.style.display = 'block';
+    });
+  }
+
+  // Close modal
+  function closeModal() {
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  if (modalBackdrop) {
+    modalBackdrop.addEventListener('click', closeModal);
+  }
+
+  if (modalClose) {
+    modalClose.addEventListener('click', closeModal);
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', closeModal);
+  }
+
+  // Handle workflow selection change (for dynamic inputs in the future)
+  if (workflowSelect) {
+    workflowSelect.addEventListener('change', () => {
+      const workflowInputsDiv = document.getElementById('workflow-inputs');
+      if (workflowInputsDiv) {
+        // Clear existing inputs
+        workflowInputsDiv.innerHTML = '';
+
+        // In the future, fetch workflow definition and render input fields
+        // based on the workflow's input schema
+      }
+    });
+  }
+
+  // Handle form submission
+  if (dispatchForm) {
+    dispatchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
       const pathParts = window.location.pathname.split('/').filter(Boolean);
       const user = pathParts[0];
       const repo = pathParts[1];
 
-      const title = prompt('Workflow title:', 'Manual workflow run');
-      if (!title) return;
+      const formData = new FormData(dispatchForm as HTMLFormElement);
+      const data = {
+        workflowId: formData.get('workflow'),
+        title: formData.get('title'),
+        ref: formData.get('ref'),
+        inputs: {} as Record<string, any>,
+      };
+
+      // Collect custom inputs
+      const inputs = dispatchForm.querySelectorAll('[data-workflow-input]');
+      inputs.forEach((input: any) => {
+        const name = input.getAttribute('data-workflow-input');
+        data.inputs[name] = input.value;
+      });
 
       try {
         const response = await fetch(`/${user}/${repo}/workflows/dispatch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title }),
+          body: JSON.stringify(data),
         });
 
         if (response.ok) {
+          closeModal();
           window.location.reload();
         } else {
           const error = await response.json();

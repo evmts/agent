@@ -59,6 +59,45 @@ const reviews = await sql<(LandingReview & { reviewer_username?: string })[]>`
   ORDER BY lr.created_at ASC
 `;
 
+// Get line comments
+const lineComments = await sql<(any & { author_username?: string })[]>`
+  SELECT lc.*,
+    u.username as author_username,
+    u.display_name as author_display_name
+  FROM line_comments lc
+  LEFT JOIN users u ON lc.author_id = u.id
+  WHERE lc.landing_id = ${id}
+  ORDER BY lc.file_path, lc.line_number, lc.created_at ASC
+`;
+
+// Transform to LineComment type
+const comments: any[] = lineComments.map(c => ({
+  id: c.id,
+  landingId: c.landing_id,
+  authorId: c.author_id,
+  filePath: c.file_path,
+  lineNumber: c.line_number,
+  side: c.side,
+  body: c.body,
+  resolved: c.resolved,
+  createdAt: c.created_at,
+  updatedAt: c.updated_at,
+  author: {
+    id: c.author_id,
+    username: c.author_username,
+    displayName: c.author_display_name
+  }
+}));
+
+// Count comments per file
+const commentCountsByFile = new Map<string, number>();
+comments.forEach(c => {
+  const count = commentCountsByFile.get(c.filePath) || 0;
+  commentCountsByFile.set(c.filePath, count + 1);
+});
+
+const totalCommentCount = comments.length;
+
 // Get commit statuses (CI checks) if change has a commit
 interface CommitStatusRow {
   id: number;
@@ -100,7 +139,7 @@ const activeTab = Astro.url.searchParams.get('tab') || 'conversation';
 const tabs: Tab[] = [
   { id: 'conversation', label: 'Conversation' },
   { id: 'commits', label: 'Commits', count: commits.length },
-  { id: 'files', label: 'Files Changed', count: diff.length }
+  { id: 'files', label: 'Files Changed', count: diff.length + (totalCommentCount > 0 ? ` (${totalCommentCount} comments)` : '') }
 ];
 
 const baseUrl = `/${username}/${reponame}/landing/${id}`;
@@ -129,7 +168,15 @@ function getStatusLabel(status: string): string {
   }
 }
 
-const canLand = request.status === 'ready';
+// Check if CI checks are passing
+const checksFailing = commitStatuses.some(status =>
+  status.state === 'failure' || status.state === 'error'
+);
+const checksPending = commitStatuses.some(status =>
+  status.state === 'pending'
+);
+
+const canLand = request.status === 'ready' && !checksFailing && !checksPending;
 const isClosed = ['landed', 'cancelled'].includes(request.status);
 ---
 
@@ -246,6 +293,38 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
                 )}
               </div>
             </div>
+
+            <!-- Line Comments Grouped by File -->
+            {comments.length > 0 && (
+              <div class="line-comments-section">
+                <h3>Code Comments ({totalCommentCount})</h3>
+                {Array.from(commentCountsByFile.keys()).map(filePath => {
+                  const fileComments = comments.filter(c => c.filePath === filePath);
+                  return (
+                    <div class="file-comments">
+                      <div class="file-comments-header">
+                        <span class="file-path">{filePath}</span>
+                        <span class="comment-count">{fileComments.length} {fileComments.length === 1 ? 'comment' : 'comments'}</span>
+                      </div>
+                      <div class="comment-list">
+                        {fileComments.map(comment => (
+                          <div class="code-comment-item">
+                            <div class="comment-location">
+                              <span class="line-ref">Line {comment.lineNumber} ({comment.side})</span>
+                              {comment.resolved && <span class="resolved-badge">Resolved</span>}
+                            </div>
+                            <div class="comment-author">
+                              {comment.author?.username} · {new Date(comment.createdAt).toLocaleDateString()}
+                            </div>
+                            <div class="comment-body">{comment.body}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
 
@@ -278,7 +357,13 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
         <!-- Files Changed Tab -->
         {activeTab === 'files' && (
           <div class="files-changed-section">
-            <DiffView files={diff} defaultExpandAll={false} />
+            <DiffView
+              files={diff}
+              defaultExpandAll={false}
+              landingId={parseInt(id)}
+              comments={comments}
+              canComment={!isClosed}
+            />
           </div>
         )}
       </div>
@@ -299,6 +384,20 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
                   Refresh Status
                 </button>
                 <p class="help">Resolve conflicts locally, then refresh to check again.</p>
+              </>
+            ) : checksFailing ? (
+              <>
+                <button class="btn" disabled>
+                  Land Change
+                </button>
+                <p class="help">Cannot land: required checks are failing.</p>
+              </>
+            ) : checksPending ? (
+              <>
+                <button class="btn" disabled>
+                  Land Change
+                </button>
+                <p class="help">Cannot land: checks are still running.</p>
               </>
             ) : (
               <button class="btn" data-action="check">
@@ -611,6 +710,82 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
     margin-left: auto;
   }
 
+  /* Line comments section */
+  .line-comments-section {
+    margin-top: 2rem;
+  }
+
+  .file-comments {
+    border: 1px solid var(--border);
+    margin-bottom: 1rem;
+  }
+
+  .file-comments-header {
+    background: #f9fafb;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .file-comments-header .file-path {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .comment-count {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .code-comment-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    background: white;
+  }
+
+  .code-comment-item:last-child {
+    border-bottom: none;
+  }
+
+  .comment-location {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .line-ref {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .resolved-badge {
+    background: #16a34a;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .comment-author {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .comment-body {
+    font-size: 14px;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+
   .sidebar {
     position: sticky;
     top: 1rem;
@@ -642,6 +817,16 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
     font-size: 12px;
     color: var(--text-muted);
     margin: 0.5rem 0 0 0;
+  }
+
+  .checks-section {
+    margin-bottom: 1rem;
+  }
+
+  .checks-section h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 14px;
+    font-weight: 500;
   }
 
   .btn-primary {

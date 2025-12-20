@@ -4,6 +4,7 @@ import Header from "../../../../components/Header.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
 import { sql } from "../../../../lib/db";
 import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
+import { saveMentionsForIssue } from "../../../../lib/mentions-db";
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
@@ -67,6 +68,14 @@ if (Astro.request.method === "POST") {
             username: author.username,
           },
         });
+
+        // Save mentions to database for notifications
+        try {
+          await saveMentionsForIssue(repo.id, issue.number, body);
+        } catch (mentionError) {
+          console.error("Failed to save mentions:", mentionError);
+          // Don't fail the whole request if mentions fail
+        }
 
         return Astro.redirect(`/${username}/${reponame}/issues/${issue.number}`);
       }

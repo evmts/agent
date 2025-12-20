@@ -7,6 +7,7 @@ import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
 import IssueSidebar from "../../../../components/IssueSidebar.astro";
 import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
+import Reactions from "../../../../components/Reactions.astro";
 import { sql } from "../../../../lib/db";
 import {
   getIssue,
@@ -21,7 +22,8 @@ import {
   getLabels,
   ensureIssuesRepo,
 } from "../../../../lib/git-issues";
-import type { User, Repository } from "../../../../lib/types";
+import { saveMentionsForComment } from "../../../../lib/mentions-db";
+import type { User, Repository, ReactionGroup } from "../../../../lib/types";
 
 const { user: username, repo: reponame, number: issueNumber } = Astro.params;
 
@@ -76,6 +78,81 @@ const counts = await getIssueCounts(username, reponame);
 // Get available labels
 const availableLabels = await getLabels(username, reponame);
 
+// Get milestones for this repository
+const milestones = await sql<Array<{ id: number; title: string; due_date: string | null; state: string }>>`
+  SELECT id, title, due_date, state
+  FROM milestones
+  WHERE repository_id = ${repo.id}
+  ORDER BY state DESC, due_date ASC NULLS LAST
+`;
+
+// Get current milestone if issue has one
+let currentMilestone = null;
+if (gitIssue.milestone) {
+  [currentMilestone] = await sql<Array<{ id: number; title: string; due_date: string | null; state: string }>>`
+    SELECT id, title, due_date, state
+    FROM milestones
+    WHERE id = (
+      SELECT milestone_id FROM issues
+      WHERE repository_id = ${repo.id} AND issue_number = ${parseInt(issueNumber)}
+    )
+  `;
+}
+
+// Fetch reactions for the issue
+const issueReactions = await sql<Array<{ user_id: number; username: string; emoji: string }>>`
+  SELECT r.user_id, u.username, r.emoji
+  FROM reactions r
+  JOIN users u ON r.user_id = u.id
+  WHERE r.target_type = 'issue' AND r.target_id = ${parseInt(issueNumber)}
+  ORDER BY r.created_at ASC
+`;
+
+// Group reactions by emoji
+const issueReactionGroups: ReactionGroup[] = Object.values(
+  issueReactions.reduce((acc, r) => {
+    if (!acc[r.emoji]) {
+      acc[r.emoji] = {
+        emoji: r.emoji,
+        count: 0,
+        users: [],
+        has_reacted: false,
+      };
+    }
+    acc[r.emoji].count++;
+    acc[r.emoji].users.push({ id: r.user_id, username: r.username });
+    return acc;
+  }, {} as Record<string, ReactionGroup>)
+);
+
+// Fetch reactions for all comments
+const commentIds = comments.map(c => c.id);
+const commentReactionsRaw = commentIds.length > 0 ? await sql<Array<{ target_id: number; user_id: number; username: string; emoji: string }>>`
+  SELECT r.target_id, r.user_id, u.username, r.emoji
+  FROM reactions r
+  JOIN users u ON r.user_id = u.id
+  WHERE r.target_type = 'comment' AND r.target_id = ANY(${commentIds})
+  ORDER BY r.created_at ASC
+` : [];
+
+// Group reactions by comment and emoji
+const commentReactions = commentReactionsRaw.reduce((acc, r) => {
+  if (!acc[r.target_id]) {
+    acc[r.target_id] = {};
+  }
+  if (!acc[r.target_id][r.emoji]) {
+    acc[r.target_id][r.emoji] = {
+      emoji: r.emoji,
+      count: 0,
+      users: [],
+      has_reacted: false,
+    };
+  }
+  acc[r.target_id][r.emoji].count++;
+  acc[r.target_id][r.emoji].users.push({ id: r.user_id, username: r.username });
+  return acc;
+}, {} as Record<number, Record<string, ReactionGroup>>);
+
 // Count pending landing requests
 let landingCount = 0;
 try {
@@ -108,13 +185,22 @@ if (Astro.request.method === "POST") {
         if (!author) {
           error = "Author not found";
         } else {
-          await addComment(username, reponame, parseInt(issueNumber), {
+          const comment = await addComment(username, reponame, parseInt(issueNumber), {
             body,
             author: {
               id: parseInt(authorId),
               username: author.username,
             },
           });
+
+          // Save mentions to database for notifications
+          try {
+            await saveMentionsForComment(repo.id, parseInt(issueNumber), comment.id.toString().padStart(3, "0"), body);
+          } catch (mentionError) {
+            console.error("Failed to save mentions:", mentionError);
+            // Don't fail the whole request if mentions fail
+          }
+
           return Astro.redirect(Astro.url.pathname);
         }
       } catch (e) {
@@ -135,6 +221,60 @@ if (Astro.request.method === "POST") {
     } catch (e) {
       error = (e as Error).message;
     }
+  } else if (action === "edit_comment") {
+    const commentId = formData.get("comment_id") as string;
+    const body = (formData.get("body") as string)?.trim();
+
+    if (!commentId || !body) {
+      error = "Comment body cannot be empty";
+    } else {
+      try {
+        await updateComment(username, reponame, parseInt(issueNumber), parseInt(commentId), { body });
+        return Astro.redirect(Astro.url.pathname);
+      } catch (e) {
+        error = (e as Error).message;
+      }
+    }
+  } else if (action === "delete_comment") {
+    const commentId = formData.get("comment_id") as string;
+
+    if (!commentId) {
+      error = "Comment ID is required";
+    } else {
+      try {
+        await deleteComment(username, reponame, parseInt(issueNumber), parseInt(commentId));
+        return Astro.redirect(Astro.url.pathname);
+      } catch (e) {
+        error = (e as Error).message;
+      }
+    }
+  } else if (action === "edit_issue") {
+    const title = (formData.get("title") as string)?.trim();
+    const body = (formData.get("body") as string)?.trim();
+
+    if (!title) {
+      error = "Title cannot be empty";
+    } else {
+      try {
+        await updateIssue(username, reponame, parseInt(issueNumber), { title, body });
+        return Astro.redirect(Astro.url.pathname);
+      } catch (e) {
+        error = (e as Error).message;
+      }
+    }
+  }
+}
+
+// Get current user from cookie (mock for now - replace with actual auth)
+let currentUserId: number | undefined;
+const cookies = Astro.cookies;
+const authCookie = cookies.get("auth_user");
+if (authCookie) {
+  try {
+    const authData = JSON.parse(authCookie.value);
+    currentUserId = authData.id;
+  } catch {
+    // Invalid cookie
   }
 }
 ---
@@ -183,20 +323,65 @@ if (Astro.request.method === "POST") {
     <div class="issue-layout">
       <div class="issue-main">
         {issue.body && (
-          <div class="comment">
+          <div class="comment" id="issue-body">
             <div class="comment-header">
               <Avatar user={{ username: issue.author_username || 'unknown' }} size="sm" />
               <strong>{issue.author_username}</strong>
               <span class="time">· opened this issue</span>
+              {currentUserId && currentUserId === issue.author_id && (
+                <div class="comment-actions">
+                  <button class="btn-text edit-issue-btn" type="button">Edit</button>
+                </div>
+              )}
             </div>
-            <div class="comment-body">
+            <div class="issue-body-content">
               <Markdown content={issue.body} owner={username} repo={reponame} />
             </div>
+            <Reactions
+              targetType="issue"
+              targetId={parseInt(issueNumber)}
+              user={username}
+              repo={reponame}
+              issueNumber={parseInt(issueNumber)}
+              currentUserId={currentUserId}
+              reactions={issueReactionGroups}
+            />
+            {currentUserId && currentUserId === issue.author_id && (
+              <div class="issue-edit" style="display: none;">
+                <form method="POST" class="edit-form">
+                  <input type="hidden" name="action" value="edit_issue" />
+                  <div class="form-group">
+                    <label for="edit-title">Title</label>
+                    <input type="text" name="title" id="edit-title" value={issue.title} required />
+                  </div>
+                  <div class="form-group">
+                    <label for="edit-body">Body</label>
+                    <MarkdownEditor
+                      name="body"
+                      id="edit-body"
+                      initialValue={issue.body}
+                      height="200px"
+                    />
+                  </div>
+                  <div class="flex gap-1 mt-1">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn cancel-edit-issue">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
         )}
 
         {comments.map((comment) => (
-          <CommentCard comment={comment} owner={username} repo={reponame} />
+          <CommentCard
+            comment={comment}
+            owner={username}
+            repo={reponame}
+            currentUserId={currentUserId}
+            issueNumber={parseInt(issueNumber)}
+            reactions={Object.values(commentReactions[comment.id] || {})}
+          />
         ))}
 
         <div class="add-comment mt-3">
@@ -249,7 +434,7 @@ if (Astro.request.method === "POST") {
       </div>
 
       <div class="issue-sidebar-wrapper">
-        <IssueSidebar issue={issue} users={users} availableLabels={availableLabels} />
+        <IssueSidebar issue={issue} users={users} availableLabels={availableLabels} milestones={milestones} currentMilestone={currentMilestone} />
       </div>
     </div>
   </div>
@@ -306,4 +491,66 @@ if (Astro.request.method === "POST") {
       order: 1;
     }
   }
+
+  .comment-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-text {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+
+  .btn-text:hover {
+    color: var(--text);
+  }
+
+  .issue-edit {
+    margin-top: 12px;
+  }
 </style>
+
+<script>
+  document.addEventListener("astro:page-load", () => {
+    // Handle edit issue button
+    const editIssueBtn = document.querySelector(".edit-issue-btn");
+    if (editIssueBtn) {
+      editIssueBtn.addEventListener("click", () => {
+        const issueBody = document.querySelector("#issue-body");
+        if (!issueBody) return;
+
+        const content = issueBody.querySelector(".issue-body-content") as HTMLElement;
+        const editForm = issueBody.querySelector(".issue-edit") as HTMLElement;
+
+        if (content && editForm) {
+          content.style.display = "none";
+          editForm.style.display = "block";
+        }
+      });
+    }
+
+    // Handle cancel edit issue button
+    const cancelEditIssueBtn = document.querySelector(".cancel-edit-issue");
+    if (cancelEditIssueBtn) {
+      cancelEditIssueBtn.addEventListener("click", () => {
+        const issueBody = document.querySelector("#issue-body");
+        if (!issueBody) return;
+
+        const content = issueBody.querySelector(".issue-body-content") as HTMLElement;
+        const editForm = issueBody.querySelector(".issue-edit") as HTMLElement;
+
+        if (content && editForm) {
+          content.style.display = "block";
+          editForm.style.display = "none";
+        }
+      });
+    }
+  });
+</script>

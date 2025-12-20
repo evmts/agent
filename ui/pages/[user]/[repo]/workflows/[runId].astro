@@ -7,6 +7,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import WorkflowStatusBadge from "../../../../components/WorkflowStatusBadge.astro";
+import RelativeTime from "../../../../components/RelativeTime.astro";
 import { sql } from "../../../../lib/db";
 import type { User, Repository } from "../../../../lib/types";
 
@@ -86,23 +87,6 @@ function formatFileSize(bytes: number): string {
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
-// Format relative time
-function formatRelativeTime(date: string | Date | null): string {
-  if (!date) return '-';
-  const d = new Date(date);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-
-  if (diffDay > 0) return `${diffDay}d ago`;
-  if (diffHour > 0) return `${diffHour}h ago`;
-  if (diffMin > 0) return `${diffMin}m ago`;
-  return 'just now';
-}
-
 // Format duration
 function formatDuration(start: string | Date | null, end: string | Date | null): string {
   if (!start) return '-';
@@ -147,7 +131,7 @@ const shortSha = run.commit_sha?.slice(0, 7);
         <span class="trigger">{run.trigger_event}</span>
         {run.ref && <span class="ref">{run.ref}</span>}
         {shortSha && <code class="sha">{shortSha}</code>}
-        <span class="timing">Started {formatRelativeTime(run.created_at)}</span>
+        <span class="timing">Started <RelativeTime date={run.created_at} /></span>
         <span class="duration">Duration: {formatDuration(run.started_at, run.stopped_at)}</span>
       </div>
     </div>
@@ -344,11 +328,62 @@ const shortSha = run.commit_sha?.slice(0, 7);
     margin: 0;
   }
 
-  .empty-jobs {
-    color: var(--muted);
+  .empty-jobs, .empty-artifacts {
+    color: var(--gray-400);
     padding: 1rem;
     border: 1px dashed var(--border);
     text-align: center;
+  }
+
+  .artifacts-list {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .artifact-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    transition: background var(--transition-fast);
+  }
+
+  .artifact-item:last-child {
+    border-bottom: none;
+  }
+
+  .artifact-item:hover {
+    background: var(--hover);
+  }
+
+  .artifact-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+  }
+
+  .artifact-icon {
+    font-size: 1.5rem;
+  }
+
+  .artifact-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .artifact-name {
+    font-weight: 500;
+    font-size: 0.875rem;
+  }
+
+  .artifact-size {
+    font-size: 0.75rem;
+    color: var(--gray-500);
+    font-family: var(--font-mono);
   }
 
   .job-card {

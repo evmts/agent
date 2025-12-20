@@ -1,6 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
+import RelativeTime from "../../components/RelativeTime.astro";
 import { sql } from "../../lib/db";
 
 // Check authentication
@@ -141,18 +142,10 @@ try {
                   ))}
                 </div>
                 <div class="token-meta">
-                  Created {new Date(token.created_at).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  })}
+                  Created <RelativeTime date={token.created_at} />
                   {token.last_used_at && (
                     <span>
-                      {' • '}Last used {new Date(token.last_used_at).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      })}
+                      {' • '}Last used <RelativeTime date={token.last_used_at} />
                     </span>
                   )}
                 </div>
@@ -296,7 +289,7 @@ try {
 
   .warning-message {
     color: var(--warning);
-    background: var(--warning-dim);
+    background: rgba(245, 166, 35, 0.15);
     padding: 12px;
     border-radius: var(--radius);
     margin-bottom: 1rem;
@@ -491,7 +484,7 @@ try {
       }, 2000);
     } catch (error) {
       console.error('Failed to copy token:', error);
-      alert('Failed to copy token to clipboard');
+      window.toast.error('Failed to copy token to clipboard');
     }
   });
 
@@ -542,7 +535,7 @@ try {
           window.location.reload();
         }
       } catch (error) {
-        alert(error instanceof Error ? error.message : 'Failed to revoke token');
+        window.toast.error(error instanceof Error ? error.message : 'Failed to revoke token');
         target.disabled = false;
         target.textContent = 'Revoke';
       }

@@ -18,7 +18,8 @@ if (!user) {
 }
 
 const repos = await sql<Repository[]>`
-  SELECT r.*, u.username
+  SELECT r.*, u.username,
+    (SELECT COUNT(*) FROM stars WHERE repository_id = r.id) as star_count
   FROM repositories r
   JOIN users u ON r.user_id = u.id
   WHERE r.user_id = ${user.id} AND r.is_public = true
@@ -34,7 +35,12 @@ const repos = await sql<Repository[]>`
       {user.bio && <p class="bio">{user.bio}</p>}
     </div>
 
-    <h2 class="mb-2">Repositories</h2>
+    <nav class="profile-nav mb-3">
+      <a href={`/${username}`} class="active">Repositories</a>
+      <a href={`/${username}/stars`}>Stars</a>
+    </nav>
+
+    <h2 class="mb-2">Repositories ({repos.length})</h2>
 
     {repos.length === 0 ? (
       <div class="empty-state">
@@ -43,7 +49,7 @@ const repos = await sql<Repository[]>`
     ) : (
       <ul class="repo-list">
         {repos.map((repo) => (
-          <RepoCard repo={repo} showUser={false} />
+          <RepoCard repo={repo} showUser={false} starCount={Number(repo.star_count || 0)} />
         ))}
       </ul>
     )}
@@ -58,5 +64,28 @@ const repos = await sql<Repository[]>`
 
   .bio {
     margin-top: 8px;
+  }
+
+  .profile-nav {
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+
+  .profile-nav a {
+    padding: 0.5rem 0;
+    border-bottom: 2px solid transparent;
+    text-decoration: none;
+    color: var(--text);
+  }
+
+  .profile-nav a.active {
+    border-bottom-color: var(--text);
+    font-weight: 500;
+  }
+
+  .profile-nav a:hover {
+    border-bottom-color: var(--border-hover);
   }
 </style>

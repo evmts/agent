@@ -1,6 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
+import RelativeTime from "../../components/RelativeTime.astro";
 import { sql } from "../../lib/db";
 
 // Check authentication
@@ -106,11 +107,7 @@ try {
                 <div class="key-name">{key.name}</div>
                 <div class="key-fingerprint">{key.fingerprint}</div>
                 <div class="key-meta">
-                  Added {new Date(key.created_at).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  })}
+                  Added <RelativeTime date={key.created_at} />
                 </div>
               </div>
               <button

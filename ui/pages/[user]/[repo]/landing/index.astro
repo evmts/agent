@@ -49,6 +49,41 @@ const requests = await sql<(LandingRequest & { author_username?: string })[]>`
 const openRequests = requests.filter(r => !['landed', 'cancelled'].includes(r.status));
 const closedRequests = requests.filter(r => ['landed', 'cancelled'].includes(r.status));
 
+// Get commit statuses for all open requests
+// We'll need to query for each change's commit SHA and then get statuses
+interface StatusSummary {
+  landingId: number;
+  passing: number;
+  failing: number;
+  pending: number;
+}
+
+const statusSummaries: Map<number, StatusSummary> = new Map();
+
+// For now, we'll do a simple approach - this could be optimized with a join in production
+for (const request of openRequests) {
+  try {
+    const change = await jj.getChange(username, reponame, request.changeId);
+    if (change?.commitId) {
+      const statuses = await sql<{ state: string }[]>`
+        SELECT state FROM commit_statuses
+        WHERE repository_id = ${repo.id} AND commit_sha = ${change.commitId}
+      `;
+
+      const summary: StatusSummary = {
+        landingId: request.id,
+        passing: statuses.filter(s => s.state === 'success').length,
+        failing: statuses.filter(s => s.state === 'failure' || s.state === 'error').length,
+        pending: statuses.filter(s => s.state === 'pending').length,
+      };
+
+      statusSummaries.set(request.id, summary);
+    }
+  } catch (e) {
+    // Skip if we can't get change info
+  }
+}
+
 const defaultBookmark = repo.default_bookmark || 'main';
 
 const [{ count: issueCount }] = await sql`
@@ -162,6 +197,22 @@ function getStatusLabel(status: string): string {
                   {request.conflictedFiles?.length || 0} conflicts
                 </span>
               )}
+              {(() => {
+                const summary = statusSummaries.get(request.id);
+                if (summary && (summary.passing > 0 || summary.failing > 0 || summary.pending > 0)) {
+                  return (
+                    <span class="checks-badge">
+                      {summary.failing > 0 && <span class="check-icon failing">✗</span>}
+                      {summary.pending > 0 && <span class="check-icon pending">○</span>}
+                      {summary.passing > 0 && <span class="check-icon passing">✓</span>}
+                      <span class="check-text">
+                        {summary.passing + summary.failing + summary.pending} checks
+                      </span>
+                    </span>
+                  );
+                }
+                return null;
+              })()}
               <span
                 class="status-badge"
                 style={`background: ${getStatusColor(request.status)}`}
@@ -391,6 +442,38 @@ function getStatusLabel(status: string): string {
     font-size: 12px;
     font-weight: 500;
     border: 1px solid #fecaca;
+  }
+
+  .checks-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+  }
+
+  .check-icon {
+    font-weight: bold;
+    font-size: 0.875rem;
+  }
+
+  .check-icon.passing {
+    color: #22c55e;
+  }
+
+  .check-icon.failing {
+    color: #ef4444;
+  }
+
+  .check-icon.pending {
+    color: #f59e0b;
+  }
+
+  .check-text {
+    color: var(--text-muted);
   }
 
   .status-badge {

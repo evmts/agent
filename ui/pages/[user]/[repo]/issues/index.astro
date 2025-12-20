@@ -23,6 +23,7 @@ const author = Astro.url.searchParams.get("author") || undefined;
 const assignee = Astro.url.searchParams.get("assignee") || undefined;
 const labelsParam = Astro.url.searchParams.get("labels");
 const labels = labelsParam ? labelsParam.split(",").filter(Boolean) : [];
+const milestone = Astro.url.searchParams.get("milestone") || undefined;
 const sort = (Astro.url.searchParams.get("sort") || "created") as "created" | "updated" | "comments";
 const search = Astro.url.searchParams.get("search") || undefined;
 
@@ -49,6 +50,7 @@ const filters: IssueFiltersType = {
   author,
   assignee,
   labels,
+  milestone,
   sort,
   search,
 };
@@ -64,6 +66,32 @@ const [authors, assignees, availableLabels] = await Promise.all([
   getLabels(username, reponame),
 ]);
 
+// Get milestones for filter
+const availableMilestones = await sql<Array<{ id: number; title: string }>>`
+  SELECT id, title
+  FROM milestones
+  WHERE repository_id = ${repo.id} AND state = 'open'
+  ORDER BY due_date ASC NULLS LAST, title ASC
+`;
+
+// Fetch reaction counts for all issues
+const issueNumbers = gitIssues.map(i => i.number);
+const reactionCounts = issueNumbers.length > 0 ? await sql<Array<{ target_id: number; emoji: string; count: number }>>`
+  SELECT target_id, emoji, COUNT(*) as count
+  FROM reactions
+  WHERE target_type = 'issue' AND target_id = ANY(${issueNumbers})
+  GROUP BY target_id, emoji
+` : [];
+
+// Group reactions by issue
+const issueReactionMap = reactionCounts.reduce((acc, r) => {
+  if (!acc[r.target_id]) {
+    acc[r.target_id] = [];
+  }
+  acc[r.target_id].push({ emoji: r.emoji, count: Number(r.count) });
+  return acc;
+}, {} as Record<number, Array<{ emoji: string; count: number }>>);
+
 // Transform to match expected shape (Issue type)
 const issues = gitIssues.map(issue => ({
   id: issue.number, // Use issue number as id for now
@@ -78,6 +106,9 @@ const issues = gitIssues.map(issue => ({
   updated_at: new Date(issue.updated_at),
   closed_at: issue.closed_at ? new Date(issue.closed_at) : null,
   author_username: issue.author.username,
+  labels: issue.labels,
+  reactions: issueReactionMap[issue.number] || [],
+  assignees: issue.assignees,
 }));
 
 // Count pending landing requests
@@ -99,6 +130,7 @@ const currentFilters = {
   author: author || null,
   assignee: assignee || null,
   labels,
+  milestone: milestone || null,
   sort,
   search: search || null,
 };
@@ -120,6 +152,7 @@ const baseUrl = `/${username}/${reponame}/issues`;
   <nav class="repo-nav">
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`} class="active">Issues</a>
+    <a href={`/${username}/${reponame}/labels`}>Labels</a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
@@ -154,6 +187,7 @@ const baseUrl = `/${username}/${reponame}/issues`;
       authors={authors}
       assignees={assignees}
       labels={availableLabels}
+      milestones={availableMilestones}
       baseUrl={baseUrl}
     />
 
@@ -173,7 +207,7 @@ const baseUrl = `/${username}/${reponame}/issues`;
     ) : (
       <div class="issue-list">
         {issues.map((issue) => (
-          <IssueCard issue={issue} user={username} repo={reponame} />
+          <IssueCard issue={issue} user={username} repo={reponame} availableLabels={availableLabels} />
         ))}
       </div>
     )}

@@ -59,6 +59,27 @@ try {
 const [{ count: starCount }] = await sql`
   SELECT COUNT(*) as count FROM stars WHERE repository_id = ${repo.id}
 `;
+
+// Count running/failing workflows
+let workflowStatus = { running: 0, failing: 0 };
+try {
+  const [runningResult] = await sql`
+    SELECT COUNT(*) as count
+    FROM workflow_runs
+    WHERE repository_id = ${repo.id} AND status = 6
+  `;
+  workflowStatus.running = runningResult?.count || 0;
+
+  const [failingResult] = await sql`
+    SELECT COUNT(*) as count
+    FROM workflow_runs
+    WHERE repository_id = ${repo.id} AND status = 2
+    AND created_at > NOW() - INTERVAL '24 hours'
+  `;
+  workflowStatus.failing = failingResult?.count || 0;
+} catch {
+  // workflow tables may not exist yet
+}
 ---
 
 <Layout title={`${username}/${reponame} · plue`}>
@@ -80,7 +101,11 @@ const [{ count: starCount }] = await sql`
       Landing
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
-    <a href={`/${username}/${reponame}/workflows`}>Workflows</a>
+    <a href={`/${username}/${reponame}/workflows`}>
+      Workflows
+      {workflowStatus.running > 0 && <span class="badge badge-running">{workflowStatus.running}</span>}
+      {workflowStatus.failing > 0 && <span class="badge badge-error">{workflowStatus.failing}</span>}
+    </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
     <a href={`/${username}/${reponame}/operations`}>Operations</a>
