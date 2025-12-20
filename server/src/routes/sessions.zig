@@ -109,13 +109,13 @@ fn writeSessionJson(writer: anytype, session: db.AgentSessionRecord) !void {
 pub fn listSessions(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    const sessions = db.getAllAgentSessions(ctx.pool, ctx.allocator) catch |err| {
+    var sessions = db.getAllAgentSessions(ctx.pool, ctx.allocator) catch |err| {
         log.err("Failed to get sessions: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to retrieve sessions\"}");
         return;
     };
-    defer sessions.deinit();
+    defer sessions.deinit(ctx.allocator);
 
     var writer = res.writer();
     try writer.writeAll("{\"sessions\":[");
@@ -375,7 +375,8 @@ pub fn getSessionDiff(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 
     // TODO: Implement JJ-based diff computation
     // For now, return empty diffs
-    _ = req.query("messageId");
+    const query_params = try req.query();
+    _ = query_params.get("messageId");
     try res.writer().writeAll("{\"diffs\":[]}");
 }
 
@@ -400,7 +401,8 @@ pub fn getSessionChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Respons
 
     // TODO: Implement JJ-based snapshot/change tracking
     // For now, return empty changes
-    _ = req.query("limit");
+    const query_params = try req.query();
+    _ = query_params.get("limit");
     try res.writer().writeAll("{\"changes\":[],\"currentChangeId\":null,\"total\":0}");
 }
 
@@ -571,7 +573,8 @@ pub fn getSessionConflicts(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
 
     // TODO: Implement JJ-based conflict detection
-    _ = req.query("changeId");
+    const query_params = try req.query();
+    _ = query_params.get("changeId");
     try res.writer().writeAll("{\"conflicts\":[],\"hasConflicts\":false,\"currentChangeId\":null}");
 }
 
@@ -595,7 +598,8 @@ pub fn getSessionOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     }
 
     // TODO: Implement JJ operation log
-    _ = req.query("limit");
+    const query_params = try req.query();
+    _ = query_params.get("limit");
     try res.writer().writeAll("{\"operations\":[],\"total\":0}");
 }
 

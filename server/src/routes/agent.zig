@@ -34,6 +34,10 @@ pub fn runAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
+    } orelse {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
     };
 
     // Set up SSE headers
@@ -55,11 +59,11 @@ pub fn runAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     };
 
     // Build messages array
-    var messages = std.ArrayList(ai_mod.Message).init(ctx.allocator);
-    defer messages.deinit();
+    var messages = std.ArrayList(ai_mod.Message){};
+    defer messages.deinit(ctx.allocator);
 
     // Add user message
-    try messages.append(.{
+    try messages.append(ctx.allocator, .{
         .role = .user,
         .content = .{ .text = request.message },
     });
@@ -107,7 +111,7 @@ const RunAgentRequest = struct {
 };
 
 const SSEContext = struct {
-    writer: httpz.Response.Writer,
+    writer: *std.Io.Writer,
     allocator: std.mem.Allocator,
 };
 

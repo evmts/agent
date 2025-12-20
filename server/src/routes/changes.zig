@@ -12,6 +12,7 @@ const log = std.log.scoped(.changes_routes);
 
 // Import jj-ffi C bindings
 const c = @cImport({
+    @cInclude("stddef.h");
     @cInclude("jj_ffi.h");
 });
 
@@ -41,12 +42,12 @@ fn extractJsonString(json: []const u8, key: []const u8) ?[]const u8 {
 
 /// Run a jj command and return stdout
 fn runJjCommand(allocator: std.mem.Allocator, repo_path: []const u8, args: []const []const u8) ![]const u8 {
-    var arg_list = std.ArrayList([]const u8).init(allocator);
-    defer arg_list.deinit();
+    var arg_list = std.ArrayList([]const u8){};
+    defer arg_list.deinit(allocator);
 
-    try arg_list.append("jj");
+    try arg_list.append(allocator, "jj");
     for (args) |arg| {
-        try arg_list.append(arg);
+        try arg_list.append(allocator, arg);
     }
 
     const result = try std.process.Child.run(.{
@@ -67,21 +68,21 @@ fn runJjCommand(allocator: std.mem.Allocator, repo_path: []const u8, args: []con
 
 /// Escape JSON string
 fn escapeJson(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var escaped = std.ArrayList(u8).init(allocator);
-    errdefer escaped.deinit();
+    var escaped = std.ArrayList(u8){};
+    errdefer escaped.deinit(allocator);
 
     for (input) |char| {
         switch (char) {
-            '"' => try escaped.appendSlice("\\\""),
-            '\\' => try escaped.appendSlice("\\\\"),
-            '\n' => try escaped.appendSlice("\\n"),
-            '\r' => try escaped.appendSlice("\\r"),
-            '\t' => try escaped.appendSlice("\\t"),
-            else => try escaped.append(char),
+            '"' => try escaped.appendSlice(allocator, "\\\""),
+            '\\' => try escaped.appendSlice(allocator, "\\\\"),
+            '\n' => try escaped.appendSlice(allocator, "\\n"),
+            '\r' => try escaped.appendSlice(allocator, "\\r"),
+            '\t' => try escaped.appendSlice(allocator, "\\t"),
+            else => try escaped.append(allocator, char),
         }
     }
 
-    return escaped.toOwnedSlice();
+    return escaped.toOwnedSlice(allocator);
 }
 
 // =============================================================================
@@ -111,7 +112,8 @@ pub fn getFilesAtChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     };
 
     // Get path query parameter (optional, for subdirectories)
-    const path_param = req.query("path") orelse "";
+    const query_params = try req.query();
+    const path_param = query_params.get("path") orelse "";
 
     // Get repository from database
     const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
@@ -508,10 +510,10 @@ pub fn getConflicts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
     defer allocator.free(conflicts_output);
 
     // Parse conflicts output and check DB for resolution status
-    var conflicts_array = std.ArrayList(u8).init(allocator);
-    defer conflicts_array.deinit();
+    var conflicts_array = std.ArrayList(u8){};
+    defer conflicts_array.deinit(allocator);
 
-    var writer = conflicts_array.writer();
+    var writer = conflicts_array.writer(allocator);
     try writer.writeAll("[");
 
     var lines = std.mem.splitScalar(u8, conflicts_output, '\n');

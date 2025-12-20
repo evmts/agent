@@ -71,7 +71,8 @@ pub fn listIssues(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
         return;
     }
 
-    const state = req.url.query.get("state") orelse "open";
+    const query_params = try req.query();
+    const state = query_params.get("state") orelse "open";
 
     // List issues
     const issues = db_issues.listIssues(ctx.pool, allocator, repo.?.id, state) catch |err| {
@@ -1647,7 +1648,7 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     defer {
         var it = grouped.iterator();
         while (it.next()) |entry| {
-            entry.value_ptr.users.deinit();
+            entry.value_ptr.users.deinit(allocator);
         }
         grouped.deinit();
     }
@@ -1655,10 +1656,10 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     for (reactions) |r| {
         if (grouped.getPtr(r.emoji)) |group| {
             group.count += 1;
-            try group.users.append(.{ .id = r.user_id, .username = r.username });
+            try group.users.append(allocator, .{ .id = r.user_id, .username = r.username });
         } else {
-            var users = std.ArrayList(struct { id: i64, username: []const u8 }).init(allocator);
-            try users.append(.{ .id = r.user_id, .username = r.username });
+            var users = std.ArrayList(struct { id: i64, username: []const u8 }){};
+            try users.append(allocator, .{ .id = r.user_id, .username = r.username });
             try grouped.put(r.emoji, .{
                 .emoji = r.emoji,
                 .count = 1,
