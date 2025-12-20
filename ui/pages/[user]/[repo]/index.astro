@@ -157,4 +157,210 @@ const [{ count: starCount }] = await sql`
   .ssh-key-link:hover {
     text-decoration: underline;
   }
+
+  .repo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .repo-info {
+    flex: 1;
+  }
+
+  .repo-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .repo-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .repo-actions .badge {
+    background: var(--bg-secondary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 2px;
+    font-size: 11px;
+    font-weight: normal;
+  }
+
+  .watch-dropdown {
+    position: relative;
+  }
+
+  .dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.25rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    min-width: 200px;
+    z-index: 100;
+  }
+
+  .dropdown-menu.show {
+    display: block;
+  }
+
+  .dropdown-menu button {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 1rem;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .dropdown-menu button:hover {
+    background: var(--bg-secondary);
+  }
+
+  #star-btn.starred #star-icon::before {
+    content: "★";
+  }
 </style>
+
+<script>
+  // Star functionality
+  const starBtn = document.getElementById("star-btn");
+  const starIcon = document.getElementById("star-icon");
+  const starText = document.getElementById("star-text");
+  const starCountEl = document.getElementById("star-count");
+
+  // Watch functionality
+  const watchBtn = document.getElementById("watch-btn");
+  const watchMenu = document.getElementById("watch-menu");
+  const watchText = document.getElementById("watch-text");
+
+  if (starBtn) {
+    const username = starBtn.dataset.username;
+    const repo = starBtn.dataset.repo;
+
+    // Load initial star status
+    fetch(`/${username}/${repo}/star/status`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.starred) {
+          starBtn.classList.add("starred");
+          starIcon.textContent = "★";
+          starText.textContent = "Unstar";
+        }
+        if (data.starCount !== undefined) {
+          starCountEl.textContent = data.starCount;
+        }
+      })
+      .catch(err => console.error("Failed to load star status:", err));
+
+    // Star/unstar handler
+    starBtn.addEventListener("click", async () => {
+      const isStarred = starBtn.classList.contains("starred");
+      const method = isStarred ? "DELETE" : "POST";
+
+      try {
+        const res = await fetch(`/${username}/${repo}/star`, { method });
+        const data = await res.json();
+
+        if (res.ok) {
+          if (isStarred) {
+            starBtn.classList.remove("starred");
+            starIcon.textContent = "☆";
+            starText.textContent = "Star";
+          } else {
+            starBtn.classList.add("starred");
+            starIcon.textContent = "★";
+            starText.textContent = "Unstar";
+          }
+
+          if (data.starCount !== undefined) {
+            starCountEl.textContent = data.starCount;
+          }
+        } else if (res.status === 401) {
+          window.location.href = "/login";
+        }
+      } catch (err) {
+        console.error("Failed to toggle star:", err);
+      }
+    });
+  }
+
+  // Watch dropdown
+  if (watchBtn && watchMenu) {
+    const username = watchBtn.closest(".repo-actions").querySelector("#star-btn")?.dataset.username;
+    const repo = watchBtn.closest(".repo-actions").querySelector("#star-btn")?.dataset.repo;
+
+    // Load initial watch status
+    if (username && repo) {
+      fetch(`/${username}/${repo}/watch/status`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.watching) {
+            watchText.textContent = data.level === "all" ? "Watching" : "Watching releases";
+          }
+        })
+        .catch(err => console.error("Failed to load watch status:", err));
+    }
+
+    // Toggle dropdown
+    watchBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      watchMenu.classList.toggle("show");
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", () => {
+      watchMenu.classList.remove("show");
+    });
+
+    // Handle watch level selection
+    watchMenu.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const level = btn.dataset.level;
+
+        if (level === "ignore") {
+          // Unwatch
+          try {
+            const res = await fetch(`/${username}/${repo}/watch`, { method: "DELETE" });
+            if (res.ok) {
+              watchText.textContent = "Watch";
+              watchMenu.classList.remove("show");
+            } else if (res.status === 401) {
+              window.location.href = "/login";
+            }
+          } catch (err) {
+            console.error("Failed to unwatch:", err);
+          }
+        } else {
+          // Watch with level
+          try {
+            const res = await fetch(`/${username}/${repo}/watch`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ level }),
+            });
+
+            if (res.ok) {
+              watchText.textContent = level === "all" ? "Watching" : "Watching releases";
+              watchMenu.classList.remove("show");
+            } else if (res.status === 401) {
+              window.location.href = "/login";
+            }
+          } catch (err) {
+            console.error("Failed to watch:", err);
+          }
+        }
+      });
+    });
+  }
+</script>

@@ -5,17 +5,23 @@ interface Props {
     issue_number: number;
     state: 'open' | 'closed';
     assignees?: string[];
+    labels?: string[];
   };
   users: Array<{ id: number; username: string }>;
+  availableLabels: Array<{ name: string; color: string; description?: string }>;
 }
 
-const { issue, users } = Astro.props;
+const { issue, users, availableLabels } = Astro.props;
 
-// Get assignees from issue
+// Get assignees and labels from issue
 const assignees = issue.assignees || [];
+const issueLabels = issue.labels || [];
 
-// Placeholder data - will be implemented later
-const labels: Array<{ id: number; name: string; color: string }> = [];
+// Get label details from available labels
+const labels = issueLabels.map(labelName =>
+  availableLabels.find(l => l.name === labelName)
+).filter(Boolean) as Array<{ name: string; color: string; description?: string }>;
+
 const milestone: { title: string; dueDate?: string } | null = null;
 const isSubscribed = false;
 ---
@@ -63,20 +69,46 @@ const isSubscribed = false;
   <div class="sidebar-section">
     <h3 class="sidebar-heading">Labels</h3>
     <div class="sidebar-content">
-      {labels.length === 0 ? (
-        <div class="sidebar-empty">
-          <p class="text-muted text-xs">None yet</p>
-          <button type="button" class="sidebar-link">Add labels</button>
-        </div>
-      ) : (
-        <div class="label-list">
-          {labels.map(label => (
-            <span class="label-tag" style={`background-color: ${label.color}`}>
+      <div id="labels-list" class="label-list">
+        {labels.length === 0 && (
+          <p class="text-muted text-xs" id="no-labels">None yet</p>
+        )}
+        {labels.map(label => (
+          <div class="label-item">
+            <span class="label-tag" style={`background-color: ${label.color}; color: #fff;`}>
               {label.name}
             </span>
+            <button
+              type="button"
+              class="btn-remove remove-label"
+              data-label={label.name}
+              aria-label="Remove label"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <details class="label-picker">
+        <summary class="sidebar-link">Add labels</summary>
+        <div class="picker-list">
+          {availableLabels.map(label => (
+            <button
+              type="button"
+              class="picker-item add-label"
+              data-label={label.name}
+              data-color={label.color}
+              data-disabled={issueLabels.includes(label.name)}
+            >
+              <span class="label-preview" style={`background-color: ${label.color};`}></span>
+              <span class="label-name">{label.name}</span>
+              {label.description && (
+                <span class="label-desc">{label.description}</span>
+              )}
+            </button>
           ))}
         </div>
-      )}
+      </details>
     </div>
   </div>
 
@@ -213,19 +245,64 @@ const isSubscribed = false;
   /* Labels */
   .label-list {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .label-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
 
   .label-tag {
     display: inline-flex;
     align-items: center;
     padding: 4px 10px;
-    border-radius: 99px;
+    border-radius: 12px;
     font-size: 11px;
     font-weight: 600;
-    color: var(--bg);
+    color: #fff;
     letter-spacing: 0.01em;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .label-preview {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .label-name {
+    flex: 1;
+    font-weight: 500;
+  }
+
+  .label-desc {
+    font-size: 11px;
+    color: var(--gray-500);
+  }
+
+  /* Label Picker */
+  .label-picker {
+    margin-top: 8px;
+  }
+
+  .label-picker summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .label-picker summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .label-picker .picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   /* Milestone */
@@ -368,7 +445,7 @@ const isSubscribed = false;
       const assigneeUsername = button.dataset.username;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
+        const response = await fetch(`/api/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
           method: 'DELETE'
         });
 
@@ -377,6 +454,50 @@ const isSubscribed = false;
         }
       } catch (error) {
         console.error('Failed to remove assignee:', error);
+      }
+    });
+  });
+
+  // Handle add label
+  document.querySelectorAll('.add-label').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const button = e.currentTarget as HTMLButtonElement;
+      const labelName = button.dataset.label;
+
+      if (button.dataset.disabled === 'true') return;
+
+      try {
+        const response = await fetch(`/api/${username}/${reponame}/issues/${issueNumber}/labels`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ labels: [labelName] })
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to add label:', error);
+      }
+    });
+  });
+
+  // Handle remove label
+  document.querySelectorAll('.remove-label').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const button = e.currentTarget as HTMLButtonElement;
+      const labelName = button.dataset.label;
+
+      try {
+        const response = await fetch(`/api/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to remove label:', error);
       }
     });
   });

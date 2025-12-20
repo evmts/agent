@@ -408,10 +408,10 @@ const totalPages = Math.ceil(totalCount / perPage);
           window.location.reload();
         } else {
           const error = await response.json();
-          alert(`Error: ${error.error || 'Failed to trigger workflow'}`);
+          window.toast.error(`Error: ${error.error || 'Failed to trigger workflow'}`);
         }
       } catch (e) {
-        alert('Error triggering workflow');
+        window.toast.error('Error triggering workflow');
       }
     });
   }

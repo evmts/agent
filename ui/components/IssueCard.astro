@@ -4,7 +4,7 @@ import Avatar from "./Avatar.astro";
 import RelativeTime from "./RelativeTime.astro";
 
 interface Props {
-  issue: Issue;
+  issue: Issue & { assignees?: string[] };
   user: string;
   repo: string;
 }
@@ -20,6 +20,41 @@ const issueUrl = `/${user}/${repo}/issues/${issue.issue_number}`;
     <div class="issue-title">{issue.title}</div>
     <div class="issue-meta">
       #{issue.issue_number} · {issue.author_username} · <RelativeTime date={issue.created_at} />
+      {issue.assignees && issue.assignees.length > 0 && (
+        <span class="issue-assignees">
+          · assigned to {issue.assignees.slice(0, 3).join(", ")}
+          {issue.assignees.length > 3 && ` +${issue.assignees.length - 3}`}
+        </span>
+      )}
     </div>
   </div>
+  {issue.assignees && issue.assignees.length > 0 && (
+    <div class="assignee-avatars">
+      {issue.assignees.slice(0, 3).map(assignee => (
+        <Avatar user={{ username: assignee }} size="xs" />
+      ))}
+      {issue.assignees.length > 3 && (
+        <span class="more-assignees">+{issue.assignees.length - 3}</span>
+      )}
+    </div>
+  )}
 </a>
+
+<style>
+  .assignee-avatars {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .more-assignees {
+    font-size: 11px;
+    color: var(--gray-400);
+    padding-left: 4px;
+  }
+
+  .issue-assignees {
+    color: var(--gray-400);
+  }
+</style>

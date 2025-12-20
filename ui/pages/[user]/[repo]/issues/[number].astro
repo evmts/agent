@@ -5,6 +5,8 @@ import Markdown from "../../../../components/Markdown.astro";
 import CommentCard from "../../../../components/CommentCard.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
 import IssueSidebar from "../../../../components/IssueSidebar.astro";
+import Avatar from "../../../../components/Avatar.astro";
+import RelativeTime from "../../../../components/RelativeTime.astro";
 import { sql } from "../../../../lib/db";
 import {
   getIssue,
@@ -128,14 +130,6 @@ if (Astro.request.method === "POST") {
     }
   }
 }
-
-function formatDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 ---
 
 <Layout title={`${issue.title} · Issue #${issue.issue_number} · plue`}>
@@ -171,9 +165,12 @@ function formatDate(date: string | Date): string {
         <h1 class="page-title">{issue.title}</h1>
         <span class:list={["issue-state", issue.state]}>{issue.state}</span>
       </div>
-      <p class="text-muted text-sm">
-        #{issue.issue_number} opened by <strong>{issue.author_username}</strong> on {formatDate(issue.created_at)}
-      </p>
+      <div class="issue-header-meta">
+        <Avatar user={{ username: issue.author_username || 'unknown' }} size="sm" />
+        <p class="text-muted text-sm">
+          #{issue.issue_number} opened by <strong>{issue.author_username}</strong> <RelativeTime date={issue.created_at} />
+        </p>
+      </div>
     </div>
 
     <div class="issue-layout">
@@ -181,6 +178,7 @@ function formatDate(date: string | Date): string {
         {issue.body && (
           <div class="comment">
             <div class="comment-header">
+              <Avatar user={{ username: issue.author_username || 'unknown' }} size="sm" />
               <strong>{issue.author_username}</strong>
               <span class="time">· opened this issue</span>
             </div>
@@ -254,6 +252,12 @@ function formatDate(date: string | Date): string {
   .issue-header {
     padding-bottom: 16px;
     border-bottom: 1px solid var(--border);
+  }
+
+  .issue-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .error-banner {
