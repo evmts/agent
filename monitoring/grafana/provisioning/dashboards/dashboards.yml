@@ -1,0 +1,14 @@
+# Dashboard provisioning configuration
+apiVersion: 1
+
+providers:
+  - name: 'Plue Dashboards'
+    orgId: 1
+    folder: 'Plue'
+    folderUid: 'plue'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

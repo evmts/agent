@@ -1,0 +1,48 @@
+# Promtail Configuration - Log collector for Loki
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Collect Docker container logs
+  - job_name: containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: containerlogs
+          __path__: /var/lib/docker/containers/*/*log
+
+    pipeline_stages:
+      # Parse Docker JSON logs
+      - json:
+          expressions:
+            output: log
+            stream: stream
+            time: time
+      - json:
+          expressions:
+            level: level
+            msg: msg
+            service: service
+            request_id: request_id
+            path: path
+            method: method
+            status: status
+            duration_ms: duration_ms
+          source: output
+      - labels:
+          stream:
+          level:
+          service:
+      - output:
+          source: output
+      - timestamp:
+          source: time
+          format: RFC3339Nano

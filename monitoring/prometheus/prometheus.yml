@@ -1,0 +1,56 @@
+# Prometheus Configuration for Plue Local Development
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: local
+    project: plue
+
+# Alerting configuration (optional AlertManager)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Zig API Server
+  - job_name: 'api'
+    static_configs:
+      - targets: ['api:4000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Astro Web Server
+  - job_name: 'web'
+    static_configs:
+      - targets: ['web:5173']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL (via postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  # Electric SQL
+  - job_name: 'electric'
+    static_configs:
+      - targets: ['electric:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Docker container metrics (via cAdvisor)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
