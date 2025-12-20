@@ -5,13 +5,15 @@ use napi_derive::napi;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use jj_lib::backend::CommitId;
+use jj_lib::backend::{CommitId, TreeValue};
 use jj_lib::commit::Commit;
 use jj_lib::config::StackedConfig;
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::{ReadonlyRepo, Repo, StoreFactories};
+use jj_lib::repo_path::RepoPathBuf;
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::{default_working_copy_factories, Workspace};
+use tokio::io::AsyncReadExt;
 
 /// Commit information returned to JavaScript
 #[napi(object)]
@@ -225,6 +227,158 @@ impl JjWorkspace {
         let (_workspace, repo) = self.load_repo()?;
         let view = repo.view();
         Ok(view.heads().iter().map(|id| id.hex()).collect())
+    }
+
+    /// List all files at a specific revision (change_id, commit_id, or bookmark name)
+    #[napi]
+    pub fn list_files(&self, revision: String) -> Result<Vec<String>> {
+        let (_workspace, repo) = self.load_repo()?;
+        let commit = self.resolve_revision(&repo, &revision)?;
+        let tree = commit.tree();
+
+        let mut files = Vec::new();
+        for (path, value_result) in tree.entries() {
+            // Skip errors and non-file entries
+            if let Ok(value) = value_result {
+                if let Some(Some(TreeValue::File { .. })) = value.as_resolved() {
+                    files.push(path.as_internal_file_string().to_string());
+                }
+            }
+        }
+
+        Ok(files)
+    }
+
+    /// Get file content at a specific revision
+    #[napi]
+    pub fn get_file_content(&self, revision: String, path: String) -> Result<Option<String>> {
+        let (_workspace, repo) = self.load_repo()?;
+        let commit = self.resolve_revision(&repo, &revision)?;
+        let tree = commit.tree();
+
+        let repo_path = RepoPathBuf::from_internal_string(&path)
+            .map_err(|e| napi::Error::from_reason(format!("Invalid path '{}': {}", path, e)))?;
+
+        let value = tree.path_value(&repo_path)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to get path value: {}", e)))?;
+
+        // Check if it's a resolved file
+        if let Some(Some(TreeValue::File { id, .. })) = value.as_resolved() {
+            let store = repo.store();
+
+            // Create a runtime to block on async file read
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {}", e)))?;
+
+            let content = rt.block_on(async {
+                let mut reader = store.read_file(&repo_path, id).await
+                    .map_err(|e| napi::Error::from_reason(format!("Failed to read file: {}", e)))?;
+
+                let mut buf = Vec::new();
+                reader.read_to_end(&mut buf).await
+                    .map_err(|e| napi::Error::from_reason(format!("Failed to read content: {}", e)))?;
+
+                Ok::<String, napi::Error>(String::from_utf8_lossy(&buf).to_string())
+            })?;
+
+            Ok(Some(content))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List recent changes/commits with full info
+    #[napi]
+    pub fn list_changes(&self, limit: Option<u32>, bookmark: Option<String>) -> Result<Vec<JjCommitInfo>> {
+        let (_workspace, repo) = self.load_repo()?;
+        let limit = limit.unwrap_or(50) as usize;
+
+        // Walk from heads using a simple BFS
+        let view = repo.view();
+        let mut changes = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut stack: Vec<CommitId> = view.heads().iter().cloned().collect();
+
+        // If bookmark specified, start from that bookmark's target
+        if let Some(ref bm) = bookmark {
+            stack.clear();
+            for (name, target) in view.local_bookmarks() {
+                if name.as_str() == bm {
+                    if let Some(id) = target.as_normal() {
+                        stack.push(id.clone());
+                    }
+                    break;
+                }
+            }
+        }
+
+        while let Some(commit_id) = stack.pop() {
+            if changes.len() >= limit {
+                break;
+            }
+            if !seen.insert(commit_id.clone()) {
+                continue;
+            }
+
+            if let Ok(commit) = repo.store().get_commit(&commit_id) {
+                changes.push(self.commit_to_info(&commit, repo.as_ref()));
+
+                // Add parents to stack
+                for parent_id in commit.parent_ids() {
+                    if !seen.contains(parent_id) {
+                        stack.push(parent_id.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(changes)
+    }
+
+    /// Resolve a revision string (change_id, commit_id, or bookmark name) to a commit
+    fn resolve_revision(&self, repo: &Arc<ReadonlyRepo>, revision: &str) -> Result<Commit> {
+        // Try as commit id first (40 hex chars)
+        if let Some(id) = CommitId::try_from_hex(revision) {
+            if let Ok(commit) = repo.store().get_commit(&id) {
+                return Ok(commit);
+            }
+        }
+
+        // Try as bookmark name first (more common case)
+        let view = repo.view();
+        for (name, target) in view.local_bookmarks() {
+            if name.as_str() == revision {
+                if let Some(id) = target.as_normal() {
+                    return repo.store().get_commit(id)
+                        .map_err(|e| napi::Error::from_reason(format!("Failed to get commit: {}", e)));
+                }
+            }
+        }
+
+        // Try as change id prefix - walk all reachable commits to find matching change id
+        if revision.len() >= 4 && revision.len() <= 40 && revision.chars().all(|c| c.is_ascii_hexdigit()) {
+            let mut stack: Vec<CommitId> = view.heads().iter().cloned().collect();
+            let mut seen = std::collections::HashSet::new();
+
+            while let Some(commit_id) = stack.pop() {
+                if !seen.insert(commit_id.clone()) {
+                    continue;
+                }
+
+                if let Ok(commit) = repo.store().get_commit(&commit_id) {
+                    if commit.change_id().hex().starts_with(revision) {
+                        return Ok(commit);
+                    }
+                    for parent_id in commit.parent_ids() {
+                        if !seen.contains(parent_id) {
+                            stack.push(parent_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(napi::Error::from_reason(format!("Could not resolve revision: {}", revision)))
     }
 
     fn commit_to_info(&self, commit: &Commit, repo: &dyn Repo) -> JjCommitInfo {

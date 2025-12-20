@@ -61,4 +61,10 @@ export declare class JjWorkspace {
   getRootCommit(): JjCommitInfo
   /** List all heads (commits with no children) */
   listHeads(): Array<string>
+  /** List all files at a specific revision (change_id, commit_id, or bookmark name) */
+  listFiles(revision: string): Array<string>
+  /** Get file content at a specific revision */
+  getFileContent(revision: string, path: string): string | null
+  /** List recent changes/commits with full info */
+  listChanges(limit?: number | undefined | null, bookmark?: string | undefined | null): Array<JjCommitInfo>
 }
