@@ -1,0 +1,379 @@
+---
+/**
+ * Operations Log Page - JJ-Native
+ *
+ * Shows the jj operation log with undo functionality.
+ * Every jj action is tracked as an operation that can be undone.
+ */
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import { sql } from "../../../lib/db";
+import * as jj from "../../../lib/jj";
+import type { User, Repository } from "../../../lib/types";
+import type { Operation } from "../../../lib/jj-types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get operations from jj
+let operations: Operation[] = [];
+let error: string | null = null;
+
+try {
+  operations = await jj.getOperationLog(username, reponame, 50);
+} catch (e) {
+  error = e instanceof Error ? e.message : "Failed to load operations";
+}
+
+const defaultBookmark = repo.default_bookmark || 'main';
+
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues
+  WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+function getOperationIcon(type: string): string {
+  switch (type) {
+    case 'snapshot': return 'S';
+    case 'commit': return 'C';
+    case 'describe': return 'D';
+    case 'new': return '+';
+    case 'edit': return 'E';
+    case 'abandon': return 'X';
+    case 'restore': return 'R';
+    case 'rebase': return 'B';
+    case 'squash': return 'Q';
+    case 'bookmark': return 'M';
+    case 'undo': return 'U';
+    default: return 'O';
+  }
+}
+
+function getOperationColor(type: string): string {
+  switch (type) {
+    case 'commit':
+    case 'describe':
+    case 'new': return '#16a34a';
+    case 'rebase':
+    case 'squash': return '#7c3aed';
+    case 'abandon': return '#dc2626';
+    case 'undo':
+    case 'restore': return '#ca8a04';
+    default: return '#6b7280';
+  }
+}
+---
+
+<Layout title={`Operations · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">operations</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/operations`} class="active">Operations</a>
+  </nav>
+
+  <div class="container">
+    <div class="header-row">
+      <h2>Operation Log</h2>
+      <button class="btn" data-action="undo" title="Undo last operation">
+        Undo Last
+      </button>
+    </div>
+
+    <div class="jj-info">
+      <span class="jj-badge">jj</span>
+      Every jj action is tracked as an operation. You can restore to any previous state by clicking "Restore".
+    </div>
+
+    {error ? (
+      <div class="error">
+        <strong>Error:</strong> {error}
+      </div>
+    ) : (
+      <div class="operation-list">
+        {operations.map((op, index) => (
+          <div class={`operation-item ${op.isUndone ? 'undone' : ''}`}>
+            <div class="operation-marker">
+              <div
+                class="marker-icon"
+                style={`background: ${getOperationColor(op.type)}`}
+                title={op.type}
+              >
+                {getOperationIcon(op.type)}
+              </div>
+              {index < operations.length - 1 && <div class="marker-line"></div>}
+            </div>
+
+            <div class="operation-content">
+              <div class="operation-header">
+                <span class="operation-id" title={`Operation ID: ${op.operationId}`}>
+                  {op.operationId.substring(0, 12)}
+                </span>
+                <span class="operation-type">{op.type}</span>
+                {op.isUndone && (
+                  <span class="undone-badge">undone</span>
+                )}
+              </div>
+
+              <div class="operation-description">
+                {op.description || `${op.type} operation`}
+              </div>
+
+              <div class="operation-meta">
+                {new Date(op.timestamp).toLocaleString()}
+              </div>
+            </div>
+
+            <div class="operation-actions">
+              {!op.isUndone && index > 0 && (
+                <button
+                  class="btn-sm"
+                  data-action="restore"
+                  data-operation={op.operationId}
+                >
+                  Restore
+                </button>
+              )}
+              {index === 0 && !op.isUndone && (
+                <span class="current-badge">current</span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {operations.length === 0 && (
+          <div class="empty-state">
+            No operations recorded yet.
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .jj-info {
+    background: var(--background-alt, #f5f5f5);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .jj-badge {
+    background: #7c3aed;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 0.5rem;
+  }
+
+  .error {
+    background: #fef2f2;
+    border: 2px solid #dc2626;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .operation-list {
+    border: 2px solid var(--border);
+  }
+
+  .operation-item {
+    display: flex;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+
+  .operation-item:last-child {
+    border-bottom: none;
+  }
+
+  .operation-item.undone {
+    opacity: 0.5;
+    background: var(--background-alt, #f9fafb);
+  }
+
+  .operation-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 30px;
+  }
+
+  .marker-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    font-family: var(--font-mono);
+  }
+
+  .marker-line {
+    flex: 1;
+    width: 2px;
+    background: #d1d5db;
+    margin-top: 4px;
+  }
+
+  .operation-content {
+    flex: 1;
+  }
+
+  .operation-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .operation-id {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .operation-type {
+    font-size: 12px;
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-weight: 500;
+  }
+
+  .undone-badge {
+    font-size: 11px;
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    border: 1px solid #fecaca;
+  }
+
+  .operation-description {
+    font-size: 14px;
+    margin-bottom: 0.25rem;
+  }
+
+  .operation-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .operation-actions {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .current-badge {
+    font-size: 12px;
+    background: #7c3aed;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .badge {
+    background: var(--primary);
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    margin-left: 0.5rem;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>
+
+<script>
+  const username = window.location.pathname.split('/')[1];
+  const reponame = window.location.pathname.split('/')[2];
+
+  // Undo last operation
+  document.querySelector('[data-action="undo"]')?.addEventListener('click', async () => {
+    if (!confirm('Undo the last operation?')) return;
+
+    const response = await fetch(`/api/${username}/${reponame}/operations/undo`, {
+      method: 'POST'
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to undo operation');
+    }
+  });
+
+  // Restore to operation
+  document.querySelectorAll('[data-action="restore"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const operationId = (e.target as HTMLElement).dataset.operation!;
+
+      if (!confirm(`Restore to operation ${operationId.substring(0, 8)}? This will undo all subsequent operations.`)) return;
+
+      const response = await fetch(`/api/${username}/${reponame}/operations/${operationId}/restore`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to restore operation');
+      }
+    });
+  });
+</script>

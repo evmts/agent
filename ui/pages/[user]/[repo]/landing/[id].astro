@@ -1,0 +1,689 @@
+---
+/**
+ * Landing Request Detail Page - JJ-Native
+ *
+ * Shows details of a landing request with conflict status and actions.
+ */
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import * as jj from "../../../../lib/jj";
+import type { User, Repository } from "../../../../lib/types";
+import type { LandingRequest, LandingReview, Change, FileDiff } from "../../../../lib/jj-types";
+
+const { user: username, repo: reponame, id } = Astro.params;
+
+if (!username || !reponame || !id) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get landing request
+const [request] = await sql<(LandingRequest & { author_username?: string })[]>`
+  SELECT lq.*, u.username as author_username
+  FROM landing_queue lq
+  LEFT JOIN users u ON lq.author_id = u.id
+  WHERE lq.repository_id = ${repo.id} AND lq.id = ${id}
+`;
+
+if (!request) return Astro.redirect("/404");
+
+// Get change details
+let change: Change | null = null;
+let diff: FileDiff[] = [];
+try {
+  change = await jj.getChange(username, reponame, request.changeId);
+  diff = await jj.getDiff(username, reponame, request.changeId);
+} catch (e) {
+  // Change details not available
+}
+
+// Get reviews
+const reviews = await sql<(LandingReview & { reviewer_username?: string })[]>`
+  SELECT lr.*, u.username as reviewer_username
+  FROM landing_reviews lr
+  LEFT JOIN users u ON lr.reviewer_id = u.id
+  WHERE lr.landing_id = ${id}
+  ORDER BY lr.created_at ASC
+`;
+
+const defaultBookmark = repo.default_bookmark || 'main';
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'ready': return '#16a34a';
+    case 'conflicted': return '#dc2626';
+    case 'checking': return '#ca8a04';
+    case 'pending': return '#6b7280';
+    case 'landed': return '#7c3aed';
+    case 'cancelled': return '#9ca3af';
+    default: return '#6b7280';
+  }
+}
+
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case 'ready': return 'Ready to land';
+    case 'conflicted': return 'Has conflicts';
+    case 'checking': return 'Checking...';
+    case 'pending': return 'Pending';
+    case 'landed': return 'Landed';
+    case 'cancelled': return 'Cancelled';
+    default: return status;
+  }
+}
+
+const canLand = request.status === 'ready';
+const isClosed = ['landed', 'cancelled'].includes(request.status);
+---
+
+<Layout title={`${request.title || 'Landing Request'} · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}/landing`}>landing</a>
+    <span class="sep">/</span>
+    <span class="current">#{id}</span>
+  </div>
+
+  <div class="container">
+    <div class="request-header">
+      <h1>{request.title || `Land change ${request.changeId.substring(0, 8)}`}</h1>
+      <span
+        class="status-badge large"
+        style={`background: ${getStatusColor(request.status)}`}
+      >
+        {getStatusLabel(request.status)}
+      </span>
+    </div>
+
+    <div class="request-meta">
+      <span class="change-id">{request.changeId.substring(0, 8)}</span>
+      <span class="arrow">→</span>
+      <span class="bookmark">{request.targetBookmark}</span>
+      <span class="sep">·</span>
+      <span>opened by {request.author_username || 'unknown'}</span>
+      <span class="sep">·</span>
+      <span>{new Date(request.createdAt).toLocaleDateString()}</span>
+    </div>
+
+    {request.description && (
+      <div class="description">
+        {request.description}
+      </div>
+    )}
+
+    <div class="content-grid">
+      <div class="main-content">
+        <!-- Conflict Warning -->
+        {request.hasConflicts && request.conflictedFiles && (
+          <div class="conflict-section">
+            <h3>Conflicts</h3>
+            <p>This change has conflicts with {request.targetBookmark} that need to be resolved before landing.</p>
+            <ul class="conflict-list">
+              {request.conflictedFiles.map(file => (
+                <li>
+                  <span class="file-icon">!</span>
+                  {file}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <!-- Change Details -->
+        {change && (
+          <div class="change-section">
+            <h3>Change Details</h3>
+            <div class="change-info">
+              <div class="info-row">
+                <span class="label">Change ID:</span>
+                <span class="value change-id">{change.changeId}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Author:</span>
+                <span class="value">{change.author.name} &lt;{change.author.email}&gt;</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Date:</span>
+                <span class="value">{new Date(change.timestamp).toLocaleString()}</span>
+              </div>
+              <div class="info-row">
+                <span class="label">Description:</span>
+                <span class="value">{change.description || "(no description)"}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <!-- Files Changed -->
+        <div class="files-section">
+          <h3>
+            Files Changed
+            <span class="count">{diff.length}</span>
+          </h3>
+          <div class="file-list">
+            {diff.map(file => (
+              <div class="file-item">
+                <span class={`file-status ${file.status}`}>
+                  {file.status === 'added' ? 'A' :
+                   file.status === 'deleted' ? 'D' :
+                   file.status === 'renamed' ? 'R' : 'M'}
+                </span>
+                <span class="file-path">{file.path}</span>
+                <span class="file-stats">
+                  {file.additions > 0 && <span class="additions">+{file.additions}</span>}
+                  {file.deletions > 0 && <span class="deletions">-{file.deletions}</span>}
+                </span>
+              </div>
+            ))}
+
+            {diff.length === 0 && (
+              <div class="empty-state">No files changed</div>
+            )}
+          </div>
+        </div>
+
+        <!-- Reviews -->
+        <div class="reviews-section">
+          <h3>Reviews</h3>
+          <div class="review-list">
+            {reviews.map(review => (
+              <div class={`review-item ${review.type}`}>
+                <div class="review-header">
+                  <span class="reviewer">{review.reviewer_username}</span>
+                  <span class="review-type">{review.type}</span>
+                  <span class="review-date">{new Date(review.createdAt).toLocaleDateString()}</span>
+                </div>
+                {review.content && (
+                  <div class="review-content">{review.content}</div>
+                )}
+              </div>
+            ))}
+
+            {reviews.length === 0 && (
+              <div class="empty-state">No reviews yet</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <!-- Actions -->
+        {!isClosed && (
+          <div class="action-section">
+            <h4>Actions</h4>
+
+            {canLand ? (
+              <button class="btn btn-primary" data-action="land">
+                Land Change
+              </button>
+            ) : request.status === 'conflicted' ? (
+              <>
+                <button class="btn" data-action="check">
+                  Refresh Status
+                </button>
+                <p class="help">Resolve conflicts locally, then refresh to check again.</p>
+              </>
+            ) : (
+              <button class="btn" data-action="check">
+                Check Status
+              </button>
+            )}
+
+            <hr />
+
+            <button class="btn btn-danger" data-action="cancel">
+              Cancel Request
+            </button>
+          </div>
+        )}
+
+        {isClosed && (
+          <div class="action-section">
+            <h4>Status</h4>
+            {request.status === 'landed' ? (
+              <div class="landed-info">
+                <p>This change was landed on {new Date(request.landedAt!).toLocaleDateString()}</p>
+                {request.landedChangeId && (
+                  <p>
+                    Result:
+                    <span class="change-id">{request.landedChangeId.substring(0, 8)}</span>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p>This request was cancelled.</p>
+            )}
+          </div>
+        )}
+
+        <!-- Review Actions -->
+        {!isClosed && (
+          <div class="action-section">
+            <h4>Add Review</h4>
+            <form id="review-form">
+              <select name="type">
+                <option value="comment">Comment</option>
+                <option value="approve">Approve</option>
+                <option value="request_changes">Request Changes</option>
+              </select>
+              <textarea name="content" placeholder="Leave a comment..."></textarea>
+              <button type="submit" class="btn">Submit Review</button>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .request-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .request-header h1 {
+    margin: 0;
+  }
+
+  .status-badge {
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .status-badge.large {
+    padding: 0.5rem 1rem;
+    font-size: 16px;
+  }
+
+  .request-meta {
+    font-size: 14px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .change-id {
+    font-family: var(--font-mono);
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    color: #7c3aed;
+    font-weight: 500;
+  }
+
+  .bookmark {
+    font-family: var(--font-mono);
+  }
+
+  .arrow {
+    color: var(--text-muted);
+  }
+
+  .description {
+    background: var(--background-alt, #f9fafb);
+    padding: 1rem;
+    border: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+    white-space: pre-wrap;
+  }
+
+  .content-grid {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 2rem;
+  }
+
+  .main-content section,
+  .main-content > div {
+    margin-bottom: 2rem;
+  }
+
+  h3 {
+    font-size: 16px;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  h3 .count {
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 12px;
+    font-weight: normal;
+  }
+
+  .conflict-section {
+    background: #fef2f2;
+    border: 2px solid #dc2626;
+    padding: 1rem;
+  }
+
+  .conflict-section h3 {
+    color: #dc2626;
+  }
+
+  .conflict-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .conflict-list li {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 0.5rem;
+    background: white;
+    margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .file-icon {
+    color: #dc2626;
+    font-weight: bold;
+  }
+
+  .change-info {
+    border: 1px solid var(--border);
+    padding: 1rem;
+  }
+
+  .info-row {
+    display: flex;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .info-row:last-child {
+    border-bottom: none;
+  }
+
+  .info-row .label {
+    font-weight: 500;
+    width: 100px;
+    flex-shrink: 0;
+  }
+
+  .file-list {
+    border: 1px solid var(--border);
+  }
+
+  .file-item {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    gap: 0.75rem;
+  }
+
+  .file-item:last-child {
+    border-bottom: none;
+  }
+
+  .file-status {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: bold;
+    width: 20px;
+    text-align: center;
+  }
+
+  .file-status.added { color: #16a34a; }
+  .file-status.deleted { color: #dc2626; }
+  .file-status.modified { color: #ca8a04; }
+  .file-status.renamed { color: #7c3aed; }
+
+  .file-path {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 14px;
+  }
+
+  .file-stats {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .additions { color: #16a34a; margin-right: 0.5rem; }
+  .deletions { color: #dc2626; }
+
+  .review-list {
+    border: 1px solid var(--border);
+  }
+
+  .review-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .review-item:last-child {
+    border-bottom: none;
+  }
+
+  .review-item.approve {
+    background: #f0fdf4;
+    border-left: 3px solid #16a34a;
+  }
+
+  .review-item.request_changes {
+    background: #fef2f2;
+    border-left: 3px solid #dc2626;
+  }
+
+  .review-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+
+  .reviewer {
+    font-weight: 500;
+  }
+
+  .review-type {
+    font-size: 12px;
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .review-date {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 1rem;
+  }
+
+  .action-section {
+    border: 1px solid var(--border);
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .action-section h4 {
+    margin: 0 0 1rem 0;
+    font-size: 14px;
+  }
+
+  .action-section .btn {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+
+  .action-section hr {
+    margin: 1rem 0;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .action-section .help {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0.5rem 0 0 0;
+  }
+
+  .btn-primary {
+    background: #16a34a;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #15803d;
+  }
+
+  .btn-danger {
+    background: #dc2626;
+    color: white;
+  }
+
+  .btn-danger:hover {
+    background: #b91c1c;
+  }
+
+  #review-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  #review-form select,
+  #review-form textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+  }
+
+  #review-form textarea {
+    min-height: 80px;
+    resize: vertical;
+  }
+
+  .empty-state {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .landed-info {
+    font-size: 14px;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 768px) {
+    .content-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  const username = window.location.pathname.split('/')[1];
+  const reponame = window.location.pathname.split('/')[2];
+  const landingId = window.location.pathname.split('/')[4];
+
+  // Land change
+  document.querySelector('[data-action="land"]')?.addEventListener('click', async () => {
+    if (!confirm('Land this change?')) return;
+
+    const response = await fetch(`/api/${username}/${reponame}/landing/${landingId}/land`, {
+      method: 'POST'
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to land change');
+    }
+  });
+
+  // Check status
+  document.querySelector('[data-action="check"]')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/${username}/${reponame}/landing/${landingId}/check`, {
+      method: 'POST'
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to check status');
+    }
+  });
+
+  // Cancel request
+  document.querySelector('[data-action="cancel"]')?.addEventListener('click', async () => {
+    if (!confirm('Cancel this landing request?')) return;
+
+    const response = await fetch(`/api/${username}/${reponame}/landing/${landingId}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      window.location.href = `/${username}/${reponame}/landing`;
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to cancel request');
+    }
+  });
+
+  // Submit review
+  document.getElementById('review-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+
+    const response = await fetch(`/api/${username}/${reponame}/landing/${landingId}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: formData.get('type'),
+        content: formData.get('content') || undefined
+      })
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to submit review');
+    }
+  });
+</script>
