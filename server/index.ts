@@ -5,6 +5,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { secureHeaders } from 'hono/secure-headers';
+import { bodyLimit } from 'hono/body-limit';
 import { authMiddleware } from './middleware/auth';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
@@ -19,6 +21,23 @@ import routes from './routes';
 
 export { ServerEventBus, getServerEventBus, setServerEventBus } from './event-bus';
 
+// Validate critical environment variables at startup
+function validateEnvironment() {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET environment variable is not set');
+    console.error('Please set JWT_SECRET in your .env file');
+    process.exit(1);
+  }
+
+  if (JWT_SECRET.length < 32) {
+    console.error('WARNING: JWT_SECRET should be at least 32 characters long for security');
+  }
+}
+
+// Run validation before creating the app
+validateEnvironment();
+
 // Create Hono app
 const app = new Hono();
 
@@ -30,8 +49,43 @@ const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
   : ['http://localhost:4321', 'http://localhost:4000', 'http://localhost:3000'];
 
-// Middleware
+// Middleware (order matters: logger -> security headers -> body limit -> cors -> auth)
 app.use('*', logger());
+
+// Security headers middleware
+app.use('*', secureHeaders({
+  xFrameOptions: 'DENY',
+  xContentTypeOptions: 'nosniff',
+  xXssProtection: '1; mode=block',
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", 'data:', 'https:'],
+    connectSrc: ["'self'", process.env.ELECTRIC_URL || 'http://localhost:3000'],
+    fontSrc: ["'self'", 'data:'],
+    objectSrc: ["'none'"],
+    mediaSrc: ["'self'"],
+    frameSrc: ["'none'"],
+  },
+  strictTransportSecurity: process.env.NODE_ENV === 'production'
+    ? 'max-age=31536000; includeSubDomains; preload'
+    : false,
+}));
+
+// Request body size limit (10MB)
+app.use('*', bodyLimit({
+  maxSize: 10 * 1024 * 1024, // 10MB in bytes
+  onError: (c) => {
+    return c.json({
+      error: 'Request body too large',
+      code: 'PAYLOAD_TOO_LARGE',
+      maxSize: '10MB'
+    }, 413);
+  },
+}));
+
 app.use('*', cors({
   origin: (origin) => {
     // Allow requests with no origin (like mobile apps or curl)

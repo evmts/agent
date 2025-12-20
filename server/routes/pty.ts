@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono';
 import { getPtyManager, } from '../../ai/tools/pty-manager';
+import { ptyRateLimit } from '../middleware/rate-limit';
 
 const app = new Hono();
 
@@ -16,7 +17,7 @@ const outputReaders = new Map<string, { stop: () => void }>();
 /**
  * Create a new PTY session.
  */
-app.post('/', async (c) => {
+app.post('/', ptyRateLimit, async (c) => {
   const body = await c.req.json<{
     cmd?: string;
     workdir?: string;

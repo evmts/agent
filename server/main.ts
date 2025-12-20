@@ -9,6 +9,7 @@ import { isPtyWebSocketRequest, createPtyWebSocketHandler } from './routes/pty';
 import { startSessionCleanup, getSession } from './lib/session';
 import { startSSHServer } from './ssh/server';
 import { repoWatcherService } from './lib/repo-watcher';
+import sql from '../db/client';
 
 const SESSION_COOKIE_NAME = 'plue_session';
 
@@ -40,7 +41,23 @@ async function validateWebSocketAuth(req: Request): Promise<number | null> {
   const sessionData = await getSession(sessionKey);
   if (!sessionData) return null;
 
-  return sessionData.userId;
+  // Load fresh user data to check status
+  const [user] = await sql<Array<{
+    id: number;
+    is_active: boolean;
+    prohibit_login: boolean;
+  }>>`
+    SELECT id, is_active, prohibit_login
+    FROM users
+    WHERE id = ${sessionData.userId}
+  `;
+
+  // Reject if user not found, not active, or login prohibited
+  if (!user || !user.is_active || user.prohibit_login) {
+    return null;
+  }
+
+  return user.id;
 }
 
 const port = Number(process.env.PORT) || 4000;

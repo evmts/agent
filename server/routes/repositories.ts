@@ -47,6 +47,12 @@ app.put("/:user/:repo/topics", zValidator("json", updateTopicsSchema), async (c)
   const repo = c.req.param("repo");
   const { topics } = c.req.valid("json");
 
+  // Verify authentication
+  const authUser = c.get("user");
+  if (!authUser) {
+    return c.json({ error: "Authentication required" }, 401);
+  }
+
   // Normalize topics to lowercase
   const normalizedTopics = topics.map((t: string) => t.toLowerCase().trim());
 
@@ -57,6 +63,11 @@ app.put("/:user/:repo/topics", zValidator("json", updateTopicsSchema), async (c)
 
     if (!userRecord) {
       return c.json({ error: "User not found" }, 404);
+    }
+
+    // Verify ownership: authenticated user must match repository owner
+    if (authUser.id !== userRecord.id) {
+      return c.json({ error: "Forbidden: You don't own this repository" }, 403);
     }
 
     const [repository] = await sql`

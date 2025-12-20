@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requireAuth, requireActiveAccount } from '../middleware/auth';
+import { sessionRateLimit } from '../middleware/rate-limit';
 import {
   createSession,
   getSession,
@@ -51,7 +52,7 @@ app.get('/', async (c) => {
 });
 
 // Create a new session
-app.post('/', zValidator('json', createSessionSchema), async (c) => {
+app.post('/', sessionRateLimit, zValidator('json', createSessionSchema), async (c) => {
   const body = c.req.valid('json');
   const eventBus = getServerEventBus();
 
@@ -340,21 +341,33 @@ app.get('/:sessionId/changes/:changeId/files', async (c) => {
 app.get('/:sessionId/changes/:changeId/file/*', async (c) => {
   const sessionId = c.req.param('sessionId');
   const changeId = c.req.param('changeId');
-  const filePath = c.req.path.split('/file/')[1];
+  const rawFilePath = c.req.path.split('/file/')[1];
 
-  if (!filePath) {
+  if (!rawFilePath) {
     return c.json({ error: 'File path required' }, 400);
   }
 
   try {
-    getSession(sessionId); // Verify session exists
-    const content = await getSessionFileAtChange(sessionId, changeId, filePath);
+    const session = getSession(sessionId); // Verify session exists
+
+    // Decode URI-encoded path and validate against session directory
+    const filePath = decodeURIComponent(rawFilePath);
+
+    // Import validation function
+    const { resolveAndValidatePathSecure } = await import('../../ai/tools/filesystem');
+    const [validatedPath, pathError] = await resolveAndValidatePathSecure(filePath, session.directory);
+
+    if (pathError) {
+      return c.json({ error: `Invalid file path: ${pathError}` }, 400);
+    }
+
+    const content = await getSessionFileAtChange(sessionId, changeId, validatedPath);
 
     if (content === null) {
       return c.json({ error: 'File not found at this change' }, 404);
     }
 
-    return c.json({ content, filePath, changeId });
+    return c.json({ content, filePath: validatedPath, changeId });
   } catch (error) {
     if (error instanceof NotFoundError) {
       return c.json({ error: error.message }, 404);

@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { sql } from "../../ui/lib/db";
 import * as jj from "../../ui/lib/jj";
 import type { Bookmark, ProtectedBookmark } from "../../ui/lib/jj-types";
+import { requireAuth } from "../middleware/auth";
 
 const app = new Hono();
 
@@ -118,7 +119,7 @@ app.get("/:user/:repo/bookmarks/:name", async (c) => {
 // Create Bookmark
 // =============================================================================
 
-app.post("/:user/:repo/bookmarks", async (c) => {
+app.post("/:user/:repo/bookmarks", requireAuth, async (c) => {
   const { user, repo } = c.req.param();
 
   try {
@@ -180,7 +181,7 @@ app.post("/:user/:repo/bookmarks", async (c) => {
 // Delete Bookmark
 // =============================================================================
 
-app.delete("/:user/:repo/bookmarks/:name", async (c) => {
+app.delete("/:user/:repo/bookmarks/:name", requireAuth, async (c) => {
   const { user, repo, name } = c.req.param();
 
   try {
@@ -230,7 +231,7 @@ app.delete("/:user/:repo/bookmarks/:name", async (c) => {
 // Move Bookmark (Update target change)
 // =============================================================================
 
-app.patch("/:user/:repo/bookmarks/:name", async (c) => {
+app.patch("/:user/:repo/bookmarks/:name", requireAuth, async (c) => {
   const { user, repo, name } = c.req.param();
 
   try {
@@ -300,7 +301,7 @@ app.patch("/:user/:repo/bookmarks/:name", async (c) => {
 // Set Default Bookmark
 // =============================================================================
 
-app.post("/:user/:repo/bookmarks/:name/set-default", async (c) => {
+app.post("/:user/:repo/bookmarks/:name/set-default", requireAuth, async (c) => {
   const { user, repo, name } = c.req.param();
 
   try {

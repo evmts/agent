@@ -181,3 +181,15 @@ export const emailRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   maxRequests: 3, // 3 emails per hour
 });
+
+// PTY session creation rate limit
+export const ptyRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 20, // 20 PTY sessions per 15 minutes
+});
+
+// Session creation rate limit
+export const sessionRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 50, // 50 sessions per 15 minutes
+});
