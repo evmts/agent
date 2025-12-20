@@ -85,7 +85,7 @@ pub fn authenticatePublicKey(
     while (try result.next()) |row| {
         const key_id = row.get(i64, 0);
         const user_id = row.get(i64, 1);
-        const stored_fingerprint = try row.get([]const u8, 2);
+        _ = try row.get([]const u8, 2); // stored_fingerprint (unused for now)
         const stored_public_key = try row.get([]const u8, 3);
         const user_username = try row.get([]const u8, 4);
 

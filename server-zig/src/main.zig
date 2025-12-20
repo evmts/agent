@@ -3,6 +3,7 @@ const httpz = @import("httpz");
 const config = @import("config.zig");
 const db = @import("lib/db.zig");
 const routes = @import("routes.zig");
+const ssh = @import("ssh/server.zig");
 
 const log = std.log.scoped(.server);
 
@@ -42,11 +43,44 @@ pub fn main() !void {
     // Configure routes
     try routes.configure(&server);
 
-    log.info("Server listening on http://{s}:{d}", .{ cfg.host, cfg.port });
+    log.info("HTTP server listening on http://{s}:{d}", .{ cfg.host, cfg.port });
 
-    // Start server (blocking)
+    // Start SSH server if enabled
+    var ssh_server: ?ssh.Server = null;
+    var ssh_thread: ?std.Thread = null;
+
+    if (cfg.ssh_enabled) {
+        log.info("Starting SSH server on {s}:{d}", .{ cfg.ssh_host, cfg.ssh_port });
+
+        const ssh_config = ssh.Config{
+            .host = cfg.ssh_host,
+            .port = cfg.ssh_port,
+            .host_key_path = "data/ssh_host_key",
+        };
+
+        var server_instance = ssh.Server.init(allocator, ssh_config, pool);
+        ssh_server = server_instance;
+
+        // Start SSH server in separate thread
+        ssh_thread = try std.Thread.spawn(.{}, sshServerThread, .{&server_instance});
+
+        log.info("SSH server started successfully", .{});
+    } else {
+        log.info("SSH server disabled (set SSH_ENABLED=true to enable)", .{});
+    }
+
+    // Start HTTP server (blocking)
     server.listen() catch |err| {
         log.err("Server error: {}", .{err});
+
+        // Stop SSH server if running
+        if (ssh_server) |*ssh_srv| {
+            ssh_srv.stop();
+        }
+        if (ssh_thread) |thread| {
+            thread.join();
+        }
+
         return err;
     };
 }
@@ -70,6 +104,13 @@ pub const User = struct {
     is_active: bool,
     wallet_address: ?[]const u8,
 };
+
+/// SSH server thread function
+fn sshServerThread(server: *ssh.Server) void {
+    server.listen() catch |err| {
+        log.err("SSH server error: {}", .{err});
+    };
+}
 
 test {
     std.testing.refAllDecls(@This());

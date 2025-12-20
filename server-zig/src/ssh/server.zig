@@ -175,7 +175,7 @@ fn handleConnection(
     };
     defer conn.deinit(allocator);
 
-    log.info("SSH connection from {}", .{conn.address});
+    log.info("SSH connection from {any}", .{conn.address});
 
     // Send SSH version string
     conn.stream.writeAll(types.SSH_VERSION ++ "\r\n") catch |err| {
@@ -212,7 +212,7 @@ fn handleConnection(
         log.err("Protocol error: {}", .{err});
     };
 
-    log.info("SSH connection closed from {}", .{conn.address});
+    log.info("SSH connection closed from {any}", .{conn.address});
 }
 
 /// Handle SSH protocol after version exchange
@@ -271,8 +271,11 @@ fn handleProtocol(
 /// Read a line from the connection
 fn readLine(conn: *Connection, buffer: []u8) ![]const u8 {
     var pos: usize = 0;
+    var read_buffer: [1]u8 = undefined;
     while (pos < buffer.len) {
-        const byte = try conn.stream.reader().readByte();
+        const n = try conn.stream.read(&read_buffer);
+        if (n == 0) return error.EndOfStream;
+        const byte = read_buffer[0];
         if (byte == '\n') {
             // Remove trailing \r if present
             const end = if (pos > 0 and buffer[pos - 1] == '\r') pos - 1 else pos;
@@ -336,7 +339,7 @@ test "Server init" {
     const allocator = std.testing.allocator;
 
     // Create a mock pool (in real tests, use a test database)
-    var mock_pool = @as(*db.Pool, undefined);
+    const mock_pool = @as(*db.Pool, undefined);
 
     const config = Config{
         .port = 0, // Random port
