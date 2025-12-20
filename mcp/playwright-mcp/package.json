@@ -1,0 +1,22 @@
+{
+  "name": "@plue/playwright-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for analyzing Playwright test results - enables AI agents to debug test failures",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "playwright-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}
