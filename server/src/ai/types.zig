@@ -161,58 +161,58 @@ pub const StreamEvent = union(enum) {
 
     /// Serialize event to JSON for SSE streaming
     pub fn toJson(self: StreamEvent, allocator: std.mem.Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(allocator);
-        errdefer list.deinit();
+        var list = std.ArrayList(u8){};
+        errdefer list.deinit(allocator);
 
-        try list.appendSlice("{\"type\":\"");
+        try list.appendSlice(allocator, "{\"type\":\"");
         switch (self) {
             .text => |t| {
-                try list.appendSlice("text\"");
+                try list.appendSlice(allocator, "text\"");
                 if (t.data) |data| {
-                    try list.appendSlice(",\"data\":");
-                    try std.json.stringify(data, .{}, list.writer());
+                    try list.appendSlice(allocator, ",\"data\":");
+                    try std.json.stringify.encodeJsonString(data, .{}, list.writer(allocator));
                 }
             },
             .tool_call => |tc| {
-                try list.appendSlice("tool_call\"");
+                try list.appendSlice(allocator, "tool_call\"");
                 if (tc.tool_name) |name| {
-                    try list.appendSlice(",\"toolName\":");
-                    try std.json.stringify(name, .{}, list.writer());
+                    try list.appendSlice(allocator, ",\"toolName\":");
+                    try std.json.stringify.encodeJsonString(name, .{}, list.writer(allocator));
                 }
                 if (tc.tool_id) |id| {
-                    try list.appendSlice(",\"toolId\":");
-                    try std.json.stringify(id, .{}, list.writer());
+                    try list.appendSlice(allocator, ",\"toolId\":");
+                    try std.json.stringify.encodeJsonString(id, .{}, list.writer(allocator));
                 }
                 if (tc.args) |args| {
-                    try list.appendSlice(",\"args\":");
-                    try list.appendSlice(args); // Already JSON
+                    try list.appendSlice(allocator, ",\"args\":");
+                    try list.appendSlice(allocator, args); // Already JSON
                 }
             },
             .tool_result => |tr| {
-                try list.appendSlice("tool_result\"");
+                try list.appendSlice(allocator, "tool_result\"");
                 if (tr.tool_id) |id| {
-                    try list.appendSlice(",\"toolId\":");
-                    try std.json.stringify(id, .{}, list.writer());
+                    try list.appendSlice(allocator, ",\"toolId\":");
+                    try std.json.stringify.encodeJsonString(id, .{}, list.writer(allocator));
                 }
                 if (tr.tool_output) |output| {
-                    try list.appendSlice(",\"toolOutput\":");
-                    try std.json.stringify(output, .{}, list.writer());
+                    try list.appendSlice(allocator, ",\"toolOutput\":");
+                    try std.json.stringify.encodeJsonString(output, .{}, list.writer(allocator));
                 }
             },
             .error_event => |e| {
-                try list.appendSlice("error\"");
+                try list.appendSlice(allocator, "error\"");
                 if (e.message) |msg| {
-                    try list.appendSlice(",\"error\":");
-                    try std.json.stringify(msg, .{}, list.writer());
+                    try list.appendSlice(allocator, ",\"error\":");
+                    try std.json.stringify.encodeJsonString(msg, .{}, list.writer(allocator));
                 }
             },
             .done => {
-                try list.appendSlice("done\"");
+                try list.appendSlice(allocator, "done\"");
             },
         }
-        try list.append('}');
+        try list.append(allocator, '}');
 
-        return list.toOwnedSlice();
+        return list.toOwnedSlice(allocator);
     }
 };
 

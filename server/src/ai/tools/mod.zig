@@ -1,6 +1,6 @@
 // Tools module - aggregates all agent tools
 const std = @import("std");
-const ai_sdk = @import("ai");
+const client = @import("../client.zig");
 const types = @import("../types.zig");
 
 // Import all tools
@@ -85,93 +85,93 @@ pub fn getEnabledTools(
     allocator: std.mem.Allocator,
     agent_name: []const u8,
     enabled_config: types.AgentConfig.ToolsEnabled,
-) ![]ai_sdk.Tool {
-    var tools = std.ArrayList(ai_sdk.Tool).init(allocator);
-    errdefer tools.deinit();
+) ![]client.Tool {
+    var tools = std.ArrayList(client.Tool){};
+    errdefer tools.deinit(allocator);
 
     _ = agent_name;
 
     if (enabled_config.grep) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "grep",
             .description = "Search for patterns in files using ripgrep",
-            .parameters = try grep.createGrepSchema(allocator),
+            .input_schema = try grep.createGrepSchema(allocator),
         });
     }
 
     if (enabled_config.read_file) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "readFile",
             .description = "Read a file with line numbers",
-            .parameters = try read_file.createReadFileSchema(allocator),
+            .input_schema = try read_file.createReadFileSchema(allocator),
         });
     }
 
     if (enabled_config.write_file) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "writeFile",
             .description = "Write content to a file",
-            .parameters = try write_file.createWriteFileSchema(allocator),
+            .input_schema = try write_file.createWriteFileSchema(allocator),
         });
     }
 
     if (enabled_config.multiedit) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "multiedit",
             .description = "Apply multiple find-replace edits to a file",
-            .parameters = try multiedit.createMultieditSchema(allocator),
+            .input_schema = try multiedit.createMultieditSchema(allocator),
         });
     }
 
     if (enabled_config.web_fetch) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "webFetch",
             .description = "Fetch content from a URL",
-            .parameters = try web_fetch.createWebFetchSchema(allocator),
+            .input_schema = try web_fetch.createWebFetchSchema(allocator),
         });
     }
 
     if (enabled_config.github) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "github",
             .description = "Execute GitHub CLI commands",
-            .parameters = try github.createGitHubSchema(allocator),
+            .input_schema = try github.createGitHubSchema(allocator),
         });
     }
 
     if (enabled_config.unified_exec) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "unifiedExec",
             .description = "Execute a command in a PTY session",
-            .parameters = try pty_tools.createUnifiedExecSchema(allocator),
+            .input_schema = try pty_tools.createUnifiedExecSchema(allocator),
         });
     }
 
     if (enabled_config.write_stdin) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "writeStdin",
             .description = "Send input to a running PTY session",
-            .parameters = try pty_tools.createWriteStdinSchema(allocator),
+            .input_schema = try pty_tools.createWriteStdinSchema(allocator),
         });
     }
 
     if (enabled_config.close_pty_session) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "closePtySession",
             .description = "Close a PTY session",
-            .parameters = try pty_tools.createClosePtySchema(allocator),
+            .input_schema = try pty_tools.createClosePtySchema(allocator),
         });
     }
 
     if (enabled_config.list_pty_sessions) {
-        try tools.append(ai_sdk.Tool{
+        try tools.append(allocator, client.Tool{
             .name = "listPtySessions",
             .description = "List active PTY sessions",
-            .parameters = try pty_tools.createListPtySchema(allocator),
+            .input_schema = try pty_tools.createListPtySchema(allocator),
         });
     }
 
-    return tools.toOwnedSlice();
+    return tools.toOwnedSlice(allocator);
 }
 
 /// Execute a tool by name
@@ -252,18 +252,18 @@ pub fn executeTool(
 
     if (std.mem.eql(u8, tool_name, "listPtySessions")) {
         const result = try pty_tools.listPtySessionsImpl(allocator, ctx);
-        var output = std.ArrayList(u8).init(allocator);
-        errdefer output.deinit();
+        var output = std.ArrayList(u8){};
+        errdefer output.deinit(allocator);
 
-        try output.appendSlice("Sessions:\n");
+        try output.appendSlice(allocator, "Sessions:\n");
         for (result.sessions) |session| {
-            try output.writer().print("- {s}: {s} ({s})\n", .{
+            try output.writer(allocator).print("- {s}: {s} ({s})\n", .{
                 session.id,
                 session.command,
                 if (session.running) "running" else "stopped",
             });
         }
-        return output.toOwnedSlice();
+        return output.toOwnedSlice(allocator);
     }
 
     return error.ToolExecutionFailed;
@@ -303,12 +303,12 @@ fn parseMultieditParams(allocator: std.mem.Allocator, input: std.json.Value) !Mu
     const file_path = if (obj.get("file_path")) |v| v.string else return error.InvalidToolParameters;
     const edits_arr = if (obj.get("edits")) |v| v.array else return error.InvalidToolParameters;
 
-    var edits = std.ArrayList(EditOperation).init(allocator);
-    errdefer edits.deinit();
+    var edits = std.ArrayList(EditOperation){};
+    errdefer edits.deinit(allocator);
 
     for (edits_arr.items) |edit| {
         const edit_obj = edit.object;
-        try edits.append(.{
+        try edits.append(allocator, .{
             .old_string = if (edit_obj.get("old_string")) |v| v.string else continue,
             .new_string = if (edit_obj.get("new_string")) |v| v.string else continue,
             .replace_all = if (edit_obj.get("replace_all")) |v| v.bool else false,
@@ -317,7 +317,7 @@ fn parseMultieditParams(allocator: std.mem.Allocator, input: std.json.Value) !Mu
 
     return MultieditParams{
         .file_path = file_path,
-        .edits = try edits.toOwnedSlice(),
+        .edits = try edits.toOwnedSlice(allocator),
     };
 }
 
@@ -333,15 +333,15 @@ fn parseGitHubParams(allocator: std.mem.Allocator, input: std.json.Value) !GitHu
     const obj = input.object;
     const args_arr = if (obj.get("args")) |v| v.array else return error.InvalidToolParameters;
 
-    var args = std.ArrayList([]const u8).init(allocator);
-    errdefer args.deinit();
+    var args = std.ArrayList([]const u8){};
+    errdefer args.deinit(allocator);
 
     for (args_arr.items) |arg| {
-        try args.append(arg.string);
+        try args.append(allocator, arg.string);
     }
 
     return GitHubParams{
-        .args = try args.toOwnedSlice(),
+        .args = try args.toOwnedSlice(allocator),
     };
 }
 
