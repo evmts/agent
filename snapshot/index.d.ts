@@ -53,7 +53,10 @@ export declare class JjWorkspace {
   get repoPath(): string
   /** Get commit by ID (hex string) */
   getCommit(commitId: string): JjCommitInfo
-  /** List all bookmarks (formerly branches) */
+  /**
+   * List all bookmarks (formerly branches)
+   * Also includes git branches for colocated repos where git refs haven't been imported
+   */
   listBookmarks(): Array<JjBranchInfo>
   /** Get the current operation info */
   getCurrentOperation(): JjOperationInfo

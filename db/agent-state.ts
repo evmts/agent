@@ -368,25 +368,99 @@ export async function setSessionMessages(
 
     // Insert all messages and their parts
     for (const msg of messages) {
-      // Insert message using the existing saveMessage function which handles both user and assistant types
-      await saveMessage(msg.info);
+      const message = msg.info;
 
-      // Insert parts
+      // Insert message - handle both user and assistant types within transaction
+      if (message.role === "user") {
+        const userMsg = message as UserMessage;
+        await tx`
+          INSERT INTO messages (
+            id, session_id, role, time_created, time_completed,
+            status, thinking_text, error_message,
+            agent, model_provider_id, model_model_id, system_prompt, tools
+          ) VALUES (
+            ${userMsg.id}, ${userMsg.sessionID}, ${userMsg.role},
+            ${userMsg.time.created}, ${userMsg.time.completed ?? null},
+            ${userMsg.status}, ${userMsg.thinkingText ?? null}, ${userMsg.errorMessage ?? null},
+            ${userMsg.agent}, ${userMsg.model.providerID}, ${userMsg.model.modelID},
+            ${userMsg.system ?? null}, ${userMsg.tools ? JSON.stringify(userMsg.tools) : null}
+          )
+        `;
+      } else {
+        const assistantMsg = message as AssistantMessage;
+        await tx`
+          INSERT INTO messages (
+            id, session_id, role, time_created, time_completed,
+            status, thinking_text, error_message,
+            parent_id, mode, path_cwd, path_root,
+            cost, tokens_input, tokens_output, tokens_reasoning,
+            tokens_cache_read, tokens_cache_write,
+            finish, is_summary, error,
+            model_provider_id, model_model_id
+          ) VALUES (
+            ${assistantMsg.id}, ${assistantMsg.sessionID}, ${assistantMsg.role},
+            ${assistantMsg.time.created}, ${assistantMsg.time.completed ?? null},
+            ${assistantMsg.status}, ${assistantMsg.thinkingText ?? null}, ${assistantMsg.errorMessage ?? null},
+            ${assistantMsg.parentID}, ${assistantMsg.mode}, ${assistantMsg.path.cwd}, ${assistantMsg.path.root},
+            ${assistantMsg.cost}, ${assistantMsg.tokens.input}, ${assistantMsg.tokens.output}, ${assistantMsg.tokens.reasoning},
+            ${assistantMsg.tokens.cache?.read ?? null}, ${assistantMsg.tokens.cache?.write ?? null},
+            ${assistantMsg.finish ?? null}, ${assistantMsg.summary ?? null},
+            ${assistantMsg.error ? JSON.stringify(assistantMsg.error) : null},
+            ${assistantMsg.providerID}, ${assistantMsg.modelID}
+          )
+        `;
+      }
+
+      // Insert parts - handle different part types
       for (let i = 0; i < msg.parts.length; i++) {
         const part = msg.parts[i];
         if (!part) continue;
-        const partRow = partToRow(part, sessionId, msg.info.id, i);
-        await tx`
-          INSERT INTO parts (
-            id, session_id, message_id, type, text, tool_name, tool_state,
-            time_start, time_end, sort_order
-          ) VALUES (
-            ${partRow.id}, ${partRow.session_id}, ${partRow.message_id}, ${partRow.type},
-            ${partRow.text}, ${partRow.tool_name},
-            ${partRow.tool_state ? JSON.stringify(partRow.tool_state) : null},
-            ${partRow.time_start}, ${partRow.time_end}, ${partRow.sort_order}
-          )
-        `;
+
+        const base = {
+          id: part.id,
+          session_id: sessionId,
+          message_id: msg.info.id,
+          type: part.type,
+          sort_order: i,
+        };
+
+        if (part.type === "text") {
+          const textPart = part as TextPart;
+          await tx`
+            INSERT INTO parts (id, session_id, message_id, type, text, time_start, time_end, sort_order)
+            VALUES (
+              ${base.id}, ${base.session_id}, ${base.message_id}, ${base.type},
+              ${textPart.text}, ${textPart.time?.start ?? null}, ${textPart.time?.end ?? null}, ${base.sort_order}
+            )
+          `;
+        } else if (part.type === "reasoning") {
+          const reasoningPart = part as ReasoningPart;
+          await tx`
+            INSERT INTO parts (id, session_id, message_id, type, text, time_start, time_end, sort_order)
+            VALUES (
+              ${base.id}, ${base.session_id}, ${base.message_id}, ${base.type},
+              ${reasoningPart.text}, ${reasoningPart.time.start}, ${reasoningPart.time.end ?? null}, ${base.sort_order}
+            )
+          `;
+        } else if (part.type === "tool") {
+          const toolPart = part as ToolPart;
+          await tx`
+            INSERT INTO parts (id, session_id, message_id, type, tool_name, tool_state, sort_order)
+            VALUES (
+              ${base.id}, ${base.session_id}, ${base.message_id}, ${base.type},
+              ${toolPart.tool}, ${JSON.stringify(toolPart.state)}, ${base.sort_order}
+            )
+          `;
+        } else if (part.type === "file") {
+          const filePart = part as FilePart;
+          await tx`
+            INSERT INTO parts (id, session_id, message_id, type, mime, url, filename, sort_order)
+            VALUES (
+              ${base.id}, ${base.session_id}, ${base.message_id}, ${base.type},
+              ${filePart.mime}, ${filePart.url}, ${filePart.filename ?? null}, ${base.sort_order}
+            )
+          `;
+        }
       }
     }
   });
