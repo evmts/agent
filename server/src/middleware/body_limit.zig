@@ -28,7 +28,7 @@ pub fn bodyLimitMiddleware(config: BodyLimitConfig) fn (*Context, *httpz.Request
             if (content_length_header) |cl_str| {
                 const content_length = std.fmt.parseInt(usize, cl_str, 10) catch {
                     // Invalid Content-Length header
-                    res.status = .bad_request;
+                    res.status = 400;
                     res.content_type = .JSON;
                     try res.writer().writeAll("{\"error\":\"Invalid Content-Length header\"}");
                     return false;
@@ -36,7 +36,7 @@ pub fn bodyLimitMiddleware(config: BodyLimitConfig) fn (*Context, *httpz.Request
 
                 // Check if content length exceeds limit
                 if (content_length > config.max_size) {
-                    res.status = .payload_too_large;
+                    res.status = 413;
                     res.content_type = .JSON;
 
                     var buf: [256]u8 = undefined;

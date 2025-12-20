@@ -143,13 +143,13 @@ pub fn rateLimitMiddleware(
                 "unknown";
 
             if (!limiter.check(key)) {
-                res.status = .@"Too Many Requests";
+                res.status = 429;
                 res.content_type = .JSON;
 
                 const remaining = limiter.remaining(key);
                 var buf: [32]u8 = undefined;
                 const remaining_str = try std.fmt.bufPrint(&buf, "{d}", .{remaining});
-                res.headers.put("X-RateLimit-Remaining", remaining_str);
+                res.headers.add("X-RateLimit-Remaining", remaining_str);
 
                 try res.writer().writeAll("{\"error\":\"Too many requests\"}");
                 return false;

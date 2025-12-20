@@ -74,7 +74,7 @@ pub fn list(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
 
     // Require authentication
     const user = ctx.user orelse {
-        res.status = .unauthorized;
+        res.status = 401;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return;
     };
@@ -126,7 +126,7 @@ pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     // Require authentication
     const user = ctx.user orelse {
-        res.status = .unauthorized;
+        res.status = 401;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return;
     };
@@ -233,7 +233,7 @@ pub fn delete(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     // Require authentication
     const user = ctx.user orelse {
-        res.status = .unauthorized;
+        res.status = 401;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return;
     };

@@ -67,10 +67,10 @@ pub fn corsMiddleware(config: CorsConfig) fn (*Context, *httpz.Request, *httpz.R
 
             // Set CORS headers if origin is allowed
             if (allowed_origin) |ao| {
-                res.headers.put("Access-Control-Allow-Origin", ao);
+                res.headers.add("Access-Control-Allow-Origin", ao);
 
                 if (config.credentials) {
-                    res.headers.put("Access-Control-Allow-Credentials", "true");
+                    res.headers.add("Access-Control-Allow-Credentials", "true");
                 }
 
                 // Set exposed headers
@@ -85,7 +85,7 @@ pub fn corsMiddleware(config: CorsConfig) fn (*Context, *httpz.Request, *httpz.R
                     }
 
                     const exposed_str = fbs.getWritten();
-                    res.headers.put("Access-Control-Expose-Headers", exposed_str);
+                    res.headers.add("Access-Control-Expose-Headers", exposed_str);
                 }
             }
 
@@ -93,21 +93,21 @@ pub fn corsMiddleware(config: CorsConfig) fn (*Context, *httpz.Request, *httpz.R
             if (std.mem.eql(u8, req.method, "OPTIONS")) {
                 if (allowed_origin == null) {
                     // Origin not allowed, return 403
-                    res.status = .forbidden;
+                    res.status = 403;
                     res.content_type = .JSON;
                     try res.writer().writeAll("{\"error\":\"Origin not allowed\"}");
                     return false;
                 }
 
                 // Set preflight headers
-                res.headers.put("Access-Control-Allow-Methods", try joinStrings(config.allowed_methods, ctx.allocator));
-                res.headers.put("Access-Control-Allow-Headers", try joinStrings(config.allowed_headers, ctx.allocator));
+                res.headers.add("Access-Control-Allow-Methods", try joinStrings(config.allowed_methods, ctx.allocator));
+                res.headers.add("Access-Control-Allow-Headers", try joinStrings(config.allowed_headers, ctx.allocator));
 
                 var buf: [32]u8 = undefined;
                 const max_age_str = try std.fmt.bufPrint(&buf, "{d}", .{config.max_age});
-                res.headers.put("Access-Control-Max-Age", max_age_str);
+                res.headers.add("Access-Control-Max-Age", max_age_str);
 
-                res.status = .no_content;
+                res.status = 204;
                 return false; // Stop handler chain for preflight
             }
 

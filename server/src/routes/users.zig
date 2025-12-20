@@ -128,7 +128,7 @@ pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
 
     // Require authentication
     if (ctx.user == null) {
-        res.status = .unauthorized;
+        res.status = 401;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return;
     }

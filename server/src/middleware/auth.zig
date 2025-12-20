@@ -112,7 +112,7 @@ pub fn authMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 /// Require authentication - returns 401 if not authenticated
 pub fn requireAuth(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !bool {
     if (ctx.user == null) {
-        res.status = .unauthorized;
+        res.status = 401;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return false; // Stop handler chain
@@ -123,14 +123,14 @@ pub fn requireAuth(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !bool
 /// Require active account - returns 403 if not activated
 pub fn requireActiveAccount(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !bool {
     if (ctx.user == null) {
-        res.status = .unauthorized;
+        res.status = 401;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return false;
     }
 
     if (!ctx.user.?.is_active) {
-        res.status = .forbidden;
+        res.status = 403;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"Account not activated. Please verify your email.\"}");
         return false;
@@ -141,14 +141,14 @@ pub fn requireActiveAccount(ctx: *Context, _: *httpz.Request, res: *httpz.Respon
 /// Require admin - returns 403 if not admin
 pub fn requireAdmin(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !bool {
     if (ctx.user == null) {
-        res.status = .unauthorized;
+        res.status = 401;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return false;
     }
 
     if (!ctx.user.?.is_admin) {
-        res.status = .forbidden;
+        res.status = 403;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"Admin access required\"}");
         return false;
@@ -185,7 +185,7 @@ pub fn setSessionCookie(res: *httpz.Response, session_key: []const u8, is_produc
         secure,
     });
 
-    res.headers.put("Set-Cookie", cookie);
+    res.headers.add("Set-Cookie", cookie);
 }
 
 pub fn clearSessionCookie(res: *httpz.Response, is_production: bool) !void {
@@ -197,7 +197,7 @@ pub fn clearSessionCookie(res: *httpz.Response, is_production: bool) !void {
         secure,
     });
 
-    res.headers.put("Set-Cookie", cookie);
+    res.headers.add("Set-Cookie", cookie);
 }
 
 test "parse session cookie" {

@@ -51,7 +51,7 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     // Parse JSON body
     const body = req.body() orelse {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing request body\"}");
         return;
     };
@@ -60,7 +60,7 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         message: []const u8,
         signature: []const u8,
     }, ctx.allocator, body, .{}) catch {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
         return;
     };
@@ -71,14 +71,17 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     // Verify SIWE signature
     const result = siwe.verifySiweSignature(ctx.allocator, ctx.pool, message, signature) catch |err| {
-        res.status = .unauthorized;
+        res.status = 401;
         var writer = res.writer();
         try writer.print("{{\"error\":\"{s}\"}}", .{@errorName(err)});
         return;
     };
 
-    const wallet_address = std.ascii.lowerString(ctx.allocator.alloc(u8, result.address.len) catch unreachable, result.address) catch result.address;
-    defer if (wallet_address.ptr != result.address.ptr) ctx.allocator.free(wallet_address);
+    // Convert Address to lowercase hex string
+    const address_hex = primitives.Address.Address.addressToHex(result.address);
+    var wallet_address_buf: [42]u8 = undefined;
+    _ = std.ascii.lowerString(&wallet_address_buf, &address_hex);
+    const wallet_address: []const u8 = &wallet_address_buf;
 
     // Check if user exists, auto-create if not
     var user = try db.getUserByWallet(ctx.pool, wallet_address);
@@ -115,7 +118,7 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     const u = user.?;
     if (u.prohibit_login) {
-        res.status = .forbidden;
+        res.status = 403;
         try res.writer().writeAll("{\"error\":\"Account is disabled\"}");
         return;
     }
@@ -155,7 +158,7 @@ pub fn register(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
 
     // Parse JSON body
     const body = req.body() orelse {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing request body\"}");
         return;
     };
@@ -166,7 +169,7 @@ pub fn register(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
         username: []const u8,
         displayName: ?[]const u8 = null,
     }, ctx.allocator, body, .{}) catch {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
         return;
     };
@@ -176,32 +179,35 @@ pub fn register(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
 
     // Validate username
     if (v.username.len < 3 or v.username.len > 39) {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Username must be 3-39 characters\"}");
         return;
     }
 
     // Verify SIWE signature
     const result = siwe.verifySiweSignature(ctx.allocator, ctx.pool, v.message, v.signature) catch |err| {
-        res.status = .unauthorized;
+        res.status = 401;
         var writer = res.writer();
         try writer.print("{{\"error\":\"{s}\"}}", .{@errorName(err)});
         return;
     };
 
-    const wallet_address = std.ascii.lowerString(ctx.allocator.alloc(u8, result.address.len) catch unreachable, result.address) catch result.address;
-    defer if (wallet_address.ptr != result.address.ptr) ctx.allocator.free(wallet_address);
+    // Convert Address to lowercase hex string
+    const address_hex = primitives.Address.Address.addressToHex(result.address);
+    var wallet_address_buf: [42]u8 = undefined;
+    _ = std.ascii.lowerString(&wallet_address_buf, &address_hex);
+    const wallet_address: []const u8 = &wallet_address_buf;
 
     // Check if wallet already registered
     if (try db.getUserByWallet(ctx.pool, wallet_address) != null) {
-        res.status = .conflict;
+        res.status = 409;
         try res.writer().writeAll("{\"error\":\"Wallet already registered\"}");
         return;
     }
 
     // Check if username taken
     if (try db.getUserByUsername(ctx.pool, v.username) != null) {
-        res.status = .conflict;
+        res.status = 409;
         try res.writer().writeAll("{\"error\":\"Username already taken\"}");
         return;
     }
@@ -220,7 +226,7 @@ pub fn register(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     // Set cookies
     try auth_middleware.setSessionCookie(res, session_key, ctx.config.is_production);
 
-    res.status = .created;
+    res.status = 201;
     var writer = res.writer();
     try writer.print(
         \\{{"message":"Registration successful","user":{{"id":{d},"username":"{s}","isActive":true,"isAdmin":false,"walletAddress":"{s}"}}}}
@@ -272,7 +278,7 @@ pub fn refresh(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
 
     // Must be authenticated
     if (ctx.user == null or ctx.session_key == null) {
-        res.status = .unauthorized;
+        res.status = 401;
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return;
     }

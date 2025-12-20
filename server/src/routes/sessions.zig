@@ -194,7 +194,7 @@ pub fn createSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         return;
     }
 
-    res.status = .created;
+    res.status = 201;
     var writer = res.writer();
     try writer.writeAll("{\"session\":");
     try writeSessionJson(writer, session.?);
@@ -726,7 +726,7 @@ pub fn forkSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     }
 
-    res.status = .created;
+    res.status = 201;
     var writer = res.writer();
     try writer.writeAll("{\"session\":");
     try writeSessionJson(writer, session.?);
