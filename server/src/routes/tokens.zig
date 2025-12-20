@@ -1,0 +1,247 @@
+//! Access Token routes
+//!
+//! Handles API access token management:
+//! - GET /api/user/tokens - List user's access tokens
+//! - POST /api/user/tokens - Create new access token
+//! - DELETE /api/user/tokens/:id - Revoke access token
+
+const std = @import("std");
+const httpz = @import("httpz");
+const Context = @import("../main.zig").Context;
+const db = @import("../lib/db.zig");
+
+const log = std.log.scoped(.tokens);
+
+/// Generate a secure random token (32 bytes = 64 hex characters)
+fn generateToken(allocator: std.mem.Allocator) ![]const u8 {
+    var token_bytes: [32]u8 = undefined;
+    std.crypto.random.bytes(&token_bytes);
+    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&token_bytes)});
+}
+
+/// Calculate SHA256 hash of token
+fn hashToken(allocator: std.mem.Allocator, token: []const u8) ![]const u8 {
+    var hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(token, &hash, .{});
+    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hash)});
+}
+
+/// GET /api/user/tokens - List user's access tokens
+pub fn list(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    const user = ctx.user orelse {
+        res.status = .unauthorized;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    };
+
+    if (!user.is_active) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Account not activated\"}");
+        return;
+    }
+
+    // Query access tokens
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT
+        \\  id,
+        \\  name,
+        \\  token_last_eight,
+        \\  scopes,
+        \\  created_at::text,
+        \\  last_used_at::text
+        \\FROM access_tokens
+        \\WHERE user_id = $1
+        \\ORDER BY created_at DESC
+    , .{user.id});
+    defer result.deinit();
+
+    // Build JSON response
+    var writer = res.writer();
+    try writer.writeAll("{\"tokens\":[");
+
+    var first = true;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        const id = row.get(i64, 0);
+        const name = row.get([]const u8, 1);
+        const token_last_eight = row.get([]const u8, 2);
+        const scopes = row.get([]const u8, 3);
+        const created_at = row.get([]const u8, 4);
+        const last_used_at = row.get(?[]const u8, 5);
+
+        try writer.print(
+            \\{{"id":{d},"name":"{s}","tokenLastEight":"{s}","scopes":"{s}","createdAt":"{s}","lastUsedAt":{s}}}
+        , .{
+            id,
+            name,
+            token_last_eight,
+            scopes,
+            created_at,
+            if (last_used_at) |lut| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{lut}) else "null",
+        });
+    }
+
+    try writer.writeAll("]}");
+}
+
+/// POST /api/user/tokens - Create new access token
+pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    const user = ctx.user orelse {
+        res.status = .unauthorized;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    };
+
+    if (!user.is_active) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Account not activated\"}");
+        return;
+    }
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        name: []const u8,
+        scopes: [][]const u8,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const name = std.mem.trim(u8, parsed.value.name, " \t\n\r");
+    const scopes = parsed.value.scopes;
+
+    // Validate inputs
+    if (name.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Token name is required\"}");
+        return;
+    }
+
+    if (name.len > 255) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Name must be at most 255 characters\"}");
+        return;
+    }
+
+    if (scopes.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"At least one scope is required\"}");
+        return;
+    }
+
+    // Validate scopes
+    const valid_scopes = [_][]const u8{ "repo", "user", "admin" };
+    for (scopes) |scope| {
+        var valid = false;
+        for (valid_scopes) |vs| {
+            if (std.mem.eql(u8, scope, vs)) {
+                valid = true;
+                break;
+            }
+        }
+        if (!valid) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Invalid scope. Must be one of: repo, user, admin\"}");
+            return;
+        }
+    }
+
+    // Generate token
+    const token = try generateToken(ctx.allocator);
+    defer ctx.allocator.free(token);
+
+    const token_hash = try hashToken(ctx.allocator, token);
+    defer ctx.allocator.free(token_hash);
+
+    const token_last_eight = if (token.len >= 8) token[token.len - 8 ..] else token;
+
+    // Join scopes with comma
+    var scopes_str = std.ArrayList(u8).init(ctx.allocator);
+    defer scopes_str.deinit();
+
+    for (scopes, 0..) |scope, i| {
+        if (i > 0) try scopes_str.appendSlice(",");
+        try scopes_str.appendSlice(scope);
+    }
+
+    // Insert token into database
+    const token_id = db.createAccessToken(
+        ctx.pool,
+        user.id,
+        name,
+        token_hash,
+        token_last_eight,
+        scopes_str.items,
+    ) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create access token\"}");
+        return;
+    };
+
+    // Return created token with FULL token (only time it's shown)
+    res.status = 201;
+    var writer = res.writer();
+    try writer.print(
+        \\{{"token":{{"id":{d},"name":"{s}","tokenLastEight":"{s}","scopes":"{s}"}},"fullToken":"{s}","message":"Token created successfully. Save it now - you won't be able to see it again!"}}
+    , .{ token_id, name, token_last_eight, scopes_str.items, token });
+}
+
+/// DELETE /api/user/tokens/:id - Revoke access token
+pub fn delete(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    const user = ctx.user orelse {
+        res.status = .unauthorized;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    };
+
+    if (!user.is_active) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Account not activated\"}");
+        return;
+    }
+
+    // Parse token ID from path
+    const token_id_str = req.param("id") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing token ID\"}");
+        return;
+    };
+
+    const token_id = std.fmt.parseInt(i64, token_id_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid token ID\"}");
+        return;
+    };
+
+    // Delete the token (only if it belongs to the user)
+    const deleted = try db.deleteAccessToken(ctx.pool, token_id, user.id);
+    if (!deleted) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Token not found\"}");
+        return;
+    }
+
+    try res.writer().writeAll("{\"message\":\"Token revoked successfully\"}");
+}
