@@ -693,7 +693,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
       window.location.reload();
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to check status');
+      window.toast.error(data.error || 'Failed to check status');
     }
   });
 
@@ -709,7 +709,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
       window.location.href = `/${username}/${reponame}/landing`;
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to cancel request');
+      window.toast.error(data.error || 'Failed to cancel request');
     }
   });
 
@@ -733,7 +733,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
       window.location.reload();
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to submit review');
+      window.toast.error(data.error || 'Failed to submit review');
     }
   });
 </script>

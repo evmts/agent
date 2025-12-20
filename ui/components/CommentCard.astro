@@ -6,9 +6,11 @@ import RelativeTime from "./RelativeTime.astro";
 
 interface Props {
   comment: Comment;
+  owner?: string;
+  repo?: string;
 }
 
-const { comment } = Astro.props;
+const { comment, owner, repo } = Astro.props;
 ---
 
 <div class="comment">
@@ -18,6 +20,6 @@ const { comment } = Astro.props;
     <span class="time">· <RelativeTime date={comment.created_at} /></span>
   </div>
   <div class="comment-body">
-    <Markdown content={comment.body} />
+    <Markdown content={comment.body} owner={owner} repo={repo} />
   </div>
 </div>

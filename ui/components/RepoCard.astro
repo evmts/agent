@@ -1,5 +1,6 @@
 ---
 import type { Repository } from "../lib/types";
+import TopicBadge from "./TopicBadge.astro";
 
 interface Props {
   repo: Repository;
@@ -16,6 +17,25 @@ const repoUrl = `/${repo.username}/${repo.name}`;
       {showUser && <span class="owner">{repo.username} / </span>}
       {repo.name}
     </h3>
-    {repo.description && <p>{repo.description}</p>}
+    {repo.description && <p class="description">{repo.description}</p>}
+    {repo.topics && repo.topics.length > 0 && (
+      <div class="topics">
+        {repo.topics.map((topic) => (
+          <TopicBadge topic={topic} />
+        ))}
+      </div>
+    )}
   </a>
 </li>
+
+<style>
+  .description {
+    margin-bottom: 8px;
+  }
+  .topics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+</style>

@@ -70,6 +70,22 @@ const breadcrumbParts = filePath ? filePath.split("/") : [];
   </nav>
 
   <div class="container">
+    <div class="file-actions">
+      <a href={`/${username}/${reponame}/commits/${branch}/${filePath}`} class="btn-secondary">
+        History
+      </a>
+      <a href={`/${username}/${reponame}/blame/${branch}/${filePath}`} class="btn-secondary">
+        Blame
+      </a>
+    </div>
     <FileViewer content={content} filename={filename} />
   </div>
 </Layout>
+
+<style>
+  .file-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+</style>

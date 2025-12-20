@@ -7,6 +7,40 @@ import sql from '../../db/client';
 const app = new Hono();
 
 /**
+ * GET /users/search?q=query
+ * Search users by username (for autocomplete)
+ */
+app.get('/search', async (c) => {
+  try {
+    const query = c.req.query('q') || '';
+
+    // Return empty array if query is too short
+    if (query.length < 1) {
+      return c.json({ users: [] });
+    }
+
+    // Search users by username prefix (case-insensitive)
+    const users = await sql<Array<{
+      username: string;
+      display_name: string | null;
+    }>>`
+      SELECT username, display_name
+      FROM users
+      WHERE lower_username LIKE ${query.toLowerCase() + '%'}
+        AND is_active = true
+        AND prohibit_login = false
+      ORDER BY lower_username
+      LIMIT 10
+    `;
+
+    return c.json({ users });
+  } catch (error) {
+    console.error('User search error:', error);
+    return c.json({ error: 'Failed to search users' }, 500);
+  }
+});
+
+/**
  * GET /users/:username
  * Get public user profile
  */

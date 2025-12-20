@@ -2,12 +2,29 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import IssueCard from "../../../../components/IssueCard.astro";
+import IssueFilters from "../../../../components/IssueFilters.astro";
 import { sql } from "../../../../lib/db";
-import { listIssues, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
+import {
+  listIssues,
+  getIssueCounts,
+  ensureIssuesRepo,
+  getUniqueAuthors,
+  getUniqueAssignees,
+  getLabels,
+  type IssueFilters as IssueFiltersType
+} from "../../../../lib/git-issues";
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
+
+// Parse filter parameters from URL
 const state = Astro.url.searchParams.get("state") || "open";
+const author = Astro.url.searchParams.get("author") || undefined;
+const assignee = Astro.url.searchParams.get("assignee") || undefined;
+const labelsParam = Astro.url.searchParams.get("labels");
+const labels = labelsParam ? labelsParam.split(",").filter(Boolean) : [];
+const sort = (Astro.url.searchParams.get("sort") || "created") as "created" | "updated" | "comments";
+const search = Astro.url.searchParams.get("search") || undefined;
 
 if (!username || !reponame) {
   return Astro.redirect('/404');
@@ -26,9 +43,26 @@ if (!repo) return Astro.redirect("/404");
 // Ensure issues repo exists
 await ensureIssuesRepo(username, reponame);
 
-// Get issues from git
-const gitIssues = await listIssues(username, reponame, state as "open" | "closed" | "all");
+// Build filters object
+const filters: IssueFiltersType = {
+  state: state as "open" | "closed" | "all",
+  author,
+  assignee,
+  labels,
+  sort,
+  search,
+};
+
+// Get issues from git with filters
+const gitIssues = await listIssues(username, reponame, filters);
 const counts = await getIssueCounts(username, reponame);
+
+// Get unique authors, assignees, and labels for filters
+const [authors, assignees, availableLabels] = await Promise.all([
+  getUniqueAuthors(username, reponame),
+  getUniqueAssignees(username, reponame),
+  getLabels(username, reponame),
+]);
 
 // Transform to match expected shape
 const issues = gitIssues.map(issue => ({
@@ -54,6 +88,18 @@ try {
 } catch {
   // landing_queue table may not exist yet
 }
+
+// Build current filters for component
+const currentFilters = {
+  state,
+  author: author || null,
+  assignee: assignee || null,
+  labels,
+  sort,
+  search: search || null,
+};
+
+const baseUrl = `/${username}/${reponame}/issues`;
 ---
 
 <Layout title={`Issues · ${username}/${reponame} · plue`}>

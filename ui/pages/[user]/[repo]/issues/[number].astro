@@ -191,7 +191,7 @@ function formatDate(date: string | Date): string {
         )}
 
         {comments.map((comment) => (
-          <CommentCard comment={comment} />
+          <CommentCard comment={comment} owner={username} repo={reponame} />
         ))}
 
         <div class="add-comment mt-3">
