@@ -29,22 +29,29 @@ pub fn sign(
     // Header: {"alg":"HS256","typ":"JWT"}
     const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
 
-    // Build payload JSON
-    var payload_json = std.ArrayList(u8).init(allocator);
-    defer payload_json.deinit();
-
-    try std.json.stringify(payload, .{}, payload_json.writer());
+    // Build payload JSON manually (avoids Zig version-specific JSON API)
+    const payload_json = try std.fmt.allocPrint(allocator,
+        \\{{"user_id":{d},"username":"{s}","is_admin":{s},"iat":{d},"exp":{d}}}
+    , .{
+        payload.user_id,
+        payload.username,
+        if (payload.is_admin) "true" else "false",
+        payload.iat,
+        payload.exp,
+    });
+    defer allocator.free(payload_json);
 
     // Base64url encode payload
-    const payload_b64 = try base64UrlEncode(allocator, payload_json.items);
+    const payload_b64 = try base64UrlEncode(allocator, payload_json);
     defer allocator.free(payload_b64);
 
     // Create signature input: header.payload
     const sig_input = try std.fmt.allocPrint(allocator, "{s}.{s}", .{ header, payload_b64 });
     defer allocator.free(sig_input);
 
-    // HMAC-SHA256 signature
-    var hmac = std.crypto.auth.hmac.HmacSha256.init(secret);
+    // HMAC-SHA256 signature (Zig 0.15 API)
+    const HmacSha256 = std.crypto.auth.hmac.sha2.HmacSha256;
+    var hmac = HmacSha256.init(secret);
     hmac.update(sig_input);
     var signature: [32]u8 = undefined;
     hmac.final(&signature);
@@ -75,7 +82,8 @@ pub fn verify(
     const sig_input = try std.fmt.allocPrint(allocator, "{s}.{s}", .{ header, payload_b64 });
     defer allocator.free(sig_input);
 
-    var hmac = std.crypto.auth.hmac.HmacSha256.init(secret);
+    const HmacSha256 = std.crypto.auth.hmac.sha2.HmacSha256;
+    var hmac = HmacSha256.init(secret);
     hmac.update(sig_input);
     var expected_sig: [32]u8 = undefined;
     hmac.final(&expected_sig);
@@ -124,22 +132,22 @@ pub fn create(
 }
 
 // ============================================================================
-// Base64url helpers
+// Base64url helpers (Zig 0.15+ API)
 // ============================================================================
 
 fn base64UrlEncode(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
-    const encoder = base64.url_safe_no_pad;
-    const size = encoder.calcSize(data.len);
+    const codec = base64.url_safe_no_pad;
+    const size = codec.Encoder.calcSize(data.len);
     const buffer = try allocator.alloc(u8, size);
-    _ = encoder.encode(buffer, data);
+    _ = codec.Encoder.encode(buffer, data);
     return buffer;
 }
 
 fn base64UrlDecode(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
-    const decoder = base64.url_safe_no_pad;
-    const size = try decoder.calcSizeForSlice(data);
+    const codec = base64.url_safe_no_pad;
+    const size = codec.Decoder.calcSizeForSlice(data) catch return error.InvalidToken;
     const buffer = try allocator.alloc(u8, size);
-    try decoder.decode(buffer, data);
+    codec.Decoder.decode(buffer, data) catch return error.InvalidToken;
     return buffer;
 }
 

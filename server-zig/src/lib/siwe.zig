@@ -112,7 +112,7 @@ pub fn verifySiweSignature(
     }
 
     // Convert address to hex for DB
-    const addr_hex = try primitives.Hex.toHex(allocator, &parsed.address);
+    const addr_hex = try primitives.Hex.toHex(allocator, &parsed.address.bytes);
     defer allocator.free(addr_hex);
 
     // Mark nonce as used
@@ -138,7 +138,7 @@ pub fn createNonce(allocator: std.mem.Allocator, pool: *db.Pool) ![]const u8 {
 
 /// Get address as hex string
 pub fn addressToHex(allocator: std.mem.Allocator, addr: Address) ![]const u8 {
-    return primitives.Hex.toHex(allocator, &addr);
+    return primitives.Hex.toHex(allocator, &addr.bytes);
 }
 
 test "generate nonce" {
