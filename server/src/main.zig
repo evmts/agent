@@ -2,6 +2,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const config = @import("config.zig");
 const db = @import("lib/db.zig");
+const metrics = @import("lib/metrics.zig");
 const routes = @import("routes.zig");
 const ssh = @import("ssh/server.zig");
 const pty = @import("websocket/pty.zig");
@@ -22,6 +23,10 @@ pub fn main() !void {
     const cfg = config.load();
     log.info("Starting server on {s}:{d}", .{ cfg.host, cfg.port });
     log.info("Environment: {s}", .{if (cfg.is_production) "production" else "development"});
+
+    // Initialize metrics
+    metrics.init();
+    log.info("Prometheus metrics initialized (available at /metrics)", .{});
 
     // Initialize database pool
     const uri = try std.Uri.parse(cfg.database_url);
