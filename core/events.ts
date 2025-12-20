@@ -63,18 +63,59 @@ export interface EventBus {
 interface Subscriber {
   sessionId?: string;
   handler: (event: Event) => void;
+  lastActivity: number;
 }
 
 export class SSEEventBus implements EventBus {
   private subscribers = new Set<Subscriber>();
+  private cleanupInterval: Timer | null = null;
+  private readonly SUBSCRIBER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  private readonly CLEANUP_INTERVAL_MS = 60 * 1000; // 1 minute
+
+  constructor() {
+    // Start periodic cleanup of stale subscribers
+    this.startCleanupTimer();
+  }
+
+  private startCleanupTimer(): void {
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const staleSubscribers: Subscriber[] = [];
+
+      for (const subscriber of this.subscribers) {
+        if (now - subscriber.lastActivity > this.SUBSCRIBER_TIMEOUT_MS) {
+          staleSubscribers.push(subscriber);
+        }
+      }
+
+      if (staleSubscribers.length > 0) {
+        console.warn(
+          `[EventBus] Cleaning up ${staleSubscribers.length} stale subscriber(s) (inactive > ${this.SUBSCRIBER_TIMEOUT_MS / 1000}s)`
+        );
+        for (const subscriber of staleSubscribers) {
+          this.subscribers.delete(subscriber);
+        }
+      }
+    }, this.CLEANUP_INTERVAL_MS);
+  }
+
+  destroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    this.subscribers.clear();
+  }
 
   async publish(event: Event): Promise<void> {
     const sessionId = event.properties.sessionID as string | undefined;
+    const now = Date.now();
 
     for (const subscriber of this.subscribers) {
       // Send to all subscribers if no session filter, or if session matches
       if (!subscriber.sessionId || subscriber.sessionId === sessionId) {
         subscriber.handler(event);
+        subscriber.lastActivity = now; // Update activity timestamp
       }
     }
   }
@@ -83,10 +124,13 @@ export class SSEEventBus implements EventBus {
     const MAX_QUEUE_SIZE = 1000; // Prevent unbounded queue growth
     const queue: Event[] = [];
     let resolveNext: ((event: Event) => void) | null = null;
+    let eventsDropped = 0;
 
     const subscriber: Subscriber = {
       sessionId,
+      lastActivity: Date.now(),
       handler: (event: Event) => {
+        subscriber.lastActivity = Date.now(); // Update on each event
         if (resolveNext) {
           resolveNext(event);
           resolveNext = null;
@@ -94,6 +138,12 @@ export class SSEEventBus implements EventBus {
           // Enforce queue size limit - drop oldest events if queue is full
           if (queue.length >= MAX_QUEUE_SIZE) {
             queue.shift(); // Remove oldest event
+            eventsDropped++;
+            if (eventsDropped === 1 || eventsDropped % 100 === 0) {
+              console.warn(
+                `[EventBus] Queue overflow for subscriber (session: ${sessionId ?? 'global'}), ${eventsDropped} events dropped`
+              );
+            }
           }
           queue.push(event);
         }
@@ -105,8 +155,10 @@ export class SSEEventBus implements EventBus {
     try {
       while (true) {
         if (queue.length > 0) {
+          subscriber.lastActivity = Date.now(); // Update on yield
           yield queue.shift()!;
         } else {
+          subscriber.lastActivity = Date.now(); // Update before waiting
           yield await new Promise<Event>((resolve) => {
             resolveNext = resolve;
           });
@@ -114,6 +166,11 @@ export class SSEEventBus implements EventBus {
       }
     } finally {
       this.subscribers.delete(subscriber);
+      if (eventsDropped > 0) {
+        console.warn(
+          `[EventBus] Subscriber cleanup (session: ${sessionId ?? 'global'}), total events dropped: ${eventsDropped}`
+        );
+      }
     }
   }
 }
