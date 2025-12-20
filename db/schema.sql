@@ -78,6 +78,22 @@ CREATE TABLE IF NOT EXISTS access_tokens (
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_tokens_token_hash ON access_tokens(token_hash);
 
+-- Email verification tokens (for email-based features)
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email VARCHAR(255) NOT NULL,
+  token_hash VARCHAR(64) UNIQUE NOT NULL, -- sha256 hash
+  token_type VARCHAR(20) NOT NULL CHECK (token_type IN ('verify', 'reset')),
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  used_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_hash ON email_verification_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires ON email_verification_tokens(expires_at);
+
 -- SIWE nonces for replay attack prevention
 CREATE TABLE IF NOT EXISTS siwe_nonces (
   nonce VARCHAR(64) PRIMARY KEY,
@@ -823,3 +839,45 @@ CREATE TABLE IF NOT EXISTS reactions (
 CREATE INDEX IF NOT EXISTS idx_reactions_issue ON reactions(target_type, target_id) WHERE target_type = 'issue';
 CREATE INDEX IF NOT EXISTS idx_reactions_comment ON reactions(target_type, target_id) WHERE target_type = 'comment';
 CREATE INDEX IF NOT EXISTS idx_reactions_user ON reactions(user_id);
+
+-- =============================================================================
+-- Issue Activity Timeline
+-- =============================================================================
+
+-- Issue events for activity timeline (system comments)
+CREATE TABLE IF NOT EXISTS issue_events (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  issue_number INTEGER NOT NULL,
+  actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+
+  -- Event type
+  event_type VARCHAR(30) NOT NULL CHECK (event_type IN (
+    'closed',
+    'reopened',
+    'label_added',
+    'label_removed',
+    'assignee_added',
+    'assignee_removed',
+    'milestone_added',
+    'milestone_removed',
+    'milestone_changed',
+    'title_changed',
+    'renamed'
+  )),
+
+  -- Event metadata (stored as JSONB for flexibility)
+  -- Examples:
+  -- label events: {"label": "bug"}
+  -- assignee events: {"assignee": "username"}
+  -- milestone events: {"milestone": "v1.0"}
+  -- title change: {"old_title": "...", "new_title": "..."}
+  metadata JSONB DEFAULT '{}',
+
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_events_repo_issue ON issue_events(repository_id, issue_number);
+CREATE INDEX IF NOT EXISTS idx_issue_events_actor ON issue_events(actor_id);
+CREATE INDEX IF NOT EXISTS idx_issue_events_type ON issue_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_issue_events_created ON issue_events(created_at);

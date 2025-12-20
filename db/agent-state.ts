@@ -344,13 +344,47 @@ export async function setSessionMessages(
   sessionId: string,
   messages: MessageWithParts[]
 ): Promise<void> {
-  // Delete existing and re-insert
-  await sql`DELETE FROM parts WHERE session_id = ${sessionId}`;
-  await sql`DELETE FROM messages WHERE session_id = ${sessionId}`;
+  // Use transaction to ensure atomicity
+  await sql.begin(async (tx) => {
+    // Delete existing (cascade from messages to parts via FK)
+    await tx`DELETE FROM messages WHERE session_id = ${sessionId}`;
 
-  for (const msg of messages) {
-    await appendMessage(sessionId, msg);
-  }
+    // Insert all messages and their parts
+    for (const msg of messages) {
+      // Insert message
+      const messageRow = messageToRow(msg, sessionId);
+      await tx`
+        INSERT INTO messages (
+          id, session_id, role, time_created, time_completed, status,
+          thinking_text, error_message, agent, tools, error
+        ) VALUES (
+          ${messageRow.id}, ${messageRow.session_id}, ${messageRow.role},
+          ${messageRow.time_created}, ${messageRow.time_completed}, ${messageRow.status},
+          ${messageRow.thinking_text}, ${messageRow.error_message}, ${messageRow.agent},
+          ${messageRow.tools ? JSON.stringify(messageRow.tools) : null},
+          ${messageRow.error ? JSON.stringify(messageRow.error) : null}
+        )
+      `;
+
+      // Insert parts
+      for (let i = 0; i < msg.parts.length; i++) {
+        const part = msg.parts[i];
+        if (!part) continue;
+        const partRow = partToRow(part, sessionId, msg.info.id, i);
+        await tx`
+          INSERT INTO parts (
+            id, session_id, message_id, type, text, tool_name, tool_state,
+            time_start, time_end, sort_order
+          ) VALUES (
+            ${partRow.id}, ${partRow.session_id}, ${partRow.message_id}, ${partRow.type},
+            ${partRow.text}, ${partRow.tool_name},
+            ${partRow.tool_state ? JSON.stringify(partRow.tool_state) : null},
+            ${partRow.time_start}, ${partRow.time_end}, ${partRow.sort_order}
+          )
+        `;
+      }
+    }
+  });
 }
 
 function rowToMessage(row: Record<string, unknown>): Message {
@@ -598,6 +632,18 @@ export async function clearFileTrackers(sessionId: string): Promise<void> {
 // =============================================================================
 // Streaming Part Operations
 // =============================================================================
+
+/**
+ * Generate a unique message ID.
+ */
+export function generateMessageId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id = 'msg_';
+  for (let i = 0; i < 12; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return id;
+}
 
 /**
  * Generate a unique part ID.
