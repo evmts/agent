@@ -1,6 +1,8 @@
 [submodule "server-zig/voltaire"]
 	path = server/voltaire
 	url = git@github.com:evmts/voltaire.git
+	ignore = dirty
 [submodule "server-zig/ai"]
 	path = server/ai
 	url = https://github.com/evmts/ai.git
+	ignore = dirty
