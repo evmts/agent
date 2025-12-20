@@ -1,0 +1,112 @@
+---
+/**
+ * Workflow status badge component.
+ * Displays a color-coded badge for workflow status.
+ */
+
+interface Props {
+  status: number;
+  size?: 'small' | 'medium' | 'large';
+}
+
+const { status, size = 'medium' } = Astro.props;
+
+// Status values: 0=unknown, 1=success, 2=failure, 3=cancelled, 4=skipped, 5=waiting, 6=running, 7=blocked
+const statusInfo: Record<number, { label: string; class: string }> = {
+  0: { label: 'Unknown', class: 'unknown' },
+  1: { label: 'Success', class: 'success' },
+  2: { label: 'Failure', class: 'failure' },
+  3: { label: 'Cancelled', class: 'cancelled' },
+  4: { label: 'Skipped', class: 'skipped' },
+  5: { label: 'Waiting', class: 'waiting' },
+  6: { label: 'Running', class: 'running' },
+  7: { label: 'Blocked', class: 'blocked' },
+};
+
+const info = statusInfo[status] || statusInfo[0];
+---
+
+<span class={`status-badge status-${info.class} size-${size}`}>
+  {info.label}
+</span>
+
+<style>
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 2px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .size-small {
+    font-size: 0.625rem;
+    padding: 0.0625rem 0.25rem;
+  }
+
+  .size-medium {
+    font-size: 0.75rem;
+  }
+
+  .size-large {
+    font-size: 0.875rem;
+    padding: 0.25rem 0.75rem;
+  }
+
+  .status-success {
+    background: var(--success-bg, #22c55e20);
+    color: var(--success, #22c55e);
+    border: 1px solid var(--success, #22c55e);
+  }
+
+  .status-failure {
+    background: var(--error-bg, #ef444420);
+    color: var(--error, #ef4444);
+    border: 1px solid var(--error, #ef4444);
+  }
+
+  .status-cancelled {
+    background: var(--muted-bg, #6b728020);
+    color: var(--muted, #6b7280);
+    border: 1px solid var(--muted, #6b7280);
+  }
+
+  .status-skipped {
+    background: var(--muted-bg, #6b728020);
+    color: var(--muted, #6b7280);
+    border: 1px dashed var(--muted, #6b7280);
+  }
+
+  .status-waiting {
+    background: var(--warning-bg, #f59e0b20);
+    color: var(--warning, #f59e0b);
+    border: 1px solid var(--warning, #f59e0b);
+  }
+
+  .status-running {
+    background: var(--info-bg, #3b82f620);
+    color: var(--info, #3b82f6);
+    border: 1px solid var(--info, #3b82f6);
+    animation: pulse 2s infinite;
+  }
+
+  .status-blocked {
+    background: var(--warning-bg, #f59e0b20);
+    color: var(--warning, #f59e0b);
+    border: 1px dashed var(--warning, #f59e0b);
+  }
+
+  .status-unknown {
+    background: var(--muted-bg, #6b728020);
+    color: var(--muted, #6b7280);
+    border: 1px solid var(--muted, #6b7280);
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+</style>

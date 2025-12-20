@@ -1,0 +1,303 @@
+---
+/**
+ * Workflow runs list page.
+ * Displays all workflow runs for a repository.
+ */
+
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import WorkflowRunCard from "../../../../components/WorkflowRunCard.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository } from "../../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+// Get user and repo
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+if (!repo) return Astro.redirect("/404");
+
+// Get query params
+const statusParam = Astro.url.searchParams.get('status');
+const page = parseInt(Astro.url.searchParams.get('page') || '1');
+const perPage = 20;
+const offset = (page - 1) * perPage;
+
+// Get workflow runs
+let runs: any[] = [];
+let totalCount = 0;
+
+try {
+  // Status filter mapping
+  const statusMap: Record<string, number> = {
+    'success': 1,
+    'failure': 2,
+    'cancelled': 3,
+    'waiting': 5,
+    'running': 6,
+  };
+
+  if (statusParam && statusMap[statusParam] !== undefined) {
+    const status = statusMap[statusParam];
+    runs = await sql`
+      SELECT * FROM workflow_runs
+      WHERE repository_id = ${repo.id} AND status = ${status}
+      ORDER BY created_at DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `;
+    const [countResult] = await sql`
+      SELECT COUNT(*) as count FROM workflow_runs
+      WHERE repository_id = ${repo.id} AND status = ${status}
+    `;
+    totalCount = countResult?.count || 0;
+  } else {
+    runs = await sql`
+      SELECT * FROM workflow_runs
+      WHERE repository_id = ${repo.id}
+      ORDER BY created_at DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `;
+    const [countResult] = await sql`
+      SELECT COUNT(*) as count FROM workflow_runs
+      WHERE repository_id = ${repo.id}
+    `;
+    totalCount = countResult?.count || 0;
+  }
+} catch (e) {
+  // Table may not exist yet
+  console.error('Error fetching workflow runs:', e);
+}
+
+// Transform DB rows to expected format
+const formattedRuns = runs.map((r: any) => ({
+  id: r.id,
+  runNumber: r.run_number,
+  title: r.title,
+  triggerEvent: r.trigger_event,
+  status: r.status,
+  ref: r.ref,
+  commitSha: r.commit_sha,
+  createdAt: r.created_at,
+  startedAt: r.started_at,
+  stoppedAt: r.stopped_at,
+}));
+
+const totalPages = Math.ceil(totalCount / perPage);
+---
+
+<Layout title={`Workflows · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">workflows</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/landing`}>Landing</a>
+    <a href={`/${username}/${reponame}/workflows`} class="active">Workflows</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+  </nav>
+
+  <div class="workflows-header">
+    <h1>Workflow Runs</h1>
+    <button class="btn btn-primary" id="trigger-btn">
+      Run Workflow
+    </button>
+  </div>
+
+  <div class="status-tabs">
+    <a href={`/${username}/${reponame}/workflows`} class:list={[{ active: !statusParam }]}>
+      All
+    </a>
+    <a href={`/${username}/${reponame}/workflows?status=running`} class:list={[{ active: statusParam === 'running' }]}>
+      Running
+    </a>
+    <a href={`/${username}/${reponame}/workflows?status=success`} class:list={[{ active: statusParam === 'success' }]}>
+      Success
+    </a>
+    <a href={`/${username}/${reponame}/workflows?status=failure`} class:list={[{ active: statusParam === 'failure' }]}>
+      Failure
+    </a>
+    <a href={`/${username}/${reponame}/workflows?status=waiting`} class:list={[{ active: statusParam === 'waiting' }]}>
+      Waiting
+    </a>
+  </div>
+
+  <div class="runs-list">
+    {formattedRuns.length === 0 ? (
+      <div class="empty-state">
+        <p>No workflow runs yet.</p>
+        <p class="hint">
+          Create a workflow file in <code>.plue/workflows/</code> to get started.
+        </p>
+      </div>
+    ) : (
+      formattedRuns.map((run) => (
+        <WorkflowRunCard run={run} user={username} repo={reponame} />
+      ))
+    )}
+  </div>
+
+  {totalPages > 1 && (
+    <div class="pagination">
+      {page > 1 && (
+        <a href={`/${username}/${reponame}/workflows?page=${page - 1}${statusParam ? `&status=${statusParam}` : ''}`}>
+          Previous
+        </a>
+      )}
+      <span class="page-info">Page {page} of {totalPages}</span>
+      {page < totalPages && (
+        <a href={`/${username}/${reponame}/workflows?page=${page + 1}${statusParam ? `&status=${statusParam}` : ''}`}>
+          Next
+        </a>
+      )}
+    </div>
+  )}
+</Layout>
+
+<style>
+  .workflows-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 1rem 0;
+  }
+
+  .workflows-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .btn-primary {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .status-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .status-tabs a {
+    padding: 0.5rem 1rem;
+    text-decoration: none;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+
+  .status-tabs a:hover {
+    color: var(--fg);
+  }
+
+  .status-tabs a.active {
+    color: var(--fg);
+    border-bottom-color: var(--fg);
+  }
+
+  .runs-list {
+    margin-top: 1rem;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem;
+    border: 1px dashed var(--border);
+  }
+
+  .empty-state p {
+    margin: 0.5rem 0;
+  }
+
+  .empty-state .hint {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  .empty-state code {
+    background: var(--muted-bg, #f3f4f6);
+    padding: 0.125rem 0.25rem;
+  }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .pagination a {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    text-decoration: none;
+  }
+
+  .page-info {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+</style>
+
+<script>
+  const triggerBtn = document.getElementById('trigger-btn');
+  if (triggerBtn) {
+    triggerBtn.addEventListener('click', async () => {
+      // Get repo info from URL
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      const user = pathParts[0];
+      const repo = pathParts[1];
+
+      const title = prompt('Workflow title:', 'Manual workflow run');
+      if (!title) return;
+
+      try {
+        const response = await fetch(`/${user}/${repo}/workflows/dispatch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          const error = await response.json();
+          alert(`Error: ${error.error || 'Failed to trigger workflow'}`);
+        }
+      } catch (e) {
+        alert('Error triggering workflow');
+      }
+    });
+  }
+</script>
