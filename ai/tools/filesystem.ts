@@ -5,14 +5,15 @@
  * to prevent path traversal and ensure files stay within working directory.
  */
 
-import { resolve, relative, } from 'node:path';
-import { stat, mkdir } from 'node:fs/promises';
+import { resolve, relative } from 'node:path';
+import { stat, mkdir, realpath } from 'node:fs/promises';
 
 // Error messages
 export const ERROR_FILE_NOT_FOUND = 'file not found: {}';
 export const ERROR_FILE_OUTSIDE_CWD = 'file {} is not in the current working directory';
 export const ERROR_PATH_TRAVERSAL = 'path traversal detected in: {}';
 export const ERROR_NOT_ABSOLUTE = 'file path must be absolute: {}';
+export const ERROR_SYMLINK_ESCAPE = 'symlink points outside working directory: {}';
 
 /**
  * Resolve and validate a file path.
@@ -50,6 +51,67 @@ export function resolveAndValidatePath(
   }
 
   return [absPath, null];
+}
+
+/**
+ * Resolve and validate a file path, following symlinks.
+ * This is the secure version that prevents symlink-based path traversal.
+ *
+ * @param filePath - The file path to validate
+ * @param workingDir - The working directory (defaults to cwd)
+ * @returns Tuple of [resolvedPath, errorMessage]
+ */
+export async function resolveAndValidatePathSecure(
+  filePath: string,
+  workingDir?: string
+): Promise<[string, string | null]> {
+  const cwd = workingDir ?? process.cwd();
+
+  // First do basic validation
+  const [absPath, basicError] = resolveAndValidatePath(filePath, workingDir);
+  if (basicError) {
+    return ['', basicError];
+  }
+
+  // Resolve the real path of the working directory (in case it's a symlink)
+  let realCwd: string;
+  try {
+    realCwd = await realpath(cwd);
+  } catch {
+    realCwd = cwd;
+  }
+
+  // Check if the file exists and resolve its real path
+  try {
+    const realAbsPath = await realpath(absPath);
+
+    // Check if the real path is within the real working directory
+    const relPath = relative(realCwd, realAbsPath);
+    if (relPath.startsWith('..') || relPath.startsWith('/')) {
+      return ['', ERROR_SYMLINK_ESCAPE.replace('{}', filePath)];
+    }
+
+    return [realAbsPath, null];
+  } catch (error) {
+    // File doesn't exist yet - check the parent directory
+    const parentPath = resolve(absPath, '..');
+
+    try {
+      const realParentPath = await realpath(parentPath);
+      const relParentPath = relative(realCwd, realParentPath);
+
+      if (relParentPath.startsWith('..') || relParentPath.startsWith('/')) {
+        return ['', ERROR_SYMLINK_ESCAPE.replace('{}', filePath)];
+      }
+
+      // Parent is safe, return the original resolved path
+      return [absPath, null];
+    } catch {
+      // Parent doesn't exist either, return the original path
+      // (operation will fail later with proper error)
+      return [absPath, null];
+    }
+  }
 }
 
 /**

@@ -147,10 +147,28 @@ async function multieditImpl(
         continue;
       }
 
+      // Reject empty oldString on existing files
+      if (op.oldString === '' && exists) {
+        // Write any successful edits before returning error
+        if (i > 0) {
+          await Bun.write(absPath, content);
+        }
+        return {
+          success: false,
+          filePath: relPath,
+          editCount: i,
+          error: ERROR_EDIT_FAILED.replace('{}', String(i + 1)).replace('{}', 'empty old_string not allowed on existing files'),
+        };
+      }
+
       // Check if oldString exists
       const occurrences = content.split(op.oldString).length - 1;
 
       if (occurrences === 0) {
+        // Write any successful edits before returning error
+        if (i > 0) {
+          await Bun.write(absPath, content);
+        }
         return {
           success: false,
           filePath: relPath,
@@ -159,19 +177,11 @@ async function multieditImpl(
         };
       }
 
-      if (occurrences > 1 && !op.replaceAll) {
-        return {
-          success: false,
-          filePath: relPath,
-          editCount: i,
-          error: ERROR_EDIT_FAILED.replace('{}', String(i + 1)).replace('{}', ERROR_OLD_STRING_MULTIPLE),
-        };
-      }
-
       // Apply the edit
       if (op.replaceAll) {
         content = content.split(op.oldString).join(op.newString);
       } else {
+        // Always replace first occurrence, don't error on multiple
         content = content.replace(op.oldString, op.newString);
       }
     }

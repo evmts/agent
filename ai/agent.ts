@@ -162,17 +162,24 @@ export function runAgentSync(
   // Use Bun's synchronous promise resolution
   let result = '';
   let error: Error | null = null;
+  let settled = false;
+  const maxWaitMs = 300000; // 5 minute timeout
+  const startTime = Date.now();
 
-  const promise = runAgent(messages, options)
-    .then((r) => { result = r; })
-    .catch((e) => { error = e; });
+  runAgent(messages, options)
+    .then((r) => { result = r; settled = true; })
+    .catch((e) => { error = e; settled = true; });
 
   // Block until promise resolves (Bun-specific)
   // @ts-expect-error - Bun internal API
   if (typeof Bun !== 'undefined' && Bun.sleepSync) {
-    while (promise && !result && !error) {
+    while (!settled && (Date.now() - startTime) < maxWaitMs) {
       // @ts-expect-error - Bun internal API
       Bun.sleepSync(10);
+    }
+
+    if (!settled) {
+      throw new Error('runAgentSync timed out after 5 minutes');
     }
   }
 
@@ -191,43 +198,57 @@ export async function* persistedStreamAgent(
   sessionId: string
 ): AsyncGenerator<StreamEvent, void, unknown> {
   // Import dynamically to avoid circular dependencies
-  const { appendStreamingPart, updateMessageStatus } = await import('../db/agent-state');
+  const { appendStreamingPart, updateMessageStatus, generateMessageId } = await import('../db/agent-state');
 
-  let messageId: string | null = null;
+  // Generate a message ID at the start for consistent persistence
+  const messageId = generateMessageId();
+  let sortOrder = 0;
 
   try {
     for await (const event of streamAgent(messages, options)) {
       // Persist event to database
       if (event.type === 'text' && event.data) {
-        await appendStreamingPart(sessionId, messageId ?? '', {
+        await appendStreamingPart(sessionId, messageId, {
           type: 'text',
-          content: event.data,
+          text: event.data,
+          sort_order: sortOrder++,
+          time_start: Date.now(),
         });
       } else if (event.type === 'tool_call') {
-        await appendStreamingPart(sessionId, messageId ?? '', {
-          type: 'tool_call',
-          toolName: event.toolName,
-          toolId: event.toolId,
-          args: event.args,
+        await appendStreamingPart(sessionId, messageId, {
+          type: 'tool',
+          tool_name: event.toolName,
+          tool_state: {
+            status: 'calling',
+            toolId: event.toolId,
+            args: event.args,
+          },
+          sort_order: sortOrder++,
+          time_start: Date.now(),
         });
       } else if (event.type === 'tool_result') {
-        await appendStreamingPart(sessionId, messageId ?? '', {
-          type: 'tool_result',
-          toolId: event.toolId,
-          result: event.toolOutput,
+        await appendStreamingPart(sessionId, messageId, {
+          type: 'tool',
+          tool_name: 'result',
+          tool_state: {
+            status: 'complete',
+            toolId: event.toolId,
+            result: event.toolOutput,
+          },
+          sort_order: sortOrder++,
+          time_start: Date.now(),
+          time_end: Date.now(),
         });
       }
 
       yield event;
 
-      if (event.type === 'done' && messageId) {
+      if (event.type === 'done') {
         await updateMessageStatus(sessionId, messageId, 'complete');
       }
     }
   } catch (error) {
-    if (messageId) {
-      await updateMessageStatus(sessionId, messageId, 'error');
-    }
+    await updateMessageStatus(sessionId, messageId, 'error');
     throw error;
   }
 }
