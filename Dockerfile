@@ -1,5 +1,5 @@
 # =============================================================================
-# Base stage - shared dependencies
+# Base stage - shared dependencies for web/tui (Bun)
 # =============================================================================
 FROM oven/bun:1 AS base
 WORKDIR /app
@@ -8,40 +8,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # =============================================================================
-# Dependencies stage
+# Dependencies stage (for web frontend)
 # =============================================================================
 FROM base AS deps
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile
-
-# =============================================================================
-# Snapshot module build stage (Rust/napi-rs for jj-lib)
-# =============================================================================
-FROM base AS snapshot-build
-WORKDIR /app/snapshot
-
-# Install Rust and build dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Copy snapshot module source
-COPY snapshot/package.json snapshot/bun.lock* ./
-COPY snapshot/Cargo.toml snapshot/Cargo.lock ./
-COPY snapshot/build.rs ./
-COPY snapshot/src ./src
-COPY snapshot/.cargo ./.cargo
-
-# Install napi-rs CLI and build
-RUN bun install
-RUN bun run build
 
 # =============================================================================
 # Build stage (Astro)
@@ -54,37 +25,63 @@ COPY . .
 RUN bun run build
 
 # =============================================================================
-# API Server
+# API Server (Zig)
 # =============================================================================
-FROM base AS api
-ENV NODE_ENV=production
-ENV PORT=4000
+FROM debian:bookworm-slim AS api-build
 
-# Copy dependencies
-COPY --from=deps /app/node_modules ./node_modules
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    xz-utils \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy source files needed for API
-COPY package.json ./
+# Install Zig
+ARG ZIG_VERSION=0.14.0
+RUN curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt \
+    && ln -s /opt/zig-linux-x86_64-${ZIG_VERSION}/zig /usr/local/bin/zig
+
+# Install Rust (for jj-ffi)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /app
+
+# Copy server source
 COPY server ./server
 COPY core ./core
 COPY db ./db
-COPY ai ./ai
-COPY ui/lib ./ui/lib
 
-# Copy native module (TypeScript/WebUI)
-COPY native ./native
+# Build the Zig server (includes jj-ffi build via build.zig)
+WORKDIR /app/server
+RUN zig build -Doptimize=ReleaseFast
 
-# Copy snapshot module with built binary
-COPY snapshot/package.json snapshot/index.js snapshot/index.d.ts ./snapshot/
-COPY snapshot/src ./snapshot/src
-COPY --from=snapshot-build /app/snapshot/*.node ./snapshot/
+# =============================================================================
+# API Runtime
+# =============================================================================
+FROM debian:bookworm-slim AS api
+ENV PORT=4000
 
-# Create entrypoint script
-RUN echo '#!/bin/sh\nbun run server/main.ts' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the built binary and required libraries
+COPY --from=api-build /app/server/zig-out/bin/server-zig ./server
+COPY --from=api-build /app/server/jj-ffi/target/release/libjj_ffi.so /usr/local/lib/
+RUN ldconfig
 
 EXPOSE 4000
 
-CMD ["bun", "run", "server/main.ts"]
+CMD ["./server"]
 
 # =============================================================================
 # Web Frontend (Astro SSR)
