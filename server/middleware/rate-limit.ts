@@ -1,14 +1,22 @@
 import { Context, Next } from 'hono';
 
-interface RateLimitStore {
-  [key: string]: {
-    count: number;
-    resetTime: number;
-  };
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
 }
 
-// In-memory store - for production, use Redis or database
+interface RateLimitStore {
+  [key: string]: RateLimitEntry;
+}
+
+// Configuration
+const MAX_STORE_SIZE = 10000; // Maximum number of entries to prevent memory exhaustion
+const TRUSTED_PROXIES = process.env.TRUSTED_PROXIES?.split(',').map(s => s.trim()) || [];
+
+// In-memory store - for production with multiple servers, use Redis
+// WARNING: This store is local to each server instance
 const store: RateLimitStore = {};
+let storeSize = 0;
 
 interface RateLimitOptions {
   windowMs: number; // Time window in milliseconds
@@ -42,22 +50,31 @@ export function rateLimit(options: RateLimitOptions) {
     }
 
     const now = Date.now();
-    const windowStart = now - windowMs;
 
-    // Clean up old entries
-    for (const [storeKey, data] of Object.entries(store)) {
-      if (data.resetTime <= now) {
-        delete store[storeKey];
-      }
+    // Clean up old entries (do this periodically, not on every request)
+    if (Math.random() < 0.01) { // 1% chance per request
+      cleanupExpiredEntries(now);
     }
 
     // Get or create entry for this key
     let entry = store[key];
     if (!entry || entry.resetTime <= now) {
+      // Check if we need to make room (enforce max store size)
+      if (!entry && storeSize >= MAX_STORE_SIZE) {
+        // Force cleanup and evict oldest entries if still over limit
+        cleanupExpiredEntries(now);
+        if (storeSize >= MAX_STORE_SIZE) {
+          evictOldestEntries(Math.floor(MAX_STORE_SIZE * 0.1)); // Evict 10%
+        }
+      }
+
       entry = {
         count: 0,
         resetTime: now + windowMs,
       };
+      if (!store[key]) {
+        storeSize++;
+      }
       store[key] = entry;
     }
 
@@ -84,27 +101,62 @@ export function rateLimit(options: RateLimitOptions) {
 }
 
 /**
- * Get client IP address
+ * Clean up expired entries from the store
  */
-function getClientIP(c: Context): string {
-  // Check various headers for client IP
-  const headers = [
-    'x-forwarded-for',
-    'x-real-ip',
-    'x-client-ip',
-    'cf-connecting-ip',
-  ];
-
-  for (const header of headers) {
-    const value = c.req.header(header);
-    if (value) {
-      // Take first IP if comma-separated
-      return value.split(',')[0].trim();
+function cleanupExpiredEntries(now: number): void {
+  for (const [key, entry] of Object.entries(store)) {
+    if (entry.resetTime <= now) {
+      delete store[key];
+      storeSize--;
     }
   }
+}
 
-  // Fallback to connection IP (may not be available in all environments)
-  return 'unknown';
+/**
+ * Evict oldest entries when store is full
+ */
+function evictOldestEntries(count: number): void {
+  const entries = Object.entries(store)
+    .sort((a, b) => a[1].resetTime - b[1].resetTime);
+
+  for (let i = 0; i < Math.min(count, entries.length); i++) {
+    delete store[entries[i][0]];
+    storeSize--;
+  }
+}
+
+/**
+ * Get client IP address with security considerations
+ */
+function getClientIP(c: Context): string {
+  // If we have trusted proxies configured, check them
+  const cfIp = c.req.header('cf-connecting-ip');
+  if (cfIp && TRUSTED_PROXIES.includes('cloudflare')) {
+    return cfIp.trim();
+  }
+
+  const xRealIp = c.req.header('x-real-ip');
+  if (xRealIp && TRUSTED_PROXIES.length > 0) {
+    return xRealIp.trim();
+  }
+
+  const xForwardedFor = c.req.header('x-forwarded-for');
+  if (xForwardedFor && TRUSTED_PROXIES.length > 0) {
+    // Take the first IP (client IP in a properly configured proxy chain)
+    return xForwardedFor.split(',')[0].trim();
+  }
+
+  // When no trusted proxy is configured, don't trust forwarded headers
+  // This prevents header spoofing attacks
+  // In production behind a proxy, configure TRUSTED_PROXIES env var
+
+  // Generate a unique identifier from request characteristics
+  // This is a fallback - not perfect but better than grouping all users
+  const userAgent = c.req.header('user-agent') || '';
+  const acceptLanguage = c.req.header('accept-language') || '';
+  const fingerprint = `${userAgent.slice(0, 50)}:${acceptLanguage.slice(0, 20)}`;
+
+  return `fallback:${fingerprint}`;
 }
 
 /**

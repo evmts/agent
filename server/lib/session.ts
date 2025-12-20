@@ -90,21 +90,40 @@ export async function cleanupExpiredSessions(): Promise<number> {
 }
 
 /**
+ * Cleanup expired SIWE nonces (run periodically)
+ */
+export async function cleanupExpiredNonces(): Promise<number> {
+  const result = await sql`
+    DELETE FROM siwe_nonces
+    WHERE expires_at <= NOW()
+  `;
+
+  return result.count;
+}
+
+/**
  * Start session cleanup background job
  */
 export function startSessionCleanup(): void {
   // Run cleanup every hour
   setInterval(async () => {
     try {
-      const cleaned = await cleanupExpiredSessions();
-      if (cleaned > 0) {
-        console.log(`Cleaned up ${cleaned} expired sessions`);
+      const cleanedSessions = await cleanupExpiredSessions();
+      if (cleanedSessions > 0) {
+        console.log(`Cleaned up ${cleanedSessions} expired sessions`);
+      }
+
+      // Also clean up expired SIWE nonces
+      const cleanedNonces = await cleanupExpiredNonces();
+      if (cleanedNonces > 0) {
+        console.log(`Cleaned up ${cleanedNonces} expired SIWE nonces`);
       }
     } catch (error) {
-      console.error('Session cleanup error:', error);
+      console.error('Cleanup error:', error);
     }
   }, 60 * 60 * 1000); // 1 hour
 
   // Run initial cleanup
   cleanupExpiredSessions().catch(console.error);
+  cleanupExpiredNonces().catch(console.error);
 }
