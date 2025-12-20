@@ -1,0 +1,151 @@
+---
+interface Props {
+  currentPage: number;
+  totalPages: number;
+  baseUrl: string;
+}
+
+const { currentPage, totalPages, baseUrl } = Astro.props;
+
+// Build URL with page parameter
+function getPageUrl(page: number): string {
+  const url = new URL(baseUrl, Astro.url);
+  if (page === 1) {
+    url.searchParams.delete('page');
+  } else {
+    url.searchParams.set('page', String(page));
+  }
+  return url.pathname + url.search;
+}
+
+// Calculate page range to show
+function getPageRange(): number[] {
+  const range: number[] = [];
+  const delta = 2; // Pages to show on each side of current
+
+  for (let i = Math.max(1, currentPage - delta); i <= Math.min(totalPages, currentPage + delta); i++) {
+    range.push(i);
+  }
+
+  // Add first page if not included
+  if (range[0] > 1) {
+    if (range[0] > 2) {
+      range.unshift(-1); // Ellipsis marker
+    }
+    range.unshift(1);
+  }
+
+  // Add last page if not included
+  if (range[range.length - 1] < totalPages) {
+    if (range[range.length - 1] < totalPages - 1) {
+      range.push(-1); // Ellipsis marker
+    }
+    range.push(totalPages);
+  }
+
+  return range;
+}
+
+const pageRange = getPageRange();
+const hasPrev = currentPage > 1;
+const hasNext = currentPage < totalPages;
+---
+
+<nav class="pagination" aria-label="Pagination">
+  <a
+    href={hasPrev ? getPageUrl(currentPage - 1) : undefined}
+    class:list={["pagination-btn", { disabled: !hasPrev }]}
+    aria-disabled={!hasPrev}
+  >
+    &lt; Prev
+  </a>
+
+  <div class="pagination-pages">
+    {pageRange.map((page) =>
+      page === -1 ? (
+        <span class="pagination-ellipsis">...</span>
+      ) : (
+        <a
+          href={getPageUrl(page)}
+          class:list={["pagination-page", { active: page === currentPage }]}
+          aria-current={page === currentPage ? "page" : undefined}
+        >
+          {page}
+        </a>
+      )
+    )}
+  </div>
+
+  <a
+    href={hasNext ? getPageUrl(currentPage + 1) : undefined}
+    class:list={["pagination-btn", { disabled: !hasNext }]}
+    aria-disabled={!hasNext}
+  >
+    Next &gt;
+  </a>
+</nav>
+
+<style>
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 2rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .pagination-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    text-decoration: none;
+    font-family: inherit;
+    font-size: 0.875rem;
+  }
+
+  .pagination-btn:hover:not(.disabled) {
+    background: var(--color-bg-secondary);
+  }
+
+  .pagination-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  .pagination-pages {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .pagination-page {
+    min-width: 2rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    text-decoration: none;
+    text-align: center;
+    font-family: inherit;
+    font-size: 0.875rem;
+  }
+
+  .pagination-page:hover:not(.active) {
+    background: var(--color-bg-secondary);
+  }
+
+  .pagination-page.active {
+    background: var(--color-text);
+    color: var(--color-bg);
+    font-weight: bold;
+  }
+
+  .pagination-ellipsis {
+    padding: 0.5rem;
+    color: var(--color-text-muted);
+  }
+</style>
