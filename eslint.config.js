@@ -14,13 +14,33 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
         project: './tsconfig.json'
+      },
+      globals: {
+        console: 'readonly',
+        fetch: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        FormData: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
+        process: 'readonly',
+        Bun: 'readonly',
+        Buffer: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearTimeout: 'readonly',
+        clearInterval: 'readonly'
       }
     },
     plugins: {
       '@typescript-eslint': tseslint
     },
     rules: {
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/prefer-nullish-coalescing': 'off', // Disabled due to compatibility issues
       '@typescript-eslint/prefer-optional-chain': 'error',
@@ -38,6 +58,41 @@ export default [
         extraFileExtensions: ['.astro'],
         ecmaVersion: 'latest',
         sourceType: 'module'
+      },
+      globals: {
+        console: 'readonly',
+        fetch: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        FormData: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
+        document: 'readonly',
+        window: 'readonly',
+        localStorage: 'readonly',
+        sessionStorage: 'readonly',
+        navigator: 'readonly',
+        HTMLElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        HTMLFormElement: 'readonly',
+        HTMLDialogElement: 'readonly',
+        HTMLSelectElement: 'readonly',
+        HTMLTextAreaElement: 'readonly',
+        ResizeObserver: 'readonly',
+        MutationObserver: 'readonly',
+        IntersectionObserver: 'readonly',
+        WebSocket: 'readonly',
+        EventSource: 'readonly',
+        CustomEvent: 'readonly',
+        Event: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearTimeout: 'readonly',
+        clearInterval: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        Astro: 'readonly'
       }
     },
     plugins: {
@@ -52,16 +107,21 @@ export default [
   },
   {
     ignores: [
-      'dist/',
-      'node_modules/',
-      '.astro/',
+      'dist/**',
+      'node_modules/**',
+      '.astro/**',
       '*.js',
       '*.mjs',
-      'snapshot/index.js',
-      'snapshot/index.d.ts',
-      'snapshot/**/*.node',
-      'native/lib/**',
-      'ui/env.d.ts'
+      'snapshot/**',
+      'native/**',
+      'ai/**',
+      'tui/**',
+      'electric-ai-chat/**',
+      'gitea/**',
+      'ui/env.d.ts',
+      'index.ts',
+      'scripts/**',
+      'src/**'
     ]
   }
 ];
