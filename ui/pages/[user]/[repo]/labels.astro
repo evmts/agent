@@ -1,0 +1,391 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import { sql } from "../../../lib/db";
+import { getLabels, ensureIssuesRepo } from "../../../lib/git-issues";
+import type { User, Repository } from "../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Ensure issues repo exists
+await ensureIssuesRepo(username, reponame);
+
+// Get labels
+const labels = await getLabels(username, reponame);
+
+let error = "";
+let success = "";
+
+if (Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+  const action = formData.get("action") as string;
+
+  if (action === "create") {
+    const name = (formData.get("name") as string)?.trim();
+    const color = (formData.get("color") as string)?.trim();
+    const description = (formData.get("description") as string)?.trim();
+
+    if (!name || !color) {
+      error = "Name and color are required";
+    } else if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      error = "Color must be a valid hex color (e.g., #ff0000)";
+    } else {
+      try {
+        const response = await fetch(`http://localhost:5173/api/${username}/${reponame}/labels`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, color, description }),
+        });
+
+        if (response.ok) {
+          success = `Label "${name}" created successfully`;
+          return Astro.redirect(Astro.url.pathname);
+        } else {
+          const data = await response.json();
+          error = data.error || "Failed to create label";
+        }
+      } catch (e) {
+        error = (e as Error).message;
+      }
+    }
+  } else if (action === "delete") {
+    const name = formData.get("label_name") as string;
+
+    if (!name) {
+      error = "Label name is required";
+    } else {
+      try {
+        const response = await fetch(
+          `http://localhost:5173/api/${username}/${reponame}/labels/${encodeURIComponent(name)}`,
+          { method: "DELETE" }
+        );
+
+        if (response.ok) {
+          success = `Label "${name}" deleted successfully`;
+          return Astro.redirect(Astro.url.pathname);
+        } else {
+          const data = await response.json();
+          error = data.error || "Failed to delete label";
+        }
+      } catch (e) {
+        error = (e as Error).message;
+      }
+    }
+  }
+}
+
+// Count pending landing requests
+let landingCount = 0;
+try {
+  const [result] = await sql`
+    SELECT COUNT(*) as count
+    FROM landing_queue
+    WHERE repository_id = ${repo.id} AND status = 'pending'
+  `;
+  landingCount = result?.count || 0;
+} catch {
+  // landing_queue table may not exist yet
+}
+---
+
+<Layout title={`Labels · ${username}/${reponame} · plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">labels</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {landingCount > 0 && <span class="badge">{landingCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/labels`} class="active">Labels</a>
+  </nav>
+
+  <div class="container">
+    <h1 class="page-title mb-3">Labels</h1>
+
+    {error && (
+      <div class="error-banner mb-2">
+        {error}
+      </div>
+    )}
+
+    {success && (
+      <div class="success-banner mb-2">
+        {success}
+      </div>
+    )}
+
+    <div class="two-col-layout">
+      <div class="labels-list">
+        <h2 class="mb-2">{labels.length} labels</h2>
+
+        {labels.length === 0 ? (
+          <div class="empty-state">
+            <p>No labels yet</p>
+          </div>
+        ) : (
+          <div class="label-items">
+            {labels.map((label) => (
+              <div class="label-item">
+                <div class="label-info">
+                  <span class="label-badge" style={`background-color: ${label.color};`}>
+                    {label.name}
+                  </span>
+                  {label.description && (
+                    <span class="label-description">{label.description}</span>
+                  )}
+                </div>
+                <div class="label-actions">
+                  <button
+                    class="btn-link"
+                    onclick={`if(confirm('Edit ${label.name}?')) document.getElementById('edit-${label.name}').style.display='block'`}
+                  >
+                    Edit
+                  </button>
+                  <form method="POST" style="display: inline;">
+                    <input type="hidden" name="action" value="delete" />
+                    <input type="hidden" name="label_name" value={label.name} />
+                    <button
+                      type="submit"
+                      class="btn-link text-error"
+                      onclick={`return confirm('Delete ${label.name}?')`}
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div class="label-form-section">
+        <h2 class="mb-2">Create label</h2>
+        <form method="POST" class="label-form">
+          <input type="hidden" name="action" value="create" />
+
+          <div class="form-group">
+            <label for="name">Label name</label>
+            <input
+              type="text"
+              name="name"
+              id="name"
+              required
+              placeholder="e.g., bug"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="description">Description (optional)</label>
+            <input
+              type="text"
+              name="description"
+              id="description"
+              placeholder="e.g., Something isn't working"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="color">Color</label>
+            <div class="color-input-group">
+              <input
+                type="color"
+                name="color"
+                id="color"
+                value="#d73a4a"
+                required
+              />
+              <input
+                type="text"
+                id="color-hex"
+                value="#d73a4a"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                placeholder="#d73a4a"
+              />
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary">Create label</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  // Sync color picker and text input
+  const colorPicker = document.getElementById("color") as HTMLInputElement;
+  const colorHex = document.getElementById("color-hex") as HTMLInputElement;
+
+  if (colorPicker && colorHex) {
+    colorPicker.addEventListener("input", (e) => {
+      colorHex.value = (e.target as HTMLInputElement).value;
+    });
+
+    colorHex.addEventListener("input", (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
+        colorPicker.value = value;
+      }
+    });
+  }
+</script>
+
+<style>
+  .two-col-layout {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 768px) {
+    .two-col-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .labels-list {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  .label-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .label-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .label-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+  }
+
+  .label-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .label-description {
+    font-size: 13px;
+    color: var(--gray-300);
+  }
+
+  .label-actions {
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  .btn-link:hover {
+    opacity: 0.8;
+  }
+
+  .text-error {
+    color: var(--error);
+  }
+
+  .label-form-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    position: sticky;
+    top: 16px;
+  }
+
+  .label-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .color-input-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .color-input-group input[type="color"] {
+    width: 60px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    background: transparent;
+  }
+
+  .color-input-group input[type="text"] {
+    flex: 1;
+    font-family: 'Berkeley Mono', monospace;
+  }
+
+  .error-banner {
+    padding: 12px 16px;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    border-radius: var(--radius);
+    color: var(--error);
+    font-size: 13px;
+  }
+
+  .success-banner {
+    padding: 12px 16px;
+    background: rgba(0, 210, 106, 0.1);
+    border: 1px solid rgba(0, 210, 106, 0.3);
+    border-radius: var(--radius);
+    color: var(--success);
+    font-size: 13px;
+  }
+</style>
