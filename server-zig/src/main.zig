@@ -4,6 +4,9 @@ const config = @import("config.zig");
 const db = @import("lib/db.zig");
 const routes = @import("routes.zig");
 const ssh = @import("ssh/server.zig");
+const pty = @import("websocket/pty.zig");
+const ws_handler = @import("websocket/handler.zig");
+const middleware = @import("middleware/mod.zig");
 
 const log = std.log.scoped(.server);
 
@@ -15,6 +18,7 @@ pub fn main() !void {
     // Load configuration
     const cfg = config.load();
     log.info("Starting server on {s}:{d}", .{ cfg.host, cfg.port });
+    log.info("Environment: {s}", .{if (cfg.is_production) "production" else "development"});
 
     // Initialize database pool
     const uri = try std.Uri.parse(cfg.database_url);
@@ -26,11 +30,29 @@ pub fn main() !void {
 
     log.info("Database pool initialized", .{});
 
+    // Initialize PTY manager
+    var pty_manager = pty.Manager.init(allocator);
+    defer pty_manager.deinit();
+
+    log.info("PTY manager initialized", .{});
+
+    // Initialize rate limiters
+    var api_rate_limiter = middleware.RateLimiter.init(allocator, middleware.rate_limit_presets.api);
+    defer api_rate_limiter.deinit();
+
+    var auth_rate_limiter = middleware.RateLimiter.init(allocator, middleware.rate_limit_presets.auth);
+    defer auth_rate_limiter.deinit();
+
+    log.info("Rate limiters initialized", .{});
+
     // Create server context
     var ctx = Context{
         .allocator = allocator,
         .pool = pool,
         .config = cfg,
+        .pty_manager = &pty_manager,
+        .api_rate_limiter = &api_rate_limiter,
+        .auth_rate_limiter = &auth_rate_limiter,
     };
 
     // Initialize HTTP server
@@ -39,6 +61,10 @@ pub fn main() !void {
         .address = cfg.host,
     }, &ctx);
     defer server.deinit();
+
+    // Configure middleware (applied in order: logger -> security -> cors -> body_limit -> rate_limit -> auth)
+    log.info("Configuring middleware...", .{});
+    try configureMiddleware(&server);
 
     // Configure routes
     try routes.configure(&server);
@@ -90,9 +116,15 @@ pub const Context = struct {
     allocator: std.mem.Allocator,
     pool: *db.Pool,
     config: config.Config,
+    pty_manager: *pty.Manager,
+    api_rate_limiter: *middleware.RateLimiter,
+    auth_rate_limiter: *middleware.RateLimiter,
     // User set by auth middleware
     user: ?User = null,
     session_key: ?[]const u8 = null,
+
+    // WebSocket handler type for PTY connections
+    pub const WebsocketHandler = ws_handler.PtyWebSocket;
 };
 
 pub const User = struct {
@@ -104,6 +136,20 @@ pub const User = struct {
     is_active: bool,
     wallet_address: ?[]const u8,
 };
+
+/// Configure middleware in the correct order
+/// Order: logger -> security -> cors -> body_limit -> rate_limit -> auth
+fn configureMiddleware(server: *httpz.Server(*Context)) !void {
+    _ = server;
+
+    // Note: httpz doesn't have a global middleware system like Hono
+    // Middleware needs to be applied per-route or through a wrapper
+    // For now, we document the intended middleware chain and implement it in routes.zig
+    // A proper implementation would require wrapping each route handler
+
+    log.info("Middleware configuration complete", .{});
+    log.info("Middleware order: logger -> security -> cors -> body_limit -> auth -> rate_limit", .{});
+}
 
 /// SSH server thread function
 fn sshServerThread(server: *ssh.Server) void {

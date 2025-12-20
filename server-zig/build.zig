@@ -21,6 +21,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Build jj-ffi Rust library
+    const jj_ffi_build = b.addSystemCommand(&.{
+        "cargo",
+        "build",
+        "--release",
+        "--manifest-path",
+        "jj-ffi/Cargo.toml",
+    });
+
     // Main executable
     const exe = b.addExecutable(.{
         .name = "server-zig",
@@ -36,6 +45,20 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+
+    // Link jj-ffi library
+    exe.step.dependOn(&jj_ffi_build.step);
+    exe.addIncludePath(b.path("jj-ffi"));
+    exe.addLibraryPath(b.path("jj-ffi/target/release"));
+    exe.linkSystemLibrary("jj_ffi");
+    exe.linkLibC();
+
+    // Link system libraries required by jj-lib
+    if (target.result.os.tag == .macos) {
+        exe.linkFramework("Security");
+        exe.linkFramework("CoreFoundation");
+        exe.linkSystemLibrary("resolv");
+    }
 
     b.installArtifact(exe);
 
