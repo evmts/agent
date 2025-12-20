@@ -4,7 +4,7 @@
 
 import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
-import { resolveAndValidatePath, fileExists } from './filesystem';
+import { resolveAndValidatePathSecure, fileExists } from './filesystem';
 import { updateFileTracker } from '../../core/state';
 
 // Constants
@@ -26,8 +26,8 @@ async function readFileImpl(
   workingDir?: string,
   sessionId?: string
 ): Promise<ReadFileResult> {
-  // Validate path
-  const [absPath, pathError] = resolveAndValidatePath(filePath, workingDir);
+  // Validate path (secure version that follows symlinks)
+  const [absPath, pathError] = await resolveAndValidatePathSecure(filePath, workingDir);
   if (pathError) {
     return { success: false, error: pathError };
   }
@@ -119,5 +119,33 @@ Use this tool to read source code, configuration files, and other text files.`,
     return output;
   },
 });
+
+/**
+ * Create a read file tool with context (sessionId and workingDir) bound to it.
+ */
+export function createReadFileTool(context: { sessionId: string; workingDir: string }) {
+  return tool({
+    description: readFileTool.description,
+    parameters: readFileParameters,
+    // @ts-expect-error - Zod v4 type inference issue with AI SDK
+    execute: async (args: z.infer<typeof readFileParameters>) => {
+      const result = await readFileImpl(
+        args.filePath,
+        args.offset,
+        args.limit,
+        context.workingDir,
+        context.sessionId
+      );
+      if (!result.success) {
+        return `Error: ${result.error}`;
+      }
+      let output = result.content!;
+      if (result.truncated) {
+        output += `\n\n[Output truncated. Use offset parameter to read more.]`;
+      }
+      return output;
+    },
+  });
+}
 
 export { readFileImpl };

@@ -8,7 +8,7 @@
 
 import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
-import { resolveAndValidatePath, getRelativePath, fileExists } from './filesystem';
+import { resolveAndValidatePathSecure, getRelativePath, fileExists } from './filesystem';
 import { getFileTracker, updateFileTracker } from '../../core/state';
 
 // Error messages
@@ -89,8 +89,8 @@ async function multieditImpl(
     };
   }
 
-  // Validate and resolve path
-  const [absPath, pathError] = resolveAndValidatePath(filePath, workingDir);
+  // Validate and resolve path (secure version that follows symlinks)
+  const [absPath, pathError] = await resolveAndValidatePathSecure(filePath, workingDir);
   if (pathError) {
     return {
       success: false,
@@ -252,5 +252,27 @@ To create a new file: use empty old_string with the file contents as new_string.
       : `Error: ${result.error}`;
   },
 });
+
+/**
+ * Create a multiedit tool with context (sessionId and workingDir) bound to it.
+ */
+export function createMultieditTool(context: { sessionId: string; workingDir: string }) {
+  return tool({
+    description: multieditTool.description,
+    parameters: multieditParameters,
+    // @ts-expect-error - Zod v4 type inference issue with AI SDK
+    execute: async (args: z.infer<typeof multieditParameters>) => {
+      const result = await multieditImpl(
+        args.filePath,
+        args.edits,
+        context.workingDir,
+        context.sessionId
+      );
+      return result.success
+        ? result.output!
+        : `Error: ${result.error}`;
+    },
+  });
+}
 
 export { multieditImpl };

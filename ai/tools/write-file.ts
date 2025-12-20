@@ -5,7 +5,7 @@
 import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 import { dirname } from 'node:path';
-import { resolveAndValidatePath, ensureDir, fileExists } from './filesystem';
+import { resolveAndValidatePathSecure, ensureDir, fileExists } from './filesystem';
 import { getFileTracker, updateFileTracker } from '../../core/state';
 
 interface WriteFileResult {
@@ -20,8 +20,8 @@ async function writeFileImpl(
   workingDir?: string,
   sessionId?: string
 ): Promise<WriteFileResult> {
-  // Validate path
-  const [absPath, pathError] = resolveAndValidatePath(filePath, workingDir);
+  // Validate path (secure version that follows symlinks)
+  const [absPath, pathError] = await resolveAndValidatePathSecure(filePath, workingDir);
   if (pathError) {
     return { success: false, error: pathError };
   }
@@ -108,5 +108,30 @@ This ensures you understand the file's contents before making changes.`,
       : `Updated file: ${args.filePath}`;
   },
 });
+
+/**
+ * Create a write file tool with context (sessionId and workingDir) bound to it.
+ */
+export function createWriteFileTool(context: { sessionId: string; workingDir: string }) {
+  return tool({
+    description: writeFileTool.description,
+    parameters: writeFileParameters,
+    // @ts-expect-error - Zod v4 type inference issue with AI SDK
+    execute: async (args: z.infer<typeof writeFileParameters>) => {
+      const result = await writeFileImpl(
+        args.filePath,
+        args.content,
+        context.workingDir,
+        context.sessionId
+      );
+      if (!result.success) {
+        return `Error: ${result.error}`;
+      }
+      return result.created
+        ? `Created file: ${args.filePath}`
+        : `Updated file: ${args.filePath}`;
+    },
+  });
+}
 
 export { writeFileImpl };
