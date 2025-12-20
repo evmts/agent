@@ -1,0 +1,381 @@
+---
+/**
+ * AI Sessions List Page
+ *
+ * Lists all AI chat sessions for the authenticated user.
+ */
+import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+import RelativeTime from "../../components/RelativeTime.astro";
+
+// Check authentication
+let currentUser = null;
+const sessionCookie = Astro.cookies.get('plue_session');
+
+if (!sessionCookie) {
+  return Astro.redirect('/login');
+}
+
+try {
+  const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+    headers: {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    },
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    currentUser = data.user;
+  } else {
+    return Astro.redirect('/login');
+  }
+} catch (error) {
+  console.error('Failed to fetch current user:', error);
+  return Astro.redirect('/login');
+}
+
+// Fetch sessions from API
+let sessions: any[] = [];
+let error: string | null = null;
+
+try {
+  const response = await fetch(`${Astro.url.origin}/api/sessions`, {
+    headers: {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    },
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    sessions = data.sessions || [];
+  } else {
+    error = 'Failed to fetch sessions';
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load sessions';
+}
+
+// Sort sessions by most recent first
+sessions.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+---
+
+<Layout title="Sessions - plue">
+  <Header currentPath="/sessions" />
+  <div class="container">
+    <div class="flex-between mb-3">
+      <h1 class="page-title">AI Sessions</h1>
+      <button class="btn btn-primary" id="new-session-btn">
+        New Session
+      </button>
+    </div>
+
+    {error ? (
+      <div class="error-state">
+        <p>{error}</p>
+      </div>
+    ) : sessions.length === 0 ? (
+      <div class="empty-state">
+        <div class="empty-state-icon">AI</div>
+        <div class="empty-state-title">No sessions yet</div>
+        <div class="empty-state-description">
+          Create your first AI session to start working with Claude.
+        </div>
+        <button class="btn btn-primary" id="new-session-empty-btn">
+          Create your first session
+        </button>
+      </div>
+    ) : (
+      <div class="sessions-list">
+        {sessions.map((session) => (
+          <a href={`/sessions/${session.id}`} class="session-card">
+            <div class="session-header">
+              <h3 class="session-title">{session.title || 'Untitled Session'}</h3>
+              {session.archived && <span class="archived-badge">Archived</span>}
+              {session.model && <span class="model-badge">{session.model}</span>}
+            </div>
+            <div class="session-meta">
+              <span class="session-directory" title={session.directory}>
+                {session.directory?.split('/').slice(-2).join('/') || '/'}
+              </span>
+              <span class="sep">·</span>
+              <span class="session-time">
+                <RelativeTime date={session.updatedAt || session.createdAt} />
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+    )}
+  </div>
+
+  <!-- New Session Modal -->
+  <div class="modal" id="new-session-modal" style="display: none;">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>New Session</h2>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <form id="new-session-form">
+        <div class="form-group">
+          <label for="session-title">Title</label>
+          <input
+            type="text"
+            id="session-title"
+            name="title"
+            placeholder="My new project"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="session-directory">Working Directory</label>
+          <input
+            type="text"
+            id="session-directory"
+            name="directory"
+            placeholder="/path/to/project"
+          />
+          <small>Leave empty to use current directory</small>
+        </div>
+
+        <div class="form-group">
+          <label for="session-model">Model</label>
+          <select id="session-model" name="model">
+            <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+            <option value="claude-opus-4-20250514">Claude Opus 4</option>
+          </select>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn" id="cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Session</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .sessions-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .session-card {
+    display: block;
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+  }
+
+  .session-card:hover {
+    border-color: var(--border-hover);
+    background: var(--hover);
+  }
+
+  .session-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .session-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg);
+    margin: 0;
+  }
+
+  .archived-badge {
+    font-size: 11px;
+    background: var(--gray-800);
+    color: var(--gray-400);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .model-badge {
+    font-size: 11px;
+    background: var(--gray-800);
+    color: var(--gray-300);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .session-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 12px;
+    color: var(--gray-400);
+  }
+
+  .session-directory {
+    font-family: inherit;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sep {
+    color: var(--gray-600);
+  }
+
+  .error-state {
+    padding: var(--space-5);
+    background: var(--error-dim);
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    color: var(--error);
+    text-align: center;
+  }
+
+  /* Modal styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+
+  .modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--gray-400);
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .modal-close:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  #new-session-form {
+    padding: var(--space-5);
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: var(--space-1);
+    color: var(--gray-500);
+    font-size: 11px;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-5);
+  }
+</style>
+
+<script>
+  const modal = document.getElementById('new-session-modal');
+  const modalBackdrop = document.getElementById('modal-backdrop');
+  const modalClose = document.getElementById('modal-close');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const newSessionBtn = document.getElementById('new-session-btn');
+  const newSessionEmptyBtn = document.getElementById('new-session-empty-btn');
+  const form = document.getElementById('new-session-form');
+
+  function openModal() {
+    if (modal) modal.style.display = 'block';
+  }
+
+  function closeModal() {
+    if (modal) modal.style.display = 'none';
+  }
+
+  newSessionBtn?.addEventListener('click', openModal);
+  newSessionEmptyBtn?.addEventListener('click', openModal);
+  modalBackdrop?.addEventListener('click', closeModal);
+  modalClose?.addEventListener('click', closeModal);
+  cancelBtn?.addEventListener('click', closeModal);
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(form as HTMLFormElement);
+
+    try {
+      const response = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: formData.get('title'),
+          directory: formData.get('directory') || undefined,
+          model: formData.get('model'),
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        window.location.href = `/sessions/${data.session.id}`;
+      } else {
+        const error = await response.json();
+        window.toast?.error(error.error || 'Failed to create session');
+      }
+    } catch (e) {
+      window.toast?.error('Failed to create session');
+    }
+  });
+</script>

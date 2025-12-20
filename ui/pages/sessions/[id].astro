@@ -1,0 +1,677 @@
+---
+/**
+ * AI Session Detail Page
+ *
+ * View and interact with a single AI session.
+ */
+import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+import Terminal from "../../components/Terminal.astro";
+import RelativeTime from "../../components/RelativeTime.astro";
+
+const { id } = Astro.params;
+
+if (!id) {
+  return Astro.redirect('/sessions');
+}
+
+// Check authentication
+let currentUser = null;
+const sessionCookie = Astro.cookies.get('plue_session');
+
+if (!sessionCookie) {
+  return Astro.redirect('/login');
+}
+
+try {
+  const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+    headers: {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    },
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    currentUser = data.user;
+  } else {
+    return Astro.redirect('/login');
+  }
+} catch (error) {
+  console.error('Failed to fetch current user:', error);
+  return Astro.redirect('/login');
+}
+
+// Fetch session from API
+let session: any = null;
+let error: string | null = null;
+
+try {
+  const response = await fetch(`${Astro.url.origin}/api/sessions/${id}`, {
+    headers: {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    },
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    session = data.session;
+  } else if (response.status === 404) {
+    return Astro.redirect('/sessions');
+  } else {
+    error = 'Failed to fetch session';
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : 'Failed to load session';
+}
+---
+
+<Layout title={`${session?.title || 'Session'} - plue`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href="/sessions">Sessions</a>
+    <span class="sep">/</span>
+    <span class="current">{session?.title || id}</span>
+  </div>
+
+  {error ? (
+    <div class="container">
+      <div class="error-state">
+        <p>{error}</p>
+      </div>
+    </div>
+  ) : (
+    <div class="session-layout">
+      <aside class="session-sidebar">
+        <div class="sidebar-section">
+          <h3>Session Info</h3>
+          <div class="info-item">
+            <span class="label">Title</span>
+            <span class="value" id="session-title">{session.title || 'Untitled'}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Directory</span>
+            <span class="value directory" title={session.directory}>{session.directory}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Model</span>
+            <span class="value">{session.model || 'Default'}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Created</span>
+            <span class="value"><RelativeTime date={session.createdAt} /></span>
+          </div>
+          {session.archived && (
+            <div class="info-item">
+              <span class="archived-notice">This session is archived</span>
+            </div>
+          )}
+        </div>
+
+        <div class="sidebar-section">
+          <h3>Actions</h3>
+          <div class="action-buttons">
+            <button class="btn btn-sm" data-action="edit-title">
+              Rename
+            </button>
+            <button class="btn btn-sm" data-action="fork">
+              Fork
+            </button>
+            {!session.archived ? (
+              <button class="btn btn-sm" data-action="archive">
+                Archive
+              </button>
+            ) : (
+              <button class="btn btn-sm" data-action="unarchive">
+                Unarchive
+              </button>
+            )}
+            <button class="btn btn-sm btn-danger" data-action="delete">
+              Delete
+            </button>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h3>Advanced</h3>
+          <div class="action-buttons">
+            <button class="btn btn-sm" data-action="undo">
+              Undo Last Turn
+            </button>
+            <button class="btn btn-sm btn-danger" data-action="abort">
+              Abort Task
+            </button>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h3>Changes</h3>
+          <div class="changes-list" id="changes-list">
+            <p class="loading">Loading changes...</p>
+          </div>
+        </div>
+      </aside>
+
+      <main class="session-main">
+        <div class="chat-container" id="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            <div class="welcome-message">
+              <p>Start a conversation with Claude. Type your message below.</p>
+            </div>
+          </div>
+
+          <div class="chat-input-container">
+            <form id="chat-form">
+              <textarea
+                id="chat-input"
+                placeholder="Type your message..."
+                rows="3"
+                disabled={session.archived}
+              ></textarea>
+              <div class="input-actions">
+                <button type="submit" class="btn btn-primary" disabled={session.archived}>
+                  Send
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </main>
+    </div>
+  )}
+
+  <!-- Rename Modal -->
+  <div class="modal" id="rename-modal" style="display: none;">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Rename Session</h2>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <form id="rename-form">
+        <div class="form-group">
+          <label for="new-title">New Title</label>
+          <input type="text" id="new-title" name="title" required />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close-modal>Cancel</button>
+          <button type="submit" class="btn btn-primary">Rename</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .session-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    min-height: calc(100vh - 100px);
+  }
+
+  .session-sidebar {
+    border-right: 1px solid var(--border);
+    padding: var(--space-4);
+    background: var(--gray-950);
+    overflow-y: auto;
+  }
+
+  .sidebar-section {
+    margin-bottom: var(--space-5);
+  }
+
+  .sidebar-section h3 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gray-400);
+    margin-bottom: var(--space-3);
+  }
+
+  .info-item {
+    margin-bottom: var(--space-2);
+  }
+
+  .info-item .label {
+    display: block;
+    font-size: 11px;
+    color: var(--gray-500);
+    margin-bottom: 2px;
+  }
+
+  .info-item .value {
+    font-size: 13px;
+    color: var(--fg);
+  }
+
+  .info-item .value.directory {
+    font-family: inherit;
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  .archived-notice {
+    font-size: 12px;
+    color: var(--warning);
+    padding: var(--space-2);
+    background: rgba(245, 166, 35, 0.1);
+    border-radius: var(--radius-sm);
+    display: block;
+  }
+
+  .action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .action-buttons .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .changes-list {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .changes-list .loading {
+    color: var(--gray-500);
+    font-size: 12px;
+  }
+
+  .change-item {
+    display: block;
+    padding: var(--space-2);
+    margin-bottom: var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-decoration: none;
+  }
+
+  .change-item:hover {
+    background: var(--hover);
+    border-color: var(--border-hover);
+  }
+
+  .change-item .change-id {
+    font-family: inherit;
+    color: var(--gray-300);
+  }
+
+  .change-item .change-desc {
+    color: var(--gray-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-main {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 100px);
+  }
+
+  .chat-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-4);
+  }
+
+  .welcome-message {
+    text-align: center;
+    padding: var(--space-8) var(--space-4);
+    color: var(--gray-400);
+  }
+
+  .message {
+    max-width: 800px;
+    margin: 0 auto var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .message.user {
+    background: var(--gray-900);
+    margin-left: auto;
+    margin-right: 0;
+    max-width: 600px;
+  }
+
+  .message.assistant {
+    background: var(--bg);
+  }
+
+  .message-role {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gray-400);
+    margin-bottom: var(--space-2);
+  }
+
+  .message-content {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--fg);
+    white-space: pre-wrap;
+  }
+
+  .chat-input-container {
+    border-top: 1px solid var(--border);
+    padding: var(--space-4);
+    background: var(--gray-950);
+  }
+
+  #chat-form {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  #chat-input {
+    width: 100%;
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+  }
+
+  .input-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-2);
+  }
+
+  .error-state {
+    padding: var(--space-5);
+    background: var(--error-dim);
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    color: var(--error);
+    text-align: center;
+  }
+
+  /* Modal styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+
+  .modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 90%;
+    max-width: 400px;
+    padding: var(--space-5);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-4);
+  }
+
+  .modal-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--fg);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--gray-400);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .modal-close:hover {
+    color: var(--fg);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+  }
+
+  @media (max-width: 768px) {
+    .session-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .session-sidebar {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+  }
+</style>
+
+<script define:vars={{ sessionId: id, session }}>
+  const chatMessages = document.getElementById('chat-messages');
+  const chatForm = document.getElementById('chat-form');
+  const chatInput = document.getElementById('chat-input');
+  const changesList = document.getElementById('changes-list');
+
+  // Load messages (placeholder - in real impl would use WebSocket or SSE)
+  function addMessage(role, content) {
+    if (!chatMessages) return;
+
+    // Remove welcome message
+    const welcome = chatMessages.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
+
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    div.innerHTML = `
+      <div class="message-role">${role}</div>
+      <div class="message-content">${escapeHtml(content)}</div>
+    `;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Handle chat submission (placeholder)
+  chatForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = chatInput;
+    if (!input || !input.value.trim()) return;
+
+    const message = input.value.trim();
+    input.value = '';
+
+    addMessage('user', message);
+
+    // In real implementation, this would send to an AI endpoint
+    // For now, show a placeholder response
+    setTimeout(() => {
+      addMessage('assistant', 'AI responses will be displayed here when the agent API is integrated.');
+    }, 500);
+  });
+
+  // Load changes
+  async function loadChanges() {
+    if (!changesList) return;
+
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/changes`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.changes && data.changes.length > 0) {
+          changesList.innerHTML = data.changes.map(change => `
+            <div class="change-item" data-change-id="${change.changeId}">
+              <div class="change-id">${change.changeId.substring(0, 8)}</div>
+              <div class="change-desc">${change.description || '(no description)'}</div>
+            </div>
+          `).join('');
+        } else {
+          changesList.innerHTML = '<p class="loading">No changes yet</p>';
+        }
+      } else {
+        changesList.innerHTML = '<p class="loading">Failed to load changes</p>';
+      }
+    } catch (e) {
+      changesList.innerHTML = '<p class="loading">Failed to load changes</p>';
+    }
+  }
+
+  loadChanges();
+
+  // Action handlers
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const action = btn.getAttribute('data-action');
+
+      switch (action) {
+        case 'edit-title':
+          const modal = document.getElementById('rename-modal');
+          const titleInput = document.getElementById('new-title');
+          if (modal && titleInput) {
+            titleInput.value = session.title || '';
+            modal.style.display = 'block';
+          }
+          break;
+
+        case 'archive':
+        case 'unarchive':
+          const archived = action === 'archive';
+          const archiveRes = await fetch(`/api/sessions/${sessionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ archived }),
+          });
+          if (archiveRes.ok) {
+            window.location.reload();
+          } else {
+            window.toast?.error(`Failed to ${action} session`);
+          }
+          break;
+
+        case 'delete':
+          if (!confirm('Delete this session? This cannot be undone.')) return;
+          const deleteRes = await fetch(`/api/sessions/${sessionId}`, {
+            method: 'DELETE',
+          });
+          if (deleteRes.ok) {
+            window.location.href = '/sessions';
+          } else {
+            window.toast?.error('Failed to delete session');
+          }
+          break;
+
+        case 'fork':
+          const forkRes = await fetch(`/api/sessions/${sessionId}/fork`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          if (forkRes.ok) {
+            const data = await forkRes.json();
+            window.location.href = `/sessions/${data.session.id}`;
+          } else {
+            window.toast?.error('Failed to fork session');
+          }
+          break;
+
+        case 'undo':
+          const undoRes = await fetch(`/api/sessions/${sessionId}/undo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count: 1 }),
+          });
+          if (undoRes.ok) {
+            const data = await undoRes.json();
+            window.toast?.success(`Undone ${data.turnsUndone} turn(s)`);
+            window.location.reload();
+          } else {
+            window.toast?.error('Failed to undo');
+          }
+          break;
+
+        case 'abort':
+          const abortRes = await fetch(`/api/sessions/${sessionId}/abort`, {
+            method: 'POST',
+          });
+          if (abortRes.ok) {
+            window.toast?.success('Task aborted');
+          } else {
+            window.toast?.error('Failed to abort task');
+          }
+          break;
+      }
+    });
+  });
+
+  // Close modal
+  document.querySelectorAll('[data-close-modal]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+    });
+  });
+
+  // Rename form
+  document.getElementById('rename-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    const newTitle = formData.get('title');
+
+    const res = await fetch(`/api/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: newTitle }),
+    });
+
+    if (res.ok) {
+      document.getElementById('session-title').textContent = newTitle;
+      document.getElementById('rename-modal').style.display = 'none';
+      window.toast?.success('Session renamed');
+    } else {
+      window.toast?.error('Failed to rename session');
+    }
+  });
+</script>
