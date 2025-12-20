@@ -170,18 +170,18 @@ pub const StreamEvent = union(enum) {
                 try list.appendSlice(allocator, "text\"");
                 if (t.data) |data| {
                     try list.appendSlice(allocator, ",\"data\":");
-                    try std.json.stringify.encodeJsonString(data, .{}, list.writer(allocator));
+                    try std.json.Stringify.encodeJsonString(data, .{}, list.writer(allocator));
                 }
             },
             .tool_call => |tc| {
                 try list.appendSlice(allocator, "tool_call\"");
                 if (tc.tool_name) |name| {
                     try list.appendSlice(allocator, ",\"toolName\":");
-                    try std.json.stringify.encodeJsonString(name, .{}, list.writer(allocator));
+                    try std.json.Stringify.encodeJsonString(name, .{}, list.writer(allocator));
                 }
                 if (tc.tool_id) |id| {
                     try list.appendSlice(allocator, ",\"toolId\":");
-                    try std.json.stringify.encodeJsonString(id, .{}, list.writer(allocator));
+                    try std.json.Stringify.encodeJsonString(id, .{}, list.writer(allocator));
                 }
                 if (tc.args) |args| {
                     try list.appendSlice(allocator, ",\"args\":");
@@ -192,18 +192,18 @@ pub const StreamEvent = union(enum) {
                 try list.appendSlice(allocator, "tool_result\"");
                 if (tr.tool_id) |id| {
                     try list.appendSlice(allocator, ",\"toolId\":");
-                    try std.json.stringify.encodeJsonString(id, .{}, list.writer(allocator));
+                    try std.json.Stringify.encodeJsonString(id, .{}, list.writer(allocator));
                 }
                 if (tr.tool_output) |output| {
                     try list.appendSlice(allocator, ",\"toolOutput\":");
-                    try std.json.stringify.encodeJsonString(output, .{}, list.writer(allocator));
+                    try std.json.Stringify.encodeJsonString(output, .{}, list.writer(allocator));
                 }
             },
             .error_event => |e| {
                 try list.appendSlice(allocator, "error\"");
                 if (e.message) |msg| {
                     try list.appendSlice(allocator, ",\"error\":");
-                    try std.json.stringify.encodeJsonString(msg, .{}, list.writer(allocator));
+                    try std.json.Stringify.encodeJsonString(msg, .{}, list.writer(allocator));
                 }
             },
             .done => {

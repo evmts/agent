@@ -190,7 +190,7 @@ pub const Session = struct {
         };
 
         // TIOCSWINSZ ioctl constant for macOS
-        const TIOCSWINSZ: u32 = 0x80087467;
+        const TIOCSWINSZ: c_int = @bitCast(@as(u32, 0x80087467));
 
         const result = std.c.ioctl(self.master_fd, TIOCSWINSZ, @intFromPtr(&ws));
         if (result < 0) {
@@ -361,14 +361,14 @@ pub const Manager = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var list: std.ArrayList(SessionInfo) = .init(allocator);
+        var list = std.ArrayList(SessionInfo){};
 
         var it = self.sessions.iterator();
         while (it.next()) |entry| {
             const session = entry.value_ptr.*;
             session.checkStatus();
 
-            try list.append(.{
+            try list.append(allocator, .{
                 .id = session.id,
                 .command = session.command,
                 .workdir = session.workdir,
@@ -377,7 +377,7 @@ pub const Manager = struct {
             });
         }
 
-        return list.toOwnedSlice();
+        return list.toOwnedSlice(allocator);
     }
 
     /// Cleanup dead sessions
