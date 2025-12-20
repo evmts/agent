@@ -2,7 +2,7 @@
  * Authentication helper functions for API routes.
  */
 
-import { getUserBySession as dbGetUserBySession } from '../../db/auth';
+import { getUserBySession as dbGetUserBySession } from './auth-db';
 import type { AuthUser } from './types';
 
 export function getSessionIdFromRequest(request: Request): string | null {

@@ -2,7 +2,7 @@
  * Database operations for storing mentions in git-based issues
  */
 
-import sql from "../../db/client";
+import sql from "./db";
 import { getUniqueMentionedUsernames } from "./mentions";
 
 /**
