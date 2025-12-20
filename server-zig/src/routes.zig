@@ -19,6 +19,7 @@ const milestones = @import("routes/milestones.zig");
 const landing_queue = @import("routes/landing_queue.zig");
 const watcher_routes = @import("routes/watcher.zig");
 const changes = @import("routes/changes.zig");
+const agent_routes = @import("routes/agent.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -196,6 +197,12 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/sessions/:sessionId/messages/:messageId/parts", messages.createPart, .{});
     router.patch("/api/sessions/:sessionId/messages/:messageId/parts/:partId", messages.updatePart, .{});
     router.delete("/api/sessions/:sessionId/messages/:messageId/parts/:partId", messages.deletePart, .{});
+
+    // API routes - AI agent
+    router.post("/api/sessions/:sessionId/run", agent_routes.runAgentHandler, .{});
+    router.get("/api/agents", agent_routes.listAgentsHandler, .{});
+    router.get("/api/agents/:name", agent_routes.getAgentHandler, .{});
+    router.get("/api/tools", agent_routes.listToolsHandler, .{});
 
     // API routes - workflows
     router.get("/api/:user/:repo/workflows/runs", workflows.listRuns, .{});

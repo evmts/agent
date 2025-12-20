@@ -196,3 +196,110 @@ test "jwt sign and verify" {
     try std.testing.expectEqualStrings("testuser", payload.username);
     try std.testing.expectEqual(false, payload.is_admin);
 }
+
+test "jwt sign and verify admin user" {
+    const allocator = std.testing.allocator;
+    const secret = "admin-secret-key";
+
+    const token = try create(allocator, 999, "adminuser", true, secret);
+    defer allocator.free(token);
+
+    const payload = try verify(allocator, token, secret);
+    try std.testing.expectEqual(@as(i64, 999), payload.user_id);
+    try std.testing.expectEqualStrings("adminuser", payload.username);
+    try std.testing.expectEqual(true, payload.is_admin);
+}
+
+test "jwt invalid signature" {
+    const allocator = std.testing.allocator;
+
+    const token = try create(allocator, 123, "testuser", false, "secret1");
+    defer allocator.free(token);
+
+    // Try to verify with wrong secret
+    const result = verify(allocator, token, "wrong-secret");
+    try std.testing.expectError(JWTError.InvalidSignature, result);
+}
+
+test "jwt token format" {
+    const allocator = std.testing.allocator;
+    const secret = "test-secret";
+
+    const token = try create(allocator, 1, "user", false, secret);
+    defer allocator.free(token);
+
+    // JWT should have 3 parts separated by dots
+    var parts = std.mem.splitScalar(u8, token, '.');
+    var count: usize = 0;
+    while (parts.next()) |_| {
+        count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 3), count);
+}
+
+test "jwt invalid token format" {
+    const allocator = std.testing.allocator;
+
+    // Missing parts
+    try std.testing.expectError(JWTError.InvalidToken, verify(allocator, "onlyonepart", "secret"));
+    try std.testing.expectError(JWTError.InvalidToken, verify(allocator, "two.parts", "secret"));
+    try std.testing.expectError(JWTError.InvalidToken, verify(allocator, "too.many.parts.here", "secret"));
+}
+
+test "base64UrlEncode" {
+    const allocator = std.testing.allocator;
+
+    const result = try base64UrlEncode(allocator, "hello");
+    defer allocator.free(result);
+
+    // Should produce base64url encoded output
+    try std.testing.expectEqualStrings("aGVsbG8", result);
+}
+
+test "base64UrlDecode" {
+    const allocator = std.testing.allocator;
+
+    const result = try base64UrlDecode(allocator, "aGVsbG8");
+    defer allocator.free(result);
+
+    try std.testing.expectEqualStrings("hello", result);
+}
+
+test "base64Url roundtrip" {
+    const allocator = std.testing.allocator;
+    const original = "The quick brown fox jumps over the lazy dog";
+
+    const encoded = try base64UrlEncode(allocator, original);
+    defer allocator.free(encoded);
+
+    const decoded = try base64UrlDecode(allocator, encoded);
+    defer allocator.free(decoded);
+
+    try std.testing.expectEqualStrings(original, decoded);
+}
+
+test "getFromCookie" {
+    // Test with valid cookie
+    const cookie1 = "other=value; plue_token=abc123; another=test";
+    const token1 = getFromCookie(cookie1);
+    try std.testing.expectEqualStrings("abc123", token1.?);
+
+    // Test with missing cookie
+    const cookie2 = "other=value; another=test";
+    const token2 = getFromCookie(cookie2);
+    try std.testing.expect(token2 == null);
+
+    // Test with null header
+    const token3 = getFromCookie(null);
+    try std.testing.expect(token3 == null);
+
+    // Test with plue_token as first cookie
+    const cookie4 = "plue_token=firsttoken; other=value";
+    const token4 = getFromCookie(cookie4);
+    try std.testing.expectEqualStrings("firsttoken", token4.?);
+
+    // Test with plue_token as only cookie
+    const cookie5 = "plue_token=onlytoken";
+    const token5 = getFromCookie(cookie5);
+    try std.testing.expectEqualStrings("onlytoken", token5.?);
+}

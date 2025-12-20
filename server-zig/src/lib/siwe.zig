@@ -156,3 +156,43 @@ test "generate nonce" {
     // Nonces should be 16 characters
     try std.testing.expectEqual(@as(usize, 16), nonce1.len);
 }
+
+test "generate nonce contains only alphanumeric" {
+    const allocator = std.testing.allocator;
+
+    const nonce = try generateNonce(allocator);
+    defer allocator.free(nonce);
+
+    // All characters should be alphanumeric
+    for (nonce) |c| {
+        const is_valid = (c >= 'A' and c <= 'Z') or
+            (c >= 'a' and c <= 'z') or
+            (c >= '0' and c <= '9');
+        try std.testing.expect(is_valid);
+    }
+}
+
+test "generate nonce uniqueness" {
+    const allocator = std.testing.allocator;
+
+    // Generate multiple nonces and ensure they're all unique
+    var nonces: [10][]const u8 = undefined;
+    var count: usize = 0;
+    defer {
+        for (nonces[0..count]) |n| {
+            allocator.free(n);
+        }
+    }
+
+    for (&nonces) |*n| {
+        n.* = try generateNonce(allocator);
+        count += 1;
+    }
+
+    // Check all pairs are different
+    for (0..count) |i| {
+        for (i + 1..count) |j| {
+            try std.testing.expect(!std.mem.eql(u8, nonces[i], nonces[j]));
+        }
+    }
+}

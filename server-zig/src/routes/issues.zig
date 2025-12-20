@@ -2676,3 +2676,297 @@ pub fn getIssueCounts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     var writer = res.writer();
     try writer.print("{{\"open\":{d},\"closed\":{d}}}", .{ counts.open, counts.closed });
 }
+// Due date route handlers
+
+const std = @import("std");
+const httpz = @import("httpz");
+const Context = @import("../main.zig").Context;
+const db_issues = @import("../lib/db_issues.zig");
+
+const log = std.log.scoped(.issue_routes_due_date);
+
+/// GET /:user/:repo/issues/:number/due-date
+/// Get issue due date
+pub fn getDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Check if issue exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Get due date
+    const due_date = db_issues.getDueDate(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get due date: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    // Return due date
+    var writer = res.writer();
+    if (due_date) |dd| {
+        try writer.print("{{\"dueDate\":{d}}}", .{dd});
+    } else {
+        try writer.writeAll("{\"dueDate\":null}");
+    }
+}
+
+/// PUT /:user/:repo/issues/:number/due-date
+/// Set issue due date
+pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        due_date: i64,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Check if issue exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Set due date
+    db_issues.setDueDate(ctx.pool, repo.?.id, issue_number, v.due_date) catch |err| {
+        log.err("Failed to set due date: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to set due date\"}");
+        return;
+    };
+
+    // Return updated issue
+    const updated_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get updated issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (updated_issue) |iss| {
+        var writer = res.writer();
+        try writer.print(
+            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
+            iss.id,
+            iss.issue_number,
+            iss.title,
+            if (iss.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+            iss.state,
+            iss.created_at,
+            iss.updated_at,
+        });
+    }
+}
+
+/// DELETE /:user/:repo/issues/:number/due-date
+/// Remove issue due date
+pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Check if issue exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Remove due date
+    db_issues.removeDueDate(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to remove due date: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to remove due date\"}");
+        return;
+    };
+
+    // Return updated issue
+    const updated_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get updated issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (updated_issue) |iss| {
+        var writer = res.writer();
+        try writer.print(
+            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
+            iss.id,
+            iss.issue_number,
+            iss.title,
+            if (iss.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+            iss.state,
+            iss.created_at,
+            iss.updated_at,
+        });
+    }
+}
