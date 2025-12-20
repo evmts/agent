@@ -1,0 +1,246 @@
+---
+/**
+ * User Search Page
+ *
+ * Search for users by username.
+ */
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Avatar from "../components/Avatar.astro";
+import Pagination from "../components/Pagination.astro";
+import { sql } from "../lib/db";
+
+// Get search query
+const query = Astro.url.searchParams.get('q') || '';
+
+// Pagination
+const PAGE_SIZE = 20;
+const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
+const offset = (page - 1) * PAGE_SIZE;
+
+// Search users
+let users: any[] = [];
+let totalCount = 0;
+
+if (query) {
+  // Search with query
+  const searchPattern = `%${query.toLowerCase()}%`;
+
+  const [{ count }] = await sql<[{ count: number }]>`
+    SELECT COUNT(*)::int as count
+    FROM users
+    WHERE LOWER(username) LIKE ${searchPattern}
+       OR LOWER(display_name) LIKE ${searchPattern}
+  `;
+  totalCount = count;
+
+  users = await sql`
+    SELECT
+      u.id,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      u.bio,
+      u.created_at,
+      (SELECT COUNT(*) FROM repositories WHERE user_id = u.id) as repo_count
+    FROM users u
+    WHERE LOWER(u.username) LIKE ${searchPattern}
+       OR LOWER(u.display_name) LIKE ${searchPattern}
+    ORDER BY u.username ASC
+    LIMIT ${PAGE_SIZE}
+    OFFSET ${offset}
+  `;
+} else {
+  // Show all users
+  const [{ count }] = await sql<[{ count: number }]>`
+    SELECT COUNT(*)::int as count FROM users
+  `;
+  totalCount = count;
+
+  users = await sql`
+    SELECT
+      u.id,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      u.bio,
+      u.created_at,
+      (SELECT COUNT(*) FROM repositories WHERE user_id = u.id) as repo_count
+    FROM users u
+    ORDER BY u.created_at DESC
+    LIMIT ${PAGE_SIZE}
+    OFFSET ${offset}
+  `;
+}
+
+const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+---
+
+<Layout title="Users - plue">
+  <Header currentPath="/users" />
+
+  <div class="container">
+    <div class="page-header">
+      <h1>Users</h1>
+      <span class="count">{totalCount} {totalCount === 1 ? 'user' : 'users'}</span>
+    </div>
+
+    <form class="search-form mb-4" method="get">
+      <input
+        type="text"
+        name="q"
+        placeholder="Search users..."
+        value={query}
+        class="search-input"
+        autofocus
+      />
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+
+    {users.length === 0 ? (
+      <div class="empty-state">
+        <div class="empty-state-icon">?</div>
+        <div class="empty-state-title">
+          {query ? 'No users found' : 'No users yet'}
+        </div>
+        <div class="empty-state-description">
+          {query
+            ? `No users matching "${query}"`
+            : 'No users have been registered yet.'}
+        </div>
+      </div>
+    ) : (
+      <>
+        <div class="users-grid">
+          {users.map((user: any) => (
+            <a href={`/${user.username}`} class="user-card">
+              <Avatar username={user.username} avatarUrl={user.avatar_url} size={56} />
+              <div class="user-info">
+                <div class="user-name">
+                  {user.display_name || user.username}
+                </div>
+                <div class="user-username">@{user.username}</div>
+                {user.bio && (
+                  <div class="user-bio">{user.bio}</div>
+                )}
+                <div class="user-meta">
+                  <span>{user.repo_count} {user.repo_count === 1 ? 'repository' : 'repositories'}</span>
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+
+        {totalPages > 1 && (
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            baseUrl={query ? `/users?q=${encodeURIComponent(query)}` : '/users'}
+          />
+        )}
+      </>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .page-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .page-header h1 {
+    margin: 0;
+  }
+
+  .count {
+    font-size: 13px;
+    color: var(--gray-400);
+    background: var(--gray-800);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+
+  .search-form {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .search-input {
+    flex: 1;
+    max-width: 400px;
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--fg);
+    font-size: 14px;
+    font-family: inherit;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--border-hover);
+  }
+
+  .search-input::placeholder {
+    color: var(--gray-500);
+  }
+
+  .users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .user-card {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+  }
+
+  .user-card:hover {
+    border-color: var(--border-hover);
+    background: var(--hover);
+  }
+
+  .user-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .user-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .user-username {
+    font-size: 13px;
+    color: var(--gray-400);
+    margin-top: 2px;
+  }
+
+  .user-bio {
+    font-size: 13px;
+    color: var(--gray-400);
+    margin-top: var(--space-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .user-meta {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin-top: var(--space-2);
+  }
+</style>

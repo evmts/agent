@@ -1,0 +1,202 @@
+---
+/**
+ * Repository Stargazers Page
+ *
+ * Lists all users who have starred this repository.
+ */
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import Avatar from "../../../components/Avatar.astro";
+import RelativeTime from "../../../components/RelativeTime.astro";
+import Pagination from "../../../components/Pagination.astro";
+import { sql } from "../../../lib/db";
+import type { User, Repository } from "../../../lib/types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+// Get user and repo
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+if (!repo) return Astro.redirect("/404");
+
+// Pagination
+const PAGE_SIZE = 30;
+const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
+const offset = (page - 1) * PAGE_SIZE;
+
+// Get total count
+const [{ count: totalCount }] = await sql<[{ count: number }]>`
+  SELECT COUNT(*)::int as count FROM stars WHERE repository_id = ${repo.id}
+`;
+
+const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+// Get stargazers
+const stargazers = await sql`
+  SELECT
+    u.id,
+    u.username,
+    u.display_name,
+    u.avatar_url,
+    u.bio,
+    s.created_at as starred_at
+  FROM stars s
+  JOIN users u ON s.user_id = u.id
+  WHERE s.repository_id = ${repo.id}
+  ORDER BY s.created_at DESC
+  LIMIT ${PAGE_SIZE}
+  OFFSET ${offset}
+`;
+
+const defaultBookmark = repo.default_bookmark || 'main';
+---
+
+<Layout title={`Stargazers · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">stargazers</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/landing`}>Landing</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <h1>Stargazers</h1>
+      <span class="count">{totalCount} {totalCount === 1 ? 'stargazer' : 'stargazers'}</span>
+    </div>
+
+    {stargazers.length === 0 ? (
+      <div class="empty-state">
+        <div class="empty-state-icon">*</div>
+        <div class="empty-state-title">No stargazers yet</div>
+        <div class="empty-state-description">
+          Be the first to star this repository!
+        </div>
+      </div>
+    ) : (
+      <>
+        <div class="users-grid">
+          {stargazers.map((stargazer: any) => (
+            <a href={`/${stargazer.username}`} class="user-card">
+              <Avatar username={stargazer.username} avatarUrl={stargazer.avatar_url} size={48} />
+              <div class="user-info">
+                <div class="user-name">
+                  {stargazer.display_name || stargazer.username}
+                </div>
+                <div class="user-username">@{stargazer.username}</div>
+                {stargazer.bio && (
+                  <div class="user-bio">{stargazer.bio}</div>
+                )}
+                <div class="starred-at">
+                  Starred <RelativeTime date={stargazer.starred_at} />
+                </div>
+              </div>
+            </a>
+          ))}
+        </div>
+
+        {totalPages > 1 && (
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            baseUrl={`/${username}/${reponame}/stargazers`}
+          />
+        )}
+      </>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .page-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .page-header h1 {
+    margin: 0;
+  }
+
+  .count {
+    font-size: 13px;
+    color: var(--gray-400);
+    background: var(--gray-800);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+
+  .users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .user-card {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+  }
+
+  .user-card:hover {
+    border-color: var(--border-hover);
+    background: var(--hover);
+  }
+
+  .user-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .user-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .user-username {
+    font-size: 13px;
+    color: var(--gray-400);
+  }
+
+  .user-bio {
+    font-size: 12px;
+    color: var(--gray-400);
+    margin-top: var(--space-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .starred-at {
+    font-size: 11px;
+    color: var(--gray-500);
+    margin-top: var(--space-2);
+  }
+</style>
