@@ -249,7 +249,7 @@ pub const RepoWatcher = struct {
             return err;
         };
 
-        const mtime = @divFloor(op_heads_stat.mtime, std.time.ns_per_ms);
+        const mtime: i64 = @truncate(@divFloor(op_heads_stat.mtime, std.time.ns_per_ms));
 
         // Check if repository changed
         if (mtime > watched_repo.last_modified) {

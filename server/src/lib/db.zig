@@ -1667,12 +1667,11 @@ pub fn listLandingRequests(
         , .{ repository_id, limit, offset });
     defer result.deinit();
 
-    var requests = std.ArrayList(LandingRequest).init(allocator);
-    errdefer requests.deinit();
+    var requests = std.ArrayList(LandingRequest){};
+    errdefer requests.deinit(allocator);
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try requests.append(LandingRequest{
+    while (try result.next()) |row| {
+        try requests.append(allocator, LandingRequest{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .change_id = row.get([]const u8, 2),
@@ -2109,11 +2108,11 @@ pub fn getOperationsByRepository(
     , .{ repository_id, limit });
     defer result.deinit();
 
-    var operations = std.ArrayList(JjOperation).init(allocator);
-    errdefer operations.deinit();
+    var operations = std.ArrayList(JjOperation){};
+    errdefer operations.deinit(allocator);
 
     while (try result.next()) |row| {
-        try operations.append(JjOperation{
+        try operations.append(allocator, JjOperation{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .operation_id = row.get([]const u8, 2),
