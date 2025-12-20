@@ -14,54 +14,13 @@ if (sessionCookie) {
   <div class="container">
     <div class="auth-container">
       <h1>Sign In</h1>
-      <p class="auth-description">Connect your wallet to sign in or create an account.</p>
+      <p class="auth-description">Connect your wallet to sign in.</p>
 
       <div id="connect-step" class="auth-step">
         <button id="connect-btn" class="btn btn-primary btn-block">
           Connect Wallet
         </button>
         <div id="error" class="error-message" style="display: none;"></div>
-      </div>
-
-      <div id="register-step" class="auth-step" style="display: none;">
-        <p class="step-info">
-          Welcome! Choose a username to complete registration.
-        </p>
-        <p class="wallet-info" id="wallet-display"></p>
-
-        <form id="register-form">
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input
-              type="text"
-              id="username"
-              name="username"
-              required
-              pattern="^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$"
-              minlength="3"
-              maxlength="39"
-              autocomplete="username"
-            />
-            <small>3-39 characters, alphanumeric with hyphens/underscores</small>
-            <div id="username-feedback" class="validation-feedback"></div>
-          </div>
-
-          <div class="form-group">
-            <label for="displayName">Display Name (optional)</label>
-            <input
-              type="text"
-              id="displayName"
-              name="displayName"
-              maxlength="255"
-            />
-          </div>
-
-          <div id="register-error" class="error-message" style="display: none;"></div>
-
-          <button type="submit" class="btn btn-primary btn-block" id="register-btn">
-            Complete Registration
-          </button>
-        </form>
       </div>
     </div>
   </div>
@@ -86,52 +45,9 @@ if (sessionCookie) {
     margin-top: 2rem;
   }
 
-  .step-info {
-    color: var(--gray-300);
-    margin-bottom: 1rem;
-  }
-
-  .wallet-info {
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    color: var(--gray-400);
-    background: var(--gray-900);
-    padding: 0.75rem;
-    border-radius: var(--radius-sm);
-    margin-bottom: 1.5rem;
-    word-break: break-all;
-  }
-
-  .form-group small {
-    display: block;
-    margin-top: 0.25rem;
-    font-size: 0.75rem;
-    color: var(--gray-500);
-  }
-
-  .validation-feedback {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.75rem;
-    display: none;
-  }
-
-  .validation-feedback.valid {
-    color: var(--success);
-    background: var(--success-dim);
-    display: block;
-  }
-
-  .validation-feedback.invalid {
-    color: var(--error);
-    background: var(--error-dim);
-    display: block;
-  }
-
   .error-message {
     padding: 0.75rem;
-    margin-bottom: 1rem;
+    margin-top: 1rem;
     background: var(--error-dim);
     border: 1px solid var(--error);
     border-radius: var(--radius);
@@ -149,102 +65,25 @@ if (sessionCookie) {
 </style>
 
 <script>
-  import { connectAndLogin, registerWithSiwe } from '../lib/client-auth';
+  import { connectAndLogin } from '../lib/client-auth';
 
-  // Elements
-  const connectStep = document.getElementById('connect-step') as HTMLDivElement;
-  const registerStep = document.getElementById('register-step') as HTMLDivElement;
   const connectBtn = document.getElementById('connect-btn') as HTMLButtonElement;
   const errorDiv = document.getElementById('error') as HTMLDivElement;
-  const registerForm = document.getElementById('register-form') as HTMLFormElement;
-  const registerError = document.getElementById('register-error') as HTMLDivElement;
-  const registerBtn = document.getElementById('register-btn') as HTMLButtonElement;
-  const walletDisplay = document.getElementById('wallet-display') as HTMLParagraphElement;
-  const usernameInput = document.getElementById('username') as HTMLInputElement;
-  const usernameFeedback = document.getElementById('username-feedback') as HTMLDivElement;
 
-  // State for registration
-  let pendingMessage: string | null = null;
-  let pendingSignature: string | null = null;
-
-  // Username validation
-  function validateUsername(username: string) {
-    if (username.length < 3) {
-      return { valid: false, message: 'Username must be at least 3 characters' };
-    }
-    if (username.length > 39) {
-      return { valid: false, message: 'Username must be at most 39 characters' };
-    }
-    if (!/^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$/.test(username)) {
-      return { valid: false, message: 'Username must start and end with alphanumeric' };
-    }
-    return { valid: true, message: 'Username looks good' };
-  }
-
-  usernameInput.addEventListener('input', () => {
-    const validation = validateUsername(usernameInput.value);
-    usernameFeedback.textContent = validation.message;
-    usernameFeedback.className = `validation-feedback ${validation.valid ? 'valid' : 'invalid'}`;
-  });
-
-  // Connect wallet
   connectBtn.addEventListener('click', async () => {
     connectBtn.disabled = true;
     connectBtn.textContent = 'Connecting...';
     errorDiv.style.display = 'none';
 
     try {
-      const result = await connectAndLogin();
-
-      if (result.status === 'logged_in') {
-        // Already registered, redirect
-        window.location.href = '/';
-      } else if (result.status === 'needs_registration') {
-        // Show registration form
-        pendingMessage = result.message!;
-        pendingSignature = result.signature!;
-        walletDisplay.textContent = `Wallet: ${result.address}`;
-        connectStep.style.display = 'none';
-        registerStep.style.display = 'block';
-      }
+      await connectAndLogin();
+      window.location.href = '/';
     } catch (error) {
       errorDiv.textContent = error instanceof Error ? error.message : 'Connection failed';
       errorDiv.style.display = 'block';
     } finally {
       connectBtn.disabled = false;
       connectBtn.textContent = 'Connect Wallet';
-    }
-  });
-
-  // Complete registration
-  registerForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const validation = validateUsername(usernameInput.value);
-    if (!validation.valid) {
-      registerError.textContent = validation.message;
-      registerError.style.display = 'block';
-      return;
-    }
-
-    registerBtn.disabled = true;
-    registerBtn.textContent = 'Registering...';
-    registerError.style.display = 'none';
-
-    try {
-      const formData = new FormData(registerForm);
-      await registerWithSiwe(pendingMessage!, pendingSignature!, {
-        username: formData.get('username') as string,
-        displayName: (formData.get('displayName') as string) || undefined,
-      });
-
-      window.location.href = '/';
-    } catch (error) {
-      registerError.textContent = error instanceof Error ? error.message : 'Registration failed';
-      registerError.style.display = 'block';
-    } finally {
-      registerBtn.disabled = false;
-      registerBtn.textContent = 'Complete Registration';
     }
   });
 </script>

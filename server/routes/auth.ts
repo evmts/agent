@@ -35,14 +35,28 @@ const registerSchema = z.object({
  * Generate a nonce for SIWE authentication
  */
 app.get('/siwe/nonce', async (c) => {
-  const nonce = await createNonce();
-  return c.json({ nonce });
+  try {
+    const nonce = await createNonce();
+    return c.json({ nonce });
+  } catch (error) {
+    console.error('Failed to create nonce:', error);
+    return c.json({ error: 'Failed to generate nonce' }, 500);
+  }
 });
 
 /**
+ * Generate a username from wallet address.
+ * Format: first 4 + last 4 chars of address (e.g., "0x1234abcd")
+ */
+function generateUsername(walletAddress: string): string {
+  const addr = walletAddress.toLowerCase();
+  return `${addr.slice(0, 6)}${addr.slice(-4)}`;
+}
+
+/**
  * POST /auth/siwe/verify
- * Verify SIWE signature and authenticate existing user
- * Returns 404 if wallet not registered (must use /siwe/register)
+ * Verify SIWE signature and authenticate user.
+ * Auto-creates account if wallet is not registered.
  */
 app.post('/siwe/verify', authRateLimit, zValidator('json', verifySchema), async (c) => {
   try {
@@ -58,7 +72,7 @@ app.post('/siwe/verify', authRateLimit, zValidator('json', verifySchema), async 
     const walletAddress = result.address.toLowerCase();
 
     // Check if user exists
-    const [user] = await sql<Array<{
+    let [user] = await sql<Array<{
       id: number;
       username: string;
       email: string | null;
@@ -71,13 +85,31 @@ app.post('/siwe/verify', authRateLimit, zValidator('json', verifySchema), async 
       WHERE wallet_address = ${walletAddress}
     `;
 
+    // Auto-create user if wallet not registered
     if (!user) {
-      // User needs to register first
-      return c.json({
-        error: 'Wallet not registered',
-        code: 'WALLET_NOT_REGISTERED',
-        address: walletAddress,
-      }, 404);
+      const username = generateUsername(walletAddress);
+
+      const [newUser] = await sql<Array<{ id: number }>>`
+        INSERT INTO users (
+          username, lower_username,
+          display_name, wallet_address,
+          is_active, created_at, updated_at
+        ) VALUES (
+          ${username}, ${username.toLowerCase()},
+          ${username}, ${walletAddress},
+          true, NOW(), NOW()
+        )
+        RETURNING id
+      `;
+
+      user = {
+        id: newUser.id,
+        username,
+        email: null,
+        is_admin: false,
+        is_active: true,
+        prohibit_login: false,
+      };
     }
 
     if (user.prohibit_login) {

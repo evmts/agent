@@ -37,30 +37,22 @@ async function getNonce(): Promise<string> {
 }
 
 /**
- * Connect wallet and attempt to login.
- * Returns:
- * - { status: 'logged_in', user } if wallet is already registered
- * - { status: 'needs_registration', address, message, signature } if new wallet
+ * Connect wallet and sign in.
+ * Auto-creates account if wallet is new.
  */
-export async function connectAndLogin(): Promise<{
-  status: 'logged_in' | 'needs_registration';
-  user?: SiweUser;
-  address?: string;
-  message?: string;
-  signature?: string;
-}> {
+export async function connectAndLogin(): Promise<{ user: SiweUser }> {
   // Get nonce from server
   const nonce = await getNonce();
 
   // Sign message with Porto (opens wallet dialog)
-  const { message, signature, address } = await signInWithEthereum({
+  const { message, signature } = await signInWithEthereum({
     domain: window.location.host,
     uri: window.location.origin,
     nonce,
     statement: 'Sign in to Plue',
   });
 
-  // Try to verify (login existing user)
+  // Verify signature (auto-creates user if new wallet)
   const response = await fetch(`${API_BASE}/auth/siwe/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -70,17 +62,7 @@ export async function connectAndLogin(): Promise<{
 
   if (response.ok) {
     const data = await response.json();
-    return { status: 'logged_in', user: data.user };
-  }
-
-  if (response.status === 404) {
-    // Wallet not registered, need to choose username
-    return {
-      status: 'needs_registration',
-      address,
-      message,
-      signature,
-    };
+    return { user: data.user };
   }
 
   const error = await response.json();
