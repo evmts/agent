@@ -171,12 +171,12 @@ pub const WorkflowTrigger = struct {
         };
         defer workflows_dir.close();
 
-        var result = std.ArrayList(WorkflowMetadata).init(self.allocator);
+        var result = std.ArrayList(WorkflowMetadata){};
         errdefer {
             for (result.items) |*wf| {
                 wf.deinit();
             }
-            result.deinit();
+            result.deinit(self.allocator);
         }
 
         // Iterate through .py files
@@ -201,10 +201,10 @@ pub const WorkflowTrigger = struct {
 
             // Parse workflow metadata
             const metadata = try self.parseWorkflowFile(abs_path, file_path);
-            try result.append(metadata);
+            try result.append(self.allocator, metadata);
         }
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Parse workflow file to extract metadata
@@ -220,7 +220,7 @@ pub const WorkflowTrigger = struct {
         defer self.allocator.free(content);
 
         var name: ?[]const u8 = null;
-        var events = std.ArrayList([]const u8).init(self.allocator);
+        var events = std.ArrayList([]const u8){};
         var is_agent_workflow = false;
 
         errdefer {
@@ -228,7 +228,7 @@ pub const WorkflowTrigger = struct {
             for (events.items) |event| {
                 self.allocator.free(event);
             }
-            events.deinit();
+            events.deinit(self.allocator);
         }
 
         // Parse @workflow decorator
@@ -268,7 +268,7 @@ pub const WorkflowTrigger = struct {
                             const event_trimmed = std.mem.trim(u8, event_part, " \t\"'");
                             if (event_trimmed.len > 0) {
                                 const event_copy = try self.allocator.dupe(u8, event_trimmed);
-                                try events.append(event_copy);
+                                try events.append(self.allocator, event_copy);
                             }
                         }
                     }
@@ -296,7 +296,7 @@ pub const WorkflowTrigger = struct {
         return WorkflowMetadata{
             .name = name.?,
             .file_path = try self.allocator.dupe(u8, rel_path),
-            .events = try events.toOwnedSlice(),
+            .events = try events.toOwnedSlice(self.allocator),
             .is_agent_workflow = is_agent_workflow,
             .allocator = self.allocator,
         };
@@ -329,7 +329,7 @@ pub const WorkflowTrigger = struct {
 
         // Get or create workflow definition
         const workflow_def_id = try self.getOrCreateWorkflowDefinition(
-            &conn,
+            conn,
             repo_id,
             workflow,
         );
@@ -420,19 +420,19 @@ pub const WorkflowTrigger = struct {
 
     /// Convert events array to JSON string
     fn eventsToJson(self: *WorkflowTrigger, events: []const []const u8) ![]const u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
+        var result = std.ArrayList(u8){};
+        errdefer result.deinit(self.allocator);
 
-        try result.appendSlice("[");
+        try result.appendSlice(self.allocator, "[");
         for (events, 0..) |event, i| {
-            if (i > 0) try result.appendSlice(",");
-            try result.appendSlice("\"");
-            try result.appendSlice(event);
-            try result.appendSlice("\"");
+            if (i > 0) try result.appendSlice(self.allocator, ",");
+            try result.appendSlice(self.allocator, "\"");
+            try result.appendSlice(self.allocator, event);
+            try result.appendSlice(self.allocator, "\"");
         }
-        try result.appendSlice("]");
+        try result.appendSlice(self.allocator, "]");
 
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(self.allocator);
     }
 
     /// Get next run number for repository
@@ -517,7 +517,7 @@ pub const WorkflowTrigger = struct {
             @as(i32, @intFromEnum(WorkflowStatus.waiting)),
             @as(i32, 1), // attempt
         });
-        result.deinit();
+        result.deinit(self.allocator);
     }
 };
 

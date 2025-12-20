@@ -128,7 +128,7 @@ pub const CsrfStore = struct {
         var iter = self.tokens.iterator();
         while (iter.next()) |entry| {
             if (now > entry.value_ptr.expires_at) {
-                to_remove.append(entry.key_ptr.*) catch continue;
+                to_remove.append(self.allocator, entry.key_ptr.*) catch continue;
             }
         }
 
