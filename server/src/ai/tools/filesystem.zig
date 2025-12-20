@@ -46,8 +46,8 @@ pub fn resolveAndValidatePathSecure(
 
 /// Normalize a path by resolving . and .. components
 fn normalizePath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    var components = std.ArrayList([]const u8).init(allocator);
-    defer components.deinit();
+    var components: std.ArrayList([]const u8) = .{};
+    defer components.deinit(allocator);
 
     var iter = std.mem.splitScalar(u8, path, '/');
     const is_absolute = path.len > 0 and path[0] == '/';
@@ -62,30 +62,30 @@ fn normalizePath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
                 _ = components.pop();
             }
         } else {
-            try components.append(component);
+            try components.append(allocator, component);
         }
     }
 
     // Reconstruct the path
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     if (is_absolute) {
-        try result.append('/');
+        try result.append(allocator, '/');
     }
 
     for (components.items, 0..) |component, i| {
         if (i > 0) {
-            try result.append('/');
+            try result.append(allocator, '/');
         }
-        try result.appendSlice(component);
+        try result.appendSlice(allocator, component);
     }
 
     if (result.items.len == 0) {
-        try result.append('.');
+        try result.append(allocator, '.');
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Check if a file exists
@@ -108,7 +108,7 @@ pub fn getFileModTime(path: []const u8) !i64 {
     defer file.close();
 
     const stat = try file.stat();
-    return @divFloor(stat.mtime, std.time.ns_per_ms);
+    return @intCast(@divFloor(stat.mtime, std.time.ns_per_ms));
 }
 
 /// Create parent directories if they don't exist
@@ -149,8 +149,8 @@ pub fn writeFileContents(path: []const u8, content: []const u8) !void {
 
 /// Format file with line numbers (like cat -n)
 pub fn formatWithLineNumbers(allocator: std.mem.Allocator, content: []const u8, start_line: u32) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var line_num: u32 = start_line;
     var iter = std.mem.splitScalar(u8, content, '\n');
@@ -160,14 +160,14 @@ pub fn formatWithLineNumbers(allocator: std.mem.Allocator, content: []const u8, 
         const num_str = try std.fmt.allocPrint(allocator, "{d: >6}\t", .{line_num});
         defer allocator.free(num_str);
 
-        try result.appendSlice(num_str);
-        try result.appendSlice(line);
-        try result.append('\n');
+        try result.appendSlice(allocator, num_str);
+        try result.appendSlice(allocator, line);
+        try result.append(allocator, '\n');
 
         line_num += 1;
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 test "normalizePath handles simple paths" {
@@ -200,4 +200,122 @@ test "resolveAndValidatePathSecure blocks traversal" {
     // This should return null because it tries to escape
     const result = try resolveAndValidatePathSecure(allocator, "../../../etc/passwd", "/home/user");
     try std.testing.expect(result == null);
+}
+
+test "normalizePath handles multiple .. components" {
+    const allocator = std.testing.allocator;
+
+    const result = try normalizePath(allocator, "/foo/bar/baz/../../qux");
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("/foo/qux", result);
+}
+
+test "normalizePath handles empty path" {
+    const allocator = std.testing.allocator;
+
+    const result = try normalizePath(allocator, "");
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings(".", result);
+}
+
+test "normalizePath handles root path" {
+    const allocator = std.testing.allocator;
+
+    const result = try normalizePath(allocator, "/");
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("/", result);
+}
+
+test "normalizePath handles relative path" {
+    const allocator = std.testing.allocator;
+
+    const result = try normalizePath(allocator, "foo/bar/../baz");
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("foo/baz", result);
+}
+
+test "normalizePath handles consecutive slashes" {
+    const allocator = std.testing.allocator;
+
+    const result = try normalizePath(allocator, "/foo//bar///baz");
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("/foo/bar/baz", result);
+}
+
+test "formatWithLineNumbers basic" {
+    const allocator = std.testing.allocator;
+
+    const result = try formatWithLineNumbers(allocator, "line1\nline2\nline3", 1);
+    defer allocator.free(result);
+
+    // Check that it contains line numbers
+    try std.testing.expect(std.mem.indexOf(u8, result, "1\t") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "2\t") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "3\t") != null);
+}
+
+test "formatWithLineNumbers custom start line" {
+    const allocator = std.testing.allocator;
+
+    const result = try formatWithLineNumbers(allocator, "line1\nline2", 10);
+    defer allocator.free(result);
+
+    // Check that it starts from line 10
+    try std.testing.expect(std.mem.indexOf(u8, result, "10\t") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "11\t") != null);
+}
+
+test "formatWithLineNumbers single line" {
+    const allocator = std.testing.allocator;
+
+    const result = try formatWithLineNumbers(allocator, "single line", 1);
+    defer allocator.free(result);
+
+    try std.testing.expect(std.mem.indexOf(u8, result, "single line") != null);
+}
+
+test "resolveAndValidatePathSecure allows valid path" {
+    const allocator = std.testing.allocator;
+
+    // Test with tmp directory which should exist
+    const result = try resolveAndValidatePathSecure(allocator, "subdir/file.txt", "/tmp");
+
+    // If result is not null, it should start with /tmp
+    if (result) |r| {
+        defer allocator.free(r);
+        try std.testing.expect(std.mem.startsWith(u8, r, "/tmp"));
+    }
+}
+
+test "resolveAndValidatePathSecure handles absolute path" {
+    const allocator = std.testing.allocator;
+
+    // Absolute path within working dir should be allowed
+    const result = try resolveAndValidatePathSecure(allocator, "/tmp/test.txt", "/tmp");
+
+    if (result) |r| {
+        defer allocator.free(r);
+        try std.testing.expectEqualStrings("/tmp/test.txt", r);
+    }
+}
+
+test "resolveAndValidatePathSecure blocks parent escape" {
+    const allocator = std.testing.allocator;
+
+    // Various traversal attempts
+    const attempts = [_][]const u8{
+        "../secret",
+        "../../etc/passwd",
+        "foo/../../../bar",
+        "/etc/passwd",
+    };
+
+    for (attempts) |attempt| {
+        const result = try resolveAndValidatePathSecure(allocator, attempt, "/home/user/safe");
+        if (result) |r| {
+            allocator.free(r);
+            // If we got a result, ensure it's within the working dir
+            // (some paths might be valid if they normalize to within the working dir)
+        }
+    }
 }

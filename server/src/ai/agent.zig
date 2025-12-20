@@ -77,18 +77,18 @@ pub fn runAgent(
         }
 
         // Process tool calls
-        var assistant_parts = std.ArrayList(client.ContentPart).init(allocator);
-        var tool_results = std.ArrayList(client.ContentPart).init(allocator);
+        var assistant_parts = std.ArrayList(client.ContentPart){};
+        var tool_results = std.ArrayList(client.ContentPart){};
 
         for (response.content) |block| {
             switch (block) {
                 .text => |text| {
-                    try assistant_parts.append(.{
+                    try assistant_parts.append(allocator, .{
                         .text = .{ .text = text },
                     });
                 },
                 .tool_use => |tu| {
-                    try assistant_parts.append(.{
+                    try assistant_parts.append(allocator, .{
                         .tool_use = .{
                             .id = tu.id,
                             .name = tu.name,
@@ -96,9 +96,12 @@ pub fn runAgent(
                         },
                     });
 
-                    // Execute tool
-                    const output = tools_mod.executeTool(allocator, tu.name, tu.input, ctx) catch |err| {
-                        try tool_results.append(.{
+                    // Execute tool - parse JSON string to Value
+                    const parsed_input = try std.json.parseFromSlice(std.json.Value, allocator, tu.input, .{});
+                    defer parsed_input.deinit();
+
+                    const output = tools_mod.executeTool(allocator, tu.name, parsed_input.value, ctx) catch |err| {
+                        try tool_results.append(allocator, .{
                             .tool_result = .{
                                 .tool_use_id = tu.id,
                                 .content = @errorName(err),
@@ -107,7 +110,7 @@ pub fn runAgent(
                         continue;
                     };
 
-                    try tool_results.append(.{
+                    try tool_results.append(allocator, .{
                         .tool_result = .{
                             .tool_use_id = tu.id,
                             .content = output,
@@ -118,15 +121,15 @@ pub fn runAgent(
         }
 
         // Add assistant message
-        try current_messages.append(.{
+        try current_messages.append(allocator, .{
             .role = .assistant,
-            .content = .{ .parts = try assistant_parts.toOwnedSlice() },
+            .content = .{ .parts = try assistant_parts.toOwnedSlice(allocator) },
         });
 
         // Add tool results as user message
-        try current_messages.append(.{
+        try current_messages.append(allocator, .{
             .role = .user,
-            .content = .{ .parts = try tool_results.toOwnedSlice() },
+            .content = .{ .parts = try tool_results.toOwnedSlice(allocator) },
         });
 
         steps += 1;
@@ -215,18 +218,18 @@ pub fn streamAgent(
         }
 
         // Process tool calls
-        var assistant_parts = std.ArrayList(client.ContentPart).init(allocator);
-        var tool_results = std.ArrayList(client.ContentPart).init(allocator);
+        var assistant_parts = std.ArrayList(client.ContentPart){};
+        var tool_results = std.ArrayList(client.ContentPart){};
 
         for (response.content) |block| {
             switch (block) {
                 .text => |text| {
-                    try assistant_parts.append(.{
+                    try assistant_parts.append(allocator, .{
                         .text = .{ .text = text },
                     });
                 },
                 .tool_use => |tu| {
-                    try assistant_parts.append(.{
+                    try assistant_parts.append(allocator, .{
                         .tool_use = .{
                             .id = tu.id,
                             .name = tu.name,
@@ -234,8 +237,11 @@ pub fn streamAgent(
                         },
                     });
 
-                    // Execute tool
-                    const output = tools_mod.executeTool(allocator, tu.name, tu.input, ctx) catch |err| {
+                    // Execute tool - parse JSON string to Value
+                    const parsed_input = try std.json.parseFromSlice(std.json.Value, allocator, tu.input, .{});
+                    defer parsed_input.deinit();
+
+                    const output = tools_mod.executeTool(allocator, tu.name, parsed_input.value, ctx) catch |err| {
                         callbacks.on_event(.{
                             .tool_result = .{
                                 .tool_id = tu.id,
@@ -243,7 +249,7 @@ pub fn streamAgent(
                             },
                         }, callbacks.context);
 
-                        try tool_results.append(.{
+                        try tool_results.append(allocator, .{
                             .tool_result = .{
                                 .tool_use_id = tu.id,
                                 .content = @errorName(err),
@@ -259,7 +265,7 @@ pub fn streamAgent(
                         },
                     }, callbacks.context);
 
-                    try tool_results.append(.{
+                    try tool_results.append(allocator, .{
                         .tool_result = .{
                             .tool_use_id = tu.id,
                             .content = output,
@@ -270,15 +276,15 @@ pub fn streamAgent(
         }
 
         // Add assistant message
-        try current_messages.append(.{
+        try current_messages.append(allocator, .{
             .role = .assistant,
-            .content = .{ .parts = try assistant_parts.toOwnedSlice() },
+            .content = .{ .parts = try assistant_parts.toOwnedSlice(allocator) },
         });
 
         // Add tool results as user message
-        try current_messages.append(.{
+        try current_messages.append(allocator, .{
             .role = .user,
-            .content = .{ .parts = try tool_results.toOwnedSlice() },
+            .content = .{ .parts = try tool_results.toOwnedSlice(allocator) },
         });
 
         steps += 1;

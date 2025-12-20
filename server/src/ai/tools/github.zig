@@ -82,12 +82,12 @@ pub fn githubImpl(
     }
 
     // Build command
-    var args = std.ArrayList([]const u8).init(allocator);
-    defer args.deinit();
+    var args: std.ArrayList([]const u8) = .{};
+    defer args.deinit(allocator);
 
-    try args.append("gh");
+    try args.append(allocator, "gh");
     for (params.args) |arg| {
-        try args.append(arg);
+        try args.append(allocator, arg);
     }
 
     // Spawn gh process
@@ -98,18 +98,11 @@ pub fn githubImpl(
 
     try child.spawn();
 
-    // Read output
-    const stdout = child.stdout.?.reader();
-    const stderr = child.stderr.?.reader();
-
-    var stdout_buf = std.ArrayList(u8).init(allocator);
-    defer stdout_buf.deinit();
-
-    var stderr_buf = std.ArrayList(u8).init(allocator);
-    defer stderr_buf.deinit();
-
-    stdout.readAllArrayList(&stdout_buf, 1024 * 1024) catch {};
-    stderr.readAllArrayList(&stderr_buf, 1024 * 1024) catch {};
+    // Read output using readToEndAlloc
+    const stdout_output = child.stdout.?.readToEndAlloc(allocator, 1024 * 1024) catch "";
+    defer allocator.free(stdout_output);
+    const stderr_output = child.stderr.?.readToEndAlloc(allocator, 1024 * 1024) catch "";
+    defer allocator.free(stderr_output);
 
     const result = try child.wait();
 
@@ -121,15 +114,15 @@ pub fn githubImpl(
     if (exit_code != 0) {
         return GitHubResult{
             .success = false,
-            .output = if (stdout_buf.items.len > 0) try stdout_buf.toOwnedSlice() else null,
-            .error_msg = if (stderr_buf.items.len > 0) try stderr_buf.toOwnedSlice() else "Command failed",
+            .output = if (stdout_output.len > 0) try allocator.dupe(u8, stdout_output) else null,
+            .error_msg = if (stderr_output.len > 0) try allocator.dupe(u8, stderr_output) else "Command failed",
             .exit_code = exit_code,
         };
     }
 
     return GitHubResult{
         .success = true,
-        .output = try stdout_buf.toOwnedSlice(),
+        .output = try allocator.dupe(u8, stdout_output),
         .exit_code = exit_code,
     };
 }
@@ -161,4 +154,105 @@ pub fn createGitHubSchema(allocator: std.mem.Allocator) !std.json.Value {
     try schema.put("required", std.json.Value{ .array = required });
 
     return std.json.Value{ .object = schema };
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "GitHubParams struct" {
+    const params = GitHubParams{
+        .args = &.{ "pr", "list" },
+    };
+
+    try std.testing.expectEqual(@as(usize, 2), params.args.len);
+    try std.testing.expectEqualStrings("pr", params.args[0]);
+    try std.testing.expectEqualStrings("list", params.args[1]);
+}
+
+test "GitHubResult success" {
+    const result = GitHubResult{
+        .success = true,
+        .output = "Pull request #123",
+        .exit_code = 0,
+    };
+
+    try std.testing.expect(result.success);
+    try std.testing.expect(result.output != null);
+    try std.testing.expectEqual(@as(u8, 0), result.exit_code.?);
+    try std.testing.expect(result.error_msg == null);
+}
+
+test "GitHubResult error" {
+    const result = GitHubResult{
+        .success = false,
+        .error_msg = "Command not allowed",
+        .exit_code = 1,
+    };
+
+    try std.testing.expect(!result.success);
+    try std.testing.expect(result.error_msg != null);
+    try std.testing.expect(result.output == null);
+}
+
+test "ALLOWED_COMMANDS contains expected commands" {
+    // Verify key commands are in the allowed list
+    const expected_commands = [_][]const u8{ "pr", "issue", "repo", "api", "workflow" };
+
+    for (expected_commands) |expected| {
+        var found = false;
+        for (ALLOWED_COMMANDS) |cmd| {
+            if (std.mem.eql(u8, cmd, expected)) {
+                found = true;
+                break;
+            }
+        }
+        try std.testing.expect(found);
+    }
+}
+
+test "BLOCKED_PATTERNS contains security-sensitive patterns" {
+    // Verify destructive operations are blocked
+    const expected_blocked = [_][]const u8{ "delete", "force", "--force", "auth", "secret" };
+
+    for (expected_blocked) |expected| {
+        var found = false;
+        for (BLOCKED_PATTERNS) |pattern| {
+            if (std.mem.eql(u8, pattern, expected)) {
+                found = true;
+                break;
+            }
+        }
+        try std.testing.expect(found);
+    }
+}
+
+test "createGitHubSchema" {
+    const allocator = std.testing.allocator;
+
+    const schema = try createGitHubSchema(allocator);
+
+    // Schema should be an object
+    try std.testing.expect(schema == .object);
+
+    // Should have type = object
+    const type_val = schema.object.get("type").?;
+    try std.testing.expectEqualStrings("object", type_val.string);
+
+    // Should have properties
+    const props = schema.object.get("properties").?;
+    try std.testing.expect(props == .object);
+
+    // Should have args property
+    const args_prop = props.object.get("args").?;
+    try std.testing.expect(args_prop == .object);
+
+    // args should be an array type
+    const args_type = args_prop.object.get("type").?;
+    try std.testing.expectEqualStrings("array", args_type.string);
+
+    // Should have required array
+    const required = schema.object.get("required").?;
+    try std.testing.expect(required == .array);
+    try std.testing.expectEqual(@as(usize, 1), required.array.items.len);
 }

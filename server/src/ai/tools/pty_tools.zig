@@ -39,28 +39,30 @@ pub fn unifiedExecImpl(
     };
 
     // Read initial output with yield time
-    var output = std.ArrayList(u8).init(allocator);
-    defer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    defer output.deinit(allocator);
 
     const timeout_ns: i64 = @as(i64, params.yield_time_ms) * std.time.ns_per_ms;
     const start = std.time.nanoTimestamp();
 
     while (std.time.nanoTimestamp() - start < timeout_ns) {
-        if (session.read()) |data| {
-            try output.appendSlice(data);
+        if (session.read()) |maybe_data| {
+            if (maybe_data) |data| {
+                try output.appendSlice(allocator, data);
+            }
         } else |_| {
             // No data yet
         }
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
     }
 
     // Check if still running
-    const running = session.isRunning();
+    const running = session.running;
 
     return UnifiedExecResult{
         .success = true,
         .session_id = session.id,
-        .output = try output.toOwnedSlice(),
+        .output = try output.toOwnedSlice(allocator),
         .running = running,
     };
 }
@@ -89,7 +91,7 @@ pub fn writeStdinImpl(
     ctx: types.ToolContext,
 ) !WriteStdinResult {
     // Get session
-    const session = ctx.pty_manager.getSession(params.session_id) orelse {
+    const session = ctx.pty_manager.getSession(params.session_id) catch {
         return WriteStdinResult{
             .success = false,
             .error_msg = "Session not found",
@@ -105,25 +107,27 @@ pub fn writeStdinImpl(
     };
 
     // Read output after write
-    var output = std.ArrayList(u8).init(allocator);
-    defer output.deinit();
+    var output: std.ArrayList(u8) = .{};
+    defer output.deinit(allocator);
 
     const timeout_ns: i64 = @as(i64, params.yield_time_ms) * std.time.ns_per_ms;
     const start = std.time.nanoTimestamp();
 
     while (std.time.nanoTimestamp() - start < timeout_ns) {
-        if (session.read()) |data| {
-            try output.appendSlice(data);
+        if (session.read()) |maybe_data| {
+            if (maybe_data) |data| {
+                try output.appendSlice(allocator, data);
+            }
         } else |_| {
             // No data yet
         }
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
     }
 
     return WriteStdinResult{
         .success = true,
-        .output = try output.toOwnedSlice(),
-        .running = session.isRunning(),
+        .output = try output.toOwnedSlice(allocator),
+        .running = session.running,
     };
 }
 
@@ -144,14 +148,12 @@ pub fn closePtySessionImpl(
     params: ClosePtyParams,
     ctx: types.ToolContext,
 ) ClosePtyResult {
-    const closed = ctx.pty_manager.closeSession(params.session_id);
-
-    if (!closed) {
+    ctx.pty_manager.closeSession(params.session_id) catch {
         return ClosePtyResult{
             .success = false,
             .error_msg = "Session not found",
         };
-    }
+    };
 
     return ClosePtyResult{
         .success = true,
@@ -167,8 +169,6 @@ pub const PtySessionInfo = struct {
     command: []const u8,
     workdir: []const u8,
     running: bool,
-    created_at: i64,
-    last_activity: i64,
 };
 
 pub const ListPtyResult = struct {
@@ -181,26 +181,24 @@ pub fn listPtySessionsImpl(
     allocator: std.mem.Allocator,
     ctx: types.ToolContext,
 ) !ListPtyResult {
-    var sessions = std.ArrayList(PtySessionInfo).init(allocator);
-    defer sessions.deinit();
+    var sessions: std.ArrayList(PtySessionInfo) = .{};
+    defer sessions.deinit(allocator);
 
     // Get all sessions from manager
     var iter = ctx.pty_manager.sessions.iterator();
     while (iter.next()) |entry| {
         const session = entry.value_ptr.*;
-        try sessions.append(.{
+        try sessions.append(allocator, .{
             .id = session.id,
             .command = session.command,
             .workdir = session.workdir,
-            .running = session.isRunning(),
-            .created_at = session.created_at,
-            .last_activity = session.last_activity,
+            .running = session.running,
         });
     }
 
     return ListPtyResult{
         .success = true,
-        .sessions = try sessions.toOwnedSlice(),
+        .sessions = try sessions.toOwnedSlice(allocator),
     };
 }
 
@@ -289,4 +287,211 @@ pub fn createListPtySchema(allocator: std.mem.Allocator) !std.json.Value {
     try schema.put("properties", std.json.Value{ .object = std.json.ObjectMap.init(allocator) });
 
     return std.json.Value{ .object = schema };
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "UnifiedExecParams defaults" {
+    const params = UnifiedExecParams{
+        .cmd = "ls -la",
+    };
+
+    try std.testing.expectEqualStrings("ls -la", params.cmd);
+    try std.testing.expect(params.workdir == null);
+    try std.testing.expect(params.shell == null);
+    try std.testing.expectEqual(@as(u32, 100), params.yield_time_ms);
+    try std.testing.expectEqual(@as(u32, 4000), params.max_output_tokens);
+}
+
+test "UnifiedExecParams with options" {
+    const params = UnifiedExecParams{
+        .cmd = "npm test",
+        .workdir = "/home/user/project",
+        .shell = "/bin/zsh",
+        .yield_time_ms = 500,
+        .max_output_tokens = 8000,
+    };
+
+    try std.testing.expectEqualStrings("npm test", params.cmd);
+    try std.testing.expectEqualStrings("/home/user/project", params.workdir.?);
+    try std.testing.expectEqualStrings("/bin/zsh", params.shell.?);
+    try std.testing.expectEqual(@as(u32, 500), params.yield_time_ms);
+    try std.testing.expectEqual(@as(u32, 8000), params.max_output_tokens);
+}
+
+test "UnifiedExecResult success" {
+    const result = UnifiedExecResult{
+        .success = true,
+        .session_id = "session-123",
+        .output = "command output",
+        .running = true,
+    };
+
+    try std.testing.expect(result.success);
+    try std.testing.expectEqualStrings("session-123", result.session_id.?);
+    try std.testing.expect(result.output != null);
+    try std.testing.expect(result.running);
+    try std.testing.expect(result.error_msg == null);
+}
+
+test "UnifiedExecResult error" {
+    const result = UnifiedExecResult{
+        .success = false,
+        .error_msg = "Failed to spawn process",
+    };
+
+    try std.testing.expect(!result.success);
+    try std.testing.expect(result.error_msg != null);
+    try std.testing.expect(result.session_id == null);
+}
+
+test "WriteStdinParams" {
+    const params = WriteStdinParams{
+        .session_id = "session-abc",
+        .chars = "hello\n",
+    };
+
+    try std.testing.expectEqualStrings("session-abc", params.session_id);
+    try std.testing.expectEqualStrings("hello\n", params.chars);
+    try std.testing.expectEqual(@as(u32, 100), params.yield_time_ms);
+}
+
+test "WriteStdinResult success" {
+    const result = WriteStdinResult{
+        .success = true,
+        .output = "response output",
+        .running = true,
+    };
+
+    try std.testing.expect(result.success);
+    try std.testing.expect(result.output != null);
+    try std.testing.expect(result.running);
+}
+
+test "WriteStdinResult error" {
+    const result = WriteStdinResult{
+        .success = false,
+        .error_msg = "Session not found",
+    };
+
+    try std.testing.expect(!result.success);
+    try std.testing.expectEqualStrings("Session not found", result.error_msg.?);
+}
+
+test "ClosePtyParams" {
+    const params = ClosePtyParams{
+        .session_id = "session-xyz",
+    };
+
+    try std.testing.expectEqualStrings("session-xyz", params.session_id);
+}
+
+test "ClosePtyResult success" {
+    const result = ClosePtyResult{
+        .success = true,
+    };
+
+    try std.testing.expect(result.success);
+    try std.testing.expect(result.error_msg == null);
+}
+
+test "ClosePtyResult error" {
+    const result = ClosePtyResult{
+        .success = false,
+        .error_msg = "Session not found",
+    };
+
+    try std.testing.expect(!result.success);
+    try std.testing.expect(result.error_msg != null);
+}
+
+test "PtySessionInfo" {
+    const info = PtySessionInfo{
+        .id = "sess-1",
+        .command = "bash",
+        .workdir = "/home/user",
+        .running = true,
+    };
+
+    try std.testing.expectEqualStrings("sess-1", info.id);
+    try std.testing.expectEqualStrings("bash", info.command);
+    try std.testing.expectEqualStrings("/home/user", info.workdir);
+    try std.testing.expect(info.running);
+}
+
+test "ListPtyResult success" {
+    const result = ListPtyResult{
+        .success = true,
+        .sessions = &.{},
+    };
+
+    try std.testing.expect(result.success);
+    try std.testing.expectEqual(@as(usize, 0), result.sessions.len);
+}
+
+test "createUnifiedExecSchema" {
+    const allocator = std.testing.allocator;
+
+    const schema = try createUnifiedExecSchema(allocator);
+
+    try std.testing.expect(schema == .object);
+
+    const type_val = schema.object.get("type").?;
+    try std.testing.expectEqualStrings("object", type_val.string);
+
+    const props = schema.object.get("properties").?;
+    try std.testing.expect(props.object.get("cmd") != null);
+    try std.testing.expect(props.object.get("workdir") != null);
+
+    const required = schema.object.get("required").?;
+    try std.testing.expect(required == .array);
+    try std.testing.expectEqual(@as(usize, 1), required.array.items.len);
+}
+
+test "createWriteStdinSchema" {
+    const allocator = std.testing.allocator;
+
+    const schema = try createWriteStdinSchema(allocator);
+
+    try std.testing.expect(schema == .object);
+
+    const props = schema.object.get("properties").?;
+    try std.testing.expect(props.object.get("session_id") != null);
+    try std.testing.expect(props.object.get("chars") != null);
+
+    const required = schema.object.get("required").?;
+    try std.testing.expect(required == .array);
+    try std.testing.expectEqual(@as(usize, 2), required.array.items.len);
+}
+
+test "createClosePtySchema" {
+    const allocator = std.testing.allocator;
+
+    const schema = try createClosePtySchema(allocator);
+
+    try std.testing.expect(schema == .object);
+
+    const props = schema.object.get("properties").?;
+    try std.testing.expect(props.object.get("session_id") != null);
+
+    const required = schema.object.get("required").?;
+    try std.testing.expect(required == .array);
+    try std.testing.expectEqual(@as(usize, 1), required.array.items.len);
+}
+
+test "createListPtySchema" {
+    const allocator = std.testing.allocator;
+
+    const schema = try createListPtySchema(allocator);
+
+    try std.testing.expect(schema == .object);
+
+    const type_val = schema.object.get("type").?;
+    try std.testing.expectEqualStrings("object", type_val.string);
+
+    // List has empty properties (no required parameters)
+    const props = schema.object.get("properties").?;
+    try std.testing.expect(props == .object);
 }

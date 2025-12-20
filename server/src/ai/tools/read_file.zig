@@ -61,16 +61,16 @@ pub fn readFileImpl(
 
     // Track file read for read-before-write safety
     if (ctx.file_tracker) |tracker| {
-        const mod_time = filesystem.getFileModTime(resolved_path) catch std.time.milliTimestamp();
-        try tracker.recordRead(resolved_path, std.time.milliTimestamp(), mod_time);
+        const mod_time = filesystem.getFileModTime(resolved_path) catch @as(i64, @truncate(std.time.milliTimestamp()));
+        try tracker.recordRead(resolved_path, mod_time);
     }
 
     // Apply offset and limit
     const offset = params.offset orelse 1;
     const limit = params.limit orelse DEFAULT_LIMIT;
 
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    defer result.deinit(allocator);
 
     var line_num: u32 = 1;
     var output_lines: u32 = 0;
@@ -98,7 +98,7 @@ pub fn readFileImpl(
             line;
 
         // Format with line number (cat -n style)
-        try result.writer().print("{d: >6}\t{s}\n", .{ line_num, output_line });
+        try result.writer(allocator).print("{d: >6}\t{s}\n", .{ line_num, output_line });
 
         line_num += 1;
         output_lines += 1;
@@ -106,7 +106,7 @@ pub fn readFileImpl(
 
     return ReadFileResult{
         .success = true,
-        .content = try result.toOwnedSlice(),
+        .content = try result.toOwnedSlice(allocator),
         .line_count = output_lines,
         .truncated = truncated,
     };

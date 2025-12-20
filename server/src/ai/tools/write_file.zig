@@ -40,7 +40,7 @@ pub fn writeFileImpl(
 
         if (file_exists) {
             // File exists - must have been read first
-            if (!tracker.wasReadBefore(resolved_path)) {
+            if (!tracker.hasBeenRead(resolved_path)) {
                 return WriteFileResult{
                     .success = false,
                     .error_msg = "File must be read before writing. Use readFile first.",
@@ -55,7 +55,7 @@ pub fn writeFileImpl(
                 };
             };
 
-            const last_known_mod_time = tracker.getLastModTime(resolved_path);
+            const last_known_mod_time = tracker.getLastReadTime(resolved_path);
             if (last_known_mod_time) |last_mod| {
                 if (current_mod_time > last_mod) {
                     return WriteFileResult{
@@ -85,8 +85,8 @@ pub fn writeFileImpl(
 
     // Update tracker with new modification time
     if (ctx.file_tracker) |tracker| {
-        const new_mod_time = filesystem.getFileModTime(resolved_path) catch std.time.milliTimestamp();
-        try tracker.recordRead(resolved_path, std.time.milliTimestamp(), new_mod_time);
+        const new_mod_time = filesystem.getFileModTime(resolved_path) catch @as(i64, @truncate(std.time.milliTimestamp()));
+        try tracker.recordRead(resolved_path, new_mod_time);
     }
 
     return WriteFileResult{

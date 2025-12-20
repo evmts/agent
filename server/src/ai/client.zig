@@ -61,34 +61,36 @@ pub const AnthropicClient = struct {
 
         try writer.writeAll("}");
 
-        // Make HTTP request
+        // Make HTTP request using fetch API (Zig 0.15+)
         var client = std.http.Client{ .allocator = self.allocator };
         defer client.deinit();
 
         const url = try std.fmt.allocPrint(self.allocator, "{s}/v1/messages", .{self.base_url});
         defer self.allocator.free(url);
-        const uri = try std.Uri.parse(url);
 
-        var buf: [16384]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
-            .server_header_buffer = &buf,
+        // Use fixed buffer for response
+        var response_buf: [1024 * 1024]u8 = undefined; // 1MB buffer
+        var response_writer = std.Io.Writer.fixed(&response_buf);
+
+        const result = try client.fetch(.{
+            .location = .{ .url = url },
+            .method = .POST,
+            .headers = .{
+                .content_type = .{ .override = "application/json" },
+            },
             .extra_headers = &.{
                 .{ .name = "x-api-key", .value = self.api_key },
                 .{ .name = "anthropic-version", .value = "2023-06-01" },
-                .{ .name = "content-type", .value = "application/json" },
             },
+            .payload = json_buf.items,
+            .response_writer = &response_writer,
         });
-        defer req.deinit();
 
-        req.transfer_encoding = .{ .content_length = json_buf.items.len };
-        try req.send();
-        try req.writeAll(json_buf.items);
-        try req.finish();
-        try req.wait();
+        if (result.status != .ok) {
+            return error.HttpRequestFailed;
+        }
 
-        // Read response
-        const response_body = try req.reader().readAllAlloc(self.allocator, 1024 * 1024);
-        defer self.allocator.free(response_body);
+        const response_body = response_buf[0..response_writer.end];
 
         // Parse response
         return try parseResponse(self.allocator, response_body);
@@ -233,14 +235,13 @@ fn parseResponse(allocator: std.mem.Allocator, body: []const u8) !Response {
                 const name = try allocator.dupe(u8, obj.get("name").?.string);
 
                 // Serialize input back to JSON string
-                var input_buf = std.ArrayList(u8){};
-                try std.json.stringify(obj.get("input").?, .{}, input_buf.writer(allocator));
+                const input_json = try std.json.Stringify.valueAlloc(allocator, obj.get("input").?, .{});
 
                 try content_list.append(allocator, .{
                     .tool_use = .{
                         .id = id,
                         .name = name,
-                        .input = try input_buf.toOwnedSlice(allocator),
+                        .input = input_json,
                     },
                 });
             }

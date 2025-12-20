@@ -40,11 +40,11 @@ pub fn grepImpl(
     params: GrepParams,
     working_dir: ?[]const u8,
 ) !GrepResult {
-    var args = std.ArrayList([]const u8).init(allocator);
-    defer args.deinit();
+    var args = std.ArrayList([]const u8){};
+    defer args.deinit(allocator);
 
     // Base ripgrep arguments
-    try args.appendSlice(&.{
+    try args.appendSlice(allocator, &.{
         "rg",
         "--json",
         "--hidden",
@@ -53,29 +53,29 @@ pub fn grepImpl(
 
     // Multiline mode
     if (params.multiline) {
-        try args.appendSlice(&.{ "-U", "--multiline-dotall" });
+        try args.appendSlice(allocator, &.{ "-U", "--multiline-dotall" });
     }
 
     // Case insensitive
     if (params.case_insensitive) {
-        try args.append("-i");
+        try args.append(allocator, "-i");
     }
 
     // Context lines
     if (params.context_lines) |c| {
         const arg = try std.fmt.allocPrint(allocator, "-C{d}", .{c});
         defer allocator.free(arg);
-        try args.append(try allocator.dupe(u8, arg));
+        try args.append(allocator, try allocator.dupe(u8, arg));
     } else {
         if (params.context_after) |c| {
             const arg = try std.fmt.allocPrint(allocator, "-A{d}", .{c});
             defer allocator.free(arg);
-            try args.append(try allocator.dupe(u8, arg));
+            try args.append(allocator, try allocator.dupe(u8, arg));
         }
         if (params.context_before) |c| {
             const arg = try std.fmt.allocPrint(allocator, "-B{d}", .{c});
             defer allocator.free(arg);
-            try args.append(try allocator.dupe(u8, arg));
+            try args.append(allocator, try allocator.dupe(u8, arg));
         }
     }
 
@@ -83,22 +83,22 @@ pub fn grepImpl(
     if (params.glob) |g| {
         const arg = try std.fmt.allocPrint(allocator, "--glob={s}", .{g});
         defer allocator.free(arg);
-        try args.append(try allocator.dupe(u8, arg));
+        try args.append(allocator, try allocator.dupe(u8, arg));
     }
 
     // Max count
     if (params.max_count) |m| {
         const arg = try std.fmt.allocPrint(allocator, "--max-count={d}", .{m});
         defer allocator.free(arg);
-        try args.append(try allocator.dupe(u8, arg));
+        try args.append(allocator, try allocator.dupe(u8, arg));
     }
 
     // Pattern
-    try args.append(params.pattern);
+    try args.append(allocator, params.pattern);
 
     // Path
     if (params.path) |p| {
-        try args.append(p);
+        try args.append(allocator, p);
     }
 
     // Spawn ripgrep process
@@ -110,14 +110,16 @@ pub fn grepImpl(
     try child.spawn();
 
     // Read output
-    const stdout = child.stdout.?.reader();
-    var output = std.ArrayList(u8).init(allocator);
-    defer output.deinit();
-
-    stdout.readAllArrayList(&output, 10 * 1024 * 1024) catch |err| switch (err) {
-        error.StreamTooLong => {},
-        else => return err,
+    const stdout_file = child.stdout.?;
+    const output = stdout_file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch {
+        return GrepResult{
+            .success = false,
+            .matches = &.{},
+            .formatted_output = try allocator.dupe(u8, "Error reading output"),
+            .total_count = 0,
+        };
     };
+    defer allocator.free(output);
 
     const result = try child.wait();
 
@@ -132,13 +134,13 @@ pub fn grepImpl(
     }
 
     // Parse JSON output
-    var matches = std.ArrayList(GrepMatch).init(allocator);
-    defer matches.deinit();
+    var matches: std.ArrayList(GrepMatch) = .{};
+    defer matches.deinit(allocator);
 
-    var formatted = std.ArrayList(u8).init(allocator);
-    defer formatted.deinit();
+    var formatted: std.ArrayList(u8) = .{};
+    defer formatted.deinit(allocator);
 
-    var lines = std.mem.splitScalar(u8, output.items, '\n');
+    var lines = std.mem.splitScalar(u8, output, '\n');
     var count: u32 = 0;
     var skipped: u32 = 0;
 
@@ -189,22 +191,22 @@ pub fn grepImpl(
             break;
         }
 
-        try matches.append(.{
+        try matches.append(allocator, .{
             .path = try allocator.dupe(u8, path),
             .line_number = line_number,
             .text = try allocator.dupe(u8, text),
         });
 
         // Add to formatted output
-        try formatted.writer().print("{s}:{d}:{s}\n", .{ path, line_number, text });
+        try formatted.writer(allocator).print("{s}:{d}:{s}\n", .{ path, line_number, text });
 
         count += 1;
     }
 
     return GrepResult{
         .success = true,
-        .matches = try matches.toOwnedSlice(),
-        .formatted_output = try formatted.toOwnedSlice(),
+        .matches = try matches.toOwnedSlice(allocator),
+        .formatted_output = try formatted.toOwnedSlice(allocator),
         .total_count = count,
         .truncated = params.head_limit > 0 and count >= params.head_limit,
     };

@@ -51,7 +51,7 @@ pub fn multieditImpl(
 
     // Check read-before-write safety
     if (ctx.file_tracker) |tracker| {
-        if (!tracker.wasReadBefore(resolved_path)) {
+        if (!tracker.hasBeenRead(resolved_path)) {
             return MultieditResult{
                 .success = false,
                 .error_msg = "File must be read before editing. Use readFile first.",
@@ -66,7 +66,7 @@ pub fn multieditImpl(
             };
         };
 
-        const last_known_mod_time = tracker.getLastModTime(resolved_path);
+        const last_known_mod_time = tracker.getLastReadTime(resolved_path);
         if (last_known_mod_time) |last_mod| {
             if (current_mod_time > last_mod) {
                 return MultieditResult{
@@ -139,8 +139,8 @@ pub fn multieditImpl(
 
     // Update tracker with new modification time
     if (ctx.file_tracker) |tracker| {
-        const new_mod_time = filesystem.getFileModTime(resolved_path) catch std.time.milliTimestamp();
-        try tracker.recordRead(resolved_path, std.time.milliTimestamp(), new_mod_time);
+        const new_mod_time = filesystem.getFileModTime(resolved_path) catch @as(i64, @truncate(std.time.milliTimestamp()));
+        try tracker.recordRead(resolved_path, new_mod_time);
     }
 
     return MultieditResult{
@@ -153,39 +153,41 @@ pub fn multieditImpl(
 fn replaceFirst(allocator: std.mem.Allocator, haystack: []const u8, needle: []const u8, replacement: []const u8) !?[]const u8 {
     const idx = std.mem.indexOf(u8, haystack, needle) orelse return null;
 
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
-    try result.appendSlice(haystack[0..idx]);
-    try result.appendSlice(replacement);
-    try result.appendSlice(haystack[idx + needle.len ..]);
+    try result.appendSlice(allocator, haystack[0..idx]);
+    try result.appendSlice(allocator, replacement);
+    try result.appendSlice(allocator, haystack[idx + needle.len ..]);
 
-    return result.toOwnedSlice();
+    const slice = try result.toOwnedSlice(allocator);
+    return slice;
 }
 
 /// Replace all occurrences
 fn replaceAll(allocator: std.mem.Allocator, haystack: []const u8, needle: []const u8, replacement: []const u8) !?[]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    errdefer result.deinit(allocator);
 
     var pos: usize = 0;
     var replaced = false;
 
     while (pos < haystack.len) {
         if (std.mem.indexOf(u8, haystack[pos..], needle)) |idx| {
-            try result.appendSlice(haystack[pos .. pos + idx]);
-            try result.appendSlice(replacement);
+            try result.appendSlice(allocator, haystack[pos .. pos + idx]);
+            try result.appendSlice(allocator, replacement);
             pos += idx + needle.len;
             replaced = true;
         } else {
-            try result.appendSlice(haystack[pos..]);
+            try result.appendSlice(allocator, haystack[pos..]);
             break;
         }
     }
 
     if (!replaced) return null;
 
-    return result.toOwnedSlice();
+    const slice = try result.toOwnedSlice(allocator);
+    return slice;
 }
 
 /// Create JSON schema for multiedit tool parameters
@@ -260,4 +262,132 @@ test "replaceAll replaces all occurrences" {
 
     try std.testing.expect(result != null);
     try std.testing.expectEqualStrings("hello zig zig", result.?);
+}
+
+test "replaceFirst returns null when not found" {
+    const allocator = std.testing.allocator;
+
+    const result = try replaceFirst(allocator, "hello world", "notfound", "zig");
+
+    try std.testing.expect(result == null);
+}
+
+test "replaceAll returns null when not found" {
+    const allocator = std.testing.allocator;
+
+    const result = try replaceAll(allocator, "hello world", "notfound", "zig");
+
+    try std.testing.expect(result == null);
+}
+
+test "replaceFirst handles empty replacement" {
+    const allocator = std.testing.allocator;
+
+    const result = try replaceFirst(allocator, "hello world", "world", "");
+    defer if (result) |r| allocator.free(r);
+
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("hello ", result.?);
+}
+
+test "replaceAll handles overlapping patterns" {
+    const allocator = std.testing.allocator;
+
+    // Non-overlapping replacement
+    const result = try replaceAll(allocator, "aaa", "aa", "b");
+    defer if (result) |r| allocator.free(r);
+
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("ba", result.?);
+}
+
+test "EditOperation default values" {
+    const op = EditOperation{
+        .old_string = "foo",
+        .new_string = "bar",
+    };
+
+    try std.testing.expectEqualStrings("foo", op.old_string);
+    try std.testing.expectEqualStrings("bar", op.new_string);
+    try std.testing.expect(!op.replace_all);
+}
+
+test "EditOperation with replace_all" {
+    const op = EditOperation{
+        .old_string = "foo",
+        .new_string = "bar",
+        .replace_all = true,
+    };
+
+    try std.testing.expect(op.replace_all);
+}
+
+test "MultieditParams struct" {
+    const edits = [_]EditOperation{
+        .{ .old_string = "foo", .new_string = "bar" },
+        .{ .old_string = "baz", .new_string = "qux", .replace_all = true },
+    };
+
+    const params = MultieditParams{
+        .file_path = "/test/file.txt",
+        .edits = &edits,
+    };
+
+    try std.testing.expectEqualStrings("/test/file.txt", params.file_path);
+    try std.testing.expectEqual(@as(usize, 2), params.edits.len);
+}
+
+test "MultieditResult success" {
+    const result = MultieditResult{
+        .success = true,
+        .edits_applied = 3,
+    };
+
+    try std.testing.expect(result.success);
+    try std.testing.expectEqual(@as(u32, 3), result.edits_applied);
+    try std.testing.expect(result.error_msg == null);
+}
+
+test "MultieditResult error" {
+    const result = MultieditResult{
+        .success = false,
+        .error_msg = "File not found",
+    };
+
+    try std.testing.expect(!result.success);
+    try std.testing.expectEqualStrings("File not found", result.error_msg.?);
+    try std.testing.expectEqual(@as(u32, 0), result.edits_applied);
+}
+
+test "createMultieditSchema" {
+    const allocator = std.testing.allocator;
+
+    const schema = try createMultieditSchema(allocator);
+
+    // Schema should be an object
+    try std.testing.expect(schema == .object);
+
+    // Should have type = object
+    const type_val = schema.object.get("type").?;
+    try std.testing.expectEqualStrings("object", type_val.string);
+
+    // Should have properties
+    const props = schema.object.get("properties").?;
+    try std.testing.expect(props == .object);
+
+    // Should have file_path property
+    try std.testing.expect(props.object.get("file_path") != null);
+
+    // Should have edits property
+    const edits_prop = props.object.get("edits").?;
+    try std.testing.expect(edits_prop == .object);
+
+    // edits should be an array type
+    const edits_type = edits_prop.object.get("type").?;
+    try std.testing.expectEqualStrings("array", edits_type.string);
+
+    // Should have required array with both fields
+    const required = schema.object.get("required").?;
+    try std.testing.expect(required == .array);
+    try std.testing.expectEqual(@as(usize, 2), required.array.items.len);
 }
