@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import sessions from './sessions';
 import messages from './messages';
 import pty from './pty';
+import issues from './issues';
 
 const app = new Hono();
 
@@ -18,5 +19,6 @@ app.get('/health', (c) => {
 app.route('/sessions', sessions);
 app.route('/session', messages);
 app.route('/pty', pty);
+app.route('/repos', issues);
 
 export default app;

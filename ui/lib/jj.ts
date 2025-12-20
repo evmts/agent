@@ -24,6 +24,7 @@ import type {
   FileDiff,
   ChangeComparison,
 } from "./jj-types";
+import { initIssuesRepo } from "./git-issues";
 
 const execAsync = promisify(exec);
 
@@ -100,6 +101,9 @@ export async function initRepo(user: string, name: string): Promise<void> {
 
   // Initialize jj in the bare repo
   await runJj(['git', 'init', '--colocate'], repoPath);
+
+  // Initialize the issues repository
+  await initIssuesRepo(user, name);
 
   await rm(tempDir, { recursive: true });
 }
