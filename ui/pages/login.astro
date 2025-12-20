@@ -66,22 +66,73 @@ if (sessionCookie) {
 
 <script>
   import { connectAndLogin } from '../lib/client-auth';
+  import { initTelemetry, logInteraction, logError, withTimeout } from '../lib/telemetry';
+
+  // Initialize telemetry for error tracking
+  initTelemetry();
 
   const connectBtn = document.getElementById('connect-btn') as HTMLButtonElement;
   const errorDiv = document.getElementById('error') as HTMLDivElement;
+
+  // Connection timeout in milliseconds (30 seconds)
+  const CONNECTION_TIMEOUT = 30000;
 
   connectBtn.addEventListener('click', async () => {
     connectBtn.disabled = true;
     connectBtn.textContent = 'Connecting...';
     errorDiv.style.display = 'none';
 
+    // Track the interaction
+    logInteraction('click', 'connect-wallet-button');
+
+    // Create an AbortController for timeout handling
+    const abortController = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     try {
-      await connectAndLogin();
+      // Set up timeout
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, CONNECTION_TIMEOUT);
+
+      // Wrap with timeout tracking
+      await withTimeout(
+        connectAndLogin(),
+        CONNECTION_TIMEOUT,
+        'wallet-connection'
+      );
+
+      logInteraction('success', 'wallet-connection');
       window.location.href = '/';
     } catch (error) {
-      errorDiv.textContent = error instanceof Error ? error.message : 'Connection failed';
+      // Log the error for debugging
+      logError(error instanceof Error ? error : new Error(String(error)), {
+        component: 'login',
+        action: 'connectAndLogin',
+      });
+
+      // Provide user-friendly error messages
+      let message = 'Connection failed';
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('timed out')) {
+          message = 'Connection timed out. Please try again.';
+        } else if (error.message.includes('popup') || error.message.includes('Popup')) {
+          message = 'Wallet popup was blocked or closed. Please allow popups and try again.';
+        } else if (error.message.includes('HTTP') || error.message.includes('insecure')) {
+          message = 'HTTPS is required for wallet connection. Please use a secure connection.';
+        } else if (error.message.includes('rejected') || error.message.includes('denied')) {
+          message = 'Connection was rejected. Please approve the connection in your wallet.';
+        } else {
+          message = error.message;
+        }
+      }
+
+      errorDiv.textContent = message;
       errorDiv.style.display = 'block';
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       connectBtn.disabled = false;
       connectBtn.textContent = 'Connect Wallet';
     }
