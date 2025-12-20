@@ -121,7 +121,11 @@ export default [
       'ui/env.d.ts',
       'index.ts',
       'scripts/**',
-      'src/**'
+      'src/**',
+      'e2e/**',
+      'playwright.config.ts',
+      'playwright-report/**',
+      'test-results/**'
     ]
   }
 ];
