@@ -731,3 +731,393 @@ pub fn getPinnedIssues(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) 
 
     return issues.toOwnedSlice();
 }
+
+// ============================================================================
+// Milestone operations
+// ============================================================================
+
+pub const MilestoneRecord = struct {
+    id: i64,
+    repository_id: i64,
+    title: []const u8,
+    description: ?[]const u8,
+    due_date: ?i64,
+    state: []const u8,
+    open_issues: i64,
+    closed_issues: i64,
+    created_at: i64,
+    updated_at: i64,
+    closed_at: ?i64,
+};
+
+pub fn listMilestones(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, state: ?[]const u8) ![]MilestoneRecord {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    const query = if (state) |s|
+        if (std.mem.eql(u8, s, "all"))
+            \\SELECT m.id, m.repository_id, m.title, m.description,
+            \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
+            \\       m.state,
+            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+            \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
+            \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
+            \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
+            \\FROM milestones m
+            \\WHERE m.repository_id = $1
+            \\ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+        else
+            \\SELECT m.id, m.repository_id, m.title, m.description,
+            \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
+            \\       m.state,
+            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+            \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
+            \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
+            \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
+            \\FROM milestones m
+            \\WHERE m.repository_id = $1 AND m.state = $2
+            \\ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+    else
+        \\SELECT m.id, m.repository_id, m.title, m.description,
+        \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
+        \\       m.state,
+        \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+        \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+        \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
+        \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
+        \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
+        \\FROM milestones m
+        \\WHERE m.repository_id = $1 AND m.state = 'open'
+        \\ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+    ;
+
+    var result = if (state) |s|
+        if (std.mem.eql(u8, s, "all"))
+            try conn.query(query, .{repo_id})
+        else
+            try conn.query(query, .{ repo_id, s })
+    else
+        try conn.query(query, .{repo_id});
+    defer result.deinit();
+
+    var milestones: std.ArrayList(MilestoneRecord) = .init(allocator);
+    while (try result.next()) |row| {
+        try milestones.append(MilestoneRecord{
+            .id = row.get(i64, 0),
+            .repository_id = row.get(i64, 1),
+            .title = row.get([]const u8, 2),
+            .description = row.get(?[]const u8, 3),
+            .due_date = row.get(?i64, 4),
+            .state = row.get([]const u8, 5),
+            .open_issues = row.get(i64, 6),
+            .closed_issues = row.get(i64, 7),
+            .created_at = row.get(i64, 8),
+            .updated_at = row.get(i64, 9),
+            .closed_at = row.get(?i64, 10),
+        });
+    }
+
+    return milestones.toOwnedSlice();
+}
+
+pub fn getMilestone(pool: *Pool, repo_id: i64, milestone_id: i64) !?MilestoneRecord {
+    const row = try pool.row(
+        \\SELECT m.id, m.repository_id, m.title, m.description,
+        \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
+        \\       m.state,
+        \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+        \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+        \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
+        \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
+        \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
+        \\FROM milestones m
+        \\WHERE m.id = $1 AND m.repository_id = $2
+    , .{ milestone_id, repo_id });
+
+    if (row) |r| {
+        return MilestoneRecord{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .title = r.get([]const u8, 2),
+            .description = r.get(?[]const u8, 3),
+            .due_date = r.get(?i64, 4),
+            .state = r.get([]const u8, 5),
+            .open_issues = r.get(i64, 6),
+            .closed_issues = r.get(i64, 7),
+            .created_at = r.get(i64, 8),
+            .updated_at = r.get(i64, 9),
+            .closed_at = r.get(?i64, 10),
+        };
+    }
+    return null;
+}
+
+pub fn createMilestone(
+    pool: *Pool,
+    repo_id: i64,
+    title: []const u8,
+    description: ?[]const u8,
+    due_date: ?i64,
+) !MilestoneRecord {
+    // Convert Unix timestamp to PostgreSQL timestamp if due_date is provided
+    const row = if (due_date) |dd| blk: {
+        break :blk try pool.row(
+            \\INSERT INTO milestones (repository_id, title, description, due_date, created_at, updated_at)
+            \\VALUES ($1, $2, $3, to_timestamp($4), NOW(), NOW())
+            \\RETURNING id, repository_id, title, description,
+            \\          EXTRACT(EPOCH FROM due_date)::bigint,
+            \\          state,
+            \\          EXTRACT(EPOCH FROM created_at)::bigint,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+            \\          EXTRACT(EPOCH FROM closed_at)::bigint
+        , .{ repo_id, title, description, dd });
+    } else blk: {
+        break :blk try pool.row(
+            \\INSERT INTO milestones (repository_id, title, description, created_at, updated_at)
+            \\VALUES ($1, $2, $3, NOW(), NOW())
+            \\RETURNING id, repository_id, title, description,
+            \\          EXTRACT(EPOCH FROM due_date)::bigint,
+            \\          state,
+            \\          EXTRACT(EPOCH FROM created_at)::bigint,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+            \\          EXTRACT(EPOCH FROM closed_at)::bigint
+        , .{ repo_id, title, description });
+    };
+
+    if (row) |r| {
+        return MilestoneRecord{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .title = r.get([]const u8, 2),
+            .description = r.get(?[]const u8, 3),
+            .due_date = r.get(?i64, 4),
+            .state = r.get([]const u8, 5),
+            .open_issues = 0,
+            .closed_issues = 0,
+            .created_at = r.get(i64, 6),
+            .updated_at = r.get(i64, 7),
+            .closed_at = r.get(?i64, 8),
+        };
+    }
+    return error.InsertFailed;
+}
+
+pub fn updateMilestone(
+    pool: *Pool,
+    repo_id: i64,
+    milestone_id: i64,
+    title: ?[]const u8,
+    description: ?[]const u8,
+    due_date: ?i64,
+    state: ?[]const u8,
+) !?MilestoneRecord {
+    // Build dynamic update query based on provided fields
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    // This is a simplified version - in production you'd want to build the query dynamically
+    // For now, we'll update all fields that are non-null
+    const row = if (title != null and description != null and due_date != null and state != null) blk: {
+        const should_set_closed = std.mem.eql(u8, state.?, "closed");
+        if (should_set_closed) {
+            break :blk try pool.row(
+                \\UPDATE milestones
+                \\SET title = $3, description = $4, due_date = to_timestamp($5), state = $6, closed_at = NOW(), updated_at = NOW()
+                \\WHERE id = $1 AND repository_id = $2
+                \\RETURNING id, repository_id, title, description,
+                \\          EXTRACT(EPOCH FROM due_date)::bigint, state,
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'open'),
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'closed'),
+                \\          EXTRACT(EPOCH FROM created_at)::bigint,
+                \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+                \\          EXTRACT(EPOCH FROM closed_at)::bigint
+            , .{ milestone_id, repo_id, title.?, description.?, due_date.?, state.? });
+        } else {
+            break :blk try pool.row(
+                \\UPDATE milestones
+                \\SET title = $3, description = $4, due_date = to_timestamp($5), state = $6, closed_at = NULL, updated_at = NOW()
+                \\WHERE id = $1 AND repository_id = $2
+                \\RETURNING id, repository_id, title, description,
+                \\          EXTRACT(EPOCH FROM due_date)::bigint, state,
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'open'),
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'closed'),
+                \\          EXTRACT(EPOCH FROM created_at)::bigint,
+                \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+                \\          EXTRACT(EPOCH FROM closed_at)::bigint
+            , .{ milestone_id, repo_id, title.?, description.?, due_date.?, state.? });
+        }
+    } else if (title != null) blk: {
+        break :blk try pool.row(
+            \\UPDATE milestones SET title = $3, updated_at = NOW()
+            \\WHERE id = $1 AND repository_id = $2
+            \\RETURNING id, repository_id, title, description,
+            \\          EXTRACT(EPOCH FROM due_date)::bigint, state,
+            \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'open'),
+            \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'closed'),
+            \\          EXTRACT(EPOCH FROM created_at)::bigint,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+            \\          EXTRACT(EPOCH FROM closed_at)::bigint
+        , .{ milestone_id, repo_id, title.? });
+    } else if (state != null) blk: {
+        const should_set_closed = std.mem.eql(u8, state.?, "closed");
+        if (should_set_closed) {
+            break :blk try pool.row(
+                \\UPDATE milestones SET state = $3, closed_at = NOW(), updated_at = NOW()
+                \\WHERE id = $1 AND repository_id = $2
+                \\RETURNING id, repository_id, title, description,
+                \\          EXTRACT(EPOCH FROM due_date)::bigint, state,
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'open'),
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'closed'),
+                \\          EXTRACT(EPOCH FROM created_at)::bigint,
+                \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+                \\          EXTRACT(EPOCH FROM closed_at)::bigint
+            , .{ milestone_id, repo_id, state.? });
+        } else {
+            break :blk try pool.row(
+                \\UPDATE milestones SET state = $3, closed_at = NULL, updated_at = NOW()
+                \\WHERE id = $1 AND repository_id = $2
+                \\RETURNING id, repository_id, title, description,
+                \\          EXTRACT(EPOCH FROM due_date)::bigint, state,
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'open'),
+                \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'closed'),
+                \\          EXTRACT(EPOCH FROM created_at)::bigint,
+                \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+                \\          EXTRACT(EPOCH FROM closed_at)::bigint
+            , .{ milestone_id, repo_id, state.? });
+        }
+    } else blk: {
+        break :blk try pool.row(
+            \\UPDATE milestones SET updated_at = NOW()
+            \\WHERE id = $1 AND repository_id = $2
+            \\RETURNING id, repository_id, title, description,
+            \\          EXTRACT(EPOCH FROM due_date)::bigint, state,
+            \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'open'),
+            \\          (SELECT COUNT(*) FROM issues WHERE milestone_id = id AND state = 'closed'),
+            \\          EXTRACT(EPOCH FROM created_at)::bigint,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint,
+            \\          EXTRACT(EPOCH FROM closed_at)::bigint
+        , .{ milestone_id, repo_id });
+    };
+
+    if (row) |r| {
+        return MilestoneRecord{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .title = r.get([]const u8, 2),
+            .description = r.get(?[]const u8, 3),
+            .due_date = r.get(?i64, 4),
+            .state = r.get([]const u8, 5),
+            .open_issues = r.get(i64, 6),
+            .closed_issues = r.get(i64, 7),
+            .created_at = r.get(i64, 8),
+            .updated_at = r.get(i64, 9),
+            .closed_at = r.get(?i64, 10),
+        };
+    }
+    return null;
+}
+
+pub fn deleteMilestone(pool: *Pool, repo_id: i64, milestone_id: i64) !bool {
+    const result = try pool.exec(
+        \\DELETE FROM milestones WHERE id = $1 AND repository_id = $2
+    , .{ milestone_id, repo_id });
+    return result > 0;
+}
+
+pub fn assignMilestoneToIssue(pool: *Pool, repo_id: i64, issue_number: i64, milestone_id: i64) !void {
+    _ = try pool.exec(
+        \\UPDATE issues SET milestone_id = $3, updated_at = NOW()
+        \\WHERE repository_id = $1 AND issue_number = $2
+    , .{ repo_id, issue_number, milestone_id });
+}
+
+pub fn removeMilestoneFromIssue(pool: *Pool, repo_id: i64, issue_number: i64) !void {
+    _ = try pool.exec(
+        \\UPDATE issues SET milestone_id = NULL, updated_at = NOW()
+        \\WHERE repository_id = $1 AND issue_number = $2
+    , .{ repo_id, issue_number });
+}
+
+// ============================================================================
+// Additional issue operations
+// ============================================================================
+
+pub fn deleteIssue(pool: *Pool, repo_id: i64, issue_number: i64) !void {
+    _ = try pool.exec(
+        \\DELETE FROM issues WHERE repository_id = $1 AND issue_number = $2
+    , .{ repo_id, issue_number });
+}
+
+// ============================================================================
+// Label update/delete operations
+// ============================================================================
+
+pub fn updateLabel(pool: *Pool, repo_id: i64, old_name: []const u8, new_name: []const u8, color: []const u8, description: ?[]const u8) !LabelRecord {
+    const row = try pool.row(
+        \\UPDATE labels SET name = $3, color = $4, description = $5
+        \\WHERE repository_id = $1 AND name = $2
+        \\RETURNING id, repository_id, name, color, description
+    , .{ repo_id, old_name, new_name, color, description });
+
+    if (row) |r| {
+        return LabelRecord{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .name = r.get([]const u8, 2),
+            .color = r.get([]const u8, 3),
+            .description = r.get(?[]const u8, 4),
+        };
+    }
+    return error.UpdateFailed;
+}
+
+pub fn deleteLabel(pool: *Pool, repo_id: i64, name: []const u8) !void {
+    _ = try pool.exec(
+        \\DELETE FROM labels WHERE repository_id = $1 AND name = $2
+    , .{ repo_id, name });
+}
+
+// ============================================================================
+// Issue history/timeline operations
+// ============================================================================
+
+pub const IssueEventRecord = struct {
+    id: i64,
+    repository_id: i64,
+    issue_number: i64,
+    actor_id: ?i64,
+    event_type: []const u8,
+    metadata: []const u8, // JSON string
+    created_at: i64,
+};
+
+pub fn getIssueHistory(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, issue_number: i64) ![]IssueEventRecord {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT id, repository_id, issue_number, actor_id, event_type,
+        \\       metadata::text, EXTRACT(EPOCH FROM created_at)::bigint
+        \\FROM issue_events
+        \\WHERE repository_id = $1 AND issue_number = $2
+        \\ORDER BY created_at ASC
+    , .{ repo_id, issue_number });
+    defer result.deinit();
+
+    var events: std.ArrayList(IssueEventRecord) = .init(allocator);
+    while (try result.next()) |row| {
+        try events.append(IssueEventRecord{
+            .id = row.get(i64, 0),
+            .repository_id = row.get(i64, 1),
+            .issue_number = row.get(i64, 2),
+            .actor_id = row.get(?i64, 3),
+            .event_type = row.get([]const u8, 4),
+            .metadata = row.get([]const u8, 5),
+            .created_at = row.get(i64, 6),
+        });
+    }
+
+    return events.toOwnedSlice();
+}

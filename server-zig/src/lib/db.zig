@@ -94,6 +94,12 @@ pub fn deleteSession(pool: *Pool, session_key: []const u8) !void {
     , .{session_key});
 }
 
+pub fn cleanupExpiredSessions(pool: *Pool) !?i64 {
+    return try pool.exec(
+        \\DELETE FROM auth_sessions WHERE expires_at <= NOW()
+    , .{});
+}
+
 // ============================================================================
 // User operations
 // ============================================================================
@@ -1060,6 +1066,23 @@ pub fn deleteBookmark(pool: *Pool, repo_id: i64, name: []const u8) !void {
     _ = try pool.exec(
         \\DELETE FROM bookmarks WHERE repository_id = $1 AND name = $2
     , .{ repo_id, name });
+}
+
+pub fn setDefaultBookmark(pool: *Pool, repo_id: i64, name: []const u8) !void {
+    // Clear all existing defaults for this repository
+    _ = try pool.exec(
+        \\UPDATE bookmarks SET is_default = false WHERE repository_id = $1
+    , .{repo_id});
+
+    // Set the new default
+    _ = try pool.exec(
+        \\UPDATE bookmarks SET is_default = true WHERE repository_id = $1 AND name = $2
+    , .{ repo_id, name });
+
+    // Also update the repository's default_bookmark field
+    _ = try pool.exec(
+        \\UPDATE repositories SET default_bookmark = $1 WHERE id = $2
+    , .{ name, repo_id });
 }
 
 // ============================================================================

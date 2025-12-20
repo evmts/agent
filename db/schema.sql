@@ -53,7 +53,9 @@ CREATE INDEX IF NOT EXISTS idx_email_addresses_lower_email ON email_addresses(lo
 CREATE TABLE IF NOT EXISTS auth_sessions (
   session_key VARCHAR(64) PRIMARY KEY,
   user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-  data BYTEA,
+  username VARCHAR(255) NOT NULL,
+  is_admin BOOLEAN NOT NULL DEFAULT false,
+  data BYTEA, -- Legacy field for TypeScript compatibility
   expires_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -948,3 +950,28 @@ CREATE TABLE IF NOT EXISTS pinned_issues (
 CREATE INDEX IF NOT EXISTS idx_pinned_issues_repo ON pinned_issues(repository_id);
 CREATE INDEX IF NOT EXISTS idx_pinned_issues_issue ON pinned_issues(issue_id);
 CREATE INDEX IF NOT EXISTS idx_pinned_issues_order ON pinned_issues(repository_id, pin_order);
+
+-- =============================================================================
+-- Conflicts (jj conflict tracking)
+-- =============================================================================
+
+-- Track conflicts in changes and their resolution status
+CREATE TABLE IF NOT EXISTS conflicts (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  change_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  conflict_type TEXT NOT NULL DEFAULT 'content', -- 'content', 'rename', 'delete'
+  resolved BOOLEAN DEFAULT FALSE,
+  resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  resolution_method TEXT, -- 'manual', 'theirs', 'ours', 'base'
+  resolved_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(change_id, file_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conflicts_repo ON conflicts(repository_id);
+CREATE INDEX IF NOT EXISTS idx_conflicts_change ON conflicts(change_id);
+CREATE INDEX IF NOT EXISTS idx_conflicts_resolved ON conflicts(resolved);
+CREATE INDEX IF NOT EXISTS idx_conflicts_file ON conflicts(file_path);
