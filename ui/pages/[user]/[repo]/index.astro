@@ -3,6 +3,7 @@ import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
 import FileTree from "../../../components/FileTree.astro";
 import Markdown from "../../../components/Markdown.astro";
+import TopicBadge from "../../../components/TopicBadge.astro";
 import { sql } from "../../../lib/db";
 import { getTree, getFileContent, getCloneUrl, getDefaultBookmark } from "../../../lib/jj";
 import type { User, Repository } from "../../../lib/types";
@@ -78,10 +79,19 @@ try {
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
     <a href={`/${username}/${reponame}/operations`}>Operations</a>
+    <a href={`/${username}/${reponame}/settings`}>Settings</a>
   </nav>
 
   <div class="container">
     {repo.description && <p class="description mb-2">{repo.description}</p>}
+
+    {repo.topics && repo.topics.length > 0 && (
+      <div class="topics mb-2">
+        {repo.topics.map((topic) => (
+          <TopicBadge topic={topic} />
+        ))}
+      </div>
+    )}
 
     <div class="clone-url mb-3">
       <code>{cloneUrl}</code>
@@ -104,6 +114,11 @@ try {
 <style>
   .description {
     font-size: 14px;
+  }
+  .topics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   .ssh-key-link {
     margin-left: 0.5rem;

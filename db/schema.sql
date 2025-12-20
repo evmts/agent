@@ -104,6 +104,22 @@ CREATE TABLE IF NOT EXISTS repositories (
   UNIQUE(user_id, name)
 );
 
+-- Milestones
+CREATE TABLE IF NOT EXISTS milestones (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  due_date TIMESTAMP,
+  state VARCHAR(20) DEFAULT 'open' CHECK (state IN ('open', 'closed')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  closed_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_milestones_repository ON milestones(repository_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_state ON milestones(state);
+
 -- Issues
 CREATE TABLE IF NOT EXISTS issues (
   id SERIAL PRIMARY KEY,
@@ -113,11 +129,14 @@ CREATE TABLE IF NOT EXISTS issues (
   title VARCHAR(512) NOT NULL,
   body TEXT,
   state VARCHAR(20) DEFAULT 'open' CHECK (state IN ('open', 'closed')),
+  milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   closed_at TIMESTAMP,
   UNIQUE(repository_id, issue_number)
 );
+
+CREATE INDEX IF NOT EXISTS idx_issues_milestone ON issues(milestone_id);
 
 -- Comments
 CREATE TABLE IF NOT EXISTS comments (
@@ -694,6 +713,38 @@ CREATE TABLE IF NOT EXISTS workflow_artifacts (
 
 CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_run ON workflow_artifacts(run_id);
 
+-- Commit statuses (CI/workflow check results)
+CREATE TABLE IF NOT EXISTS commit_statuses (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  commit_sha VARCHAR(64) NOT NULL,
+
+  -- Context identifies the check (e.g., "ci", "test", "lint")
+  context VARCHAR(255) NOT NULL,
+
+  -- State: pending, success, failure, error
+  state VARCHAR(20) NOT NULL CHECK (state IN ('pending', 'success', 'failure', 'error')),
+
+  -- Human-readable description
+  description TEXT,
+
+  -- URL to workflow run or external check
+  target_url TEXT,
+
+  -- Link to workflow run if created by internal workflow
+  workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
+
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+
+  UNIQUE(repository_id, commit_sha, context)
+);
+
+CREATE INDEX IF NOT EXISTS idx_commit_statuses_repo ON commit_statuses(repository_id);
+CREATE INDEX IF NOT EXISTS idx_commit_statuses_commit ON commit_statuses(commit_sha);
+CREATE INDEX IF NOT EXISTS idx_commit_statuses_repo_commit ON commit_statuses(repository_id, commit_sha);
+CREATE INDEX IF NOT EXISTS idx_commit_statuses_workflow_run ON commit_statuses(workflow_run_id);
+
 -- =============================================================================
 -- Seed Data
 -- =============================================================================
@@ -708,3 +759,54 @@ ON CONFLICT (username) DO UPDATE SET
   email = EXCLUDED.email,
   lower_email = EXCLUDED.lower_email,
   is_active = EXCLUDED.is_active;
+-- =============================================================================
+-- Repository Starring and Watching
+-- =============================================================================
+
+-- Stars table tracks which users have starred which repositories
+CREATE TABLE IF NOT EXISTS stars (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, repository_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stars_user ON stars(user_id);
+CREATE INDEX IF NOT EXISTS idx_stars_repo ON stars(repository_id);
+CREATE INDEX IF NOT EXISTS idx_stars_created ON stars(created_at DESC);
+
+-- Watches table tracks which users are watching which repositories
+-- level: 'all' = all activity, 'releases' = releases only, 'ignore' = ignore all
+CREATE TABLE IF NOT EXISTS watches (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  level VARCHAR(20) NOT NULL DEFAULT 'all' CHECK (level IN ('all', 'releases', 'ignore')),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, repository_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watches_user ON watches(user_id);
+CREATE INDEX IF NOT EXISTS idx_watches_repo ON watches(repository_id);
+CREATE INDEX IF NOT EXISTS idx_watches_level ON watches(level);
+
+-- =============================================================================
+-- Reactions Tables
+-- =============================================================================
+
+-- Reactions for issues and comments
+CREATE TABLE IF NOT EXISTS reactions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_type VARCHAR(20) NOT NULL CHECK (target_type IN ('issue', 'comment')),
+  target_id INTEGER NOT NULL,
+  emoji VARCHAR(10) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, target_type, target_id, emoji)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reactions_issue ON reactions(target_type, target_id) WHERE target_type = 'issue';
+CREATE INDEX IF NOT EXISTS idx_reactions_comment ON reactions(target_type, target_id) WHERE target_type = 'comment';
+CREATE INDEX IF NOT EXISTS idx_reactions_user ON reactions(user_id);

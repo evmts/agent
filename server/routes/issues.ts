@@ -332,4 +332,107 @@ app.get("/:user/:repo/issues/counts", async (c) => {
   }
 });
 
+// =============================================================================
+// Assignee Routes
+// =============================================================================
+
+// Get assignees for an issue
+app.get("/:user/:repo/issues/:number/assignees", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Return assignees from git issue frontmatter
+    return c.json({ assignees: issue.assignees || [] });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Add an assignee to an issue
+app.post("/:user/:repo/issues/:number/assignees", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!body.username) {
+    return c.json({ error: "Username is required" }, 400);
+  }
+
+  try {
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Add assignee if not already present
+    const assignees = issue.assignees || [];
+    if (!assignees.includes(body.username)) {
+      assignees.push(body.username);
+      await updateIssue(user, repo, number, { assignees });
+    }
+
+    return c.json({ assignees });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof GitOperationError) {
+      return c.json({ error: error.message }, 500);
+    }
+    throw error;
+  }
+});
+
+// Remove an assignee from an issue
+app.delete("/:user/:repo/issues/:number/assignees/:username", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const username = c.req.param("username");
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Remove assignee
+    const assignees = (issue.assignees || []).filter((a) => a !== username);
+    await updateIssue(user, repo, number, { assignees });
+
+    return c.json({ assignees });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof GitOperationError) {
+      return c.json({ error: error.message }, 500);
+    }
+    throw error;
+  }
+});
+
 export default app;

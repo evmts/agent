@@ -36,13 +36,13 @@ export const test = base.extend<{
 export { expect };
 
 /**
- * Test data constants
- * These should be updated to match actual test repositories in your database
+ * Test data constants - synced with e2e/seed.ts
+ * These are automatically created by the global setup before tests run.
  */
 export const TEST_DATA = {
-  // Update these to match actual test data in your database
-  user: 'testuser',
+  user: 'e2etest',
   repo: 'testrepo',
+  emptyRepo: 'emptyrepo',
   defaultBranch: 'main',
 } as const;
 

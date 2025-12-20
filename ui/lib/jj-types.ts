@@ -288,6 +288,29 @@ export interface LandingReview {
 
 export type ReviewType = 'pending' | 'comment' | 'approve' | 'request_changes';
 
+/**
+ * Line comment on a specific line in a diff (code review comment)
+ */
+export interface LineComment {
+  id: number;
+  landingId: number;
+  authorId: number;
+  filePath: string;
+  lineNumber: number;
+  side: 'old' | 'new';
+  body: string;
+  resolved: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+
+  // Joined
+  author?: {
+    id: number;
+    username: string;
+    displayName: string | null;
+  };
+}
+
 // =============================================================================
 // Comparison Types
 // =============================================================================

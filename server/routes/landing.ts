@@ -523,4 +523,205 @@ app.get("/:user/:repo/landing/:id/files", async (c) => {
   }
 });
 
+// =============================================================================
+// Line Comments (Code Review Comments)
+// =============================================================================
+
+// Get all line comments for a landing request
+app.get("/:user/:repo/landing/:id/comments", async (c) => {
+  const { user, repo, id } = c.req.param();
+
+  try {
+    const [repository] = await sql`
+      SELECT r.*, u.username
+      FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repository) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [request] = await sql<LandingRequest[]>`
+      SELECT * FROM landing_queue
+      WHERE repository_id = ${repository.id} AND id = ${id}
+    `;
+
+    if (!request) {
+      return c.json({ error: "Landing request not found" }, 404);
+    }
+
+    // Get all line comments
+    const comments = await sql`
+      SELECT lc.*,
+        json_build_object(
+          'id', u.id,
+          'username', u.username,
+          'displayName', u.display_name
+        ) as author
+      FROM line_comments lc
+      LEFT JOIN users u ON lc.author_id = u.id
+      WHERE lc.landing_id = ${id}
+      ORDER BY lc.file_path, lc.line_number, lc.created_at ASC
+    `;
+
+    return c.json({ comments });
+  } catch (error: unknown) {
+    console.error('Error getting line comments:', error);
+    return c.json({ error: "Failed to get line comments" }, 500);
+  }
+});
+
+// Create a line comment
+app.post("/:user/:repo/landing/:id/comments", async (c) => {
+  const { user, repo, id } = c.req.param();
+
+  try {
+    const { file_path, line_number, side, body } = await c.req.json();
+
+    if (!file_path || !line_number || !side || !body) {
+      return c.json({ error: "Missing required fields: file_path, line_number, side, body" }, 400);
+    }
+
+    if (!['old', 'new'].includes(side)) {
+      return c.json({ error: "Invalid side value. Must be 'old' or 'new'" }, 400);
+    }
+
+    const [repository] = await sql`
+      SELECT r.*, u.username
+      FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repository) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [request] = await sql<LandingRequest[]>`
+      SELECT * FROM landing_queue
+      WHERE repository_id = ${repository.id} AND id = ${id}
+    `;
+
+    if (!request) {
+      return c.json({ error: "Landing request not found" }, 404);
+    }
+
+    // Create comment
+    const [comment] = await sql`
+      INSERT INTO line_comments (
+        landing_id, author_id, file_path, line_number, side, body
+      )
+      VALUES (
+        ${id}, ${repository.user_id}, ${file_path}, ${line_number}, ${side}, ${body}
+      )
+      RETURNING *
+    `;
+
+    return c.json({ comment }, 201);
+  } catch (error: unknown) {
+    console.error('Error creating line comment:', error);
+    return c.json({ error: "Failed to create line comment" }, 500);
+  }
+});
+
+// Update a line comment (edit or resolve)
+app.patch("/:user/:repo/landing/:id/comments/:commentId", async (c) => {
+  const { user, repo, id, commentId } = c.req.param();
+
+  try {
+    const { body, resolved } = await c.req.json();
+
+    const [repository] = await sql`
+      SELECT r.*, u.username
+      FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repository) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [comment] = await sql`
+      SELECT * FROM line_comments
+      WHERE id = ${commentId} AND landing_id = ${id}
+    `;
+
+    if (!comment) {
+      return c.json({ error: "Comment not found" }, 404);
+    }
+
+    // Build update query
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (body !== undefined) {
+      updates.push('body = $' + (updates.length + 1));
+      values.push(body);
+    }
+
+    if (resolved !== undefined) {
+      updates.push('resolved = $' + (updates.length + 1));
+      values.push(resolved);
+    }
+
+    if (updates.length === 0) {
+      return c.json({ error: "No updates provided" }, 400);
+    }
+
+    updates.push('updated_at = NOW()');
+
+    const [updatedComment] = await sql`
+      UPDATE line_comments
+      SET ${sql(updates.join(', '))}
+      WHERE id = ${commentId}
+      RETURNING *
+    `;
+
+    return c.json({ comment: updatedComment });
+  } catch (error: unknown) {
+    console.error('Error updating line comment:', error);
+    return c.json({ error: "Failed to update line comment" }, 500);
+  }
+});
+
+// Delete a line comment
+app.delete("/:user/:repo/landing/:id/comments/:commentId", async (c) => {
+  const { user, repo, id, commentId } = c.req.param();
+
+  try {
+    const [repository] = await sql`
+      SELECT r.*, u.username
+      FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repository) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [comment] = await sql`
+      SELECT * FROM line_comments
+      WHERE id = ${commentId} AND landing_id = ${id}
+    `;
+
+    if (!comment) {
+      return c.json({ error: "Comment not found" }, 404);
+    }
+
+    await sql`
+      DELETE FROM line_comments
+      WHERE id = ${commentId}
+    `;
+
+    return c.json({ success: true });
+  } catch (error: unknown) {
+    console.error('Error deleting line comment:', error);
+    return c.json({ error: "Failed to delete line comment" }, 500);
+  }
+});
+
 export default app;

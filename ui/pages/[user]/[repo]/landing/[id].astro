@@ -147,105 +147,194 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
       <span>{new Date(request.createdAt).toLocaleDateString()}</span>
     </div>
 
-    {request.description && (
-      <div class="description">
-        {request.description}
-      </div>
-    )}
+    <TabNav tabs={tabs} activeTab={activeTab} baseUrl={baseUrl} />
 
     <div class="content-grid">
       <div class="main-content">
-        <!-- Conflict Warning -->
-        {request.hasConflicts && request.conflictedFiles && (
-          <div class="conflict-section">
-            <h3>Conflicts</h3>
-            <p>This change has conflicts with {request.targetBookmark} that need to be resolved before landing.</p>
-            <ul class="conflict-list">
-              {request.conflictedFiles.map(file => (
-                <li>
-                  <span class="file-icon">!</span>
-                  {file}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <!-- Conversation Tab -->
+        {activeTab === 'conversation' && (
+          <>
+            {request.description && (
+              <div class="description-section">
+                <h3>Description</h3>
+                <div class="description-content">
+                  {request.description}
+                </div>
+              </div>
+            )}
+
+            <!-- Conflict Warning -->
+            {request.hasConflicts && request.conflictedFiles && (
+              <div class="conflict-section">
+                <h3>Conflicts</h3>
+                <p>This change has conflicts with {request.targetBookmark} that need to be resolved before landing.</p>
+                <ul class="conflict-list">
+                  {request.conflictedFiles.map(file => (
+                    <li>
+                      <span class="file-icon">!</span>
+                      {file}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <!-- Change Details -->
+            {change && (
+              <div class="change-section">
+                <h3>Change Details</h3>
+                <div class="change-info">
+                  <div class="info-row">
+                    <span class="label">Change ID:</span>
+                    <span class="value change-id">{change.changeId}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="label">Author:</span>
+                    <span class="value">{change.author.name} &lt;{change.author.email}&gt;</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="label">Date:</span>
+                    <span class="value">{new Date(change.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="label">Description:</span>
+                    <span class="value">{change.description || "(no description)"}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <!-- Reviews -->
+            <div class="reviews-section">
+              <h3>Reviews</h3>
+              <div class="review-list">
+                {reviews.map(review => (
+                  <div class={`review-item ${review.type}`}>
+                    <div class="review-header">
+                      <span class="reviewer">{review.reviewer_username}</span>
+                      <span class="review-type">{review.type}</span>
+                      <span class="review-date">{new Date(review.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    {review.content && (
+                      <div class="review-content">{review.content}</div>
+                    )}
+                  </div>
+                ))}
+
+                {reviews.length === 0 && (
+                  <div class="empty-state">No reviews yet</div>
+                )}
+              </div>
+            </div>
+          </>
         )}
 
-        <!-- Change Details -->
-        {change && (
-          <div class="change-section">
-            <h3>Change Details</h3>
-            <div class="change-info">
-              <div class="info-row">
-                <span class="label">Change ID:</span>
-                <span class="value change-id">{change.changeId}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">Author:</span>
-                <span class="value">{change.author.name} &lt;{change.author.email}&gt;</span>
-              </div>
-              <div class="info-row">
-                <span class="label">Date:</span>
-                <span class="value">{new Date(change.timestamp).toLocaleString()}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">Description:</span>
-                <span class="value">{change.description || "(no description)"}</span>
-              </div>
+        <!-- Commits Tab -->
+        {activeTab === 'commits' && (
+          <div class="commits-section">
+            <h3>Commits</h3>
+            <div class="commit-list">
+              {commits.map(commit => (
+                <div class="commit-item">
+                  <div class="commit-header">
+                    <span class="change-id">{commit.changeId.substring(0, 8)}</span>
+                    <span class="commit-message">{commit.description}</span>
+                  </div>
+                  <div class="commit-meta">
+                    <span class="commit-author">{commit.author.name}</span>
+                    <span class="sep">·</span>
+                    <span class="commit-date">{new Date(commit.timestamp).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              ))}
+
+              {commits.length === 0 && (
+                <div class="empty-state">No commits in this landing request</div>
+              )}
             </div>
           </div>
         )}
 
-        <!-- Files Changed -->
-        <div class="files-section">
-          <h3>
-            Files Changed
-            <span class="count">{diff.length}</span>
-          </h3>
-          <div class="file-list">
-            {diff.map(file => (
-              <div class="file-item">
-                <span class={`file-status ${file.status}`}>
-                  {file.status === 'added' ? 'A' :
-                   file.status === 'deleted' ? 'D' :
-                   file.status === 'renamed' ? 'R' : 'M'}
-                </span>
-                <span class="file-path">{file.path}</span>
-                <span class="file-stats">
-                  {file.additions > 0 && <span class="additions">+{file.additions}</span>}
-                  {file.deletions > 0 && <span class="deletions">-{file.deletions}</span>}
-                </span>
-              </div>
-            ))}
+        <!-- Files Changed Tab -->
+        {activeTab === 'files' && (
+          <div class="files-changed-section">
+            <div class="files-stats">
+              <span class="stat">
+                <span class="additions">+{diff.reduce((sum, f) => sum + f.additions, 0)}</span>
+                <span class="deletions">-{diff.reduce((sum, f) => sum + f.deletions, 0)}</span>
+              </span>
+              <span class="file-count">{diff.length} {diff.length === 1 ? 'file' : 'files'} changed</span>
+            </div>
 
-            {diff.length === 0 && (
-              <div class="empty-state">No files changed</div>
-            )}
-          </div>
-        </div>
-
-        <!-- Reviews -->
-        <div class="reviews-section">
-          <h3>Reviews</h3>
-          <div class="review-list">
-            {reviews.map(review => (
-              <div class={`review-item ${review.type}`}>
-                <div class="review-header">
-                  <span class="reviewer">{review.reviewer_username}</span>
-                  <span class="review-type">{review.type}</span>
-                  <span class="review-date">{new Date(review.createdAt).toLocaleDateString()}</span>
+            <div class="files-content">
+              <div class="files-sidebar">
+                <h3>Files</h3>
+                <div class="file-tree">
+                  {diff.map(file => (
+                    <a href={`#file-${file.path.replace(/\//g, '-')}`} class="file-tree-item">
+                      <span class={`file-status ${file.status}`}>
+                        {file.status === 'added' ? 'A' :
+                         file.status === 'deleted' ? 'D' :
+                         file.status === 'renamed' ? 'R' : 'M'}
+                      </span>
+                      <span class="file-path">{file.path}</span>
+                    </a>
+                  ))}
                 </div>
-                {review.content && (
-                  <div class="review-content">{review.content}</div>
+              </div>
+
+              <div class="files-diff">
+                {diff.map(file => (
+                  <div class="diff-file" id={`file-${file.path.replace(/\//g, '-')}`}>
+                    <div class="diff-file-header">
+                      <div class="diff-file-info">
+                        <span class={`file-status ${file.status}`}>
+                          {file.status === 'added' ? 'A' :
+                           file.status === 'deleted' ? 'D' :
+                           file.status === 'renamed' ? 'R' : 'M'}
+                        </span>
+                        <span class="file-path">{file.path}</span>
+                      </div>
+                      <div class="diff-stats">
+                        {file.additions > 0 && <span class="additions">+{file.additions}</span>}
+                        {file.deletions > 0 && <span class="deletions">-{file.deletions}</span>}
+                      </div>
+                    </div>
+
+                    {file.isBinary ? (
+                      <div class="diff-binary">Binary file</div>
+                    ) : file.hunks.length > 0 ? (
+                      <div class="diff-hunks">
+                        {file.hunks.map(hunk => (
+                          <div class="diff-hunk">
+                            <div class="diff-hunk-header">
+                              @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
+                            </div>
+                            <pre class="diff-content">{hunk.content}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div class="diff-simple">
+                        <div class="diff-simple-stats">
+                          {file.additions > 0 && (
+                            <div class="stat-bar">
+                              <div class="stat-bar-fill additions" style={`width: ${Math.min(100, (file.additions / (file.additions + file.deletions)) * 100)}%`}></div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {diff.length === 0 && (
+                  <div class="empty-state">No files changed</div>
                 )}
               </div>
-            ))}
-
-            {reviews.length === 0 && (
-              <div class="empty-state">No reviews yet</div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div class="sidebar">
