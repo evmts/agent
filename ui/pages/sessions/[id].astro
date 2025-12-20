@@ -370,6 +370,90 @@ try {
     white-space: pre-wrap;
   }
 
+  .message.streaming {
+    border-color: var(--primary);
+  }
+
+  .message.streaming .message-role::after {
+    content: ' (streaming...)';
+    color: var(--primary);
+    font-weight: normal;
+  }
+
+  .message-tools {
+    margin-top: var(--space-3);
+  }
+
+  .tool-call {
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+  }
+
+  .tool-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2);
+  }
+
+  .tool-name {
+    font-weight: 600;
+    color: var(--primary);
+    font-family: inherit;
+  }
+
+  .tool-status {
+    font-size: 11px;
+    color: var(--warning);
+    padding: 2px 6px;
+    background: rgba(245, 166, 35, 0.15);
+    border-radius: var(--radius-sm);
+  }
+
+  .tool-status.complete {
+    color: var(--success);
+    background: rgba(45, 212, 191, 0.15);
+  }
+
+  .tool-args {
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--gray-400);
+    background: var(--gray-950);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 100px;
+    overflow-y: auto;
+  }
+
+  .tool-output {
+    margin-top: var(--space-2);
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--gray-300);
+    background: var(--gray-950);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+
+  .error-text {
+    color: var(--error);
+    margin-top: var(--space-2);
+    padding: var(--space-2);
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: var(--radius-sm);
+  }
+
   .chat-input-container {
     border-top: 1px solid var(--border);
     padding: var(--space-4);
@@ -490,23 +574,119 @@ try {
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
   const changesList = document.getElementById('changes-list');
+  const sendButton = chatForm?.querySelector('button[type="submit"]');
 
-  // Load messages (placeholder - in real impl would use WebSocket or SSE)
-  function addMessage(role, content) {
-    if (!chatMessages) return;
+  // Track current streaming state
+  let currentEventSource = null;
+  let currentAssistantMessage = null;
+  let isStreaming = false;
+  let currentAbortController = null;
 
-    // Remove welcome message
-    const welcome = chatMessages.querySelector('.welcome-message');
+  // Remove welcome message
+  function removeWelcome() {
+    const welcome = chatMessages?.querySelector('.welcome-message');
     if (welcome) welcome.remove();
+  }
+
+  // Add a user message to the chat
+  function addUserMessage(content) {
+    if (!chatMessages) return;
+    removeWelcome();
 
     const div = document.createElement('div');
-    div.className = `message ${role}`;
+    div.className = 'message user';
     div.innerHTML = `
-      <div class="message-role">${role}</div>
+      <div class="message-role">user</div>
       <div class="message-content">${escapeHtml(content)}</div>
     `;
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  // Create a new assistant message container for streaming
+  function createAssistantMessage() {
+    if (!chatMessages) return null;
+    removeWelcome();
+
+    const div = document.createElement('div');
+    div.className = 'message assistant streaming';
+    div.innerHTML = `
+      <div class="message-role">assistant</div>
+      <div class="message-content"></div>
+      <div class="message-tools"></div>
+    `;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+  }
+
+  // Append text to the current assistant message
+  function appendToAssistantMessage(text) {
+    if (!currentAssistantMessage) return;
+    const content = currentAssistantMessage.querySelector('.message-content');
+    if (content) {
+      content.textContent += text;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  }
+
+  // Add a tool call to the current assistant message
+  function addToolCall(toolName, toolId, args) {
+    if (!currentAssistantMessage) return;
+    const tools = currentAssistantMessage.querySelector('.message-tools');
+    if (tools) {
+      const toolDiv = document.createElement('div');
+      toolDiv.className = 'tool-call';
+      toolDiv.id = `tool-${toolId}`;
+      toolDiv.innerHTML = `
+        <div class="tool-header">
+          <span class="tool-name">${escapeHtml(toolName)}</span>
+          <span class="tool-status">running...</span>
+        </div>
+        <div class="tool-args">${escapeHtml(JSON.stringify(args, null, 2))}</div>
+      `;
+      tools.appendChild(toolDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  }
+
+  // Update tool result
+  function updateToolResult(toolId, output) {
+    const toolDiv = document.getElementById(`tool-${toolId}`);
+    if (toolDiv) {
+      const status = toolDiv.querySelector('.tool-status');
+      if (status) {
+        status.textContent = 'done';
+        status.classList.add('complete');
+      }
+      // Add truncated output preview
+      const outputDiv = document.createElement('div');
+      outputDiv.className = 'tool-output';
+      const truncatedOutput = output.length > 500 ? output.substring(0, 500) + '...' : output;
+      outputDiv.textContent = truncatedOutput;
+      toolDiv.appendChild(outputDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  }
+
+  // Mark streaming complete
+  function finishAssistantMessage() {
+    if (currentAssistantMessage) {
+      currentAssistantMessage.classList.remove('streaming');
+    }
+    currentAssistantMessage = null;
+    setStreamingState(false);
+  }
+
+  // Show error in current message
+  function showError(error) {
+    if (currentAssistantMessage) {
+      const content = currentAssistantMessage.querySelector('.message-content');
+      if (content) {
+        content.innerHTML += `<div class="error-text">Error: ${escapeHtml(error)}</div>`;
+      }
+    }
+    finishAssistantMessage();
   }
 
   function escapeHtml(text) {
@@ -515,22 +695,213 @@ try {
     return div.innerHTML;
   }
 
-  // Handle chat submission (placeholder)
+  // Set streaming UI state
+  function setStreamingState(streaming) {
+    isStreaming = streaming;
+    if (sendButton) {
+      sendButton.textContent = streaming ? 'Streaming...' : 'Send';
+      sendButton.disabled = streaming || session.archived;
+    }
+    if (chatInput) {
+      chatInput.disabled = streaming || session.archived;
+    }
+  }
+
+  // Run agent with SSE streaming
+  async function runAgent(message) {
+    setStreamingState(true);
+    currentAssistantMessage = createAssistantMessage();
+    currentAbortController = new AbortController();
+
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: message,
+          agent_name: 'build',
+        }),
+        signal: currentAbortController.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        showError(`HTTP ${response.status}: ${error}`);
+        return;
+      }
+
+      // Handle SSE streaming
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE events
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data.trim()) {
+              try {
+                const event = JSON.parse(data);
+                handleSSEEvent(event);
+              } catch (e) {
+                console.error('Failed to parse SSE event:', e, data);
+              }
+            }
+          }
+        }
+      }
+
+      // Handle any remaining buffer
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.slice(6);
+        if (data.trim()) {
+          try {
+            const event = JSON.parse(data);
+            handleSSEEvent(event);
+          } catch (e) {
+            console.error('Failed to parse final SSE event:', e, data);
+          }
+        }
+      }
+
+    } catch (error) {
+      showError(error.message || 'Failed to connect to agent');
+    }
+  }
+
+  // Handle SSE events from Zig server
+  function handleSSEEvent(event) {
+    switch (event.type) {
+      case 'text':
+        if (event.data) {
+          appendToAssistantMessage(event.data);
+        }
+        break;
+
+      case 'tool_call':
+        addToolCall(event.toolName || 'unknown', event.toolId || 'unknown', event.args || {});
+        break;
+
+      case 'tool_result':
+        updateToolResult(event.toolId || 'unknown', event.toolOutput || '');
+        break;
+
+      case 'error':
+        showError(event.error || 'Unknown error');
+        break;
+
+      case 'done':
+        finishAssistantMessage();
+        // Refresh changes list after agent completes
+        loadChanges();
+        break;
+
+      default:
+        console.log('Unknown SSE event type:', event.type);
+    }
+  }
+
+  // Load existing messages from database
+  async function loadMessages() {
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/messages`);
+      if (!response.ok) {
+        console.error('Failed to load messages:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+      if (!data.messages || data.messages.length === 0) {
+        return; // Keep welcome message
+      }
+
+      removeWelcome();
+
+      // Group messages and load their parts
+      for (const message of data.messages) {
+        const partsResponse = await fetch(`/api/sessions/${sessionId}/messages/${message.id}/parts`);
+        let parts = [];
+        if (partsResponse.ok) {
+          const partsData = await partsResponse.json();
+          parts = partsData.parts || [];
+        }
+
+        // Render message with parts
+        renderMessage(message, parts);
+      }
+
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    }
+  }
+
+  // Render a message with its parts
+  function renderMessage(message, parts) {
+    if (!chatMessages) return;
+
+    const div = document.createElement('div');
+    div.className = `message ${message.role}`;
+    div.dataset.messageId = message.id;
+
+    let contentHtml = '';
+    let toolsHtml = '';
+
+    // Sort parts by sort order
+    parts.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    for (const part of parts) {
+      if (part.type === 'text' && part.text) {
+        contentHtml += escapeHtml(part.text);
+      } else if (part.type === 'tool' && part.toolName) {
+        const state = part.toolState ? JSON.parse(part.toolState) : {};
+        const statusClass = state.status === 'complete' ? 'complete' : '';
+        toolsHtml += `
+          <div class="tool-call">
+            <div class="tool-header">
+              <span class="tool-name">${escapeHtml(part.toolName)}</span>
+              <span class="tool-status ${statusClass}">${state.status || 'unknown'}</span>
+            </div>
+            ${state.args ? `<div class="tool-args">${escapeHtml(JSON.stringify(state.args, null, 2))}</div>` : ''}
+            ${state.result ? `<div class="tool-output">${escapeHtml(state.result.substring(0, 500))}${state.result.length > 500 ? '...' : ''}</div>` : ''}
+          </div>
+        `;
+      }
+    }
+
+    div.innerHTML = `
+      <div class="message-role">${message.role}</div>
+      <div class="message-content">${contentHtml}</div>
+      ${toolsHtml ? `<div class="message-tools">${toolsHtml}</div>` : ''}
+    `;
+
+    chatMessages.appendChild(div);
+  }
+
+  // Handle chat submission
   chatForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (isStreaming) return;
+
     const input = chatInput;
     if (!input || !input.value.trim()) return;
 
     const message = input.value.trim();
     input.value = '';
 
-    addMessage('user', message);
-
-    // In real implementation, this would send to an AI endpoint
-    // For now, show a placeholder response
-    setTimeout(() => {
-      addMessage('assistant', 'AI responses will be displayed here when the agent API is integrated.');
-    }, 500);
+    addUserMessage(message);
+    await runAgent(message);
   });
 
   // Load changes
@@ -560,6 +931,7 @@ try {
   }
 
   loadChanges();
+  loadMessages();
 
   // Action handlers
   document.querySelectorAll('[data-action]').forEach(btn => {
@@ -633,6 +1005,14 @@ try {
           break;
 
         case 'abort':
+          // Cancel frontend streaming first
+          if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+          }
+          finishAssistantMessage();
+
+          // Then notify the server to abort
           const abortRes = await fetch(`/api/sessions/${sessionId}/abort`, {
             method: 'POST',
           });
