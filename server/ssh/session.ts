@@ -8,6 +8,7 @@ import { spawn } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import type { Connection, Session } from 'ssh2';
+import { jjSyncService } from '../lib/jj-sync';
 
 // Repos directory
 const REPOS_DIR = join(process.cwd(), 'repos');
@@ -107,6 +108,14 @@ export function handleSession(
 
     child.on('exit', (code) => {
       console.log(`SSH command exited with code ${code}`);
+
+      // Trigger jj sync after successful push
+      if (command === 'git-receive-pack' && code === 0) {
+        jjSyncService.syncToDatabase(user, repo).catch((err) => {
+          console.error('[jj-sync] Failed to sync after push:', err);
+        });
+      }
+
       stream.exit(code ?? 0);
       stream.end();
     });
