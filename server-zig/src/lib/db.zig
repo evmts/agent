@@ -1881,7 +1881,7 @@ pub fn getLineComments(pool: *Pool, allocator: std.mem.Allocator, landing_id: i6
         });
     }
 
-    return comments.toOwnedSlice();
+    return comments.toOwnedSlice(allocator);
 }
 
 pub fn getLineCommentById(pool: *Pool, comment_id: i64) !?LineComment {
