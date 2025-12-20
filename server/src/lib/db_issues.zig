@@ -92,9 +92,9 @@ pub fn listIssues(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, state
         try conn.query(query, .{repo_id});
     defer result.deinit();
 
-    var issues: std.ArrayList(IssueRecord) = .init(allocator);
+    var issues: std.ArrayList(IssueRecord) = .{};
     while (try result.next()) |row| {
-        try issues.append(IssueRecord{
+        try issues.append(allocator, IssueRecord{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .author_id = row.get(i64, 2),
@@ -109,7 +109,7 @@ pub fn listIssues(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, state
         });
     }
 
-    return issues.toOwnedSlice();
+    return try issues.toOwnedSlice(allocator);
 }
 
 pub fn getIssue(pool: *Pool, repo_id: i64, issue_number: i64) !?IssueRecord {
@@ -288,9 +288,9 @@ pub fn getComments(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![]
     , .{issue_id});
     defer result.deinit();
 
-    var comments: std.ArrayList(CommentRecord) = .init(allocator);
+    var comments: std.ArrayList(CommentRecord) = .{};
     while (try result.next()) |row| {
-        try comments.append(CommentRecord{
+        try comments.append(allocator, CommentRecord{
             .id = row.get(i64, 0),
             .issue_id = row.get(i64, 1),
             .author_id = row.get(i64, 2),
@@ -301,7 +301,7 @@ pub fn getComments(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![]
         });
     }
 
-    return comments.toOwnedSlice();
+    return try comments.toOwnedSlice(allocator);
 }
 
 pub fn addComment(pool: *Pool, issue_id: i64, author_id: i64, body: []const u8) !CommentRecord {
@@ -380,9 +380,9 @@ pub fn getLabels(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![]Lab
     , .{repo_id});
     defer result.deinit();
 
-    var labels: std.ArrayList(LabelRecord) = .init(allocator);
+    var labels: std.ArrayList(LabelRecord) = .{};
     while (try result.next()) |row| {
-        try labels.append(LabelRecord{
+        try labels.append(allocator, LabelRecord{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .name = row.get([]const u8, 2),
@@ -391,7 +391,7 @@ pub fn getLabels(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![]Lab
         });
     }
 
-    return labels.toOwnedSlice();
+    return try labels.toOwnedSlice(allocator);
 }
 
 pub fn createLabel(pool: *Pool, repo_id: i64, name: []const u8, color: []const u8, description: ?[]const u8) !LabelRecord {
@@ -438,9 +438,9 @@ pub fn getIssueLabels(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) 
     , .{issue_id});
     defer result.deinit();
 
-    var labels: std.ArrayList(LabelRecord) = .init(allocator);
+    var labels: std.ArrayList(LabelRecord) = .{};
     while (try result.next()) |row| {
-        try labels.append(LabelRecord{
+        try labels.append(allocator, LabelRecord{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .name = row.get([]const u8, 2),
@@ -449,7 +449,7 @@ pub fn getIssueLabels(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) 
         });
     }
 
-    return labels.toOwnedSlice();
+    return try labels.toOwnedSlice(allocator);
 }
 
 pub fn getLabelByName(pool: *Pool, repo_id: i64, name: []const u8) !?LabelRecord {
@@ -497,12 +497,12 @@ pub fn getAssignees(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![
     , .{issue_id});
     defer result.deinit();
 
-    var assignees: std.ArrayList(i64) = .init(allocator);
+    var assignees: std.ArrayList(i64) = .{};
     while (try result.next()) |row| {
-        try assignees.append(row.get(i64, 0));
+        try assignees.append(allocator, row.get(i64, 0));
     }
 
-    return assignees.toOwnedSlice();
+    return try assignees.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -564,9 +564,9 @@ pub fn getReactions(pool: *Pool, allocator: std.mem.Allocator, target_type: []co
     , .{ target_type, target_id });
     defer result.deinit();
 
-    var reactions: std.ArrayList(ReactionRecord) = .init(allocator);
+    var reactions: std.ArrayList(ReactionRecord) = .{};
     while (try result.next()) |row| {
-        try reactions.append(ReactionRecord{
+        try reactions.append(allocator, ReactionRecord{
             .id = row.get(i64, 0),
             .user_id = row.get(i64, 1),
             .username = row.get([]const u8, 2),
@@ -575,7 +575,7 @@ pub fn getReactions(pool: *Pool, allocator: std.mem.Allocator, target_type: []co
         });
     }
 
-    return reactions.toOwnedSlice();
+    return try reactions.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -619,9 +619,9 @@ pub fn getBlockingIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i6
     , .{issue_id});
     defer result.deinit();
 
-    var deps: std.ArrayList(DependencyRecord) = .init(allocator);
+    var deps: std.ArrayList(DependencyRecord) = .{};
     while (try result.next()) |row| {
-        try deps.append(DependencyRecord{
+        try deps.append(allocator, DependencyRecord{
             .id = row.get(i64, 0),
             .blocker_issue_id = row.get(i64, 1),
             .blocked_issue_id = row.get(i64, 2),
@@ -630,7 +630,7 @@ pub fn getBlockingIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i6
         });
     }
 
-    return deps.toOwnedSlice();
+    return try deps.toOwnedSlice(allocator);
 }
 
 pub fn getBlockedByIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![]DependencyRecord {
@@ -647,9 +647,9 @@ pub fn getBlockedByIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i
     , .{issue_id});
     defer result.deinit();
 
-    var deps: std.ArrayList(DependencyRecord) = .init(allocator);
+    var deps: std.ArrayList(DependencyRecord) = .{};
     while (try result.next()) |row| {
-        try deps.append(DependencyRecord{
+        try deps.append(allocator, DependencyRecord{
             .id = row.get(i64, 0),
             .blocker_issue_id = row.get(i64, 1),
             .blocked_issue_id = row.get(i64, 2),
@@ -658,7 +658,7 @@ pub fn getBlockedByIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i
         });
     }
 
-    return deps.toOwnedSlice();
+    return try deps.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -712,9 +712,9 @@ pub fn getPinnedIssues(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) 
     , .{repo_id});
     defer result.deinit();
 
-    var issues: std.ArrayList(IssueRecord) = .init(allocator);
+    var issues: std.ArrayList(IssueRecord) = .{};
     while (try result.next()) |row| {
-        try issues.append(IssueRecord{
+        try issues.append(allocator, IssueRecord{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .author_id = row.get(i64, 2),
@@ -729,7 +729,7 @@ pub fn getPinnedIssues(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) 
         });
     }
 
-    return issues.toOwnedSlice();
+    return try issues.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -802,9 +802,9 @@ pub fn listMilestones(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, s
         try conn.query(query, .{repo_id});
     defer result.deinit();
 
-    var milestones: std.ArrayList(MilestoneRecord) = .init(allocator);
+    var milestones: std.ArrayList(MilestoneRecord) = .{};
     while (try result.next()) |row| {
-        try milestones.append(MilestoneRecord{
+        try milestones.append(allocator, MilestoneRecord{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .title = row.get([]const u8, 2),
@@ -819,7 +819,7 @@ pub fn listMilestones(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, s
         });
     }
 
-    return milestones.toOwnedSlice();
+    return try milestones.toOwnedSlice(allocator);
 }
 
 pub fn getMilestone(pool: *Pool, repo_id: i64, milestone_id: i64) !?MilestoneRecord {
@@ -1106,9 +1106,9 @@ pub fn getIssueHistory(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, 
     , .{ repo_id, issue_number });
     defer result.deinit();
 
-    var events: std.ArrayList(IssueEventRecord) = .init(allocator);
+    var events: std.ArrayList(IssueEventRecord) = .{};
     while (try result.next()) |row| {
-        try events.append(IssueEventRecord{
+        try events.append(allocator, IssueEventRecord{
             .id = row.get(i64, 0),
             .repository_id = row.get(i64, 1),
             .issue_number = row.get(i64, 2),
@@ -1119,7 +1119,7 @@ pub fn getIssueHistory(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, 
         });
     }
 
-    return events.toOwnedSlice();
+    return try events.toOwnedSlice(allocator);
 }
 
 // ============================================================================

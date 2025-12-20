@@ -916,6 +916,33 @@ pub fn updateRepositoryTopics(pool: *Pool, repo_id: i64, topics: [][]const u8) !
     , .{ topics, repo_id });
 }
 
+/// Create a new repository
+/// Returns the new repository ID
+pub fn createRepository(
+    pool: *Pool,
+    owner_id: i64,
+    name: []const u8,
+    description: ?[]const u8,
+    is_public: bool,
+) !i64 {
+    const row = try pool.row(
+        \\INSERT INTO repositories (user_id, name, description, is_public, created_at, updated_at)
+        \\VALUES ($1, $2, $3, $4, NOW(), NOW())
+        \\RETURNING id
+    , .{ owner_id, name, description, is_public }) orelse return error.InsertFailed;
+
+    return row.get(i64, 0);
+}
+
+/// Check if a repository with the given name exists for a user
+pub fn repositoryExists(pool: *Pool, owner_id: i64, name: []const u8) !bool {
+    const row = try pool.row(
+        \\SELECT 1 FROM repositories WHERE user_id = $1 AND name = $2
+    , .{ owner_id, name });
+
+    return row != null;
+}
+
 // ============================================================================
 // Stars operations
 // ============================================================================
@@ -949,7 +976,7 @@ pub fn getStargazers(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![
         });
     }
 
-    return stargazers.toOwnedSlice();
+    return try stargazers.toOwnedSlice(allocator);
 }
 
 pub fn hasStarred(pool: *Pool, user_id: i64, repo_id: i64) !bool {
@@ -1034,7 +1061,7 @@ pub fn listBookmarks(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![
         });
     }
 
-    return bookmarks.toOwnedSlice();
+    return try bookmarks.toOwnedSlice(allocator);
 }
 
 pub fn getBookmarkByName(pool: *Pool, repo_id: i64, name: []const u8) !?Bookmark {
@@ -1130,7 +1157,7 @@ pub fn listChanges(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![]C
         });
     }
 
-    return changes.toOwnedSlice();
+    return try changes.toOwnedSlice(allocator);
 }
 
 pub fn getChangeById(pool: *Pool, repo_id: i64, change_id: []const u8) !?Change {
@@ -1254,7 +1281,7 @@ pub fn listWorkflowRuns(
         });
     }
 
-    return try runs.toOwnedSlice();
+    return try runs.toOwnedSlice(allocator);
 }
 
 pub fn getWorkflowRun(pool: *Pool, allocator: std.mem.Allocator, run_id: i64) !?WorkflowRun {
@@ -1302,7 +1329,7 @@ pub fn getWorkflowJobs(pool: *Pool, allocator: std.mem.Allocator, run_id: i64) !
         });
     }
 
-    return try jobs.toOwnedSlice();
+    return try jobs.toOwnedSlice(allocator);
 }
 
 pub fn createWorkflowRun(
@@ -1383,7 +1410,7 @@ pub fn getWorkflowLogs(
         });
     }
 
-    return try logs.toOwnedSlice();
+    return try logs.toOwnedSlice(allocator);
 }
 
 // ============================================================================
@@ -1841,12 +1868,11 @@ pub fn getLandingReviews(pool: *Pool, allocator: std.mem.Allocator, landing_id: 
     , .{landing_id});
     defer result.deinit();
 
-    var reviews = std.ArrayList(LandingReview).init(allocator);
-    errdefer reviews.deinit();
+    var reviews = std.ArrayList(LandingReview){};
+    errdefer reviews.deinit(allocator);
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try reviews.append(LandingReview{
+    while (try result.next()) |row| {
+        try reviews.append(allocator, LandingReview{
             .id = row.get(i64, 0),
             .landing_id = row.get(i64, 1),
             .reviewer_id = row.get(i64, 2),
@@ -1857,7 +1883,7 @@ pub fn getLandingReviews(pool: *Pool, allocator: std.mem.Allocator, landing_id: 
         });
     }
 
-    return reviews.toOwnedSlice(allocator);
+    return try reviews.toOwnedSlice(allocator);
 }
 
 pub fn createLandingReview(
@@ -1903,12 +1929,11 @@ pub fn getLineComments(pool: *Pool, allocator: std.mem.Allocator, landing_id: i6
     , .{landing_id});
     defer result.deinit();
 
-    var comments = std.ArrayList(LineComment).init(allocator);
-    errdefer comments.deinit();
+    var comments = std.ArrayList(LineComment){};
+    errdefer comments.deinit(allocator);
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try comments.append(LineComment{
+    while (try result.next()) |row| {
+        try comments.append(allocator, LineComment{
             .id = row.get(i64, 0),
             .landing_id = row.get(i64, 1),
             .author_id = row.get(i64, 2),
@@ -1922,7 +1947,7 @@ pub fn getLineComments(pool: *Pool, allocator: std.mem.Allocator, landing_id: i6
         });
     }
 
-    return comments.toOwnedSlice(allocator);
+    return try comments.toOwnedSlice(allocator);
 }
 
 pub fn getLineCommentById(pool: *Pool, comment_id: i64) !?LineComment {
@@ -2100,7 +2125,7 @@ pub fn getOperationsByRepository(
     }
 
     return JjOperationList{
-        .items = try operations.toOwnedSlice(),
+        .items = try operations.toOwnedSlice(allocator),
         .allocator = allocator,
     };
 }
