@@ -1,0 +1,33 @@
+# Plue Edge Worker Configuration
+name = "plue-edge"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Objects
+[[durable_objects.bindings]]
+name = "DATA_SYNC"
+class_name = "DataSyncDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DataSyncDO"]
+
+# Environment variables (set via wrangler secret or dashboard)
+[vars]
+ORIGIN_HOST = "origin.internal"
+ELECTRIC_URL = "http://origin-electric.internal:3000"
+
+# Development overrides
+[env.dev]
+name = "plue-edge-dev"
+[env.dev.vars]
+ORIGIN_HOST = "localhost:5173"
+ELECTRIC_URL = "http://localhost:3000"
+
+# Production
+[env.production]
+name = "plue-edge"
+routes = [
+  { pattern = "plue.dev/*", zone_name = "plue.dev" }
+]
