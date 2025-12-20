@@ -1,5 +1,10 @@
 /**
  * Server module - Hono app with Bun.serve().
+ *
+ * NOTE: Most routes have been moved to Zig server (server-zig).
+ * This TypeScript server only handles routes not yet in Zig:
+ * - workflows (dispatch, rerun, definitions)
+ * - runners (job/run status updates)
  */
 
 import { Hono } from 'hono';
@@ -9,18 +14,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { bodyLimit } from 'hono/body-limit';
 import { authMiddleware } from './middleware/auth';
 import { apiRateLimit } from './middleware/rate-limit';
-import authRoutes from './routes/auth';
-import usersRoutes from './routes/users';
-import sshKeysRoutes from './routes/ssh-keys';
-import tokensRoutes from './routes/tokens';
-// JJ-native routes (replaces git-based branches, pulls)
-import bookmarkRoutes from './routes/bookmarks';
-import changesRoutes from './routes/changes';
-import operationsRoutes from './routes/operations';
-import landingRoutes from './routes/landing';
 import routes from './routes';
-
-export { ServerEventBus, getServerEventBus, setServerEventBus } from './event-bus';
 
 // Validate critical environment variables at startup
 function validateEnvironment() {
@@ -144,19 +138,7 @@ app.get('/shape', async (c) => {
   });
 });
 
-// Mount API routes under /api prefix
-app.route('/api/auth', authRoutes);
-app.route('/api/users', usersRoutes);
-app.route('/api/ssh-keys', sshKeysRoutes);
-app.route('/api/user/tokens', tokensRoutes);
-
-// Mount JJ-native API routes (replaces git-based branches/pulls)
-app.route('/api', bookmarkRoutes);
-app.route('/api', changesRoutes);
-app.route('/api', operationsRoutes);
-app.route('/api', landingRoutes);
-
-// Mount existing routes
+// Mount routes (only workflows and runners - the rest are in Zig)
 app.route('/', routes);
 
 // Standard error response type
