@@ -190,6 +190,31 @@ CREATE TABLE IF NOT EXISTS issue_assignees (
 CREATE INDEX IF NOT EXISTS idx_issue_assignees_issue ON issue_assignees(issue_id);
 CREATE INDEX IF NOT EXISTS idx_issue_assignees_user ON issue_assignees(user_id);
 
+-- Labels for issues
+CREATE TABLE IF NOT EXISTS labels (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  color VARCHAR(7) NOT NULL, -- hex color like #ff0000
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_labels_repository ON labels(repository_id);
+
+-- Issue labels (many-to-many relationship)
+CREATE TABLE IF NOT EXISTS issue_labels (
+  id SERIAL PRIMARY KEY,
+  issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+  added_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(issue_id, label_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_labels_issue ON issue_labels(issue_id);
+CREATE INDEX IF NOT EXISTS idx_issue_labels_label ON issue_labels(label_id);
+
 -- =============================================================================
 -- Branch Management Tables
 -- =============================================================================
