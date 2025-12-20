@@ -6,6 +6,39 @@ import { signInWithEthereum, disconnectWallet } from './porto';
 
 const API_BASE = '/api';
 
+/**
+ * Get CSRF token from cookie.
+ * The server sets this as a HttpOnly cookie after authentication.
+ */
+function getCsrfToken(): string | null {
+  const cookies = document.cookie.split(';');
+  for (const cookie of cookies) {
+    const [name, value] = cookie.trim().split('=');
+    if (name === 'csrf_token') {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Create fetch options with CSRF token header for state-changing requests.
+ * Export this for use in other modules that make POST/PUT/PATCH/DELETE requests.
+ */
+export function withCsrfToken(options: RequestInit = {}): RequestInit {
+  const token = getCsrfToken();
+  if (token) {
+    return {
+      ...options,
+      headers: {
+        ...options.headers,
+        'X-CSRF-Token': token,
+      },
+    };
+  }
+  return options;
+}
+
 export interface SiweUser {
   id: number;
   username: string;
@@ -53,12 +86,12 @@ export async function connectAndLogin(): Promise<{ user: SiweUser }> {
   });
 
   // Verify signature (auto-creates user if new wallet)
-  const response = await fetch(`${API_BASE}/auth/siwe/verify`, {
+  const response = await fetch(`${API_BASE}/auth/siwe/verify`, withCsrfToken({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, signature }),
     credentials: 'include',
-  });
+  }));
 
   if (response.ok) {
     const data = await response.json();
@@ -78,7 +111,7 @@ export async function registerWithSiwe(
   signature: string,
   data: SiweRegistrationData
 ): Promise<{ user: SiweUser }> {
-  const response = await fetch(`${API_BASE}/auth/siwe/register`, {
+  const response = await fetch(`${API_BASE}/auth/siwe/register`, withCsrfToken({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -88,7 +121,7 @@ export async function registerWithSiwe(
       displayName: data.displayName,
     }),
     credentials: 'include',
-  });
+  }));
 
   if (!response.ok) {
     const error = await response.json();
@@ -102,10 +135,10 @@ export async function registerWithSiwe(
  * Logout and disconnect wallet.
  */
 export async function logout() {
-  const response = await fetch(`${API_BASE}/auth/logout`, {
+  const response = await fetch(`${API_BASE}/auth/logout`, withCsrfToken({
     method: 'POST',
     credentials: 'include',
-  });
+  }));
 
   // Disconnect wallet state
   disconnectWallet();

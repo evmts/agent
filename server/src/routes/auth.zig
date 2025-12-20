@@ -15,6 +15,7 @@ const db = @import("../lib/db.zig");
 const siwe = @import("../lib/siwe.zig");
 const jwt = @import("../lib/jwt.zig");
 const auth_middleware = @import("../middleware/auth.zig");
+const csrf_middleware = @import("../middleware/csrf.zig");
 
 const log = std.log.scoped(.auth_routes);
 
@@ -135,8 +136,19 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     // Update last login
     try db.updateLastLogin(ctx.pool, u.id);
 
-    // Set cookies
+    // Set session cookie
     try auth_middleware.setSessionCookie(res, session_key, ctx.config.is_production);
+
+    // Generate and set CSRF token
+    const csrf_token = try ctx.csrf_store.generateToken(session_key);
+    var csrf_cookie_buf: [256]u8 = undefined;
+    const csrf_secure = if (ctx.config.is_production) "; Secure" else "";
+    const csrf_cookie = try std.fmt.bufPrint(&csrf_cookie_buf, "csrf_token={s}; Path=/; SameSite=Strict; Max-Age={d}{s}", .{
+        csrf_token,
+        24 * 60 * 60, // 24 hours in seconds
+        csrf_secure,
+    });
+    res.headers.add("Set-Cookie", csrf_cookie);
 
     // Return user data
     var writer = res.writer();
@@ -224,8 +236,19 @@ pub fn register(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     const token = try jwt.create(ctx.allocator, user_id, v.username, false, ctx.config.jwt_secret);
     defer ctx.allocator.free(token);
 
-    // Set cookies
+    // Set session cookie
     try auth_middleware.setSessionCookie(res, session_key, ctx.config.is_production);
+
+    // Generate and set CSRF token
+    const csrf_token = try ctx.csrf_store.generateToken(session_key);
+    var csrf_cookie_buf: [256]u8 = undefined;
+    const csrf_secure = if (ctx.config.is_production) "; Secure" else "";
+    const csrf_cookie = try std.fmt.bufPrint(&csrf_cookie_buf, "csrf_token={s}; Path=/; SameSite=Strict; Max-Age={d}{s}", .{
+        csrf_token,
+        24 * 60 * 60, // 24 hours in seconds
+        csrf_secure,
+    });
+    res.headers.add("Set-Cookie", csrf_cookie);
 
     res.status = 201;
     var writer = res.writer();
@@ -243,7 +266,14 @@ pub fn logout(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
         try db.deleteSession(ctx.pool, session_key);
     }
 
+    // Clear session cookie
     try auth_middleware.clearSessionCookie(res, ctx.config.is_production);
+
+    // Clear CSRF token cookie
+    var csrf_cookie_buf: [128]u8 = undefined;
+    const csrf_secure = if (ctx.config.is_production) "; Secure" else "";
+    const csrf_cookie = try std.fmt.bufPrint(&csrf_cookie_buf, "csrf_token=; Path=/; SameSite=Strict; Max-Age=0{s}", .{csrf_secure});
+    res.headers.add("Set-Cookie", csrf_cookie);
 
     try res.writer().writeAll("{\"message\":\"Logout successful\"}");
 }
@@ -298,8 +328,19 @@ pub fn refresh(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     const token = try jwt.create(ctx.allocator, user.id, user.username, user.is_admin, ctx.config.jwt_secret);
     defer ctx.allocator.free(token);
 
-    // Set new cookies
+    // Set new session cookie
     try auth_middleware.setSessionCookie(res, new_session_key, ctx.config.is_production);
+
+    // Generate and set new CSRF token
+    const csrf_token = try ctx.csrf_store.generateToken(new_session_key);
+    var csrf_cookie_buf: [256]u8 = undefined;
+    const csrf_secure = if (ctx.config.is_production) "; Secure" else "";
+    const csrf_cookie = try std.fmt.bufPrint(&csrf_cookie_buf, "csrf_token={s}; Path=/; SameSite=Strict; Max-Age={d}{s}", .{
+        csrf_token,
+        24 * 60 * 60, // 24 hours in seconds
+        csrf_secure,
+    });
+    res.headers.add("Set-Cookie", csrf_cookie);
 
     // Return success with new session info
     var writer = res.writer();
