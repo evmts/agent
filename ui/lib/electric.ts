@@ -35,7 +35,14 @@ export function useShapeWithAbort<T extends Row = Row>(
 ): { data: T[]; isLoading: boolean } {
   // This function should only be called in client-side components
   // The actual implementation would use @electric-sql/react's useShape
-  throw new Error('useShapeWithAbort must be imported from a client component with @electric-sql/react available');
+  const errorMessage =
+    'useShapeWithAbort must be imported from a client component with @electric-sql/react available.\n\n' +
+    'This error occurs because ElectricSQL is not configured or the function is being called outside of a client component.\n' +
+    'To fix this:\n' +
+    '1. Install @electric-sql/react if not already installed: bun add @electric-sql/react\n' +
+    '2. Ensure this function is only used in client-side components (not in .astro files)\n' +
+    '3. Verify ElectricSQL sync service is running if you need real-time features\n';
+  throw new Error(errorMessage);
 }
 
 // =============================================================================
@@ -76,15 +83,24 @@ export function sessionsShapeConfig(where?: string): ShapeOptions {
 }
 
 export function useSessionsShape(where?: string): { data: SessionRow[]; isLoading: boolean } {
-  throw new Error('useSessionsShape must be imported from a client component');
+  throw new Error(
+    'useSessionsShape must be imported from a client component.\n' +
+    'ElectricSQL is not configured. See useShapeWithAbort error for setup instructions.'
+  );
 }
 
 export async function preloadSessions(_where?: string): Promise<void> {
-  throw new Error('preloadSessions must be imported from a client component');
+  throw new Error(
+    'preloadSessions must be imported from a client component.\n' +
+    'ElectricSQL is not configured. See useShapeWithAbort error for setup instructions.'
+  );
 }
 
 export function useSession(_sessionId: string): SessionRow | undefined {
-  throw new Error('useSession must be imported from a client component');
+  throw new Error(
+    'useSession must be imported from a client component.\n' +
+    'ElectricSQL is not configured. See useShapeWithAbort error for setup instructions.'
+  );
 }
 
 // =============================================================================

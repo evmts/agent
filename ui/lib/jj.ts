@@ -324,6 +324,7 @@ export async function listChanges(
         timestamp: c.authorTimestamp * 1000,
         isEmpty: c.isEmpty,
         hasConflicts: false, // Not available in native bindings yet
+        parentChangeIds: [], // Not exposed by native bindings yet
       }));
     } catch (e) {
       console.error('Native jj-lib failed for listChanges:', e);

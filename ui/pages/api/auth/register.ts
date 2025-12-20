@@ -85,7 +85,19 @@ export const POST: APIRoute = async ({ request }) => {
       });
 
       // TODO: Send activation email with the token
-      // For now, just return success
+      // In development mode, log the activation link to console and include in response
+      const isDevelopment = import.meta.env.DEV || process.env.NODE_ENV === 'development';
+
+      if (isDevelopment) {
+        const activationUrl = `${new URL(request.url).origin}/api/auth/activate?token=${activationToken}`;
+        console.log('='.repeat(80));
+        console.log('Development mode: Email activation link');
+        console.log('='.repeat(80));
+        console.log(`Username: ${user.username}`);
+        console.log(`Email: ${user.email}`);
+        console.log(`Activation URL: ${activationUrl}`);
+        console.log('='.repeat(80));
+      }
 
       return new Response(JSON.stringify({
         success: true,
@@ -95,7 +107,13 @@ export const POST: APIRoute = async ({ request }) => {
           email: user.email,
           displayName: user.display_name
         },
-        message: 'Registration successful. Please check your email for activation link.'
+        message: 'Registration successful. Please check your email for activation link.',
+        ...(isDevelopment ? {
+          devInfo: {
+            activationToken,
+            activationUrl: `${new URL(request.url).origin}/api/auth/activate?token=${activationToken}`
+          }
+        } : {})
       }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' }

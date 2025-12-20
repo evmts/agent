@@ -18,6 +18,9 @@ export const POST: APIRoute = async ({ request }) => {
     const user = await getUserByEmail(email);
 
     // Always return success for security reasons (don't reveal if email exists)
+    const isDevelopment = import.meta.env.DEV || process.env.NODE_ENV === 'development';
+    let devInfo: { resetToken?: string; resetUrl?: string } = {};
+
     if (user) {
       // Generate reset token
       const resetToken = randomBytes(32).toString('hex');
@@ -26,13 +29,26 @@ export const POST: APIRoute = async ({ request }) => {
       // Store reset token
       await createPasswordResetToken(Number(user.id), resetToken, expiresAt);
 
-      // In a real app, you would send an email here
-      console.log(`Password reset token for ${user.username}: ${resetToken}`);
+      // In development mode, log the reset link to console
+      if (isDevelopment) {
+        const resetUrl = `${new URL(request.url).origin}/reset-password?token=${resetToken}`;
+        console.log('='.repeat(80));
+        console.log('Development mode: Password reset link');
+        console.log('='.repeat(80));
+        console.log(`Username: ${user.username}`);
+        console.log(`Email: ${user.email}`);
+        console.log(`Reset URL: ${resetUrl}`);
+        console.log(`Expires: ${expiresAt.toISOString()}`);
+        console.log('='.repeat(80));
+
+        devInfo = { resetToken, resetUrl };
+      }
     }
 
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       success: true,
-      message: 'If an account with that email exists, a password reset link has been sent.'
+      message: 'If an account with that email exists, a password reset link has been sent.',
+      ...(isDevelopment ? { devInfo } : {})
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
