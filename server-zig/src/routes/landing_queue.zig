@@ -61,9 +61,10 @@ pub fn listLandingRequests(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
 
     // Parse query parameters
-    const status_filter = req.url.query.get("status");
-    const page_str = req.url.query.get("page") orelse "1";
-    const limit_str = req.url.query.get("limit") orelse "20";
+    const query = req.query();
+    const status_filter = query.get("status");
+    const page_str = query.get("page") orelse "1";
+    const limit_str = query.get("limit") orelse "20";
 
     const page = std.fmt.parseInt(i32, page_str, 10) catch 1;
     const limit = std.fmt.parseInt(i32, limit_str, 10) catch 20;

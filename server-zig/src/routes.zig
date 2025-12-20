@@ -14,8 +14,10 @@ const repo_routes = @import("routes/repositories.zig");
 const workflows = @import("routes/workflows.zig");
 const runners = @import("routes/runners.zig");
 const issues = @import("routes/issues.zig");
+const milestones = @import("routes/milestones.zig");
 const landing_queue = @import("routes/landing_queue.zig");
 const watcher_routes = @import("routes/watcher.zig");
+const changes = @import("routes/changes.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -64,12 +66,18 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/:user/:repo/bookmarks/:name", repo_routes.getBookmark, .{});
     router.post("/api/:user/:repo/bookmarks", repo_routes.createBookmark, .{});
     router.put("/api/:user/:repo/bookmarks/:name", repo_routes.updateBookmark, .{});
+    router.post("/api/:user/:repo/bookmarks/:name/set-default", repo_routes.setDefaultBookmark, .{});
     router.delete("/api/:user/:repo/bookmarks/:name", repo_routes.deleteBookmark, .{});
 
     // API routes - changes (jj)
     router.get("/api/:user/:repo/changes", repo_routes.listChanges, .{});
     router.get("/api/:user/:repo/changes/:changeId", repo_routes.getChange, .{});
     router.get("/api/:user/:repo/changes/:changeId/diff", repo_routes.getChangeDiff, .{});
+    router.get("/api/:user/:repo/changes/:changeId/files", changes.getFilesAtChange, .{});
+    router.get("/api/:user/:repo/changes/:changeId/file/*", changes.getFileAtChange, .{});
+    router.get("/api/:user/:repo/changes/:fromChangeId/compare/:toChangeId", changes.compareChanges, .{});
+    router.get("/api/:user/:repo/changes/:changeId/conflicts", changes.getConflicts, .{});
+    router.post("/api/:user/:repo/changes/:changeId/conflicts/:filePath/resolve", changes.resolveConflict, .{});
 
     // API routes - issues
     router.get("/api/:user/:repo/issues", issues.listIssues, .{});
@@ -99,6 +107,11 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/:user/:repo/issues/:number/reactions", issues.addReactionToIssue, .{});
     router.delete("/api/:user/:repo/issues/:number/reactions/:emoji", issues.removeReactionFromIssue, .{});
 
+    // API routes - comment reactions
+    router.get("/api/:user/:repo/issues/:number/comments/:commentId/reactions", issues.getCommentReactions, .{});
+    router.post("/api/:user/:repo/issues/:number/comments/:commentId/reactions", issues.addCommentReaction, .{});
+    router.delete("/api/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", issues.removeCommentReaction, .{});
+
     // API routes - assignees
     router.post("/api/:user/:repo/issues/:number/assignees", issues.addAssigneeToIssue, .{});
     router.delete("/api/:user/:repo/issues/:number/assignees/:userId", issues.removeAssigneeFromIssue, .{});
@@ -106,6 +119,17 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     // API routes - dependencies
     router.post("/api/:user/:repo/issues/:number/dependencies", issues.addDependencyToIssue, .{});
     router.delete("/api/:user/:repo/issues/:number/dependencies/:blockedNumber", issues.removeDependencyFromIssue, .{});
+
+    // API routes - milestones
+    router.get("/api/:user/:repo/milestones", milestones.listMilestones, .{});
+    router.get("/api/:user/:repo/milestones/:id", milestones.getMilestone, .{});
+    router.post("/api/:user/:repo/milestones", milestones.createMilestone, .{});
+    router.patch("/api/:user/:repo/milestones/:id", milestones.updateMilestone, .{});
+    router.delete("/api/:user/:repo/milestones/:id", milestones.deleteMilestone, .{});
+
+    // API routes - issue milestone assignment
+    router.put("/api/:user/:repo/issues/:number/milestone", milestones.assignMilestoneToIssue, .{});
+    router.delete("/api/:user/:repo/issues/:number/milestone", milestones.removeMilestoneFromIssue, .{});
 
     // API routes - landing queue (jj-native PR replacement)
     router.get("/api/:user/:repo/landing", landing_queue.listLandingRequests, .{});

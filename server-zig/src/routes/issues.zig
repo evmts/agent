@@ -19,10 +19,13 @@
 //! 16. POST /:user/:repo/issues/:number/unpin - Unpin issue
 //! 17. POST /:user/:repo/issues/:number/reactions - Add reaction to issue
 //! 18. DELETE /:user/:repo/issues/:number/reactions/:emoji - Remove reaction from issue
-//! 19. POST /:user/:repo/issues/:number/assignees - Add assignee to issue
-//! 20. DELETE /:user/:repo/issues/:number/assignees/:userId - Remove assignee from issue
-//! 21. POST /:user/:repo/issues/:number/dependencies - Add dependency (blocker)
-//! 22. DELETE /:user/:repo/issues/:number/dependencies/:blockedNumber - Remove dependency
+//! 19. GET /:user/:repo/issues/:number/comments/:commentId/reactions - Get comment reactions
+//! 20. POST /:user/:repo/issues/:number/comments/:commentId/reactions - Add comment reaction
+//! 21. DELETE /:user/:repo/issues/:number/comments/:commentId/reactions/:emoji - Remove comment reaction
+//! 22. POST /:user/:repo/issues/:number/assignees - Add assignee to issue
+//! 23. DELETE /:user/:repo/issues/:number/assignees/:userId - Remove assignee from issue
+//! 24. POST /:user/:repo/issues/:number/dependencies - Add dependency (blocker)
+//! 25. DELETE /:user/:repo/issues/:number/dependencies/:blockedNumber - Remove dependency
 
 const std = @import("std");
 const httpz = @import("httpz");
@@ -1553,6 +1556,353 @@ pub fn removeReactionFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
 }
 
 // ============================================================================
+// Comment Reaction Routes
+// ============================================================================
+
+/// GET /:user/:repo/issues/:number/comments/:commentId/reactions
+/// List reactions for a comment
+pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    const comment_id_str = req.param("commentId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing comment ID parameter\"}");
+        return;
+    };
+
+    const comment_id = std.fmt.parseInt(i64, comment_id_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid comment ID\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue to verify it exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Get reactions for the comment
+    const reactions = db_issues.getReactions(ctx.pool, allocator, "comment", comment_id) catch |err| {
+        log.err("Failed to get comment reactions: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+    defer allocator.free(reactions);
+
+    // Group by emoji (like TypeScript implementation)
+    var grouped = std.StringHashMap(struct {
+        emoji: []const u8,
+        count: usize,
+        users: std.ArrayList(struct { id: i64, username: []const u8 }),
+    }).init(allocator);
+    defer {
+        var it = grouped.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.users.deinit();
+        }
+        grouped.deinit();
+    }
+
+    for (reactions) |r| {
+        if (grouped.getPtr(r.emoji)) |group| {
+            group.count += 1;
+            try group.users.append(.{ .id = r.user_id, .username = r.username });
+        } else {
+            var users = std.ArrayList(struct { id: i64, username: []const u8 }).init(allocator);
+            try users.append(.{ .id = r.user_id, .username = r.username });
+            try grouped.put(r.emoji, .{
+                .emoji = r.emoji,
+                .count = 1,
+                .users = users,
+            });
+        }
+    }
+
+    // Build JSON response
+    var writer = res.writer();
+    try writer.writeAll("{\"reactions\":[");
+
+    var first = true;
+    var it = grouped.iterator();
+    while (it.next()) |entry| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        try writer.print("{{\"emoji\":\"{s}\",\"count\":{d},\"users\":[", .{ entry.value_ptr.emoji, entry.value_ptr.count });
+
+        for (entry.value_ptr.users.items, 0..) |user, i| {
+            if (i > 0) try writer.writeAll(",");
+            try writer.print("{{\"id\":{d},\"username\":\"{s}\"}}", .{ user.id, user.username });
+        }
+
+        try writer.writeAll("]}");
+    }
+
+    try writer.writeAll("]}");
+}
+
+/// POST /:user/:repo/issues/:number/comments/:commentId/reactions
+/// Add a reaction to a comment
+pub fn addCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    const comment_id_str = req.param("commentId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing comment ID parameter\"}");
+        return;
+    };
+
+    const comment_id = std.fmt.parseInt(i64, comment_id_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid comment ID\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        emoji: []const u8,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    if (v.emoji.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Emoji is required\"}");
+        return;
+    }
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue to verify it exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Add reaction to comment
+    const reaction = db_issues.addReaction(ctx.pool, ctx.user.?.id, "comment", comment_id, v.emoji) catch |err| {
+        log.err("Failed to add comment reaction: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to add reaction\"}");
+        return;
+    };
+
+    if (reaction) |r| {
+        res.status = 201;
+        var writer = res.writer();
+        try writer.print(
+            \\{{"id":{d},"userId":{d},"emoji":"{s}","createdAt":{d}}}
+        , .{ r.id, r.user_id, r.emoji, r.created_at });
+    } else {
+        try res.writer().writeAll("{\"message\":\"Reaction already exists\"}");
+    }
+}
+
+/// DELETE /:user/:repo/issues/:number/comments/:commentId/reactions/:emoji
+/// Remove a reaction from a comment
+pub fn removeCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    const comment_id_str = req.param("commentId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing comment ID parameter\"}");
+        return;
+    };
+
+    const comment_id = std.fmt.parseInt(i64, comment_id_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid comment ID\"}");
+        return;
+    };
+
+    const emoji = req.param("emoji") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing emoji parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue to verify it exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Remove reaction from comment
+    db_issues.removeReaction(ctx.pool, ctx.user.?.id, "comment", comment_id, emoji) catch |err| {
+        log.err("Failed to remove comment reaction: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to remove reaction\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+// ============================================================================
 // Assignee Routes
 // ============================================================================
 
@@ -1947,4 +2297,382 @@ pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz
     };
 
     try res.writer().writeAll("{\"success\":true}");
+}
+// Additional issue route handlers
+
+const std = @import("std");
+const httpz = @import("httpz");
+const Context = @import("../main.zig").Context;
+const db_issues = @import("../lib/db_issues.zig");
+
+const log = std.log.scoped(.issue_routes_new);
+
+/// DELETE /:user/:repo/issues/:number
+/// Delete an issue
+pub fn deleteIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Check if issue exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Delete issue
+    db_issues.deleteIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to delete issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to delete issue\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// PATCH /:user/:repo/labels/:name
+/// Update a label
+pub fn updateLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const old_name = req.param("name") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing label name parameter\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        name: []const u8,
+        color: []const u8,
+        description: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    if (v.name.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Label name is required\"}");
+        return;
+    }
+
+    if (v.color.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Label color is required\"}");
+        return;
+    }
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Update label
+    const label = db_issues.updateLabel(ctx.pool, repo.?.id, old_name, v.name, v.color, v.description) catch |err| {
+        log.err("Failed to update label: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to update label\"}");
+        return;
+    };
+
+    // Return updated label
+    var writer = res.writer();
+    try writer.print(
+        \\{{"id":{d},"name":"{s}","color":"{s}","description":{s}}}
+    , .{
+        label.id,
+        label.name,
+        label.color,
+        if (label.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
+    });
+}
+
+/// DELETE /:user/:repo/labels/:name
+/// Delete a label
+pub fn deleteLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const label_name = req.param("name") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing label name parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Check if label exists
+    const label = db_issues.getLabelByName(ctx.pool, repo.?.id, label_name) catch |err| {
+        log.err("Failed to get label: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (label == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Label not found\"}");
+        return;
+    }
+
+    // Delete label
+    db_issues.deleteLabel(ctx.pool, repo.?.id, label_name) catch |err| {
+        log.err("Failed to delete label: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to delete label\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// GET /:user/:repo/issues/:number/history
+/// Get issue history/timeline
+pub fn getIssueHistory(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Check if issue exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Get history
+    const history = db_issues.getIssueHistory(ctx.pool, allocator, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue history: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+    defer allocator.free(history);
+
+    // Build JSON response
+    var writer = res.writer();
+    try writer.writeAll("{\"history\":[");
+    for (history, 0..) |event, i| {
+        if (i > 0) try writer.writeAll(",");
+        try writer.print(
+            \\{{"id":{d},"actorId":{s},"eventType":"{s}","metadata":{s},"createdAt":{d}}}
+        , .{
+            event.id,
+            if (event.actor_id) |aid| try std.fmt.allocPrint(allocator, "{d}", .{aid}) else "null",
+            event.event_type,
+            event.metadata,
+            event.created_at,
+        });
+    }
+    try writer.writeAll("]}");
+}
+
+/// GET /:user/:repo/issues/counts
+/// Get issue counts (open/closed)
+pub fn getIssueCounts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get counts
+    const counts = db_issues.getIssueCounts(ctx.pool, repo.?.id) catch |err| {
+        log.err("Failed to get issue counts: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    // Return counts
+    var writer = res.writer();
+    try writer.print("{{\"open\":{d},\"closed\":{d}}}", .{ counts.open, counts.closed });
 }
