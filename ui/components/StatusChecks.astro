@@ -1,0 +1,125 @@
+---
+/**
+ * StatusChecks component - lists all status checks for a commit
+ * Shows summary and expandable details of all checks
+ */
+
+import CommitStatus from './CommitStatus.astro';
+
+interface StatusCheck {
+  id: number;
+  context: string;
+  state: 'pending' | 'success' | 'failure' | 'error';
+  description?: string;
+  targetUrl?: string;
+}
+
+interface Props {
+  checks: StatusCheck[];
+  compact?: boolean;
+  showSummary?: boolean;
+}
+
+const { checks, compact = false, showSummary = true } = Astro.props;
+
+// Calculate summary
+const total = checks.length;
+const passed = checks.filter(c => c.state === 'success').length;
+const failed = checks.filter(c => c.state === 'failure' || c.state === 'error').length;
+const pending = checks.filter(c => c.state === 'pending').length;
+
+const allPassed = total > 0 && passed === total;
+const someFailed = failed > 0;
+const allPending = total > 0 && pending === total;
+
+let summaryText: string;
+let summaryColor: string;
+let summaryIcon: string;
+
+if (total === 0) {
+  summaryText = 'No status checks';
+  summaryColor = '#6b7280';
+  summaryIcon = '—';
+} else if (allPassed) {
+  summaryText = `All checks passed (${total})`;
+  summaryColor = '#22c55e';
+  summaryIcon = '✓';
+} else if (someFailed) {
+  summaryText = `${failed} of ${total} checks failed`;
+  summaryColor = '#ef4444';
+  summaryIcon = '✗';
+} else if (allPending) {
+  summaryText = `${total} checks pending`;
+  summaryColor = '#f59e0b';
+  summaryIcon = '○';
+} else {
+  summaryText = `${passed} passed, ${failed} failed, ${pending} pending`;
+  summaryColor = '#f59e0b';
+  summaryIcon = '○';
+}
+---
+
+<div class="status-checks">
+  {showSummary && (
+    <div class="status-summary" style={`border-left-color: ${summaryColor}`}>
+      <span class="summary-icon" style={`color: ${summaryColor}`}>{summaryIcon}</span>
+      <span class="summary-text">{summaryText}</span>
+    </div>
+  )}
+
+  {checks.length > 0 && (
+    <div class="status-list">
+      {checks.map(check => (
+        <CommitStatus
+          context={check.context}
+          state={check.state}
+          description={check.description}
+          targetUrl={check.targetUrl}
+          compact={compact}
+        />
+      ))}
+    </div>
+  )}
+
+  {checks.length === 0 && !showSummary && (
+    <div class="empty-state">
+      No status checks configured
+    </div>
+  )}
+</div>
+
+<style>
+  .status-checks {
+    border: 1px solid var(--border);
+  }
+
+  .status-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--background-alt, #f9fafb);
+    border-left: 3px solid;
+    font-weight: 500;
+  }
+
+  .summary-icon {
+    font-weight: bold;
+    font-size: 1.125rem;
+  }
+
+  .summary-text {
+    flex: 1;
+  }
+
+  .status-list {
+    background: white;
+  }
+
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+</style>
