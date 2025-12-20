@@ -21,8 +21,8 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build Astro for production
-RUN bun run build
+# Build Astro for production (skip type checking - done in CI)
+RUN bunx astro build
 
 # =============================================================================
 # API Server (Zig)

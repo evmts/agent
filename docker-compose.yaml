@@ -78,15 +78,17 @@ services:
       HOST: 0.0.0.0
       DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
       # API endpoints for SSR
-      PUBLIC_API_URL: http://api:4000
+      PUBLIC_API_URL: http://localhost:5173
       PUBLIC_ELECTRIC_URL: http://electric:3000
       # Client-side URLs (browser accessible)
-      PUBLIC_CLIENT_API_URL: ${PUBLIC_CLIENT_API_URL:-http://localhost:4000}
+      PUBLIC_CLIENT_API_URL: ${PUBLIC_CLIENT_API_URL:-http://localhost:5173}
       PUBLIC_CLIENT_ELECTRIC_URL: ${PUBLIC_CLIENT_ELECTRIC_URL:-http://localhost:3000}
     ports:
       - '5173:5173'
     depends_on:
-      api:
+      postgres:
+        condition: service_healthy
+      electric:
         condition: service_healthy
     restart: unless-stopped
 

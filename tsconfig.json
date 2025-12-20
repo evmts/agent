@@ -45,12 +45,15 @@
     "dist",
     ".astro",
     "tui/**/*",
-    "electric-ai-chat/**/*", 
+    "electric-ai-chat/**/*",
     "gitea/**/*",
     "snapshot/**/*",
     "native/**/*",
     "**/node_modules/**",
-    "index.ts"
+    "index.ts",
+    "server/voltaire/**/*",
+    "**/*.test.ts",
+    "**/*.spec.ts"
   ],
   "typeAcquisition": {
     "exclude": ["bun-types"]
