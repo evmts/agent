@@ -135,10 +135,126 @@ fn extractJsonString(json: []const u8, key: []const u8) ?[]const u8 {
     return json[value_start..value_end];
 }
 
-fn register(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
+// Username validation
+// Must be 3-39 characters, start and end with alphanumeric, allow dashes and underscores in middle
+fn isValidUsername(username: []const u8) bool {
+    if (username.len < 3 or username.len > 39) return false;
+
+    // Must start and end with alphanumeric
+    if (!std.ascii.isAlphanumeric(username[0])) return false;
+    if (!std.ascii.isAlphanumeric(username[username.len - 1])) return false;
+
+    // Check middle characters (alphanumeric, dash, or underscore)
+    for (username) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+fn register(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
-    res.status = 501; // Not Implemented
-    try res.writer().writeAll("{\"error\":\"SIWE register not yet implemented\"}");
+    const allocator = ctx.allocator;
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Extract required fields from JSON
+    const message = extractJsonString(body, "message") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing message field\"}");
+        return;
+    };
+
+    const signature = extractJsonString(body, "signature") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing signature field\"}");
+        return;
+    };
+
+    const username = extractJsonString(body, "username") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username field\"}");
+        return;
+    };
+
+    // Validate username
+    if (!isValidUsername(username)) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid username. Must be 3-39 alphanumeric characters, dashes and underscores allowed in the middle\"}");
+        return;
+    }
+
+    // Extract optional display name (defaults to username if not provided)
+    const display_name = extractJsonString(body, "displayName") orelse username;
+
+    // Verify SIWE signature using voltaire
+    const result = siwe.verifySiweSignature(allocator, ctx.pool, message, signature) catch |err| {
+        log.warn("SIWE verification failed during registration: {}", .{err});
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Signature verification failed\"}");
+        return;
+    };
+    defer {
+        allocator.free(result.parsed.domain);
+        if (result.parsed.statement) |s| allocator.free(s);
+        allocator.free(result.parsed.uri);
+        allocator.free(result.parsed.version);
+        allocator.free(result.parsed.nonce);
+        allocator.free(result.parsed.issued_at);
+    }
+
+    // Get address as hex
+    const addr_hex = siwe.addressToHex(allocator, result.address) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal error\"}");
+        return;
+    };
+    defer allocator.free(addr_hex);
+
+    // Check if wallet already registered
+    const existing_wallet = db.getUserByWallet(ctx.pool, addr_hex) catch null;
+    if (existing_wallet != null) {
+        res.status = 409; // Conflict
+        try res.writer().writeAll("{\"error\":\"Wallet already registered\"}");
+        return;
+    }
+
+    // Check if username already taken (case-insensitive)
+    const existing_username = db.getUserByUsername(ctx.pool, username) catch null;
+    if (existing_username != null) {
+        res.status = 409; // Conflict
+        try res.writer().writeAll("{\"error\":\"Username already taken\"}");
+        return;
+    }
+
+    // Create user in database
+    const user_id = db.createUser(ctx.pool, username, display_name, addr_hex) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create user\"}");
+        return;
+    };
+
+    // Create JWT token for the new user
+    const token = jwt.create(allocator, user_id, username, false, ctx.config.jwt_secret) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create session token\"}");
+        return;
+    };
+    defer allocator.free(token);
+
+    // Return success response (201 Created)
+    res.status = 201;
+    var writer = res.writer();
+    try writer.print(
+        \\{{"message":"Registration successful","user":{{"id":{d},"username":"{s}","isActive":true,"isAdmin":false,"walletAddress":"{s}"}},"token":"{s}"}}
+    , .{ user_id, username, addr_hex, token });
 }
 
 fn logout(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
