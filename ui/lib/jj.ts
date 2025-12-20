@@ -1,7 +1,7 @@
 /**
  * JJ (Jujutsu) Operations Library
  *
- * Replaces git.ts with jj-native operations.
+ * Uses native jj-lib bindings for repository operations.
  * Key differences from git:
  * - Uses change IDs (stable) instead of commit SHAs
  * - Bookmarks instead of branches
@@ -13,6 +13,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { JjWorkspace, isJjWorkspace } from "../../snapshot/index.js";
 import type {
   Change,
   ChangeDetail,
@@ -139,12 +140,33 @@ export async function isJjRepo(user: string, name: string): Promise<boolean> {
 // =============================================================================
 
 /**
- * List all bookmarks in a repository
+ * List all bookmarks in a repository using native jj-lib bindings
  */
 export async function listBookmarks(user: string, name: string): Promise<Bookmark[]> {
   const repoPath = getRepoPath(user, name);
 
-  // Try jj first
+  // Use native jj-lib bindings
+  if (isJjWorkspace(repoPath)) {
+    try {
+      const workspace = JjWorkspace.open(repoPath);
+      const nativeBookmarks = workspace.listBookmarks();
+
+      return nativeBookmarks.map((bm, index) => ({
+        id: index + 1,
+        repositoryId: 0, // Will be filled by caller
+        name: bm.name,
+        targetChangeId: bm.targetId || '',
+        pusherId: null,
+        isDefault: bm.name === 'main',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    } catch (e) {
+      console.error('Native jj-lib failed for listBookmarks:', e);
+    }
+  }
+
+  // Fallback to CLI for non-jj workspaces (like bare git repos)
   const result = await runJj(
     ['bookmark', 'list', '--template', 'name ++ "|" ++ normal_target.change_id() ++ "\\n"'],
     repoPath
@@ -157,7 +179,7 @@ export async function listBookmarks(user: string, name: string): Promise<Bookmar
       const [bookmarkName, changeId] = line.split('|');
       return {
         id: index + 1,
-        repositoryId: 0, // Will be filled by caller
+        repositoryId: 0,
         name: bookmarkName?.trim() || '',
         targetChangeId: changeId?.trim() || '',
         pusherId: null,
@@ -168,28 +190,7 @@ export async function listBookmarks(user: string, name: string): Promise<Bookmar
     });
   }
 
-  // Fall back to git branches when jj isn't available
-  const gitResult = await run(`git branch -a --format='%(refname:short)|%(objectname:short)'`, repoPath);
-  if (!gitResult.trim()) {
-    return [];
-  }
-
-  const lines = gitResult.trim().split('\n').filter(Boolean);
-
-  return lines.map((line, index) => {
-    const [branchName, commitId] = line.split('|');
-    const name = branchName?.trim().replace(/^origin\//, '') || '';
-    return {
-      id: index + 1,
-      repositoryId: 0,
-      name,
-      targetChangeId: commitId?.trim() || '',
-      pusherId: null,
-      isDefault: name === 'main' || name === 'master',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  }).filter((b, i, arr) => arr.findIndex(x => x.name === b.name) === i); // Deduplicate
+  return [];
 }
 
 /**
@@ -283,7 +284,7 @@ function isValidBookmarkName(name: string): boolean {
 // =============================================================================
 
 /**
- * List recent changes in a repository
+ * List recent changes in a repository using native jj-lib bindings
  */
 export async function listChanges(
   user: string,
@@ -293,9 +294,31 @@ export async function listChanges(
 ): Promise<Change[]> {
   const repoPath = getRepoPath(user, name);
 
-  // Template to extract change info
-  const template = 'change_id ++ "|" ++ commit_id ++ "|" ++ description.first_line() ++ "|" ++ author.name() ++ "|" ++ author.email() ++ "|" ++ committer.timestamp() ++ "|" ++ empty ++ "|" ++ conflict ++ "\\n"';
+  // Use native jj-lib bindings
+  if (isJjWorkspace(repoPath)) {
+    try {
+      const workspace = JjWorkspace.open(repoPath);
+      const nativeChanges = workspace.listChanges(limit, bookmark || null);
 
+      return nativeChanges.map(c => ({
+        changeId: c.changeId,
+        commitId: c.id,
+        description: c.description,
+        author: {
+          name: c.authorName,
+          email: c.authorEmail,
+        },
+        timestamp: c.authorTimestamp * 1000,
+        isEmpty: c.isEmpty,
+        hasConflicts: false, // Not available in native bindings yet
+      }));
+    } catch (e) {
+      console.error('Native jj-lib failed for listChanges:', e);
+    }
+  }
+
+  // Fallback to CLI for non-jj workspaces
+  const template = 'change_id ++ "|" ++ commit_id ++ "|" ++ description.first_line() ++ "|" ++ author.name() ++ "|" ++ author.email() ++ "|" ++ committer.timestamp() ++ "|" ++ empty ++ "|" ++ conflict ++ "\\n"';
   const revset = bookmark ? `ancestors(${bookmark})` : 'all()';
 
   const result = await runJj(
@@ -307,16 +330,7 @@ export async function listChanges(
     return parseChangesOutput(result.stdout);
   }
 
-  // Fall back to git log when jj isn't available
-  const gitRef = bookmark || 'HEAD';
-  const gitFormat = '%H|%H|%s|%an|%ae|%ct|false|false';
-  const gitResult = await run(`git log ${gitRef} -n ${limit} --format='${gitFormat}'`, repoPath);
-
-  if (!gitResult.trim()) {
-    return [];
-  }
-
-  return parseChangesOutput(gitResult);
+  return [];
 }
 
 /**
@@ -392,7 +406,7 @@ export async function getCurrentChange(user: string, name: string): Promise<stri
 // =============================================================================
 
 /**
- * Get the file tree at a specific change
+ * Get the file tree at a specific change using native jj-lib bindings
  */
 export async function getTree(
   user: string,
@@ -401,22 +415,23 @@ export async function getTree(
   path: string = ""
 ): Promise<TreeEntry[]> {
   const repoPath = getRepoPath(user, name);
-
-  // Try jj first, fall back to git if jj fails or isn't available
   let allFiles: string[] = [];
 
-  // Try jj file list
-  const result = await runJj(['file', 'list', '-r', changeId], repoPath);
+  // Use native jj-lib bindings
+  if (isJjWorkspace(repoPath)) {
+    try {
+      const workspace = JjWorkspace.open(repoPath);
+      allFiles = workspace.listFiles(changeId);
+    } catch (e) {
+      console.error('Native jj-lib failed for getTree:', e);
+    }
+  }
 
-  if (result.exitCode === 0 && result.stdout.trim()) {
-    allFiles = result.stdout.trim().split('\n').filter(Boolean);
-  } else {
-    // Fall back to git ls-tree for bare repos or when jj isn't available
-    const gitRef = changeId === 'main' || changeId.match(/^[a-z]{8,}$/) ? 'HEAD' : changeId;
-    const gitPath = path || '.';
-    const gitResult = await run(`git ls-tree -r --name-only ${gitRef} ${gitPath}`, repoPath);
-    if (gitResult.trim()) {
-      allFiles = gitResult.trim().split('\n').filter(Boolean);
+  // Fallback to CLI if native failed or not a jj workspace
+  if (allFiles.length === 0) {
+    const result = await runJj(['file', 'list', '-r', changeId], repoPath);
+    if (result.exitCode === 0 && result.stdout.trim()) {
+      allFiles = result.stdout.trim().split('\n').filter(Boolean);
     }
   }
 
