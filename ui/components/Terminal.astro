@@ -50,8 +50,8 @@ const { ptyId, class: className } = Astro.props;
     // Load WASM module
     const ghostty = await Ghostty.load();
 
-    // Create terminal
-    const terminal = new Terminal({
+    // Create terminal with ghostty-web custom options
+    const terminalOptions = {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",
@@ -81,7 +81,8 @@ const { ptyId, class: className } = Astro.props;
         brightCyan: "#99e9f2",
         brightWhite: "#ffffff",
       },
-    });
+    } as any;
+    const terminal = new Terminal(terminalOptions);
 
     // Create fit addon
     const fitAddon = new FitAddon();

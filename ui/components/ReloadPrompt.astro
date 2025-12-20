@@ -14,6 +14,7 @@
 <script>
   async function registerSW() {
     if ('serviceWorker' in navigator) {
+      // @ts-ignore - virtual:pwa-register is provided by vite-plugin-pwa
       const { registerSW } = await import('virtual:pwa-register');
 
       const updateSW = registerSW({
@@ -27,7 +28,7 @@
         onOfflineReady() {
           console.log('App ready to work offline');
         },
-        onRegisteredSW(swUrl, r) {
+        onRegisteredSW(swUrl: string, r: ServiceWorkerRegistration | undefined) {
           if (r) {
             // Check for updates every hour
             setInterval(async () => {

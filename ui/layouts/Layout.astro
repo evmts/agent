@@ -1,5 +1,5 @@
 ---
-import { ClientRouter } from "astro:transitions";
+import { ViewTransitions } from "astro:transitions";
 import Footer from "../components/Footer.astro";
 import ReloadPrompt from "../components/ReloadPrompt.astro";
 
@@ -23,7 +23,7 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || "http://localhost
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href={canonicalURL} />
     <title>{title}</title>
-    <ClientRouter />
+    <ViewTransitions />
   </head>
   <body>
     <div class="app">
