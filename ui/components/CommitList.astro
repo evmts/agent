@@ -1,0 +1,211 @@
+---
+/**
+ * CommitList Component
+ *
+ * Reusable component for displaying change/commit history.
+ * Shows: change ID, author, message, date
+ */
+import type { Change } from "../lib/jj-types";
+
+interface Props {
+  changes: Change[];
+  username: string;
+  reponame: string;
+  bookmark?: string;
+  showActions?: boolean;
+  linkToFile?: string;
+}
+
+const {
+  changes,
+  username,
+  reponame,
+  bookmark,
+  showActions = false,
+  linkToFile
+} = Astro.props;
+---
+
+<div class="change-list">
+  {changes.map((change, index) => (
+    <div class={`change-item ${change.hasConflicts ? 'has-conflicts' : ''}`}>
+      <div class="change-marker">
+        <div class="marker-dot"></div>
+        {index < changes.length - 1 && <div class="marker-line"></div>}
+      </div>
+
+      <div class="change-content">
+        <div class="change-header">
+          <a
+            href={linkToFile
+              ? `/${username}/${reponame}/blob/${change.changeId}/${linkToFile}`
+              : `/${username}/${reponame}/changes/${bookmark || 'main'}/${change.changeId}`
+            }
+            class="change-id"
+            title={`Full ID: ${change.changeId}`}
+          >
+            {change.changeId.substring(0, 8)}
+          </a>
+
+          {change.hasConflicts && (
+            <span class="conflict-badge" title="This change has unresolved conflicts">
+              conflicts
+            </span>
+          )}
+
+          {change.isEmpty && (
+            <span class="empty-badge" title="This change has no file modifications">
+              empty
+            </span>
+          )}
+        </div>
+
+        <div class="change-description">
+          {change.description || "(no description)"}
+        </div>
+
+        <div class="change-meta">
+          <span class="author">{change.author.name}</span>
+          <span class="sep">·</span>
+          <span class="date">
+            {new Date(change.timestamp).toLocaleString()}
+          </span>
+        </div>
+      </div>
+
+      {showActions && (
+        <div class="change-actions">
+          <a
+            href={`/${username}/${reponame}/tree/${change.changeId}`}
+            class="btn-sm"
+          >
+            Browse
+          </a>
+        </div>
+      )}
+    </div>
+  ))}
+
+  {changes.length === 0 && (
+    <div class="empty-state">
+      No changes found.
+    </div>
+  )}
+</div>
+
+<style>
+  .change-list {
+    border: 2px solid var(--border);
+  }
+
+  .change-item {
+    display: flex;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+
+  .change-item:last-child {
+    border-bottom: none;
+  }
+
+  .change-item.has-conflicts {
+    background: #fef2f2;
+  }
+
+  .change-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 20px;
+  }
+
+  .marker-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #7c3aed;
+    border: 2px solid var(--background);
+    box-shadow: 0 0 0 2px #7c3aed;
+  }
+
+  .marker-line {
+    flex: 1;
+    width: 2px;
+    background: #d1d5db;
+    margin-top: 4px;
+  }
+
+  .change-content {
+    flex: 1;
+  }
+
+  .change-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .change-id {
+    font-family: var(--font-mono);
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    color: #7c3aed;
+    font-weight: 600;
+    text-decoration: none;
+    font-size: 14px;
+  }
+
+  .change-id:hover {
+    background: #d1d5db;
+  }
+
+  .conflict-badge {
+    background: #dc2626;
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .empty-badge {
+    background: #9ca3af;
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .change-description {
+    font-size: 15px;
+    margin-bottom: 0.25rem;
+    color: var(--text);
+  }
+
+  .change-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .change-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>

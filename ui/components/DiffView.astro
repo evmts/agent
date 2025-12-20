@@ -1,0 +1,137 @@
+---
+/**
+ * DiffView - Display full diff for a change
+ * Shows all file changes with expand/collapse functionality
+ */
+import type { FileDiff } from "../lib/jj-types";
+import FileDiffCard from "./FileDiffCard.astro";
+
+interface Props {
+  files: FileDiff[];
+  defaultExpandAll?: boolean;
+}
+
+const { files, defaultExpandAll = false } = Astro.props;
+
+const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
+const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
+const totalChanges = totalAdditions + totalDeletions;
+---
+
+<div class="diff-view">
+  <div class="diff-header">
+    <div class="diff-stats">
+      <span class="file-count">{files.length} {files.length === 1 ? 'file' : 'files'} changed</span>
+      {totalChanges > 0 && (
+        <>
+          <span class="sep">·</span>
+          <span class="additions">+{totalAdditions}</span>
+          <span class="deletions">-{totalDeletions}</span>
+        </>
+      )}
+    </div>
+    <div class="diff-actions">
+      <button class="btn-text" id="expand-all">Expand all</button>
+      <button class="btn-text" id="collapse-all">Collapse all</button>
+    </div>
+  </div>
+
+  <div class="file-diffs">
+    {files.length === 0 ? (
+      <div class="empty-state">
+        No files changed
+      </div>
+    ) : (
+      files.map(file => (
+        <FileDiffCard file={file} defaultExpanded={defaultExpandAll} />
+      ))
+    )}
+  </div>
+</div>
+
+<style>
+  .diff-view {
+    background: white;
+    border: 1px solid var(--border);
+  }
+
+  .diff-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    background: #f9fafb;
+  }
+
+  .diff-stats {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 14px;
+  }
+
+  .file-count {
+    font-weight: 500;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+
+  .additions {
+    font-family: var(--font-mono);
+    color: #16a34a;
+    font-weight: 500;
+  }
+
+  .deletions {
+    font-family: var(--font-mono);
+    color: #dc2626;
+    font-weight: 500;
+  }
+
+  .diff-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-text {
+    background: none;
+    border: none;
+    color: #7c3aed;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .btn-text:hover {
+    text-decoration: underline;
+  }
+
+  .file-diffs {
+    padding: 1rem;
+  }
+
+  .empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+</style>
+
+<script>
+  // Expand/collapse all functionality
+  document.getElementById('expand-all')?.addEventListener('click', () => {
+    document.querySelectorAll('.file-diff-card').forEach(el => {
+      (el as HTMLDetailsElement).open = true;
+    });
+  });
+
+  document.getElementById('collapse-all')?.addEventListener('click', () => {
+    document.querySelectorAll('.file-diff-card').forEach(el => {
+      (el as HTMLDetailsElement).open = false;
+    });
+  });
+</script>
