@@ -156,9 +156,10 @@ export async function isJjRepo(user: string, name: string): Promise<boolean> {
  */
 export async function listBookmarks(user: string, name: string): Promise<Bookmark[]> {
   const repoPath = getRepoPath(user, name);
+  const isWorkspace = isJjWorkspace(repoPath);
 
   // Use native jj-lib bindings
-  if (isJjWorkspace(repoPath)) {
+  if (isWorkspace) {
     try {
       const workspace = JjWorkspace.open(repoPath);
       const nativeBookmarks = workspace.listBookmarks();
@@ -174,7 +175,7 @@ export async function listBookmarks(user: string, name: string): Promise<Bookmar
         updatedAt: new Date(),
       }));
     } catch (e) {
-      console.error('Native jj-lib failed for listBookmarks:', e);
+      // Log error and fall through to CLI fallback
     }
   }
 

@@ -107,6 +107,7 @@ export class AgentWrapper {
       modelId: options.modelId ?? this.defaultModel,
       agentName: options.agentName ?? this.defaultAgentName,
       workingDir: this.workingDir,
+      sessionId: sessionId ?? undefined,
       abortSignal: options.abortSignal,
     };
 
