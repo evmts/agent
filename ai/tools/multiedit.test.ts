@@ -510,9 +510,6 @@ describe('multieditImpl - read-before-write enforcement', () => {
     );
 
     // Should succeed because file doesn't exist yet
-    if (!result.success) {
-      console.log('Error:', result.error);
-    }
     expect(result.success).toBe(true);
   });
 
