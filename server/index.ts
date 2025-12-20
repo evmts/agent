@@ -8,10 +8,7 @@ import { logger } from 'hono/logger';
 import { authMiddleware } from './middleware/auth';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
-import branchRoutes from './routes/branches';
-import protectedBranchRoutes from './routes/protected-branches';
-import pullRequestRoutes from './routes/pulls';
-// JJ-native routes
+// JJ-native routes (replaces git-based branches, pulls)
 import bookmarkRoutes from './routes/bookmarks';
 import changesRoutes from './routes/changes';
 import operationsRoutes from './routes/operations';
@@ -70,16 +67,11 @@ app.get('/shape', async (c) => {
   });
 });
 
-// Mount API routes under /api prefix  
+// Mount API routes under /api prefix
 app.route('/api/auth', authRoutes);
 app.route('/api/users', usersRoutes);
 
-// Mount repo-specific API routes (legacy git-based)
-app.route('/api', branchRoutes);
-app.route('/api', protectedBranchRoutes);
-app.route('/api', pullRequestRoutes);
-
-// Mount JJ-native API routes
+// Mount JJ-native API routes (replaces git-based branches/pulls)
 app.route('/api', bookmarkRoutes);
 app.route('/api', changesRoutes);
 app.route('/api', operationsRoutes);
