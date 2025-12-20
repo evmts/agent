@@ -165,14 +165,20 @@ export async function runAgent(
 /**
  * Run agent synchronously (blocking wrapper for testing).
  *
- * Note: This is not truly synchronous - it blocks the event loop.
- * Use only for testing or CLI tools where blocking is acceptable.
+ * @deprecated This function blocks the event loop and should be avoided.
+ * Use `await runAgent()` instead for proper async handling.
+ *
+ * This is only retained for backwards compatibility with simple CLI scripts.
+ * It uses Bun.sleepSync which prevents other async operations from progressing.
  */
 export function runAgentSync(
   messages: CoreMessage[],
   options: AgentOptions
 ): string {
-  // Use Bun's synchronous promise resolution
+  console.warn(
+    '[DEPRECATED] runAgentSync blocks the event loop. Use `await runAgent()` instead.'
+  );
+
   let result = '';
   let error: Error | null = null;
   let settled = false;
@@ -184,6 +190,7 @@ export function runAgentSync(
     .catch((e) => { error = e; settled = true; });
 
   // Block until promise resolves (Bun-specific)
+  // WARNING: This blocks the event loop and is an anti-pattern.
   // @ts-expect-error - Bun internal API
   if (typeof Bun !== 'undefined' && Bun.sleepSync) {
     while (!settled && (Date.now() - startTime) < maxWaitMs) {
@@ -194,6 +201,10 @@ export function runAgentSync(
     if (!settled) {
       throw new Error('runAgentSync timed out after 5 minutes');
     }
+  } else {
+    throw new Error(
+      'runAgentSync is only available in Bun runtime. Use `await runAgent()` instead.'
+    );
   }
 
   if (error) throw error;
