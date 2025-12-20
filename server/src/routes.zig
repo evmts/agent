@@ -22,6 +22,48 @@ const operations = @import("routes/operations.zig");
 
 const log = std.log.scoped(.routes);
 
+/// Helper function to validate CSRF token
+/// Returns true if valid or not required, false if invalid (and sets error response)
+fn validateCsrf(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !bool {
+    const config = middleware.csrf_default;
+
+    // Skip if CSRF is disabled
+    if (!config.enabled) {
+        return true;
+    }
+
+    // Safe methods don't need CSRF protection
+    if (req.method != .POST and req.method != .PUT and req.method != .PATCH and req.method != .DELETE) {
+        return true;
+    }
+
+    // Skip CSRF for Bearer token authentication if configured
+    if (config.skip_bearer_auth) {
+        const auth_header = req.headers.get("authorization");
+        if (auth_header != null and std.mem.startsWith(u8, auth_header.?, "Bearer ")) {
+            return true;
+        }
+    }
+
+    // Get CSRF token from request header
+    const token = req.headers.get("X-CSRF-Token") orelse {
+        res.status = 403;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"CSRF token missing\"}");
+        return false;
+    };
+
+    // Validate token against session
+    if (!ctx.csrf_store.validateToken(token, ctx.session_key)) {
+        res.status = 403;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Invalid CSRF token\"}");
+        return false;
+    }
+
+    return true;
+}
+
 /// Helper function to apply auth + CSRF middleware to a handler
 /// Use this wrapper for all POST/PUT/PATCH/DELETE routes that require auth
 fn withAuthAndCsrf(
@@ -34,11 +76,9 @@ fn withAuthAndCsrf(
                 return; // Auth middleware already set error response
             }
 
-            // Apply CSRF middleware (configured with context's csrf_store)
-            const csrf_config = middleware.csrf_default;
-            const csrf_handler = middleware.csrfMiddleware(ctx.csrf_store, csrf_config);
-            if (!try csrf_handler(ctx, req, res)) {
-                return; // CSRF middleware already set error response
+            // Apply CSRF validation
+            if (!try validateCsrf(ctx, req, res)) {
+                return; // CSRF validation already set error response
             }
 
             // Call the actual handler
