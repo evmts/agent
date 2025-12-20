@@ -1,28 +1,25 @@
 -- Plue Database Schema
 
--- Users table with authentication
+-- Users table with SIWE (Sign In With Ethereum) authentication
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(255) UNIQUE NOT NULL,
   lower_username VARCHAR(255) UNIQUE NOT NULL, -- for case-insensitive lookups
-  email VARCHAR(255) UNIQUE NOT NULL,
-  lower_email VARCHAR(255) UNIQUE NOT NULL, -- for case-insensitive lookups
+  email VARCHAR(255) UNIQUE,
+  lower_email VARCHAR(255) UNIQUE, -- for case-insensitive lookups
 
   -- Display info
   display_name VARCHAR(255),
   bio TEXT,
   avatar_url VARCHAR(2048),
 
-  -- Authentication
-  password_hash VARCHAR(255) NOT NULL,
-  password_algo VARCHAR(50) NOT NULL DEFAULT 'argon2id',
-  salt VARCHAR(64) NOT NULL,
+  -- SIWE Authentication
+  wallet_address VARCHAR(42) UNIQUE, -- Ethereum address (checksummed)
 
   -- Account status
-  is_active BOOLEAN NOT NULL DEFAULT false, -- email verified
+  is_active BOOLEAN NOT NULL DEFAULT true, -- SIWE users are active by default
   is_admin BOOLEAN NOT NULL DEFAULT false,
   prohibit_login BOOLEAN NOT NULL DEFAULT false,
-  must_change_password BOOLEAN NOT NULL DEFAULT false,
 
   -- Timestamps
   created_at TIMESTAMP DEFAULT NOW(),
@@ -34,6 +31,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_lower_username ON users(lower_username);
 CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(lower_email);
 CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
+CREATE INDEX IF NOT EXISTS idx_users_wallet_address ON users(wallet_address);
 
 -- Email addresses (supports multiple per user)
 CREATE TABLE IF NOT EXISTS email_addresses (
@@ -80,20 +78,17 @@ CREATE TABLE IF NOT EXISTS access_tokens (
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_tokens_token_hash ON access_tokens(token_hash);
 
--- Email verification tokens
-CREATE TABLE IF NOT EXISTS email_verification_tokens (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  email VARCHAR(255) NOT NULL,
-  token_hash VARCHAR(64) UNIQUE NOT NULL,
-  token_type VARCHAR(20) NOT NULL CHECK (token_type IN ('activate', 'reset_password')),
+-- SIWE nonces for replay attack prevention
+CREATE TABLE IF NOT EXISTS siwe_nonces (
+  nonce VARCHAR(64) PRIMARY KEY,
+  wallet_address VARCHAR(42),
+  created_at TIMESTAMP DEFAULT NOW(),
   expires_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  used_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_token_hash ON email_verification_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires_at ON email_verification_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS idx_siwe_nonces_expires ON siwe_nonces(expires_at);
+CREATE INDEX IF NOT EXISTS idx_siwe_nonces_wallet ON siwe_nonces(wallet_address);
 
 -- Repositories
 CREATE TABLE IF NOT EXISTS repositories (
@@ -462,20 +457,32 @@ CREATE TABLE IF NOT EXISTS file_trackers (
 
 CREATE INDEX IF NOT EXISTS idx_file_trackers_session ON file_trackers(session_id);
 
+-- SSH Keys for Git over SSH authentication
+CREATE TABLE IF NOT EXISTS ssh_keys (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL, -- User-defined key name
+  fingerprint VARCHAR(255) NOT NULL UNIQUE, -- SHA256:... fingerprint
+  public_key TEXT NOT NULL, -- Full public key content
+  key_type VARCHAR(32) NOT NULL DEFAULT 'user', -- 'user' or 'deploy'
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ssh_keys_fingerprint ON ssh_keys(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_ssh_keys_user_id ON ssh_keys(user_id);
+
 -- =============================================================================
--- Seed Data (with temporary passwords for existing users)
+-- Seed Data
 -- =============================================================================
 
--- Seed mock users with auth fields
-INSERT INTO users (username, lower_username, email, lower_email, display_name, bio, password_hash, password_algo, salt, is_active) VALUES
-  ('evilrabbit', 'evilrabbit', 'evilrabbit@plue.local', 'evilrabbit@plue.local', 'Evil Rabbit', 'Building dark things', 'temp_hash', 'argon2id', 'temp_salt', false),
-  ('ghost', 'ghost', 'ghost@plue.local', 'ghost@plue.local', 'Ghost', 'Spectral presence', 'temp_hash', 'argon2id', 'temp_salt', false),
-  ('null', 'null', 'null@plue.local', 'null@plue.local', 'Null', 'Exception handler', 'temp_hash', 'argon2id', 'temp_salt', false)
+-- Seed mock users (SIWE auth - no passwords)
+INSERT INTO users (username, lower_username, email, lower_email, display_name, bio, is_active) VALUES
+  ('evilrabbit', 'evilrabbit', 'evilrabbit@plue.local', 'evilrabbit@plue.local', 'Evil Rabbit', 'Building dark things', false),
+  ('ghost', 'ghost', 'ghost@plue.local', 'ghost@plue.local', 'Ghost', 'Spectral presence', false),
+  ('null', 'null', 'null@plue.local', 'null@plue.local', 'Null', 'Exception handler', false)
 ON CONFLICT (username) DO UPDATE SET
   lower_username = EXCLUDED.lower_username,
   email = EXCLUDED.email,
   lower_email = EXCLUDED.lower_email,
-  password_hash = EXCLUDED.password_hash,
-  password_algo = EXCLUDED.password_algo,
-  salt = EXCLUDED.salt,
   is_active = EXCLUDED.is_active;
