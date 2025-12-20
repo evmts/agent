@@ -5,7 +5,7 @@
  * Run with: bun e2e/seed.ts
  */
 
-import { sql } from "../db/client";
+import { sql } from "../ui/lib/db";
 import { initRepo, repoExists, deleteRepo } from "../ui/lib/jj";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
