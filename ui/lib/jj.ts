@@ -828,10 +828,17 @@ function parseOperationType(description: string): Operation['type'] {
 // =============================================================================
 
 /**
- * Get clone URL for a repository
+ * Get clone URL for a repository (SSH format)
  */
 export function getCloneUrl(user: string, name: string): string {
-  return `file://${REPOS_DIR}/${user}/${name}`;
+  const host = process.env.SSH_HOST || 'localhost';
+  const port = process.env.SSH_PORT || '2222';
+
+  // Use standard git@host:path format for port 22, otherwise use ssh:// URL
+  if (port === '22') {
+    return `git@${host}:${user}/${name}.git`;
+  }
+  return `ssh://git@${host}:${port}/${user}/${name}.git`;
 }
 
 /**

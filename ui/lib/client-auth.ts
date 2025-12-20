@@ -1,22 +1,110 @@
-export interface RegisterData {
-  username: string;
-  email: string;
-  password: string;
-  displayName?: string;
-}
+/**
+ * Client-side authentication functions for SIWE (Sign In With Ethereum).
+ */
 
-export interface LoginData {
-  usernameOrEmail: string;
-  password: string;
-}
+import { signInWithEthereum, disconnectWallet } from './porto';
 
 const API_BASE = '/api';
 
-export async function register(data: RegisterData) {
-  const response = await fetch(`${API_BASE}/auth/register`, {
+export interface SiweUser {
+  id: number;
+  username: string;
+  email: string | null;
+  isActive: boolean;
+  isAdmin: boolean;
+  walletAddress: string;
+}
+
+export interface SiweRegistrationData {
+  username: string;
+  displayName?: string;
+}
+
+/**
+ * Get a fresh nonce from the server for SIWE.
+ */
+async function getNonce(): Promise<string> {
+  const response = await fetch(`${API_BASE}/auth/siwe/nonce`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get nonce');
+  }
+
+  const data = await response.json();
+  return data.nonce;
+}
+
+/**
+ * Connect wallet and attempt to login.
+ * Returns:
+ * - { status: 'logged_in', user } if wallet is already registered
+ * - { status: 'needs_registration', address, message, signature } if new wallet
+ */
+export async function connectAndLogin(): Promise<{
+  status: 'logged_in' | 'needs_registration';
+  user?: SiweUser;
+  address?: string;
+  message?: string;
+  signature?: string;
+}> {
+  // Get nonce from server
+  const nonce = await getNonce();
+
+  // Sign message with Porto (opens wallet dialog)
+  const { message, signature, address } = await signInWithEthereum({
+    domain: window.location.host,
+    uri: window.location.origin,
+    nonce,
+    statement: 'Sign in to Plue',
+  });
+
+  // Try to verify (login existing user)
+  const response = await fetch(`${API_BASE}/auth/siwe/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ message, signature }),
+    credentials: 'include',
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    return { status: 'logged_in', user: data.user };
+  }
+
+  if (response.status === 404) {
+    // Wallet not registered, need to choose username
+    return {
+      status: 'needs_registration',
+      address,
+      message,
+      signature,
+    };
+  }
+
+  const error = await response.json();
+  throw new Error(error.error || 'Login failed');
+}
+
+/**
+ * Register a new user with SIWE.
+ * Call this after connectAndLogin returns 'needs_registration'.
+ */
+export async function registerWithSiwe(
+  message: string,
+  signature: string,
+  data: SiweRegistrationData
+): Promise<{ user: SiweUser }> {
+  const response = await fetch(`${API_BASE}/auth/siwe/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      signature,
+      username: data.username,
+      displayName: data.displayName,
+    }),
     credentials: 'include',
   });
 
@@ -28,27 +116,17 @@ export async function register(data: RegisterData) {
   return response.json();
 }
 
-export async function login(data: LoginData) {
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-    credentials: 'include',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Login failed');
-  }
-
-  return response.json();
-}
-
+/**
+ * Logout and disconnect wallet.
+ */
 export async function logout() {
   const response = await fetch(`${API_BASE}/auth/logout`, {
     method: 'POST',
     credentials: 'include',
   });
+
+  // Disconnect wallet state
+  disconnectWallet();
 
   if (!response.ok) {
     throw new Error('Logout failed');
@@ -57,7 +135,10 @@ export async function logout() {
   return response.json();
 }
 
-export async function getCurrentUser() {
+/**
+ * Get current authenticated user.
+ */
+export async function getCurrentUser(): Promise<SiweUser | null> {
   const response = await fetch(`${API_BASE}/auth/me`, {
     credentials: 'include',
   });
@@ -68,52 +149,4 @@ export async function getCurrentUser() {
 
   const data = await response.json();
   return data.user;
-}
-
-export async function activateAccount(token: string) {
-  const response = await fetch(`${API_BASE}/auth/activate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-    credentials: 'include',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Activation failed');
-  }
-
-  return response.json();
-}
-
-export async function requestPasswordReset(email: string) {
-  const response = await fetch(`${API_BASE}/auth/password/reset-request`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-    credentials: 'include',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to send reset link');
-  }
-
-  return response.json();
-}
-
-export async function resetPassword(token: string, password: string) {
-  const response = await fetch(`${API_BASE}/auth/password/reset-confirm`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, password }),
-    credentials: 'include',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to reset password');
-  }
-
-  return response.json();
 }

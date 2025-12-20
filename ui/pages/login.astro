@@ -14,42 +14,54 @@ if (sessionCookie) {
   <div class="container">
     <div class="auth-container">
       <h1>Sign In</h1>
+      <p class="auth-description">Connect your wallet to sign in or create an account.</p>
 
-      <form id="login-form" class="auth-form">
-        <div class="form-group">
-          <label for="usernameOrEmail">Username or Email</label>
-          <input
-            type="text"
-            id="usernameOrEmail"
-            name="usernameOrEmail"
-            required
-            autocomplete="username"
-          />
-          <div id="username-feedback" class="validation-feedback"></div>
-        </div>
-
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input
-            type="password"
-            id="password"
-            name="password"
-            required
-            autocomplete="current-password"
-          />
-          <div id="password-feedback" class="validation-feedback"></div>
-        </div>
-
-        <div id="error" class="error-message" style="display: none;"></div>
-
-        <button type="submit" class="btn btn-primary btn-block" id="submit-btn">
-          Sign In
+      <div id="connect-step" class="auth-step">
+        <button id="connect-btn" class="btn btn-primary btn-block">
+          Connect Wallet
         </button>
-      </form>
+        <div id="error" class="error-message" style="display: none;"></div>
+      </div>
 
-      <div class="auth-links">
-        <a href="/register">Don't have an account? Sign up</a>
-        <a href="/password/reset">Forgot password?</a>
+      <div id="register-step" class="auth-step" style="display: none;">
+        <p class="step-info">
+          Welcome! Choose a username to complete registration.
+        </p>
+        <p class="wallet-info" id="wallet-display"></p>
+
+        <form id="register-form">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              required
+              pattern="^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$"
+              minlength="3"
+              maxlength="39"
+              autocomplete="username"
+            />
+            <small>3-39 characters, alphanumeric with hyphens/underscores</small>
+            <div id="username-feedback" class="validation-feedback"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="displayName">Display Name (optional)</label>
+            <input
+              type="text"
+              id="displayName"
+              name="displayName"
+              maxlength="255"
+            />
+          </div>
+
+          <div id="register-error" class="error-message" style="display: none;"></div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="register-btn">
+            Complete Registration
+          </button>
+        </form>
       </div>
     </div>
   </div>
@@ -65,8 +77,36 @@ if (sessionCookie) {
     background: var(--gray-950);
   }
 
-  .auth-form {
+  .auth-description {
+    color: var(--gray-400);
+    margin-top: 0.5rem;
+  }
+
+  .auth-step {
     margin-top: 2rem;
+  }
+
+  .step-info {
+    color: var(--gray-300);
+    margin-bottom: 1rem;
+  }
+
+  .wallet-info {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--gray-400);
+    background: var(--gray-900);
+    padding: 0.75rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1.5rem;
+    word-break: break-all;
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--gray-500);
   }
 
   .validation-feedback {
@@ -75,6 +115,12 @@ if (sessionCookie) {
     border-radius: var(--radius-sm);
     font-size: 0.75rem;
     display: none;
+  }
+
+  .validation-feedback.valid {
+    color: var(--success);
+    background: var(--success-dim);
+    display: block;
   }
 
   .validation-feedback.invalid {
@@ -100,118 +146,105 @@ if (sessionCookie) {
     opacity: 0.6;
     cursor: not-allowed;
   }
-
-  .auth-links {
-    margin-top: 2rem;
-    text-align: center;
-  }
-
-  .auth-links a {
-    display: block;
-    margin-top: 0.5rem;
-    color: var(--gray-300);
-    text-decoration: underline;
-  }
-
-  .auth-links a:hover {
-    color: var(--fg);
-  }
 </style>
 
 <script>
-  import { login } from '../lib/client-auth';
+  import { connectAndLogin, registerWithSiwe } from '../lib/client-auth';
 
-  const form = document.getElementById('login-form') as HTMLFormElement;
+  // Elements
+  const connectStep = document.getElementById('connect-step') as HTMLDivElement;
+  const registerStep = document.getElementById('register-step') as HTMLDivElement;
+  const connectBtn = document.getElementById('connect-btn') as HTMLButtonElement;
   const errorDiv = document.getElementById('error') as HTMLDivElement;
-  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
-
-  // Form inputs
-  const usernameOrEmailInput = document.getElementById('usernameOrEmail') as HTMLInputElement;
-  const passwordInput = document.getElementById('password') as HTMLInputElement;
-
-  // Feedback elements
+  const registerForm = document.getElementById('register-form') as HTMLFormElement;
+  const registerError = document.getElementById('register-error') as HTMLDivElement;
+  const registerBtn = document.getElementById('register-btn') as HTMLButtonElement;
+  const walletDisplay = document.getElementById('wallet-display') as HTMLParagraphElement;
+  const usernameInput = document.getElementById('username') as HTMLInputElement;
   const usernameFeedback = document.getElementById('username-feedback') as HTMLDivElement;
-  const passwordFeedback = document.getElementById('password-feedback') as HTMLDivElement;
 
-  // Validation functions
-  function validateUsernameOrEmail(value: string) {
-    if (!value.trim()) {
-      return { valid: false, message: 'Username or email is required' };
+  // State for registration
+  let pendingMessage: string | null = null;
+  let pendingSignature: string | null = null;
+
+  // Username validation
+  function validateUsername(username: string) {
+    if (username.length < 3) {
+      return { valid: false, message: 'Username must be at least 3 characters' };
     }
-    return { valid: true, message: '' };
+    if (username.length > 39) {
+      return { valid: false, message: 'Username must be at most 39 characters' };
+    }
+    if (!/^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$/.test(username)) {
+      return { valid: false, message: 'Username must start and end with alphanumeric' };
+    }
+    return { valid: true, message: 'Username looks good' };
   }
 
-  function validatePassword(value: string) {
-    if (!value) {
-      return { valid: false, message: 'Password is required' };
-    }
-    return { valid: true, message: '' };
-  }
-
-  function showValidationFeedback(element: HTMLDivElement, validation: { valid: boolean; message: string }) {
-    if (validation.valid || !validation.message) {
-      element.style.display = 'none';
-    } else {
-      element.textContent = validation.message;
-      element.className = 'validation-feedback invalid';
-    }
-  }
-
-  // Real-time validation (on blur to avoid being too aggressive)
-  usernameOrEmailInput.addEventListener('blur', () => {
-    const validation = validateUsernameOrEmail(usernameOrEmailInput.value);
-    showValidationFeedback(usernameFeedback, validation);
+  usernameInput.addEventListener('input', () => {
+    const validation = validateUsername(usernameInput.value);
+    usernameFeedback.textContent = validation.message;
+    usernameFeedback.className = `validation-feedback ${validation.valid ? 'valid' : 'invalid'}`;
   });
 
-  passwordInput.addEventListener('blur', () => {
-    const validation = validatePassword(passwordInput.value);
-    showValidationFeedback(passwordFeedback, validation);
-  });
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
+  // Connect wallet
+  connectBtn.addEventListener('click', async () => {
+    connectBtn.disabled = true;
+    connectBtn.textContent = 'Connecting...';
     errorDiv.style.display = 'none';
 
-    // Validate all fields
-    const usernameValidation = validateUsernameOrEmail(usernameOrEmailInput.value);
-    const passwordValidation = validatePassword(passwordInput.value);
+    try {
+      const result = await connectAndLogin();
 
-    showValidationFeedback(usernameFeedback, usernameValidation);
-    showValidationFeedback(passwordFeedback, passwordValidation);
-
-    if (!usernameValidation.valid || !passwordValidation.valid) {
-      errorDiv.textContent = 'Please fill in all required fields';
+      if (result.status === 'logged_in') {
+        // Already registered, redirect
+        window.location.href = '/';
+      } else if (result.status === 'needs_registration') {
+        // Show registration form
+        pendingMessage = result.message!;
+        pendingSignature = result.signature!;
+        walletDisplay.textContent = `Wallet: ${result.address}`;
+        connectStep.style.display = 'none';
+        registerStep.style.display = 'block';
+      }
+    } catch (error) {
+      errorDiv.textContent = error instanceof Error ? error.message : 'Connection failed';
       errorDiv.style.display = 'block';
+    } finally {
+      connectBtn.disabled = false;
+      connectBtn.textContent = 'Connect Wallet';
+    }
+  });
+
+  // Complete registration
+  registerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const validation = validateUsername(usernameInput.value);
+    if (!validation.valid) {
+      registerError.textContent = validation.message;
+      registerError.style.display = 'block';
       return;
     }
 
-    // Disable submit button to prevent double submission
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Signing in...';
-
-    const formData = new FormData(form);
-    const data = {
-      usernameOrEmail: formData.get('usernameOrEmail') as string,
-      password: formData.get('password') as string,
-    };
+    registerBtn.disabled = true;
+    registerBtn.textContent = 'Registering...';
+    registerError.style.display = 'none';
 
     try {
-      await login(data);
-      // Redirect will happen automatically on successful login
+      const formData = new FormData(registerForm);
+      await registerWithSiwe(pendingMessage!, pendingSignature!, {
+        username: formData.get('username') as string,
+        displayName: (formData.get('displayName') as string) || undefined,
+      });
+
       window.location.href = '/';
     } catch (error) {
-      let errorMessage = 'Login failed';
-      
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      
-      errorDiv.textContent = errorMessage;
-      errorDiv.style.display = 'block';
+      registerError.textContent = error instanceof Error ? error.message : 'Registration failed';
+      registerError.style.display = 'block';
     } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Sign In';
+      registerBtn.disabled = false;
+      registerBtn.textContent = 'Complete Registration';
     }
   });
 </script>
