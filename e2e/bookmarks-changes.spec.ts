@@ -1,28 +1,24 @@
-import { test, expect, selectors } from './fixtures';
+import { test, expect, selectors, TEST_DATA } from './fixtures';
+
+const { user, repo, defaultBranch } = TEST_DATA;
 
 test.describe('Bookmarks Page (JJ Branches)', () => {
   test.describe('Page Layout', () => {
     test('should display bookmarks page', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       await expect(page).toHaveTitle(/Bookmarks/);
     });
 
     test('should show Bookmarks tab as active', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const activeTab = page.locator(`${selectors.repoNav} a.active`);
       await expect(activeTab).toHaveText('Bookmarks');
     });
 
     test('should display JJ info banner', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const jjInfo = page.locator('.jj-info');
       await expect(jjInfo).toBeVisible();
@@ -30,9 +26,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should display JJ badge', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const badge = page.locator('.jj-badge');
       await expect(badge).toBeVisible();
@@ -42,27 +36,21 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
 
   test.describe('Bookmark List', () => {
     test('should display bookmark count in header', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const header = page.locator('h2');
       await expect(header).toContainText('bookmarks');
     });
 
     test('should display bookmark list', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const bookmarkList = page.locator(selectors.bookmarkList);
       await expect(bookmarkList).toBeVisible();
     });
 
     test('should show bookmark items with name and change ID', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const bookmarkItem = page.locator(selectors.bookmarkItem).first();
       if (await bookmarkItem.count() > 0) {
@@ -72,31 +60,17 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should mark default bookmark with badge', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const defaultBadge = page.locator('.badge.default');
       await expect(defaultBadge).toBeVisible();
       await expect(defaultBadge).toHaveText('default');
     });
-
-    test('should display empty state when no bookmarks', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual empty repo');
-
-      await page.goto('/testuser/emptyrepo/bookmarks');
-
-      const emptyState = page.locator(selectors.emptyState);
-      await expect(emptyState).toBeVisible();
-      await expect(emptyState).toContainText('No bookmarks');
-    });
   });
 
   test.describe('Bookmark Actions', () => {
     test('should have New bookmark button', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const newBtn = page.locator(selectors.newBookmarkBtn);
       await expect(newBtn).toBeVisible();
@@ -104,9 +78,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should open new bookmark modal on button click', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       await page.locator(selectors.newBookmarkBtn).click();
 
@@ -116,9 +88,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should have History link for each bookmark', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const bookmarkItem = page.locator(selectors.bookmarkItem).first();
       if (await bookmarkItem.count() > 0) {
@@ -128,9 +98,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should navigate to changes page via History link', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const bookmarkItem = page.locator(selectors.bookmarkItem).first();
       if (await bookmarkItem.count() > 0) {
@@ -142,9 +110,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should navigate to tree via bookmark name link', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
 
       const bookmarkItem = page.locator(selectors.bookmarkItem).first();
       if (await bookmarkItem.count() > 0) {
@@ -158,9 +124,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
 
   test.describe('Bookmark Modal', () => {
     test('should have name input field', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
       await page.locator(selectors.newBookmarkBtn).click();
 
       const nameInput = page.locator('#new-bookmark-modal input[name="name"]');
@@ -169,9 +133,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should have optional change_id field', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
       await page.locator(selectors.newBookmarkBtn).click();
 
       const changeIdInput = page.locator('#new-bookmark-modal input[name="change_id"]');
@@ -180,9 +142,7 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
     });
 
     test('should close modal on Cancel click', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/bookmarks');
+      await page.goto(`/${user}/${repo}/bookmarks`);
       await page.locator(selectors.newBookmarkBtn).click();
 
       const modal = page.locator('#new-bookmark-modal');
@@ -197,36 +157,28 @@ test.describe('Bookmarks Page (JJ Branches)', () => {
 test.describe('Changes Page (JJ Commits)', () => {
   test.describe('Page Layout', () => {
     test('should display changes page', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       await expect(page).toHaveTitle(/Changes/);
     });
 
     test('should show Changes tab as active', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const activeTab = page.locator(`${selectors.repoNav} a.active`);
       await expect(activeTab).toHaveText('Changes');
     });
 
     test('should display bookmark name in header', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const header = page.locator('h2');
       await expect(header).toContainText('Changes on');
-      await expect(header.locator('.bookmark-name')).toHaveText('main');
+      await expect(header.locator('.bookmark-name')).toHaveText(defaultBranch);
     });
 
     test('should display JJ info banner about stable IDs', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const jjInfo = page.locator('.jj-info');
       await expect(jjInfo).toBeVisible();
@@ -234,9 +186,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should have link to Operation Log', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const opLogLink = page.getByRole('link', { name: 'Operation Log' });
       await expect(opLogLink).toBeVisible();
@@ -245,18 +195,14 @@ test.describe('Changes Page (JJ Commits)', () => {
 
   test.describe('Change List', () => {
     test('should display change list', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeList = page.locator(selectors.changeList);
       await expect(changeList).toBeVisible();
     });
 
     test('should display change items with timeline markers', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeItem = page.locator(selectors.changeItem).first();
       if (await changeItem.count() > 0) {
@@ -266,9 +212,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should display change ID (8 chars) as link', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeId = page.locator(selectors.changeId).first();
       if (await changeId.count() > 0) {
@@ -279,9 +223,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should display change description', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeItem = page.locator(selectors.changeItem).first();
       if (await changeItem.count() > 0) {
@@ -291,9 +233,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should display author and date', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeItem = page.locator(selectors.changeItem).first();
       if (await changeItem.count() > 0) {
@@ -301,46 +241,11 @@ test.describe('Changes Page (JJ Commits)', () => {
         await expect(changeItem.locator('.date')).toBeVisible();
       }
     });
-
-    test('should show conflict badge for conflicted changes', async ({ page }) => {
-      test.skip(true, 'Requires test data setup with conflicted change');
-
-      await page.goto('/testuser/testrepo/changes/main');
-
-      const conflictedItem = page.locator(`${selectors.changeItem}.has-conflicts`);
-      if (await conflictedItem.count() > 0) {
-        await expect(conflictedItem.locator('.conflict-badge')).toBeVisible();
-      }
-    });
-
-    test('should show empty badge for empty changes', async ({ page }) => {
-      test.skip(true, 'Requires test data setup with empty change');
-
-      await page.goto('/testuser/testrepo/changes/main');
-
-      const emptyBadge = page.locator('.empty-badge');
-      // May or may not be present
-      if (await emptyBadge.count() > 0) {
-        await expect(emptyBadge).toHaveText('empty');
-      }
-    });
-
-    test('should display empty state when no changes', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual empty bookmark');
-
-      await page.goto('/testuser/testrepo/changes/empty-bookmark');
-
-      const emptyState = page.locator(selectors.emptyState);
-      await expect(emptyState).toBeVisible();
-      await expect(emptyState).toContainText('No changes');
-    });
   });
 
   test.describe('Change Actions', () => {
     test('should have Browse button for each change', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeItem = page.locator(selectors.changeItem).first();
       if (await changeItem.count() > 0) {
@@ -350,9 +255,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should navigate to tree view via Browse button', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const changeItem = page.locator(selectors.changeItem).first();
       if (await changeItem.count() > 0) {
@@ -364,9 +267,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should have Land button for each change', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const landBtn = page.locator(selectors.landBtn).first();
       if (await landBtn.count() > 0) {
@@ -376,9 +277,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should open land modal on Land button click', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const landBtn = page.locator(selectors.landBtn).first();
       if (await landBtn.count() > 0) {
@@ -393,9 +292,7 @@ test.describe('Changes Page (JJ Commits)', () => {
 
   test.describe('Land Modal', () => {
     test('should display change ID preview', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const landBtn = page.locator(selectors.landBtn).first();
       if (await landBtn.count() > 0) {
@@ -407,9 +304,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should have target bookmark selector', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const landBtn = page.locator(selectors.landBtn).first();
       if (await landBtn.count() > 0) {
@@ -421,9 +316,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should have optional title input', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const landBtn = page.locator(selectors.landBtn).first();
       if (await landBtn.count() > 0) {
@@ -435,9 +328,7 @@ test.describe('Changes Page (JJ Commits)', () => {
     });
 
     test('should close modal on Cancel', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const landBtn = page.locator(selectors.landBtn).first();
       if (await landBtn.count() > 0) {
@@ -454,28 +345,12 @@ test.describe('Changes Page (JJ Commits)', () => {
 
   test.describe('Navigation to Operation Log', () => {
     test('should navigate to operations page', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo/changes/main');
+      await page.goto(`/${user}/${repo}/changes/${defaultBranch}`);
 
       const opLogLink = page.getByRole('link', { name: 'Operation Log' });
       await opLogLink.click();
 
-      await expect(page).toHaveURL('/testuser/testrepo/operations');
+      await expect(page).toHaveURL(`/${user}/${repo}/operations`);
     });
-  });
-});
-
-test.describe('Error Handling', () => {
-  test('should display error message when changes fail to load', async ({ page }) => {
-    test.skip(true, 'Requires test setup that triggers error');
-
-    await page.goto('/testuser/testrepo/changes/invalid-bookmark');
-
-    const error = page.locator('.error');
-    if (await error.count() > 0) {
-      await expect(error).toBeVisible();
-      await expect(error).toContainText('Error');
-    }
   });
 });

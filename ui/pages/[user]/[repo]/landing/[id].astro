@@ -655,6 +655,47 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
     color: var(--text-muted);
   }
 
+  .commits-section {
+    margin-bottom: 2rem;
+  }
+
+  .commit-list {
+    border: 1px solid var(--border);
+  }
+
+  .commit-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .commit-item:last-child {
+    border-bottom: none;
+  }
+
+  .commit-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .commit-message {
+    flex: 1;
+    font-size: 14px;
+  }
+
+  .commit-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .commit-author {
+    font-weight: 500;
+  }
+
   @media (max-width: 768px) {
     .content-grid {
       grid-template-columns: 1fr;

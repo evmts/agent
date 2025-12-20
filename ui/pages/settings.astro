@@ -1,28 +1,130 @@
 ---
-// Get current user and redirect to their profile page
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+
+// Check authentication
 let currentUser = null;
 const sessionCookie = Astro.cookies.get('plue_session');
 
-if (sessionCookie) {
-  try {
-    const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
-      headers: {
-        Cookie: `plue_session=${sessionCookie.value}`,
-      },
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      currentUser = data.user;
-    }
-  } catch (error) {
-    console.error('Failed to fetch current user:', error);
-  }
-}
-
-if (!currentUser) {
+if (!sessionCookie) {
   return Astro.redirect('/login');
 }
 
-return Astro.redirect(`/${currentUser.username}/profile`);
+try {
+  const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+    headers: {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    },
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    currentUser = data.user;
+  } else {
+    return Astro.redirect('/login');
+  }
+} catch (error) {
+  console.error('Failed to fetch current user:', error);
+  return Astro.redirect('/login');
+}
 ---
+
+<Layout title="Settings - plue">
+  <Header />
+  <div class="container">
+    <div class="settings-container">
+      <h1>Settings</h1>
+      <p class="description">
+        Manage your account settings and preferences.
+      </p>
+
+      <div class="settings-grid">
+        <a href={`/${currentUser.username}/profile`} class="settings-card">
+          <div class="card-header">
+            <h2>Profile</h2>
+          </div>
+          <p class="card-description">
+            Update your display name, bio, avatar, and change your password.
+          </p>
+        </a>
+
+        <a href="/settings/ssh-keys" class="settings-card">
+          <div class="card-header">
+            <h2>SSH Keys</h2>
+          </div>
+          <p class="card-description">
+            Manage SSH keys for secure git operations without passwords.
+          </p>
+        </a>
+
+        <a href="/settings/tokens" class="settings-card">
+          <div class="card-header">
+            <h2>Access Tokens</h2>
+          </div>
+          <p class="card-description">
+            Generate personal access tokens for API authentication.
+          </p>
+        </a>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .settings-container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .description {
+    color: var(--gray-400);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+  }
+
+  .settings-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .settings-card {
+    display: block;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--gray-950);
+    text-decoration: none;
+    transition: border-color var(--transition-fast);
+  }
+
+  .settings-card:hover {
+    border-color: var(--border-hover);
+  }
+
+  .card-header {
+    margin-bottom: 8px;
+  }
+
+  .card-header h2 {
+    font-size: 16px;
+    color: var(--fg);
+    margin: 0;
+    text-transform: none;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+
+  .card-description {
+    font-size: 13px;
+    color: var(--gray-400);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  @media (max-width: 640px) {
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
