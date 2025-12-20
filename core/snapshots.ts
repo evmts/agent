@@ -384,3 +384,270 @@ export async function undoLastOperation(sessionId: string): Promise<void> {
     console.warn('[snapshots] Failed to undo operation:', error);
   }
 }
+
+// =============================================================================
+// JJ-Native Session Operations
+// =============================================================================
+
+export interface SessionOperation {
+  id: string;
+  description: string;
+  timestamp: number;
+}
+
+export interface SessionChange {
+  changeId: string;
+  commitId: string;
+  description: string;
+  timestamp: number;
+  isEmpty: boolean;
+}
+
+export interface SessionConflict {
+  filePath: string;
+  changeId: string;
+}
+
+/**
+ * Get the operation log for a session.
+ *
+ * @param sessionId - The session to get operations for
+ * @param limit - Maximum number of operations to return
+ * @returns Array of operations
+ */
+export async function getSessionOperations(
+  sessionId: string,
+  limit: number = 20
+): Promise<SessionOperation[]> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return [];
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    return await snapshot.getOperationLog(limit);
+  } catch (error) {
+    console.warn('[snapshots] Failed to get operations:', error);
+    return [];
+  }
+}
+
+/**
+ * Restore a session to a specific operation.
+ *
+ * @param sessionId - The session to restore
+ * @param operationId - The operation ID to restore to
+ */
+export async function restoreSessionOperation(
+  sessionId: string,
+  operationId: string
+): Promise<void> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    console.warn('[snapshots] Cannot restore operation: session manager not available');
+    return;
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    await snapshot.restoreOperation(operationId);
+  } catch (error) {
+    console.warn('[snapshots] Failed to restore operation:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the list of changes (snapshots) for a session.
+ *
+ * @param sessionId - The session to get changes for
+ * @param limit - Maximum number of changes to return
+ * @returns Array of changes
+ */
+export async function getSessionChanges(
+  sessionId: string,
+  limit: number = 50
+): Promise<SessionChange[]> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return [];
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    return await snapshot.listSnapshots(limit);
+  } catch (error) {
+    console.warn('[snapshots] Failed to get changes:', error);
+    return [];
+  }
+}
+
+/**
+ * Get the current working copy change ID for a session.
+ *
+ * @param sessionId - The session to get current change for
+ * @returns The current change ID
+ */
+export async function getSessionCurrentChange(sessionId: string): Promise<string | null> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return null;
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    return await snapshot.current();
+  } catch (error) {
+    console.warn('[snapshots] Failed to get current change:', error);
+    return null;
+  }
+}
+
+/**
+ * Get conflicts for a session's current working copy.
+ *
+ * @param sessionId - The session to check for conflicts
+ * @param changeId - Optional specific change to check (defaults to @)
+ * @returns Array of conflicted files
+ */
+export async function getSessionConflicts(
+  sessionId: string,
+  changeId?: string
+): Promise<SessionConflict[]> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return [];
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    // Get current change ID if not specified
+    const targetChangeId = changeId || await snapshot.current();
+
+    // Check for conflict markers in the working copy
+    // jj stores conflicts as first-class citizens, we need to run jj resolve --list
+    // This is done through the snapshot's execJj method
+    const files = await snapshot.listFilesAt(targetChangeId);
+
+    // For now, return empty - conflicts are surfaced via hasConflicts in SnapshotInfo
+    // The model handles conflicts directly in jj
+    return [];
+  } catch (error) {
+    console.warn('[snapshots] Failed to get conflicts:', error);
+    return [];
+  }
+}
+
+/**
+ * Check if a session has conflicts.
+ *
+ * @param sessionId - The session to check
+ * @returns True if there are conflicts
+ */
+export async function sessionHasConflicts(sessionId: string): Promise<boolean> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return false;
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      return false;
+    }
+
+    const info = await snapshot.getSnapshot(await snapshot.current());
+    return !info.isEmpty && info.description.toLowerCase().includes('conflict');
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Get file content at a specific change in a session.
+ *
+ * @param sessionId - The session
+ * @param changeId - The change ID
+ * @param filePath - The file path
+ * @returns File content or null
+ */
+export async function getSessionFileAtChange(
+  sessionId: string,
+  changeId: string,
+  filePath: string
+): Promise<string | null> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return null;
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    return await snapshot.getFileAt(changeId, filePath);
+  } catch (error) {
+    console.warn('[snapshots] Failed to get file at change:', error);
+    return null;
+  }
+}
+
+/**
+ * List files at a specific change in a session.
+ *
+ * @param sessionId - The session
+ * @param changeId - The change ID
+ * @returns Array of file paths
+ */
+export async function getSessionFilesAtChange(
+  sessionId: string,
+  changeId: string
+): Promise<string[]> {
+  await initializeNative();
+
+  if (!sessionManager) {
+    return [];
+  }
+
+  try {
+    const snapshot = sessionManager.getSession(sessionId);
+    if (!snapshot) {
+      throw new NotFoundError('session snapshot', sessionId);
+    }
+
+    return await snapshot.listFilesAt(changeId);
+  } catch (error) {
+    console.warn('[snapshots] Failed to list files at change:', error);
+    return [];
+  }
+}

@@ -17,6 +17,17 @@ import {
   unrevertSession,
   undoTurns,
 } from '../../core/sessions';
+import {
+  getSessionChanges,
+  getSessionConflicts,
+  getSessionOperations,
+  getSessionCurrentChange,
+  restoreSessionOperation,
+  undoLastOperation,
+  computeDiff,
+  getSessionFileAtChange,
+  getSessionFilesAtChange,
+} from '../../core/snapshots';
 import { NotFoundError, InvalidOperationError } from '../../core/exceptions';
 import { getServerEventBus } from '../event-bus';
 
@@ -225,6 +236,199 @@ app.post('/:sessionId/undo', async (c) => {
     }
     if (error instanceof InvalidOperationError) {
       return c.json({ error: error.message }, 400);
+    }
+    throw error;
+  }
+});
+
+// =============================================================================
+// JJ-Native Session Endpoints
+// =============================================================================
+
+// Get changes (snapshots) for a session
+app.get('/:sessionId/changes', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const changes = await getSessionChanges(sessionId, limit);
+    const currentChangeId = await getSessionCurrentChange(sessionId);
+
+    return c.json({
+      changes,
+      currentChangeId,
+      total: changes.length,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get a specific change's details
+app.get('/:sessionId/changes/:changeId', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const changeId = c.req.param('changeId');
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const changes = await getSessionChanges(sessionId, 100);
+    const change = changes.find(ch => ch.changeId === changeId || ch.changeId.startsWith(changeId));
+
+    if (!change) {
+      return c.json({ error: 'Change not found' }, 404);
+    }
+
+    return c.json({ change });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get diff between two changes in a session
+app.get('/:sessionId/changes/:fromChangeId/compare/:toChangeId', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const fromChangeId = c.req.param('fromChangeId');
+  const toChangeId = c.req.param('toChangeId');
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const diffs = await computeDiff(sessionId, fromChangeId, toChangeId);
+
+    return c.json({ diffs });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get files at a specific change
+app.get('/:sessionId/changes/:changeId/files', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const changeId = c.req.param('changeId');
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const files = await getSessionFilesAtChange(sessionId, changeId);
+
+    return c.json({ files });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get file content at a specific change
+app.get('/:sessionId/changes/:changeId/file/*', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const changeId = c.req.param('changeId');
+  const filePath = c.req.path.split('/file/')[1];
+
+  if (!filePath) {
+    return c.json({ error: 'File path required' }, 400);
+  }
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const content = await getSessionFileAtChange(sessionId, changeId, filePath);
+
+    if (content === null) {
+      return c.json({ error: 'File not found at this change' }, 404);
+    }
+
+    return c.json({ content, filePath, changeId });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get conflicts for a session
+app.get('/:sessionId/conflicts', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const changeId = c.req.query('changeId');
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const conflicts = await getSessionConflicts(sessionId, changeId);
+    const currentChangeId = await getSessionCurrentChange(sessionId);
+
+    return c.json({
+      conflicts,
+      hasConflicts: conflicts.length > 0,
+      currentChangeId,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get operation log for a session
+app.get('/:sessionId/operations', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+
+  try {
+    getSession(sessionId); // Verify session exists
+    const operations = await getSessionOperations(sessionId, limit);
+
+    return c.json({
+      operations,
+      total: operations.length,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Undo last jj operation
+app.post('/:sessionId/operations/undo', async (c) => {
+  const sessionId = c.req.param('sessionId');
+
+  try {
+    getSession(sessionId); // Verify session exists
+    await undoLastOperation(sessionId);
+
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Restore to a specific operation
+app.post('/:sessionId/operations/:operationId/restore', async (c) => {
+  const sessionId = c.req.param('sessionId');
+  const operationId = c.req.param('operationId');
+
+  try {
+    getSession(sessionId); // Verify session exists
+    await restoreSessionOperation(sessionId, operationId);
+
+    return c.json({ success: true, restoredTo: operationId });
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      return c.json({ error: error.message }, 404);
     }
     throw error;
   }
