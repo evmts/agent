@@ -1,6 +1,7 @@
 ---
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
+import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
 import { sql } from "../../../../lib/db";
 import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
 import type { User, Repository } from "../../../../lib/types";
@@ -136,11 +137,12 @@ if (Astro.request.method === "POST") {
 
       <div class="form-group">
         <label for="body">Description <span class="text-muted">(optional, markdown supported)</span></label>
-        <textarea
+        <MarkdownEditor
           name="body"
           id="body"
           placeholder="Describe the issue..."
-        ></textarea>
+          height="300px"
+        />
       </div>
 
       <button type="submit" class="btn btn-primary">Create issue</button>

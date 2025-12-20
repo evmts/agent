@@ -3,6 +3,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import Markdown from "../../../../components/Markdown.astro";
 import CommentCard from "../../../../components/CommentCard.astro";
+import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
 import { sql } from "../../../../lib/db";
 import {
   getIssue,
@@ -213,13 +214,13 @@ function formatDate(date: string | Date): string {
 
         <div class="form-group">
           <label for="body">Comment</label>
-          <textarea
+          <MarkdownEditor
             name="body"
             id="body"
             required
             placeholder="Leave a comment..."
-            style="min-height: 120px;"
-          ></textarea>
+            height="200px"
+          />
         </div>
 
         <div class="flex gap-1">
