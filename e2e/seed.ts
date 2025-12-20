@@ -151,9 +151,17 @@ async function initTestRepoOnDisk(
     // Add some additional test files
     await addTestFiles(username, repoName);
   } else {
-    // Create empty bare repo
+    // Create empty jj workspace (with git for compatibility)
     await mkdir(repoPath, { recursive: true });
-    await execAsync(`git init --bare "${repoPath}"`);
+    await execAsync(`git init "${repoPath}"`);
+    await execAsync(`git config user.name "E2E Test"`, { cwd: repoPath });
+    await execAsync(`git config user.email "e2e@plue.local"`, { cwd: repoPath });
+    // Create an initial empty commit so jj can colocate
+    await execAsync(`git commit --allow-empty -m "Initial commit"`, { cwd: repoPath });
+    // Initialize jj colocated
+    await execAsync(`jj git init --colocate`, { cwd: repoPath }).catch(() => {
+      console.log("jj init failed for empty repo (jj CLI may not be installed)");
+    });
   }
 
   console.log(`Repository initialized: ${repoPath}`);
@@ -161,30 +169,22 @@ async function initTestRepoOnDisk(
 
 /**
  * Add test files to repository
+ * Works directly in the repo since we use non-bare jj workspaces
  */
 async function addTestFiles(username: string, repoName: string) {
   console.log("Adding test files...");
 
-  const tempDir = `/tmp/plue-e2e-seed-${Date.now()}`;
   const repoPath = `${REPOS_DIR}/${username}/${repoName}`;
 
-  try {
-    // Clone the repo
-    await execAsync(`git clone "${repoPath}" "${tempDir}"`);
+  // Create directory structure
+  await mkdir(`${repoPath}/src`, { recursive: true });
+  await mkdir(`${repoPath}/src/components`, { recursive: true });
+  await mkdir(`${repoPath}/docs`, { recursive: true });
 
-    // Configure git
-    await execAsync(`git config user.name "E2E Test"`, { cwd: tempDir });
-    await execAsync(`git config user.email "e2e@plue.local"`, { cwd: tempDir });
-
-    // Create directory structure
-    await mkdir(`${tempDir}/src`, { recursive: true });
-    await mkdir(`${tempDir}/src/components`, { recursive: true });
-    await mkdir(`${tempDir}/docs`, { recursive: true });
-
-    // Create test files
-    await writeFile(
-      `${tempDir}/README.md`,
-      `# ${repoName}
+  // Create test files
+  await writeFile(
+    `${repoPath}/README.md`,
+    `# ${repoName}
 
 A test repository for e2e testing.
 
@@ -194,11 +194,11 @@ A test repository for e2e testing.
 - Bookmark management
 - Change history
 `
-    );
+  );
 
-    await writeFile(
-      `${tempDir}/src/index.ts`,
-      `/**
+  await writeFile(
+    `${repoPath}/src/index.ts`,
+    `/**
  * Main entry point
  */
 export function main() {
@@ -207,11 +207,11 @@ export function main() {
 
 main();
 `
-    );
+  );
 
-    await writeFile(
-      `${tempDir}/src/components/Button.tsx`,
-      `interface ButtonProps {
+  await writeFile(
+    `${repoPath}/src/components/Button.tsx`,
+    `interface ButtonProps {
   label: string;
   onClick: () => void;
 }
@@ -220,48 +220,47 @@ export function Button({ label, onClick }: ButtonProps) {
   return <button onClick={onClick}>{label}</button>;
 }
 `
-    );
+  );
 
-    await writeFile(
-      `${tempDir}/docs/guide.md`,
-      `# User Guide
+  await writeFile(
+    `${repoPath}/docs/guide.md`,
+    `# User Guide
 
 This is a test document for e2e testing.
 `
-    );
+  );
 
-    await writeFile(
-      `${tempDir}/package.json`,
-      JSON.stringify(
-        {
-          name: repoName,
-          version: "1.0.0",
-          type: "module",
-          main: "src/index.ts",
-        },
-        null,
-        2
-      )
-    );
+  await writeFile(
+    `${repoPath}/package.json`,
+    JSON.stringify(
+      {
+        name: repoName,
+        version: "1.0.0",
+        type: "module",
+        main: "src/index.ts",
+      },
+      null,
+      2
+    )
+  );
 
-    // Commit and push
-    await execAsync(`git add .`, { cwd: tempDir });
-    await execAsync(`git commit -m "Add test files for e2e testing"`, {
-      cwd: tempDir,
-    });
-    await execAsync(`git push origin main`, { cwd: tempDir });
+  // Commit with git
+  await execAsync(`git add .`, { cwd: repoPath });
+  await execAsync(`git config user.name "E2E Test"`, { cwd: repoPath });
+  await execAsync(`git config user.email "e2e@plue.local"`, { cwd: repoPath });
+  await execAsync(`git commit -m "Add test files for e2e testing"`, {
+    cwd: repoPath,
+  });
 
-    // Sync jj state with pushed git changes
-    // This imports the git refs into jj so jj file list works
-    await execAsync(`jj git import`, { cwd: repoPath }).catch(() => {
-      // jj git import may fail if jj isn't properly initialized, ignore
-    });
+  // Import git changes into jj
+  await execAsync(`jj git import`, { cwd: repoPath }).catch(() => {
+    // jj git import may fail if jj isn't properly initialized, ignore
+  });
 
-    console.log("Test files added");
-  } finally {
-    // Cleanup temp dir
-    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-  }
+  // Update the main bookmark to point to the latest commit
+  await execAsync(`jj bookmark set main -r @-`, { cwd: repoPath }).catch(() => {});
+
+  console.log("Test files added");
 }
 
 /**

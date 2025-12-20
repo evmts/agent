@@ -290,20 +290,9 @@ export async function listRuns(
   return rows.map(rowToRun);
 }
 
-export async function getNextRunNumber(repositoryId: number): Promise<number> {
-  const rows = await sql`
-    SELECT COALESCE(MAX(run_number), 0) + 1 as next_number
-    FROM workflow_runs
-    WHERE repository_id = ${repositoryId}
-  `;
-  return rows[0].next_number as number;
-}
-
 export async function createRun(
   options: CreateWorkflowRunOptions
 ): Promise<WorkflowRun> {
-  const runNumber = await getNextRunNumber(options.repositoryId);
-
   const rows = await sql`
     INSERT INTO workflow_runs (
       repository_id, workflow_definition_id, run_number, title,
@@ -313,7 +302,7 @@ export async function createRun(
     ) VALUES (
       ${options.repositoryId},
       ${options.workflowDefinitionId ?? null},
-      ${runNumber},
+      (SELECT COALESCE(MAX(run_number), 0) + 1 FROM workflow_runs WHERE repository_id = ${options.repositoryId}),
       ${options.title},
       ${options.triggerEvent},
       ${options.triggerUserId ?? null},
