@@ -110,14 +110,12 @@ async function createTestRepo(
       name,
       description,
       is_public,
-      default_branch,
-      default_bookmark
+      default_branch
     ) VALUES (
       ${userId},
       ${repoName},
       ${description},
       true,
-      'main',
       'main'
     )
     ON CONFLICT (user_id, name) DO UPDATE SET
@@ -261,29 +259,33 @@ This is a test document for e2e testing.
 }
 
 /**
- * Create test bookmarks in database
+ * Create test bookmarks in database (if table exists)
  */
 async function createTestBookmarks(repoId: number) {
   console.log("Creating test bookmarks...");
 
-  // Main bookmark
-  await sql`
-    INSERT INTO bookmarks (repository_id, name, target_change_id, is_default)
-    VALUES (${repoId}, 'main', 'main-change-id', true)
-    ON CONFLICT (repository_id, name) DO UPDATE SET
-      target_change_id = EXCLUDED.target_change_id,
-      is_default = EXCLUDED.is_default
-  `;
+  try {
+    // Main bookmark
+    await sql`
+      INSERT INTO bookmarks (repository_id, name, target_change_id, is_default)
+      VALUES (${repoId}, 'main', 'main-change-id', true)
+      ON CONFLICT (repository_id, name) DO UPDATE SET
+        target_change_id = EXCLUDED.target_change_id,
+        is_default = EXCLUDED.is_default
+    `;
 
-  // Feature bookmark
-  await sql`
-    INSERT INTO bookmarks (repository_id, name, target_change_id, is_default)
-    VALUES (${repoId}, 'feature-test', 'feature-change-id', false)
-    ON CONFLICT (repository_id, name) DO UPDATE SET
-      target_change_id = EXCLUDED.target_change_id
-  `;
+    // Feature bookmark
+    await sql`
+      INSERT INTO bookmarks (repository_id, name, target_change_id, is_default)
+      VALUES (${repoId}, 'feature-test', 'feature-change-id', false)
+      ON CONFLICT (repository_id, name) DO UPDATE SET
+        target_change_id = EXCLUDED.target_change_id
+    `;
 
-  console.log("Bookmarks created");
+    console.log("Bookmarks created");
+  } catch (error) {
+    console.log("Skipping bookmarks (table may not exist)");
+  }
 }
 
 /**
@@ -332,33 +334,37 @@ async function createTestIssues(repoId: number, userId: number) {
 }
 
 /**
- * Create test landing requests
+ * Create test landing requests (if table exists)
  */
 async function createTestLandingRequests(repoId: number, userId: number) {
   console.log("Creating test landing requests...");
 
-  await sql`
-    INSERT INTO landing_queue (
-      repository_id,
-      change_id,
-      target_bookmark,
-      title,
-      description,
-      author_id,
-      status
-    ) VALUES (
-      ${repoId},
-      'test-change-id-1',
-      'main',
-      'Test landing request',
-      'This is a test landing request for e2e testing.',
-      ${userId},
-      'pending'
-    )
-    ON CONFLICT DO NOTHING
-  `;
+  try {
+    await sql`
+      INSERT INTO landing_queue (
+        repository_id,
+        change_id,
+        target_bookmark,
+        title,
+        description,
+        author_id,
+        status
+      ) VALUES (
+        ${repoId},
+        'test-change-id-1',
+        'main',
+        'Test landing request',
+        'This is a test landing request for e2e testing.',
+        ${userId},
+        'pending'
+      )
+      ON CONFLICT DO NOTHING
+    `;
 
-  console.log("Landing requests created");
+    console.log("Landing requests created");
+  } catch (error) {
+    console.log("Skipping landing requests (table may not exist)");
+  }
 }
 
 /**

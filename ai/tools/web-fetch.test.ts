@@ -208,6 +208,12 @@ describe('webFetchImpl - timeout handling', () => {
     let abortEventRegistered = false;
 
     global.fetch = mock((url: string, options?: RequestInit) => {
+      // HEAD request - respond quickly to avoid blocking
+      if (options?.method === 'HEAD') {
+        return Promise.resolve(new Response(null, { status: 200 }));
+      }
+
+      // GET request - this will timeout
       return new Promise((resolve, reject) => {
         // Simulate a long-running request that responds to abort signal
         const timer = setTimeout(() => resolve(new Response('too late')), 60000);
@@ -231,6 +237,12 @@ describe('webFetchImpl - timeout handling', () => {
 
   test('should use custom timeout', async () => {
     global.fetch = mock((url: string, options?: RequestInit) => {
+      // HEAD request - respond quickly to avoid blocking
+      if (options?.method === 'HEAD') {
+        return Promise.resolve(new Response(null, { status: 200 }));
+      }
+
+      // GET request - this will timeout
       return new Promise((resolve, reject) => {
         // Simulate a long-running request that responds to abort signal
         const timer = setTimeout(() => resolve(new Response('too late')), 10000);
