@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS issues (
   body TEXT,
   state VARCHAR(20) DEFAULT 'open' CHECK (state IN ('open', 'closed')),
   milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL,
+  due_date TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   closed_at TIMESTAMP,
