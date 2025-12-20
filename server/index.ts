@@ -8,6 +8,7 @@ import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { bodyLimit } from 'hono/body-limit';
 import { authMiddleware } from './middleware/auth';
+import { apiRateLimit } from './middleware/rate-limit';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
 import sshKeysRoutes from './routes/ssh-keys';
@@ -60,7 +61,7 @@ app.use('*', secureHeaders({
   referrerPolicy: 'strict-origin-when-cross-origin',
   contentSecurityPolicy: {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+    scriptSrc: ["'self'", "'unsafe-inline'"],
     styleSrc: ["'self'", "'unsafe-inline'"],
     imgSrc: ["'self'", 'data:', 'https:'],
     connectSrc: ["'self'", process.env.ELECTRIC_URL || 'http://localhost:3000'],
@@ -115,6 +116,9 @@ app.use('*', cors({
 
 // Apply auth middleware globally (before routes)
 app.use('*', authMiddleware);
+
+// Apply rate limiting to all API routes
+app.use('/api/*', apiRateLimit);
 
 // ElectricSQL Shape API proxy
 // This endpoint proxies shape requests to Electric for real-time sync

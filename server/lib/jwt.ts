@@ -38,7 +38,9 @@ export async function verifyJWT(token: string): Promise<JWTPayload | null> {
 
 export function setJWTCookie(headers: Headers, token: string): void {
   const maxAge = 7 * 24 * 60 * 60; // 7 days in seconds
-  const cookie = `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const secureFlag = isProduction ? ' Secure;' : '';
+  const cookie = `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax;${secureFlag} Max-Age=${maxAge}`;
   headers.append('Set-Cookie', cookie);
 }
 
