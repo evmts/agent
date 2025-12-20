@@ -505,6 +505,25 @@ export async function getDiff(
   return parseGitDiff(result.stdout);
 }
 
+/**
+ * Get the full diff content (unified diff format) for a change
+ */
+export async function getDiffContent(
+  user: string,
+  name: string,
+  changeId: string
+): Promise<string> {
+  const repoPath = getRepoPath(user, name);
+
+  const result = await runJj(['diff', '-r', changeId, '--git'], repoPath);
+
+  if (result.exitCode !== 0) {
+    return '';
+  }
+
+  return result.stdout;
+}
+
 // =============================================================================
 // Conflict Operations
 // =============================================================================
