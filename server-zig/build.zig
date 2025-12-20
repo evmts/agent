@@ -21,18 +21,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // AI SDK dependency (Claude/Anthropic integration)
-    const ai_sdk_dep = b.dependency("zig-ai-sdk", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // Core package dependency
-    const core_dep = b.dependency("core", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     // Build jj-ffi Rust library
     const jj_ffi_build = b.addSystemCommand(&.{
         "cargo",
@@ -54,11 +42,6 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg_dep.module("pg") },
                 .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
                 .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
-                .{ .name = "ai", .module = ai_sdk_dep.module("ai") },
-                .{ .name = "anthropic", .module = ai_sdk_dep.module("anthropic") },
-                .{ .name = "provider", .module = ai_sdk_dep.module("provider") },
-                .{ .name = "provider-utils", .module = ai_sdk_dep.module("provider-utils") },
-                .{ .name = "core", .module = core_dep.module("core") },
             },
         }),
     });
@@ -101,11 +84,6 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg_dep.module("pg") },
                 .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
                 .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
-                .{ .name = "ai", .module = ai_sdk_dep.module("ai") },
-                .{ .name = "anthropic", .module = ai_sdk_dep.module("anthropic") },
-                .{ .name = "provider", .module = ai_sdk_dep.module("provider") },
-                .{ .name = "provider-utils", .module = ai_sdk_dep.module("provider-utils") },
-                .{ .name = "core", .module = core_dep.module("core") },
             },
         }),
     });

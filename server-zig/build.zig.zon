@@ -15,12 +15,6 @@
         .voltaire = .{
             .path = "voltaire",
         },
-        .@"zig-ai-sdk" = .{
-            .path = "ai",
-        },
-        .core = .{
-            .path = "../core-zig",
-        },
     },
     .paths = .{""},
 }
