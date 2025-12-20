@@ -884,12 +884,13 @@ pub const Repository = struct {
     description: ?[]const u8,
     is_public: bool,
     default_branch: ?[]const u8,
-    topics: ?[][]const u8,
+    // Note: topics is stored as TEXT[] in PostgreSQL but pg.zig doesn't support 2D arrays
+    // Topics will be handled separately via getRepositoryTopics()
 };
 
 pub fn getRepositoryByUserAndName(pool: *Pool, username: []const u8, repo_name: []const u8) !?Repository {
     const row = try pool.row(
-        \\SELECT r.id, r.user_id, r.name, r.description, r.is_public, r.default_branch, r.topics
+        \\SELECT r.id, r.user_id, r.name, r.description, r.is_public, r.default_branch
         \\FROM repositories r
         \\JOIN users u ON r.user_id = u.id
         \\WHERE u.username = $1 AND r.name = $2
@@ -903,7 +904,6 @@ pub fn getRepositoryByUserAndName(pool: *Pool, username: []const u8, repo_name: 
             .description = r.get(?[]const u8, 3),
             .is_public = r.get(bool, 4),
             .default_branch = r.get(?[]const u8, 5),
-            .topics = r.get(?[][]const u8, 6),
         };
     }
     return null;
