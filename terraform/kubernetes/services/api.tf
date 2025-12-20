@@ -1,7 +1,7 @@
 # =============================================================================
 # API Server Deployment
 # =============================================================================
-# Hono/Bun API server with WebSocket support for PTY terminals.
+# Zig API server with WebSocket support for PTY terminals.
 
 resource "kubernetes_deployment" "api" {
   metadata {
@@ -40,11 +40,6 @@ resource "kubernetes_deployment" "api" {
           port {
             container_port = 4000
             name           = "http"
-          }
-
-          env {
-            name  = "NODE_ENV"
-            value = "production"
           }
 
           env {
