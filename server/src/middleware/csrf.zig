@@ -122,8 +122,8 @@ pub const CsrfStore = struct {
 
         const now = std.time.milliTimestamp();
 
-        var to_remove = std.ArrayList([]const u8).init(self.allocator);
-        defer to_remove.deinit();
+        var to_remove = std.ArrayList([]const u8){};
+        defer to_remove.deinit(self.allocator);
 
         var iter = self.tokens.iterator();
         while (iter.next()) |entry| {
