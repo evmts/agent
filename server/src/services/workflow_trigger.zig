@@ -335,7 +335,7 @@ pub const WorkflowTrigger = struct {
         );
 
         // Get next run number for this repo
-        const run_number = try self.getNextRunNumber(&conn, repo_id);
+        const run_number = try self.getNextRunNumber(conn, repo_id);
 
         // Create workflow run
         const create_run_query =
@@ -370,10 +370,10 @@ pub const WorkflowTrigger = struct {
         log.info("Created workflow run {d} for workflow: {s}", .{ run_id, workflow.name });
 
         // Create workflow job
-        const job_id = try self.createWorkflowJob(&conn, run_id, repo_id, workflow.name);
+        const job_id = try self.createWorkflowJob(conn, run_id, repo_id, workflow.name);
 
         // Create workflow task
-        try self.createWorkflowTask(&conn, job_id, repo_id, workflow, commit_sha);
+        try self.createWorkflowTask(conn, job_id, repo_id, workflow, commit_sha);
 
         log.info("Created workflow job and task for run {d}", .{run_id});
     }
@@ -517,7 +517,7 @@ pub const WorkflowTrigger = struct {
             @as(i32, @intFromEnum(WorkflowStatus.waiting)),
             @as(i32, 1), // attempt
         });
-        result.deinit(self.allocator);
+        result.deinit();
     }
 };
 
