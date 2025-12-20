@@ -3,6 +3,7 @@ import node from '@astrojs/node';
 import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
+  srcDir: './ui',
   output: 'server',
   adapter: node({
     mode: 'standalone'
