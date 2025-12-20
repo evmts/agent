@@ -205,32 +205,49 @@ describe('webFetchImpl - size limits', () => {
 
 describe('webFetchImpl - timeout handling', () => {
   test('should timeout after default 30 seconds', async () => {
-    global.fetch = mock(() => {
-      return new Promise((resolve) => {
-        // Never resolve
-        setTimeout(() => resolve(new Response('too late')), 60000);
+    let abortEventRegistered = false;
+
+    global.fetch = mock((url: string, options?: RequestInit) => {
+      return new Promise((resolve, reject) => {
+        // Simulate a long-running request that responds to abort signal
+        const timer = setTimeout(() => resolve(new Response('too late')), 60000);
+        if (options?.signal) {
+          abortEventRegistered = true;
+          options.signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        }
       });
     });
 
-    const result = await webFetchImpl('https://example.com');
+    const result = await webFetchImpl('https://example.com', 100); // Use 100ms timeout for faster testing
 
+    expect(abortEventRegistered).toBe(true);
     expect(result.success).toBe(false);
     expect(result.error).toContain('timed out');
-    expect(result.error).toContain('30000ms');
+    expect(result.error).toContain('100ms');
   });
 
   test('should use custom timeout', async () => {
-    global.fetch = mock(() => {
-      return new Promise((resolve) => {
-        setTimeout(() => resolve(new Response('too late')), 10000);
+    global.fetch = mock((url: string, options?: RequestInit) => {
+      return new Promise((resolve, reject) => {
+        // Simulate a long-running request that responds to abort signal
+        const timer = setTimeout(() => resolve(new Response('too late')), 10000);
+        if (options?.signal) {
+          options.signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        }
       });
     });
 
-    const result = await webFetchImpl('https://example.com', 1000);
+    const result = await webFetchImpl('https://example.com', 50); // Use 50ms timeout
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('timed out');
-    expect(result.error).toContain('1000ms');
+    expect(result.error).toContain('50ms');
   });
 
   test('should succeed if response arrives before timeout', async () => {

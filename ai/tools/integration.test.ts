@@ -18,26 +18,27 @@ test('Integration: readFile with duplicate detection', async () => {
   tracker.clearSession(sessionId);
 
   // First read - not a duplicate
+  const testFilePath = `${process.cwd()}/package.json`;
   const check1 = tracker.checkDuplicate(sessionId, 'readFile', {
-    filePath: '/Users/williamcory/plue/package.json',
+    filePath: testFilePath,
   });
   expect(check1.isDuplicate).toBe(false);
 
   // Execute the actual read
-  const result1 = await readFileImpl('/Users/williamcory/plue/package.json');
+  const result1 = await readFileImpl(testFilePath);
   expect(result1.success).toBe(true);
 
   // Record the call
   tracker.recordCall(
     sessionId,
     'readFile',
-    { filePath: '/Users/williamcory/plue/package.json' },
+    { filePath: testFilePath },
     result1.content ?? ''
   );
 
   // Second read - should be duplicate
   const check2 = tracker.checkDuplicate(sessionId, 'readFile', {
-    filePath: '/Users/williamcory/plue/package.json',
+    filePath: testFilePath,
   });
   expect(check2.isDuplicate).toBe(true);
   expect(check2.previousResult).toBe(result1.content);
@@ -54,7 +55,7 @@ test('Integration: grep with duplicate detection', async () => {
 
   const grepArgs = {
     pattern: 'export',
-    path: '/Users/williamcory/plue/ai/tools',
+    path: `${process.cwd()}/ai/tools`,
     glob: '*.ts',
   };
 
@@ -141,22 +142,24 @@ test('Integration: multiple tools across session', async () => {
   tracker.clearSession(sessionId);
 
   // Read a file
-  const readResult = await readFileImpl('/Users/williamcory/plue/package.json');
+  const testFilePath = `${process.cwd()}/package.json`;
+  const readResult = await readFileImpl(testFilePath);
   expect(readResult.success).toBe(true);
   tracker.recordCall(
     sessionId,
     'readFile',
-    { filePath: '/Users/williamcory/plue/package.json' },
+    { filePath: testFilePath },
     readResult.content ?? ''
   );
 
   // Run a grep
-  const grepResult = await grepImpl('test', '/Users/williamcory/plue/ai/tools', '*.ts');
+  const grepPath = `${process.cwd()}/ai/tools`;
+  const grepResult = await grepImpl('test', grepPath, '*.ts');
   expect(grepResult.success).toBe(true);
   tracker.recordCall(
     sessionId,
     'grep',
-    { pattern: 'test', path: '/Users/williamcory/plue/ai/tools', glob: '*.ts' },
+    { pattern: 'test', path: grepPath, glob: '*.ts' },
     grepResult.formattedOutput ?? ''
   );
 
@@ -167,13 +170,13 @@ test('Integration: multiple tools across session', async () => {
 
   // Verify duplicates work correctly
   const readCheck = tracker.checkDuplicate(sessionId, 'readFile', {
-    filePath: '/Users/williamcory/plue/package.json',
+    filePath: testFilePath,
   });
   expect(readCheck.isDuplicate).toBe(true);
 
   const grepCheck = tracker.checkDuplicate(sessionId, 'grep', {
     pattern: 'test',
-    path: '/Users/williamcory/plue/ai/tools',
+    path: grepPath,
     glob: '*.ts',
   });
   expect(grepCheck.isDuplicate).toBe(true);

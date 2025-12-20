@@ -5,7 +5,7 @@
  * Uses mocking to isolate from database and snapshot dependencies.
  */
 
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, mock, spyOn } from 'bun:test';
 import type { Session, CreateSessionOptions, UpdateSessionOptions } from '../models';
 import { NullEventBus } from '../events';
 import { NotFoundError, InvalidOperationError } from '../exceptions';
@@ -14,41 +14,38 @@ import { NotFoundError, InvalidOperationError } from '../exceptions';
 const mockSessions = new Map<string, Session>();
 const mockMessages = new Map<string, any[]>();
 const mockSnapshotHistory = new Map<string, string[]>();
-const mockActiveTasks = new Map<string, AbortController>();
 
-const mockState = {
-  getSession: mock(async (id: string) => mockSessions.get(id) ?? null),
-  getAllSessions: mock(async () => Array.from(mockSessions.values())),
-  saveSession: mock(async (session: Session) => {
-    mockSessions.set(session.id, session);
-  }),
-  getSessionMessages: mock(async (id: string) => mockMessages.get(id) ?? []),
-  setSessionMessages: mock(async (id: string, messages: any[]) => {
-    mockMessages.set(id, messages);
-  }),
-  getSnapshotHistory: mock(async (id: string) => mockSnapshotHistory.get(id) ?? []),
-  setSnapshotHistory: mock(async (id: string, history: string[]) => {
-    mockSnapshotHistory.set(id, history);
-  }),
-  activeTasks: mockActiveTasks,
-  clearSessionState: mock(async (id: string) => {
-    mockSessions.delete(id);
-    mockMessages.delete(id);
-    mockSnapshotHistory.delete(id);
-  }),
-};
-
-// Mock the snapshots module
-const mockSnapshots = {
-  initSnapshot: mock(async () => 'snapshot_init'),
-  computeDiff: mock(async () => []),
-  getChangedFiles: mock(async () => []),
-  restoreSnapshot: mock(async () => {}),
-  getSnapshotHistory: mock(async (id: string) => mockSnapshotHistory.get(id) ?? []),
-};
-
-// Import with mocks
+// Import modules to mock
+import * as state from '../state';
+import * as snapshots from '../snapshots';
 import * as sessions from '../sessions';
+
+// Mock state functions
+spyOn(state, 'getSession').mockImplementation(async (id: string) => mockSessions.get(id) ?? null);
+spyOn(state, 'getAllSessions').mockImplementation(async () => Array.from(mockSessions.values()));
+spyOn(state, 'saveSession').mockImplementation(async (session: Session) => {
+  mockSessions.set(session.id, session);
+});
+spyOn(state, 'getSessionMessages').mockImplementation(async (id: string) => mockMessages.get(id) ?? []);
+spyOn(state, 'setSessionMessages').mockImplementation(async (id: string, messages: any[]) => {
+  mockMessages.set(id, messages);
+});
+spyOn(state, 'getSnapshotHistory').mockImplementation(async (id: string) => mockSnapshotHistory.get(id) ?? []);
+spyOn(state, 'setSnapshotHistory').mockImplementation(async (id: string, history: string[]) => {
+  mockSnapshotHistory.set(id, history);
+});
+spyOn(state, 'clearSessionState').mockImplementation(async (id: string) => {
+  mockSessions.delete(id);
+  mockMessages.delete(id);
+  mockSnapshotHistory.delete(id);
+});
+
+// Mock snapshot functions
+spyOn(snapshots, 'initSnapshot').mockImplementation(async () => 'snapshot_init');
+spyOn(snapshots, 'computeDiff').mockImplementation(async () => []);
+spyOn(snapshots, 'getChangedFiles').mockImplementation(async () => []);
+spyOn(snapshots, 'restoreSnapshot').mockImplementation(async () => {});
+spyOn(snapshots, 'getSnapshotHistory').mockImplementation(async (id: string) => mockSnapshotHistory.get(id) ?? []);
 
 describe('createSession', () => {
   const eventBus = new NullEventBus();
@@ -57,7 +54,7 @@ describe('createSession', () => {
     mockSessions.clear();
     mockMessages.clear();
     mockSnapshotHistory.clear();
-    mockActiveTasks.clear();
+    state.activeTasks.clear();
   });
 
   test('creates session with default values', async () => {
@@ -310,7 +307,7 @@ describe('deleteSession', () => {
 
   beforeEach(() => {
     mockSessions.clear();
-    mockActiveTasks.clear();
+    state.activeTasks.clear();
   });
 
   test('deletes session and clears state', async () => {
@@ -356,12 +353,12 @@ describe('deleteSession', () => {
     controller.abort = abortSpy;
 
     mockSessions.set(session.id, session);
-    mockActiveTasks.set(session.id, controller);
+    state.activeTasks.set(session.id, controller);
 
     await sessions.deleteSession('ses_test123', eventBus);
 
     expect(abortSpy).toHaveBeenCalled();
-    expect(mockActiveTasks.has('ses_test123')).toBe(false);
+    expect(state.activeTasks.has('ses_test123')).toBe(false);
   });
 
   test('throws NotFoundError for non-existent session', async () => {
@@ -374,7 +371,7 @@ describe('deleteSession', () => {
 describe('abortSession', () => {
   beforeEach(() => {
     mockSessions.clear();
-    mockActiveTasks.clear();
+    state.activeTasks.clear();
   });
 
   test('aborts active task', async () => {
@@ -395,13 +392,13 @@ describe('abortSession', () => {
     controller.abort = abortSpy;
 
     mockSessions.set(session.id, session);
-    mockActiveTasks.set(session.id, controller);
+    state.activeTasks.set(session.id, controller);
 
     const result = await sessions.abortSession('ses_test123');
 
     expect(result).toBe(true);
     expect(abortSpy).toHaveBeenCalled();
-    expect(mockActiveTasks.has('ses_test123')).toBe(false);
+    expect(state.activeTasks.has('ses_test123')).toBe(false);
   });
 
   test('returns false when no active task', async () => {
@@ -704,7 +701,7 @@ describe('undoTurns', () => {
 
     expect(turnsUndone).toBe(1);
     expect(messagesRemoved).toBe(2); // msg_3 and msg_4
-    expect(snapshotHash).toBe('hash_2');
+    expect(snapshotHash).toBe('hash_1'); // snapshot at turnIndex + 1
 
     const remainingMessages = mockMessages.get('ses_test') ?? [];
     expect(remainingMessages).toHaveLength(2);
