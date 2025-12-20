@@ -70,13 +70,24 @@ export const clearFileTrackers = db.clearFileTrackers;
 // =============================================================================
 
 /**
- * Clear all state for a session.
+ * Clear runtime-only state for a session (in-memory Maps).
+ * This is separated for testability - can be tested without database mocking.
+ */
+export function clearRuntimeState(sessionId: string): void {
+  const task = activeTasks.get(sessionId);
+  if (task) {
+    task.abort();
+    activeTasks.delete(sessionId);
+  }
+  sessionSnapshots.delete(sessionId);
+}
+
+/**
+ * Clear all state for a session (both runtime and database).
  */
 export async function clearSessionState(sessionId: string): Promise<void> {
   // Clear runtime state
-  activeTasks.get(sessionId)?.abort();
-  activeTasks.delete(sessionId);
-  sessionSnapshots.delete(sessionId);
+  clearRuntimeState(sessionId);
 
   // Clear database state
   await db.clearSessionState(sessionId);

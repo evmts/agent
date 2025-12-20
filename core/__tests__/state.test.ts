@@ -126,64 +126,61 @@ describe('sessionSnapshots Map', () => {
   });
 });
 
-// Note: clearSessionState tests are skipped because Bun's module caching
-// prevents proper mocking when running alongside other test files that import state.
-// The function has been verified to work correctly in isolation (see manual test).
-describe.skip('clearSessionState', () => {
+describe('clearRuntimeState', () => {
   beforeEach(() => {
     activeTasks.clear();
     sessionSnapshots.clear();
   });
 
-  test('clears runtime state for session', async () => {
+  test('clears runtime state for session', () => {
     const controller = new AbortController();
     const snapshot = { id: 'snap_1' };
 
     activeTasks.set('ses_test123', controller);
     sessionSnapshots.set('ses_test123', snapshot);
 
-    await clearSessionState('ses_test123');
+    clearRuntimeState('ses_test123');
 
     expect(activeTasks.has('ses_test123')).toBe(false);
     expect(sessionSnapshots.has('ses_test123')).toBe(false);
   });
 
-  test('aborts active task before clearing', async () => {
+  test('aborts active task before clearing', () => {
     const controller = new AbortController();
     const abortSpy = mock(() => {});
     controller.abort = abortSpy;
 
     activeTasks.set('ses_test123', controller);
 
-    await clearSessionState('ses_test123');
+    clearRuntimeState('ses_test123');
 
     expect(abortSpy).toHaveBeenCalled();
   });
 
-  test('handles missing active task gracefully', async () => {
+  test('handles missing active task gracefully', () => {
     sessionSnapshots.set('ses_test123', { id: 'snap_1' });
 
-    await clearSessionState('ses_test123');
+    clearRuntimeState('ses_test123');
 
     expect(sessionSnapshots.has('ses_test123')).toBe(false);
   });
 
-  test('handles missing snapshot gracefully', async () => {
+  test('handles missing snapshot gracefully', () => {
     const controller = new AbortController();
     activeTasks.set('ses_test123', controller);
 
-    await clearSessionState('ses_test123');
+    clearRuntimeState('ses_test123');
 
     expect(activeTasks.has('ses_test123')).toBe(false);
   });
 
-  test('handles non-existent session gracefully', async () => {
+  test('handles non-existent session gracefully', () => {
     // Should not throw
-    await clearSessionState('ses_nonexistent');
+    clearRuntimeState('ses_nonexistent');
     expect(true).toBe(true);
   });
 
-  test('only clears specified session state', async () => {
+  test('only clears specified session state', () => {
     const controller1 = new AbortController();
     const controller2 = new AbortController();
     const snapshot1 = { id: 'snap_1' };
@@ -194,7 +191,7 @@ describe.skip('clearSessionState', () => {
     sessionSnapshots.set('ses_1', snapshot1);
     sessionSnapshots.set('ses_2', snapshot2);
 
-    await clearSessionState('ses_1');
+    clearRuntimeState('ses_1');
 
     expect(activeTasks.has('ses_1')).toBe(false);
     expect(sessionSnapshots.has('ses_1')).toBe(false);
@@ -202,25 +199,24 @@ describe.skip('clearSessionState', () => {
     expect(sessionSnapshots.has('ses_2')).toBe(true);
   });
 
-  test('can be called multiple times for same session', async () => {
+  test('can be called multiple times for same session', () => {
     const controller = new AbortController();
     activeTasks.set('ses_test123', controller);
 
-    await clearSessionState('ses_test123');
-    await clearSessionState('ses_test123');
+    clearRuntimeState('ses_test123');
+    clearRuntimeState('ses_test123');
 
     expect(activeTasks.has('ses_test123')).toBe(false);
   });
 });
 
-// Note: These integration tests are skipped for the same reason as clearSessionState tests.
-describe.skip('Integration: runtime state lifecycle', () => {
+describe('Integration: runtime state lifecycle', () => {
   beforeEach(() => {
     activeTasks.clear();
     sessionSnapshots.clear();
   });
 
-  test('simulates full session lifecycle', async () => {
+  test('simulates full session lifecycle', () => {
     const sessionId = 'ses_lifecycle';
 
     // Session starts - create runtime state
@@ -236,14 +232,14 @@ describe.skip('Integration: runtime state lifecycle', () => {
     // Session active - task can be checked
     expect(controller.signal.aborted).toBe(false);
 
-    // Session ends - clear state
-    await clearSessionState(sessionId);
+    // Session ends - clear runtime state
+    clearRuntimeState(sessionId);
 
     expect(activeTasks.has(sessionId)).toBe(false);
     expect(sessionSnapshots.has(sessionId)).toBe(false);
   });
 
-  test('simulates concurrent sessions', async () => {
+  test('simulates concurrent sessions', () => {
     const session1 = 'ses_concurrent_1';
     const session2 = 'ses_concurrent_2';
     const session3 = 'ses_concurrent_3';
@@ -261,7 +257,7 @@ describe.skip('Integration: runtime state lifecycle', () => {
     expect(sessionSnapshots.size).toBe(3);
 
     // End session 2
-    await clearSessionState(session2);
+    clearRuntimeState(session2);
 
     expect(activeTasks.size).toBe(2);
     expect(sessionSnapshots.size).toBe(2);
@@ -270,14 +266,14 @@ describe.skip('Integration: runtime state lifecycle', () => {
     expect(activeTasks.has(session3)).toBe(true);
 
     // End remaining sessions
-    await clearSessionState(session1);
-    await clearSessionState(session3);
+    clearRuntimeState(session1);
+    clearRuntimeState(session3);
 
     expect(activeTasks.size).toBe(0);
     expect(sessionSnapshots.size).toBe(0);
   });
 
-  test('simulates abort then clear', async () => {
+  test('simulates abort then clear', () => {
     const sessionId = 'ses_abort_clear';
     const controller = new AbortController();
 
@@ -289,7 +285,7 @@ describe.skip('Integration: runtime state lifecycle', () => {
     expect(controller.signal.aborted).toBe(true);
 
     // Then session cleanup happens
-    await clearSessionState(sessionId);
+    clearRuntimeState(sessionId);
 
     expect(activeTasks.has(sessionId)).toBe(false);
     expect(sessionSnapshots.has(sessionId)).toBe(false);
