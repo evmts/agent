@@ -15,6 +15,55 @@ import * as db from '../db/agent-state';
 export type { MessageWithParts, FileTimeTracker } from '../db/agent-state';
 
 // =============================================================================
+// Snapshot Instance Interface
+// =============================================================================
+
+/**
+ * Interface for Snapshot instances from the native jj module.
+ * This describes the shape of the Snapshot class without importing it
+ * to avoid circular dependencies.
+ */
+export interface SnapshotInstance {
+  track(description?: string): Promise<string>;
+  current(): Promise<string>;
+  patch(fromChangeId: string, toChangeId?: string): Promise<string[]>;
+  diff(fromChangeId: string, toChangeId?: string): Promise<FileDiff[]>;
+  revert(changeId: string, files: string[]): Promise<void>;
+  restore(changeId: string): Promise<void>;
+  getFileAt(changeId: string, filePath: string): Promise<string | null>;
+  listFilesAt(changeId: string): Promise<string[]>;
+  fileExistsAt(changeId: string, filePath: string): Promise<boolean>;
+  getSnapshot(changeId: string): Promise<SnapshotInfo>;
+  listSnapshots(limit?: number): Promise<SnapshotInfo[]>;
+  undo(): Promise<void>;
+  getOperationLog(limit?: number): Promise<OperationInfo[]>;
+  restoreOperation(operationId: string): Promise<void>;
+}
+
+export interface FileDiff {
+  path: string;
+  changeType: 'added' | 'modified' | 'deleted';
+  beforeContent?: string;
+  afterContent?: string;
+  addedLines: number;
+  deletedLines: number;
+}
+
+export interface SnapshotInfo {
+  changeId: string;
+  commitId: string;
+  description: string;
+  timestamp: number;
+  isEmpty: boolean;
+}
+
+export interface OperationInfo {
+  id: string;
+  description: string;
+  timestamp: number;
+}
+
+// =============================================================================
 // Runtime-Only State (In-Memory)
 // =============================================================================
 
@@ -22,7 +71,7 @@ export type { MessageWithParts, FileTimeTracker } from '../db/agent-state';
 export const activeTasks = new Map<string, AbortController>();
 
 /** Session snapshots: sessionID -> Snapshot instance (native, runtime-only) */
-export const sessionSnapshots = new Map<string, any>();
+export const sessionSnapshots = new Map<string, SnapshotInstance>();
 
 // =============================================================================
 // Session Operations (Database-Backed)
