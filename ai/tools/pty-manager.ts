@@ -12,6 +12,7 @@ const DEFAULT_MAX_SESSIONS = 10;
 const DEFAULT_SESSION_TIMEOUT_MS = 300000; // 5 minutes
 const DEFAULT_READ_TIMEOUT_MS = 100;
 const DEFAULT_MAX_READ_BYTES = 65536;
+const DEFAULT_MAX_BUFFER_SIZE = 1024 * 1024; // 1MB max buffer per session
 
 export interface PTYSession {
   id: string;
@@ -212,6 +213,13 @@ export class PTYManager {
 
     const result = output.join('');
     session.outputBuffer += result;
+
+    // Trim buffer if it exceeds max size (keep last portion)
+    if (session.outputBuffer.length > DEFAULT_MAX_BUFFER_SIZE) {
+      const trimStart = session.outputBuffer.length - DEFAULT_MAX_BUFFER_SIZE;
+      session.outputBuffer = session.outputBuffer.slice(trimStart);
+    }
+
     session.lastActivity = Date.now();
     return result;
   }
