@@ -1,0 +1,35 @@
+---
+// Container for all toast notifications
+---
+
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+<style>
+  .toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+  }
+
+  .toast-container > * {
+    pointer-events: auto;
+  }
+
+  @media (max-width: 640px) {
+    .toast-container {
+      bottom: 16px;
+      right: 16px;
+      left: 16px;
+    }
+
+    .toast-container :global(.toast) {
+      min-width: 0;
+      width: 100%;
+    }
+  }
+</style>

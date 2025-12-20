@@ -1,0 +1,42 @@
+---
+interface Props {
+  topic: string;
+  clickable?: boolean;
+}
+
+const { topic, clickable = true } = Astro.props;
+const href = clickable ? `/explore?topic=${encodeURIComponent(topic)}` : undefined;
+---
+
+{href ? (
+  <a href={href} class="topic-badge">{topic}</a>
+) : (
+  <span class="topic-badge">{topic}</span>
+)}
+
+<style>
+  .topic-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--gray-900);
+    color: var(--gray-300);
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    text-decoration: none;
+  }
+
+  a.topic-badge:hover {
+    background: var(--gray-800);
+    border-color: var(--border-hover);
+    color: var(--fg);
+  }
+
+  a.topic-badge:active {
+    transform: scale(0.96);
+  }
+</style>

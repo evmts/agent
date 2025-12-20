@@ -1,0 +1,89 @@
+---
+/**
+ * TabNav Component
+ *
+ * Reusable tab navigation with URL query parameter support.
+ */
+
+export interface Tab {
+  id: string;
+  label: string;
+  count?: number;
+}
+
+interface Props {
+  tabs: Tab[];
+  activeTab: string;
+  baseUrl: string;
+}
+
+const { tabs, activeTab, baseUrl } = Astro.props;
+---
+
+<nav class="tab-nav">
+  {tabs.map((tab) => {
+    const url = `${baseUrl}?tab=${tab.id}`;
+    const isActive = tab.id === activeTab;
+
+    return (
+      <a
+        href={url}
+        class:list={["tab", { active: isActive }]}
+        data-tab={tab.id}
+      >
+        {tab.label}
+        {tab.count !== undefined && <span class="count">({tab.count})</span>}
+      </a>
+    );
+  })}
+</nav>
+
+<style>
+  .tab-nav {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 2rem;
+  }
+
+  .tab {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    background: none;
+    color: var(--gray-300);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    position: relative;
+    transition: color var(--transition-fast);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+  }
+
+  .tab:hover {
+    color: var(--fg);
+    background: var(--hover);
+  }
+
+  .tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--fg);
+  }
+
+  .tab .count {
+    color: var(--gray-400);
+    font-weight: normal;
+    margin-left: 0.25rem;
+  }
+
+  .tab.active .count {
+    color: var(--gray-300);
+  }
+
+  @media (max-width: 768px) {
+    .tab {
+      padding: 0.75rem 1rem;
+      font-size: 13px;
+    }
+  }
+</style>
