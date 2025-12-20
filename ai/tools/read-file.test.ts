@@ -348,10 +348,11 @@ describe('readFileImpl - line number formatting', () => {
     const result = await readFileImpl(resolve(TEST_DIR, 'large.txt'), 0, 100);
 
     expect(result.success).toBe(true);
-    // Should have consistent formatting for 1-digit, 2-digit, and 3-digit numbers
-    expect(result.content).toContain('\t1\t');
-    expect(result.content).toContain('\t10\t');
-    expect(result.content).toContain('\t100\t');
+    // Should have consistent formatting - spaces for padding, then line number, then tab
+    // Format is like "     1\t" for single digit, "    10\t" for double, "   100\t" for triple
+    expect(result.content).toContain('1\tLine 1');
+    expect(result.content).toContain('10\tLine 10');
+    expect(result.content).toContain('100\tLine 100');
   });
 });
 
