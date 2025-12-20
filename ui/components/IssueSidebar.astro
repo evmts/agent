@@ -6,12 +6,15 @@ interface Props {
     state: 'open' | 'closed';
     assignees?: string[];
     labels?: string[];
+    milestone?: string | null;
   };
   users: Array<{ id: number; username: string }>;
   availableLabels: Array<{ name: string; color: string; description?: string }>;
+  milestones?: Array<{ id: number; title: string; due_date: string | null; state: string }>;
+  currentMilestone?: { id: number; title: string; due_date: string | null; state: string } | null;
 }
 
-const { issue, users, availableLabels } = Astro.props;
+const { issue, users, availableLabels, milestones = [], currentMilestone = null } = Astro.props;
 
 // Get assignees and labels from issue
 const assignees = issue.assignees || [];
@@ -22,8 +25,16 @@ const labels = issueLabels.map(labelName =>
   availableLabels.find(l => l.name === labelName)
 ).filter(Boolean) as Array<{ name: string; color: string; description?: string }>;
 
-const milestone: { title: string; dueDate?: string } | null = null;
 const isSubscribed = false;
+
+function formatDate(date: string | Date | null): string {
+  if (!date) return "";
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 ---
 
 <aside class="issue-sidebar">
@@ -115,19 +126,54 @@ const isSubscribed = false;
   <div class="sidebar-section">
     <h3 class="sidebar-heading">Milestone</h3>
     <div class="sidebar-content">
-      {!milestone ? (
-        <div class="sidebar-empty">
-          <p class="text-muted text-xs">No milestone</p>
-          <button type="button" class="sidebar-link">Set milestone</button>
-        </div>
-      ) : (
-        <div class="milestone-info">
-          <span class="milestone-title">{milestone.title}</span>
-          {milestone.dueDate && (
-            <span class="milestone-due text-xs text-muted">Due: {milestone.dueDate}</span>
+      <div id="milestone-container">
+        {!currentMilestone ? (
+          <p class="text-muted text-xs" id="no-milestone">No milestone</p>
+        ) : (
+          <div class="milestone-info" id="current-milestone">
+            <div class="milestone-content">
+              <span class="milestone-title">{currentMilestone.title}</span>
+              {currentMilestone.due_date && (
+                <span class="milestone-due text-xs text-muted">Due: {formatDate(currentMilestone.due_date)}</span>
+              )}
+            </div>
+            <button
+              type="button"
+              class="btn-remove remove-milestone"
+              aria-label="Remove milestone"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
+      <details class="milestone-picker">
+        <summary class="sidebar-link">Set milestone</summary>
+        <div class="picker-list">
+          {milestones.length === 0 ? (
+            <p class="text-muted text-xs">No milestones available</p>
+          ) : (
+            milestones
+              .filter(m => m.state === 'open')
+              .map(milestone => (
+                <button
+                  type="button"
+                  class="picker-item set-milestone"
+                  data-milestone-id={milestone.id}
+                  data-milestone-title={milestone.title}
+                  data-disabled={currentMilestone?.id === milestone.id}
+                >
+                  <span class="milestone-name">{milestone.title}</span>
+                  {milestone.due_date && (
+                    <span class="milestone-due-picker text-xs text-muted">
+                      {formatDate(milestone.due_date)}
+                    </span>
+                  )}
+                </button>
+              ))
           )}
         </div>
-      )}
+      </details>
     </div>
   </div>
 
@@ -308,12 +354,19 @@ const isSubscribed = false;
   /* Milestone */
   .milestone-info {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: flex-start;
+    justify-content: space-between;
     padding: 8px 12px;
     background: var(--gray-950);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+
+  .milestone-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
   }
 
   .milestone-title {
@@ -323,6 +376,30 @@ const isSubscribed = false;
   }
 
   .milestone-due {
+    font-size: 11px;
+    color: var(--gray-500);
+  }
+
+  .milestone-picker {
+    margin-top: 8px;
+  }
+
+  .milestone-picker summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .milestone-picker summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .milestone-name {
+    flex: 1;
+    font-weight: 500;
+    text-align: left;
+  }
+
+  .milestone-due-picker {
     font-size: 11px;
     color: var(--gray-500);
   }
@@ -423,7 +500,7 @@ const isSubscribed = false;
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: assigneeUsername })
@@ -445,7 +522,7 @@ const isSubscribed = false;
       const assigneeUsername = button.dataset.username;
 
       try {
-        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
           method: 'DELETE'
         });
 
@@ -467,7 +544,7 @@ const isSubscribed = false;
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/labels`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/labels`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ labels: [labelName] })
@@ -489,7 +566,7 @@ const isSubscribed = false;
       const labelName = button.dataset.label;
 
       try {
-        const response = await fetch(`/api/repos/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, {
           method: 'DELETE'
         });
 
@@ -501,4 +578,46 @@ const isSubscribed = false;
       }
     });
   });
+
+  // Handle set milestone
+  document.querySelectorAll('.set-milestone').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const button = e.currentTarget as HTMLButtonElement;
+      const milestoneId = button.dataset.milestoneId;
+
+      if (button.dataset.disabled === 'true') return;
+
+      try {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/milestone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ milestone_id: parseInt(milestoneId!) })
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to set milestone:', error);
+      }
+    });
+  });
+
+  // Handle remove milestone
+  const removeMilestoneBtn = document.querySelector('.remove-milestone');
+  if (removeMilestoneBtn) {
+    removeMilestoneBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/milestone`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to remove milestone:', error);
+      }
+    });
+  }
 </script>

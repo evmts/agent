@@ -5,16 +5,18 @@ interface Props {
     author: string | null;
     assignee: string | null;
     labels: string[];
+    milestone: string | null;
     sort: string;
     search: string | null;
   };
   authors: Array<{ username: string }>;
   assignees: Array<{ username: string }>;
   labels: Array<{ name: string; color: string }>;
+  milestones: Array<{ id: number; title: string }>;
   baseUrl: string;
 }
 
-const { currentFilters, authors, assignees, labels, baseUrl } = Astro.props;
+const { currentFilters, authors, assignees, labels, milestones, baseUrl } = Astro.props;
 
 function buildUrl(updates: Record<string, string | null>): string {
   const params = new URLSearchParams();
@@ -24,6 +26,7 @@ function buildUrl(updates: Record<string, string | null>): string {
   if (currentFilters.author) params.set('author', currentFilters.author);
   if (currentFilters.assignee) params.set('assignee', currentFilters.assignee);
   if (currentFilters.labels.length > 0) params.set('labels', currentFilters.labels.join(','));
+  if (currentFilters.milestone) params.set('milestone', currentFilters.milestone);
   if (currentFilters.sort && currentFilters.sort !== 'created') params.set('sort', currentFilters.sort);
   if (currentFilters.search) params.set('search', currentFilters.search);
 
@@ -46,7 +49,7 @@ function removeLabel(labelToRemove: string): string {
 }
 
 const hasActiveFilters = currentFilters.author || currentFilters.assignee ||
-                        currentFilters.labels.length > 0 || currentFilters.search;
+                        currentFilters.labels.length > 0 || currentFilters.milestone || currentFilters.search;
 ---
 
 <div class="issue-filters">
@@ -84,6 +87,31 @@ const hasActiveFilters = currentFilters.author || currentFilters.assignee ||
             selected={currentFilters.assignee === assignee.username}
           >
             {assignee.username}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="milestone-filter" class="filter-label">Milestone</label>
+      <select
+        id="milestone-filter"
+        class="filter-select"
+        onchange={`window.location.href = this.value`}
+      >
+        <option value={buildUrl({ milestone: null })}>All milestones</option>
+        <option
+          value={buildUrl({ milestone: 'none' })}
+          selected={currentFilters.milestone === 'none'}
+        >
+          No milestone
+        </option>
+        {milestones.map(milestone => (
+          <option
+            value={buildUrl({ milestone: milestone.id.toString() })}
+            selected={currentFilters.milestone === milestone.id.toString()}
+          >
+            {milestone.title}
           </option>
         ))}
       </select>
@@ -157,6 +185,7 @@ const hasActiveFilters = currentFilters.author || currentFilters.assignee ||
         {currentFilters.labels.map(label => (
           <input type="hidden" name="labels" value={currentFilters.labels.join(',')} />
         ))}
+        {currentFilters.milestone && <input type="hidden" name="milestone" value={currentFilters.milestone} />}
         {currentFilters.sort !== 'created' && <input type="hidden" name="sort" value={currentFilters.sort} />}
         <input
           type="text"
@@ -192,6 +221,13 @@ const hasActiveFilters = currentFilters.author || currentFilters.assignee ||
           <span class="chip-remove">×</span>
         </a>
       ))}
+
+      {currentFilters.milestone && (
+        <a href={buildUrl({ milestone: null })} class="filter-chip">
+          Milestone: {currentFilters.milestone === 'none' ? 'No milestone' : milestones.find(m => m.id.toString() === currentFilters.milestone)?.title || currentFilters.milestone}
+          <span class="chip-remove">×</span>
+        </a>
+      )}
 
       {currentFilters.search && (
         <a href={buildUrl({ search: null })} class="filter-chip">

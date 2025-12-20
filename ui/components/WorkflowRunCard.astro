@@ -5,6 +5,7 @@
  */
 
 import WorkflowStatusBadge from './WorkflowStatusBadge.astro';
+import RelativeTime from './RelativeTime.astro';
 
 interface Props {
   run: {
@@ -24,22 +25,6 @@ interface Props {
 }
 
 const { run, user, repo } = Astro.props;
-
-// Format relative time
-function formatRelativeTime(date: string | Date): string {
-  const d = new Date(date);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHour / 24);
-
-  if (diffDay > 0) return `${diffDay}d ago`;
-  if (diffHour > 0) return `${diffHour}h ago`;
-  if (diffMin > 0) return `${diffMin}m ago`;
-  return 'just now';
-}
 
 // Format duration
 function formatDuration(start?: string | Date, end?: string | Date): string {
@@ -75,7 +60,7 @@ const shortSha = run.commitSha?.slice(0, 7);
   </div>
 
   <div class="run-timing">
-    <span class="created">{formatRelativeTime(run.createdAt)}</span>
+    <span class="created"><RelativeTime date={run.createdAt} /></span>
     <span class="duration">{formatDuration(run.startedAt, run.stoppedAt)}</span>
   </div>
 </a>

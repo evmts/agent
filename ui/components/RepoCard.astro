@@ -1,6 +1,7 @@
 ---
 import type { Repository } from "../lib/types";
 import TopicBadge from "./TopicBadge.astro";
+import Avatar from "./Avatar.astro";
 
 interface Props {
   repo: Repository;
@@ -15,10 +16,15 @@ const repoUrl = `/${repo.username}/${repo.name}`;
 <li class="repo-item">
   <a href={repoUrl}>
     <div class="repo-header">
-      <h3>
-        {showUser && <span class="owner">{repo.username} / </span>}
-        {repo.name}
-      </h3>
+      <div class="repo-title">
+        {showUser && repo.username && (
+          <Avatar user={{ username: repo.username }} size="sm" />
+        )}
+        <h3>
+          {showUser && <span class="owner">{repo.username} / </span>}
+          {repo.name}
+        </h3>
+      </div>
       {starCount !== undefined && starCount > 0 && (
         <span class="star-count">
           ★ {starCount}
@@ -44,6 +50,14 @@ const repoUrl = `/${repo.username}/${repo.name}`;
     gap: 1rem;
   }
 
+  .repo-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
   .star-count {
     font-size: 12px;
     color: var(--text-secondary);
@@ -52,6 +66,7 @@ const repoUrl = `/${repo.username}/${repo.name}`;
 
   h3 {
     margin: 0;
+    min-width: 0;
   }
 
   .description {

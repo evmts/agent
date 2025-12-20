@@ -9,7 +9,7 @@ interface Props {
     username: string;
     avatar_url?: string | null;
   };
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
 const { user, size = 'md' } = Astro.props;
@@ -78,6 +78,11 @@ const hasAvatar = user.avatar_url;
     background: var(--gray-800);
   }
 
+  .avatar.xs {
+    width: 16px;
+    height: 16px;
+  }
+
   .avatar.sm {
     width: 20px;
     height: 20px;
@@ -108,6 +113,10 @@ const hasAvatar = user.avatar_url;
     color: white;
     font-weight: 500;
     user-select: none;
+  }
+
+  .avatar.xs .initials {
+    font-size: 8px;
   }
 
   .avatar.sm .initials {

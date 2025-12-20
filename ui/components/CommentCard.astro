@@ -1,9 +1,10 @@
 ---
-import type { Comment } from "../lib/types";
+import type { Comment, ReactionGroup } from "../lib/types";
 import Markdown from "./Markdown.astro";
 import Avatar from "./Avatar.astro";
 import RelativeTime from "./RelativeTime.astro";
 import MarkdownEditor from "./MarkdownEditor.astro";
+import Reactions from "./Reactions.astro";
 
 interface Props {
   comment: Comment;
@@ -11,9 +12,10 @@ interface Props {
   repo?: string;
   currentUserId?: number;
   issueNumber?: number;
+  reactions?: ReactionGroup[];
 }
 
-const { comment, owner, repo, currentUserId, issueNumber } = Astro.props;
+const { comment, owner, repo, currentUserId, issueNumber, reactions = [] } = Astro.props;
 const isAuthor = currentUserId && currentUserId === comment.author_id;
 ---
 
@@ -35,6 +37,17 @@ const isAuthor = currentUserId && currentUserId === comment.author_id;
   <div class="comment-body">
     <Markdown content={comment.body} owner={owner} repo={repo} />
   </div>
+  {owner && repo && issueNumber && (
+    <Reactions
+      targetType="comment"
+      targetId={comment.id}
+      user={owner}
+      repo={repo}
+      issueNumber={issueNumber}
+      currentUserId={currentUserId}
+      reactions={reactions}
+    />
+  )}
   {isAuthor && (
     <div class="comment-edit" style="display: none;">
       <form method="POST" class="edit-form">
