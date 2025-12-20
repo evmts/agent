@@ -4,10 +4,24 @@
  * Runs before all tests to apply migrations and seed the database with test data.
  */
 
-import { seed } from "./seed";
-import { sql } from "../db/client";
-import { readFile } from "node:fs/promises";
+// Load environment variables from .env file BEFORE any imports that need them
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+
+const envPath = join(process.cwd(), ".env");
+if (existsSync(envPath)) {
+  const envContent = readFileSync(envPath, "utf-8");
+  for (const line of envContent.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith("#")) {
+      const [key, ...valueParts] = trimmed.split("=");
+      if (key && valueParts.length > 0) {
+        process.env[key] = valueParts.join("=");
+      }
+    }
+  }
+}
 
 /**
  * Apply database migrations needed for tests.
@@ -15,6 +29,9 @@ import { join } from "node:path";
  */
 async function applyMigrations() {
   console.log("Applying database migrations...");
+
+  // Dynamic import after env is loaded
+  const { sql } = await import("../db/client");
 
   // Apply JJ native migration
   const migrationPath = join(process.cwd(), "db/migrate-jj-native.sql");
@@ -77,7 +94,8 @@ async function globalSetup() {
     // Apply migrations first to ensure all tables exist
     await applyMigrations();
 
-    // Then seed the database with test data
+    // Dynamic import seed after env is loaded
+    const { seed } = await import("./seed");
     await seed();
     console.log("\n=== Global Setup Complete ===\n");
   } catch (error) {
