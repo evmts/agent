@@ -18,13 +18,13 @@ pub fn search(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
     const query = req.query.get("q") orelse {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing query parameter 'q'\"}");
         return;
     };
 
     if (query.len < 2) {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Query must be at least 2 characters\"}");
         return;
     }
@@ -78,7 +78,7 @@ pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     res.content_type = .JSON;
 
     const username = req.param("username") orelse {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
         return;
     };
@@ -86,7 +86,7 @@ pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     // Get user
     const user = try db.getUserByUsername(ctx.pool, username);
     if (user == null) {
-        res.status = .@"Not Found";
+        res.status = 404;
         try res.writer().writeAll("{\"error\":\"User not found\"}");
         return;
     }
@@ -133,11 +133,17 @@ pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         return;
     }
 
+    if (!ctx.user.?.is_active) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Account not activated\"}");
+        return;
+    }
+
     const user_id = ctx.user.?.id;
 
     // Parse JSON body
     const body = req.body() orelse {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing request body\"}");
         return;
     };
@@ -146,8 +152,9 @@ pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         displayName: ?[]const u8 = null,
         bio: ?[]const u8 = null,
         email: ?[]const u8 = null,
+        avatarUrl: ?[]const u8 = null,
     }, ctx.allocator, body, .{}) catch {
-        res.status = .@"Bad Request";
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
         return;
     };
@@ -155,28 +162,63 @@ pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
 
     const v = parsed.value;
 
-    // Build dynamic UPDATE query
-    var conn = try ctx.pool.acquire();
-    defer conn.release();
-
-    // For simplicity, update all fields that are provided
-    if (v.displayName) |display_name| {
-        _ = try conn.exec(
-            \\UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2
-        , .{ display_name, user_id });
+    // Validate field lengths
+    if (v.displayName) |dn| {
+        if (dn.len > 255) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Display name must be at most 255 characters\"}");
+            return;
+        }
     }
 
-    if (v.bio) |bio| {
-        _ = try conn.exec(
-            \\UPDATE users SET bio = $1, updated_at = NOW() WHERE id = $2
-        , .{ bio, user_id });
+    if (v.bio) |b| {
+        if (b.len > 2000) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Bio must be at most 2000 characters\"}");
+            return;
+        }
     }
 
-    if (v.email) |email| {
-        _ = try conn.exec(
-            \\UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2
-        , .{ email, user_id });
+    if (v.email) |e| {
+        if (e.len > 255) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Email must be at most 255 characters\"}");
+            return;
+        }
+        // Basic email validation
+        if (std.mem.indexOf(u8, e, "@") == null) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Invalid email address\"}");
+            return;
+        }
     }
 
-    try res.writer().writeAll("{\"message\":\"Profile updated\"}");
+    if (v.avatarUrl) |au| {
+        if (au.len > 2048) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Avatar URL must be at most 2048 characters\"}");
+            return;
+        }
+    }
+
+    // Check if at least one field is provided
+    if (v.displayName == null and v.bio == null and v.email == null and v.avatarUrl == null) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"No updates provided\"}");
+        return;
+    }
+
+    // Update profile using db function
+    try db.updateUserProfile(ctx.pool, user_id, v.displayName, v.bio, v.email);
+
+    // Handle avatar URL separately (not in updateUserProfile function)
+    if (v.avatarUrl) |avatar_url| {
+        var conn = try ctx.pool.acquire();
+        defer conn.release();
+        _ = try conn.exec(
+            \\UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2
+        , .{ avatar_url, user_id });
+    }
+
+    try res.writer().writeAll("{\"message\":\"Profile updated successfully\"}");
 }

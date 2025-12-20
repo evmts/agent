@@ -4,6 +4,15 @@ const Context = @import("main.zig").Context;
 const siwe = @import("lib/siwe.zig");
 const db = @import("lib/db.zig");
 const jwt = @import("lib/jwt.zig");
+const pty_routes = @import("routes/pty.zig");
+const ssh_keys = @import("routes/ssh_keys.zig");
+const tokens = @import("routes/tokens.zig");
+const users = @import("routes/users.zig");
+const sessions = @import("routes/sessions.zig");
+const repo_routes = @import("routes/repositories.zig");
+const workflows = @import("routes/workflows.zig");
+const runners = @import("routes/runners.zig");
+const issues = @import("routes/issues.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -24,8 +33,105 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/auth/me", me, .{});
 
     // API routes - users
-    router.get("/api/users/search", userSearch, .{});
-    router.get("/api/users/:username", userProfile, .{});
+    router.get("/api/users/search", users.search, .{});
+    router.get("/api/users/:username", users.getProfile, .{});
+    router.patch("/api/users/me", users.updateProfile, .{});
+
+    // API routes - SSH keys
+    router.get("/api/ssh-keys", ssh_keys.list, .{});
+    router.post("/api/ssh-keys", ssh_keys.create, .{});
+    router.delete("/api/ssh-keys/:id", ssh_keys.delete, .{});
+
+    // API routes - access tokens
+    router.get("/api/user/tokens", tokens.list, .{});
+    router.post("/api/user/tokens", tokens.create, .{});
+    router.delete("/api/user/tokens/:id", tokens.delete, .{});
+
+    // API routes - repositories (stars, watches, topics)
+    router.get("/api/:user/:repo/stargazers", repo_routes.getStargazers, .{});
+    router.post("/api/:user/:repo/star", repo_routes.starRepository, .{});
+    router.delete("/api/:user/:repo/star", repo_routes.unstarRepository, .{});
+    router.post("/api/:user/:repo/watch", repo_routes.watchRepository, .{});
+    router.delete("/api/:user/:repo/watch", repo_routes.unwatchRepository, .{});
+    router.get("/api/:user/:repo/topics", repo_routes.getTopics, .{});
+    router.put("/api/:user/:repo/topics", repo_routes.updateTopics, .{});
+
+    // API routes - bookmarks (jj branches)
+    router.get("/api/:user/:repo/bookmarks", repo_routes.listBookmarks, .{});
+    router.get("/api/:user/:repo/bookmarks/:name", repo_routes.getBookmark, .{});
+    router.post("/api/:user/:repo/bookmarks", repo_routes.createBookmark, .{});
+    router.put("/api/:user/:repo/bookmarks/:name", repo_routes.updateBookmark, .{});
+    router.delete("/api/:user/:repo/bookmarks/:name", repo_routes.deleteBookmark, .{});
+
+    // API routes - changes (jj)
+    router.get("/api/:user/:repo/changes", repo_routes.listChanges, .{});
+    router.get("/api/:user/:repo/changes/:changeId", repo_routes.getChange, .{});
+    router.get("/api/:user/:repo/changes/:changeId/diff", repo_routes.getChangeDiff, .{});
+
+    // API routes - issues
+    router.get("/api/:user/:repo/issues", issues.listIssues, .{});
+    router.get("/api/:user/:repo/issues/:number", issues.getIssue, .{});
+    router.post("/api/:user/:repo/issues", issues.createIssue, .{});
+    router.patch("/api/:user/:repo/issues/:number", issues.updateIssue, .{});
+    router.post("/api/:user/:repo/issues/:number/close", issues.closeIssue, .{});
+    router.post("/api/:user/:repo/issues/:number/reopen", issues.reopenIssue, .{});
+
+    // API routes - issue comments
+    router.get("/api/:user/:repo/issues/:number/comments", issues.getComments, .{});
+    router.post("/api/:user/:repo/issues/:number/comments", issues.addComment, .{});
+    router.patch("/api/:user/:repo/issues/:number/comments/:commentId", issues.updateComment, .{});
+    router.delete("/api/:user/:repo/issues/:number/comments/:commentId", issues.deleteComment, .{});
+
+    // API routes - labels
+    router.get("/api/:user/:repo/labels", issues.getLabels, .{});
+    router.post("/api/:user/:repo/labels", issues.createLabel, .{});
+    router.post("/api/:user/:repo/issues/:number/labels", issues.addLabelsToIssue, .{});
+    router.delete("/api/:user/:repo/issues/:number/labels/:labelId", issues.removeLabelFromIssue, .{});
+
+    // PTY routes
+    router.post("/pty", pty_routes.create, .{});
+    router.get("/pty", pty_routes.list, .{});
+    router.get("/pty/:id", pty_routes.get, .{});
+    router.delete("/pty/:id", pty_routes.close, .{});
+    router.get("/pty/:id/ws", pty_routes.websocket, .{});
+
+    // API routes - sessions (agent sessions)
+    router.get("/api/sessions", sessions.listSessions, .{});
+    router.post("/api/sessions", sessions.createSession, .{});
+    router.get("/api/sessions/:sessionId", sessions.getSession, .{});
+    router.patch("/api/sessions/:sessionId", sessions.updateSession, .{});
+    router.delete("/api/sessions/:sessionId", sessions.deleteSession, .{});
+    router.post("/api/sessions/:sessionId/abort", sessions.abortSession, .{});
+    router.get("/api/sessions/:sessionId/diff", sessions.getSessionDiff, .{});
+    router.get("/api/sessions/:sessionId/changes", sessions.getSessionChanges, .{});
+    router.get("/api/sessions/:sessionId/changes/:changeId", sessions.getSpecificChange, .{});
+    router.get("/api/sessions/:sessionId/changes/:fromChangeId/compare/:toChangeId", sessions.compareChanges, .{});
+    router.get("/api/sessions/:sessionId/changes/:changeId/files", sessions.getFilesAtChange, .{});
+    router.get("/api/sessions/:sessionId/changes/:changeId/file/*", sessions.getFileAtChange, .{});
+    router.get("/api/sessions/:sessionId/conflicts", sessions.getSessionConflicts, .{});
+    router.get("/api/sessions/:sessionId/operations", sessions.getSessionOperations, .{});
+    router.post("/api/sessions/:sessionId/operations/undo", sessions.undoLastOperation, .{});
+    router.post("/api/sessions/:sessionId/operations/:operationId/restore", sessions.restoreOperation, .{});
+    router.post("/api/sessions/:sessionId/fork", sessions.forkSession, .{});
+    router.post("/api/sessions/:sessionId/revert", sessions.revertSession, .{});
+    router.post("/api/sessions/:sessionId/unrevert", sessions.unrevertSession, .{});
+    router.post("/api/sessions/:sessionId/undo", sessions.undoTurns, .{});
+
+    // API routes - workflows
+    router.get("/api/:user/:repo/workflows/runs", workflows.listRuns, .{});
+    router.get("/api/:user/:repo/workflows/runs/:runId", workflows.getRun, .{});
+    router.post("/api/:user/:repo/workflows/runs", workflows.createRun, .{});
+    router.patch("/api/:user/:repo/workflows/runs/:runId", workflows.updateRun, .{});
+    router.post("/api/:user/:repo/workflows/runs/:runId/cancel", workflows.cancelRun, .{});
+    router.get("/api/:user/:repo/workflows/runs/:runId/jobs", workflows.getJobs, .{});
+    router.get("/api/:user/:repo/workflows/runs/:runId/logs", workflows.getLogs, .{});
+
+    // API routes - runners
+    router.post("/api/runners/register", runners.register, .{});
+    router.post("/api/runners/heartbeat", runners.heartbeat, .{});
+    router.get("/api/runners/tasks/fetch", runners.fetchTask, .{});
+    router.post("/api/runners/tasks/:taskId/status", runners.updateTaskStatus, .{});
+    router.post("/api/runners/tasks/:taskId/logs", runners.appendLogs, .{});
 
     log.info("Routes configured", .{});
 }
@@ -349,21 +455,4 @@ fn me(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     } else {
         try res.writer().writeAll("{\"user\":null}");
     }
-}
-
-fn userSearch(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    res.content_type = .JSON;
-    try res.writer().writeAll("{\"users\":[]}");
-}
-
-fn userProfile(_: *Context, req: *httpz.Request, res: *httpz.Response) !void {
-    res.content_type = .JSON;
-    const username = req.param("username") orelse {
-        res.status = 400; // Bad Request
-        try res.writer().writeAll("{\"error\":\"Missing username\"}");
-        return;
-    };
-
-    var writer = res.writer();
-    try writer.print("{{\"username\":\"{s}\",\"error\":\"User lookup not yet implemented\"}}", .{username});
 }

@@ -1,0 +1,864 @@
+//! Session routes - CRUD operations for agent sessions
+//!
+//! Handles all session management endpoints:
+//! - GET /sessions - List all sessions
+//! - POST /sessions - Create new session
+//! - GET /sessions/:sessionId - Get session details
+//! - PATCH /sessions/:sessionId - Update session
+//! - DELETE /sessions/:sessionId - Delete session
+//! - POST /sessions/:sessionId/abort - Abort running session
+//! - GET /sessions/:sessionId/diff - Get session diff
+//! - GET /sessions/:sessionId/changes - Get session changes
+//! - GET /sessions/:sessionId/changes/:changeId - Get specific change
+//! - GET /sessions/:sessionId/changes/:fromChangeId/compare/:toChangeId - Compare changes
+//! - GET /sessions/:sessionId/changes/:changeId/files - Get files at change
+//! - GET /sessions/:sessionId/changes/:changeId/file/* - Get file content at change
+//! - GET /sessions/:sessionId/conflicts - Get conflicts
+//! - GET /sessions/:sessionId/operations - Get operations log
+//! - POST /sessions/:sessionId/operations/undo - Undo last operation
+//! - POST /sessions/:sessionId/operations/:operationId/restore - Restore operation
+//! - POST /sessions/:sessionId/fork - Fork session
+//! - POST /sessions/:sessionId/revert - Revert session
+//! - POST /sessions/:sessionId/unrevert - Unrevert session
+//! - POST /sessions/:sessionId/undo - Undo turns
+
+const std = @import("std");
+const httpz = @import("httpz");
+const Context = @import("../main.zig").Context;
+const db = @import("../lib/db.zig");
+
+const log = std.log.scoped(.session_routes);
+
+/// Helper to generate session ID
+fn generateSessionId(allocator: std.mem.Allocator) ![]const u8 {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var id_buf: [15]u8 = undefined;
+    id_buf[0] = 's';
+    id_buf[1] = 'e';
+    id_buf[2] = 's';
+    id_buf[3] = '_';
+
+    var i: usize = 4;
+    while (i < 15) : (i += 1) {
+        const idx = std.crypto.random.intRangeAtMost(usize, 0, chars.len - 1);
+        id_buf[i] = chars[idx];
+    }
+
+    return try allocator.dupe(u8, &id_buf);
+}
+
+/// Helper to write JSON field
+fn writeJsonString(writer: anytype, key: []const u8, value: []const u8) !void {
+    try writer.print("\"{s}\":\"{s}\"", .{ key, value });
+}
+
+/// Helper to write optional JSON field
+fn writeJsonOptionalString(writer: anytype, key: []const u8, value: ?[]const u8) !void {
+    if (value) |v| {
+        try writer.print("\"{s}\":\"{s}\"", .{ key, v });
+    } else {
+        try writer.print("\"{s}\":null", .{key});
+    }
+}
+
+/// Helper to write session record as JSON
+fn writeSessionJson(writer: anytype, session: db.AgentSessionRecord) !void {
+    try writer.writeAll("{");
+    try writeJsonString(writer, "id", session.id);
+    try writer.writeAll(",");
+    try writeJsonString(writer, "projectID", session.project_id);
+    try writer.writeAll(",");
+    try writeJsonString(writer, "directory", session.directory);
+    try writer.writeAll(",");
+    try writeJsonString(writer, "title", session.title);
+    try writer.writeAll(",");
+    try writeJsonString(writer, "version", session.version);
+    try writer.writeAll(",");
+    try writer.print("\"time\":{{\"created\":{d},\"updated\":{d}", .{ session.time_created, session.time_updated });
+    if (session.time_archived) |archived| {
+        try writer.print(",\"archived\":{d}", .{archived});
+    }
+    try writer.writeAll("}");
+    try writer.writeAll(",");
+    try writeJsonOptionalString(writer, "parentID", session.parent_id);
+    try writer.writeAll(",");
+    try writeJsonOptionalString(writer, "forkPoint", session.fork_point);
+    try writer.writeAll(",");
+    try writer.print("\"tokenCount\":{d}", .{session.token_count});
+    try writer.writeAll(",");
+    try writer.print("\"bypassMode\":{s}", .{if (session.bypass_mode) "true" else "false"});
+    try writer.writeAll(",");
+    try writeJsonOptionalString(writer, "model", session.model);
+    try writer.writeAll(",");
+    try writeJsonOptionalString(writer, "reasoningEffort", session.reasoning_effort);
+    try writer.writeAll(",");
+    if (session.plugins.len > 0) {
+        try writer.print("\"plugins\":{s}", .{session.plugins});
+    } else {
+        try writer.writeAll("\"plugins\":[]");
+    }
+    try writer.writeAll("}");
+}
+
+// =============================================================================
+// Route Handlers
+// =============================================================================
+
+/// GET /api/sessions
+/// List all sessions for user
+pub fn listSessions(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const sessions = db.getAllAgentSessions(ctx.pool, ctx.allocator) catch |err| {
+        log.err("Failed to get sessions: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to retrieve sessions\"}");
+        return;
+    };
+    defer sessions.deinit();
+
+    var writer = res.writer();
+    try writer.writeAll("{\"sessions\":[");
+
+    for (sessions.items, 0..) |session, i| {
+        if (i > 0) try writer.writeAll(",");
+        try writeSessionJson(writer, session);
+    }
+
+    try writer.writeAll("]}");
+}
+
+/// POST /api/sessions
+/// Create a new session
+pub fn createSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const parsed = std.json.parseFromSlice(struct {
+        directory: ?[]const u8 = null,
+        title: ?[]const u8 = null,
+        parentID: ?[]const u8 = null,
+        bypassMode: ?bool = null,
+        model: ?[]const u8 = null,
+        reasoningEffort: ?[]const u8 = null,
+        plugins: ?[]const u8 = null,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Generate session ID
+    const session_id = try generateSessionId(ctx.allocator);
+    defer ctx.allocator.free(session_id);
+
+    // Get current directory if not provided
+    const cwd = if (v.directory) |d| d else std.fs.cwd().realpathAlloc(ctx.allocator, ".") catch "/tmp";
+    defer if (v.directory == null) ctx.allocator.free(cwd);
+
+    const title = v.title orelse "New Session";
+    const plugins = v.plugins orelse "[]";
+
+    // Create session in database
+    db.createAgentSession(
+        ctx.pool,
+        session_id,
+        cwd,
+        title,
+        v.parentID,
+        v.bypassMode orelse false,
+        v.model,
+        v.reasoningEffort,
+        plugins,
+    ) catch |err| {
+        log.err("Failed to create session: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create session\"}");
+        return;
+    };
+
+    // Fetch the created session
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Session created but not found\"}");
+        return;
+    }
+
+    res.status = .created;
+    var writer = res.writer();
+    try writer.writeAll("{\"session\":");
+    try writeSessionJson(writer, session.?);
+    try writer.writeAll("}");
+}
+
+/// GET /api/sessions/:sessionId
+/// Get a session by ID
+pub fn getSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch |err| {
+        log.err("Failed to get session: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to retrieve session\"}");
+        return;
+    };
+
+    if (session == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"session\":");
+    try writeSessionJson(writer, session.?);
+    try writer.writeAll("}");
+}
+
+/// PATCH /api/sessions/:sessionId
+/// Update a session
+pub fn updateSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const parsed = std.json.parseFromSlice(struct {
+        title: ?[]const u8 = null,
+        archived: ?bool = null,
+        model: ?[]const u8 = null,
+        reasoningEffort: ?[]const u8 = null,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Update session
+    db.updateAgentSession(
+        ctx.pool,
+        session_id,
+        v.title,
+        v.archived,
+        v.model,
+        v.reasoningEffort,
+    ) catch |err| {
+        log.err("Failed to update session: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to update session\"}");
+        return;
+    };
+
+    // Fetch updated session
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Session updated but not found\"}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"session\":");
+    try writeSessionJson(writer, session.?);
+    try writer.writeAll("}");
+}
+
+/// DELETE /api/sessions/:sessionId
+/// Delete a session
+pub fn deleteSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // Delete session
+    db.deleteAgentSession(ctx.pool, session_id) catch |err| {
+        log.err("Failed to delete session: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to delete session\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// POST /api/sessions/:sessionId/abort
+/// Abort a session's active task
+pub fn abortSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement actual abort logic with task tracking
+    // For now, just return success
+    try res.writer().writeAll("{\"success\":true,\"aborted\":false}");
+}
+
+/// GET /api/sessions/:sessionId/diff
+/// Get session diff
+pub fn getSessionDiff(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based diff computation
+    // For now, return empty diffs
+    _ = req.query("messageId");
+    try res.writer().writeAll("{\"diffs\":[]}");
+}
+
+/// GET /api/sessions/:sessionId/changes
+/// Get changes (snapshots) for a session
+pub fn getSessionChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based snapshot/change tracking
+    // For now, return empty changes
+    _ = req.query("limit");
+    try res.writer().writeAll("{\"changes\":[],\"currentChangeId\":null,\"total\":0}");
+}
+
+/// GET /api/sessions/:sessionId/changes/:changeId
+/// Get a specific change's details
+pub fn getSpecificChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    const change_id = req.param("changeId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing changeId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based change retrieval
+    _ = change_id;
+    res.status = 404;
+    try res.writer().writeAll("{\"error\":\"Change not found\"}");
+}
+
+/// GET /api/sessions/:sessionId/changes/:fromChangeId/compare/:toChangeId
+/// Get diff between two changes in a session
+pub fn compareChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    const from_change_id = req.param("fromChangeId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing fromChangeId\"}");
+        return;
+    };
+
+    const to_change_id = req.param("toChangeId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing toChangeId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based diff comparison
+    _ = from_change_id;
+    _ = to_change_id;
+    try res.writer().writeAll("{\"diffs\":[]}");
+}
+
+/// GET /api/sessions/:sessionId/changes/:changeId/files
+/// Get files at a specific change
+pub fn getFilesAtChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    const change_id = req.param("changeId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing changeId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based file listing at change
+    _ = change_id;
+    try res.writer().writeAll("{\"files\":[]}");
+}
+
+/// GET /api/sessions/:sessionId/changes/:changeId/file/*
+/// Get file content at a specific change
+pub fn getFileAtChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    const change_id = req.param("changeId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing changeId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // Extract file path from URL (everything after /file/)
+    const path = req.url.path;
+    const file_marker = "/file/";
+    const file_idx = std.mem.indexOf(u8, path, file_marker);
+    if (file_idx == null) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"File path required\"}");
+        return;
+    }
+
+    const file_path = path[file_idx.? + file_marker.len ..];
+    if (file_path.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"File path required\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based file content retrieval
+    _ = change_id;
+    res.status = 404;
+    var writer = res.writer();
+    try writer.print("{{\"error\":\"File '{s}' not found at this change\"}}", .{file_path});
+}
+
+/// GET /api/sessions/:sessionId/conflicts
+/// Get conflicts for a session
+pub fn getSessionConflicts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ-based conflict detection
+    _ = req.query("changeId");
+    try res.writer().writeAll("{\"conflicts\":[],\"hasConflicts\":false,\"currentChangeId\":null}");
+}
+
+/// GET /api/sessions/:sessionId/operations
+/// Get operation log for a session
+pub fn getSessionOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ operation log
+    _ = req.query("limit");
+    try res.writer().writeAll("{\"operations\":[],\"total\":0}");
+}
+
+/// POST /api/sessions/:sessionId/operations/undo
+/// Undo last jj operation
+pub fn undoLastOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ undo operation
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// POST /api/sessions/:sessionId/operations/:operationId/restore
+/// Restore to a specific operation
+pub fn restoreOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    const operation_id = req.param("operationId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing operationId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement JJ restore operation
+    var writer = res.writer();
+    try writer.print("{{\"success\":true,\"restoredTo\":\"{s}\"}}", .{operation_id});
+}
+
+/// POST /api/sessions/:sessionId/fork
+/// Fork a session
+pub fn forkSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const parent_session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (parent_session == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const parsed = std.json.parseFromSlice(struct {
+        messageId: ?[]const u8 = null,
+        title: ?[]const u8 = null,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+    const parent = parent_session.?;
+
+    // Generate new session ID
+    const new_session_id = try generateSessionId(ctx.allocator);
+    defer ctx.allocator.free(new_session_id);
+
+    const title = v.title orelse try std.fmt.allocPrint(ctx.allocator, "Fork of {s}", .{parent.title});
+    defer if (v.title == null) ctx.allocator.free(title);
+
+    // Create forked session
+    db.createAgentSession(
+        ctx.pool,
+        new_session_id,
+        parent.directory,
+        title,
+        session_id, // parent_id
+        parent.bypass_mode,
+        parent.model,
+        parent.reasoning_effort,
+        parent.plugins,
+    ) catch |err| {
+        log.err("Failed to fork session: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to fork session\"}");
+        return;
+    };
+
+    // TODO: Copy snapshot state from parent session at messageId
+
+    // Fetch the created session
+    const session = db.getAgentSessionById(ctx.pool, new_session_id) catch null;
+    if (session == null) {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Session forked but not found\"}");
+        return;
+    }
+
+    res.status = .created;
+    var writer = res.writer();
+    try writer.writeAll("{\"session\":");
+    try writeSessionJson(writer, session.?);
+    try writer.writeAll("}");
+}
+
+/// POST /api/sessions/:sessionId/revert
+/// Revert a session
+pub fn revertSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const parsed = std.json.parseFromSlice(struct {
+        messageId: []const u8,
+        partId: ?[]const u8 = null,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    // TODO: Implement revert logic with snapshot restoration
+
+    // Return updated session
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Session reverted but not found\"}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"session\":");
+    try writeSessionJson(writer, session.?);
+    try writer.writeAll("}");
+}
+
+/// POST /api/sessions/:sessionId/unrevert
+/// Unrevert a session
+pub fn unrevertSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    // TODO: Implement unrevert logic
+
+    // Return updated session
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Session unreverted but not found\"}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"session\":");
+    try writeSessionJson(writer, session.?);
+    try writer.writeAll("}");
+}
+
+/// POST /api/sessions/:sessionId/undo
+/// Undo turns
+pub fn undoTurns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
+        return;
+    };
+
+    // Verify session exists
+    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (existing == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    }
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const parsed = std.json.parseFromSlice(struct {
+        count: ?i32 = null,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const count = parsed.value.count orelse 1;
+
+    // TODO: Implement undo turns logic (remove messages, restore snapshots)
+    _ = count;
+
+    try res.writer().writeAll("{\"turnsUndone\":0,\"messagesRemoved\":0,\"filesReverted\":0,\"snapshotRestored\":false}");
+}
