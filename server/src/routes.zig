@@ -19,6 +19,7 @@ const watcher_routes = @import("routes/watcher.zig");
 const changes = @import("routes/changes.zig");
 const agent_routes = @import("routes/agent.zig");
 const operations = @import("routes/operations.zig");
+const metrics_routes = @import("routes/metrics.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -110,6 +111,9 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
 
     // Health check
     router.get("/health", healthCheck, .{});
+
+    // Prometheus metrics endpoint
+    router.get("/metrics", metrics_routes.getMetrics, .{});
 
     // ElectricSQL shape proxy
     router.get("/shape", shapeProxy, .{});

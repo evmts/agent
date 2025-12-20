@@ -1,10 +1,12 @@
 //! HTTP request logging middleware
 //!
 //! Logs method, path, status code, and response time for each request.
+//! Also records Prometheus metrics for observability.
 
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
+const metrics = @import("../lib/metrics.zig");
 
 const log = std.log.scoped(.http);
 
@@ -55,6 +57,10 @@ pub fn loggerMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response
         status,
         duration_ms,
     });
+
+    // Record Prometheus metrics
+    const method_enum = metrics.Method.fromString(@tagName(method));
+    metrics.global.recordRequest(method_enum, path, @intCast(status), @intCast(duration_ms));
 
     // Note: In a production implementation, we would need a way to hook into
     // the response completion to log the actual response time and status.
