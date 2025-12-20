@@ -1,0 +1,264 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import RepoCard from "../components/RepoCard.astro";
+import TopicBadge from "../components/TopicBadge.astro";
+import { sql } from "../lib/db";
+import type { Repository } from "../lib/types";
+
+const searchQuery = Astro.url.searchParams.get("q") || "";
+const topicFilter = Astro.url.searchParams.get("topic") || "";
+const sortBy = Astro.url.searchParams.get("sort") || "recent";
+
+// Build query
+let repos: Repository[] = [];
+
+if (topicFilter) {
+  // Filter by topic
+  repos = await sql`
+    SELECT r.*, u.username
+    FROM repositories r
+    JOIN users u ON r.user_id = u.id
+    WHERE r.is_public = true AND ${topicFilter} = ANY(r.topics)
+    ORDER BY ${sortBy === "name" ? sql`r.name` : sql`r.updated_at DESC`}
+    LIMIT 50
+  ` as Repository[];
+} else if (searchQuery) {
+  // Search repositories
+  repos = await sql`
+    SELECT r.*, u.username
+    FROM repositories r
+    JOIN users u ON r.user_id = u.id
+    WHERE r.is_public = true AND (
+      r.name ILIKE ${'%' + searchQuery + '%'} OR
+      r.description ILIKE ${'%' + searchQuery + '%'}
+    )
+    ORDER BY ${sortBy === "name" ? sql`r.name` : sql`r.updated_at DESC`}
+    LIMIT 50
+  ` as Repository[];
+} else {
+  // Show all public repos
+  repos = await sql`
+    SELECT r.*, u.username
+    FROM repositories r
+    JOIN users u ON r.user_id = u.id
+    WHERE r.is_public = true
+    ORDER BY ${sortBy === "name" ? sql`r.name` : sql`r.updated_at DESC`}
+    LIMIT 50
+  ` as Repository[];
+}
+
+// Get popular topics
+const popularTopics = await sql`
+  SELECT unnest(topics) as topic, COUNT(*) as count
+  FROM repositories
+  WHERE is_public = true AND topics IS NOT NULL AND array_length(topics, 1) > 0
+  GROUP BY topic
+  ORDER BY count DESC
+  LIMIT 20
+`;
+---
+
+<Layout title="Explore · plue">
+  <Header currentPath="/explore" />
+
+  <div class="container">
+    <div class="explore-header mb-3">
+      <h1 class="page-title">Explore Repositories</h1>
+    </div>
+
+    <div class="search-box mb-3">
+      <form method="get" action="/explore" class="search-form">
+        <input
+          type="text"
+          name="q"
+          value={searchQuery}
+          placeholder="Search repositories..."
+          class="search-input"
+        />
+        <button type="submit" class="btn btn-primary">Search</button>
+      </form>
+    </div>
+
+    {popularTopics.length > 0 && (
+      <div class="popular-topics mb-3">
+        <h2>Popular Topics</h2>
+        <div class="topics-grid">
+          {popularTopics.map((item: any) => (
+            <a href={`/explore?topic=${item.topic}`} class="topic-card">
+              <span class="topic-name">{item.topic}</span>
+              <span class="topic-count">{item.count} repos</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    <div class="results-header mb-2">
+      <div class="flex-between">
+        <div>
+          {topicFilter && (
+            <div class="filter-active">
+              <span class="text-muted">Showing repositories tagged with</span>
+              <TopicBadge topic={topicFilter} clickable={false} />
+              <a href="/explore" class="clear-filter">Clear filter</a>
+            </div>
+          )}
+          {searchQuery && (
+            <div class="filter-active">
+              <span class="text-muted">Search results for:</span>
+              <strong>{searchQuery}</strong>
+              <a href="/explore" class="clear-filter">Clear</a>
+            </div>
+          )}
+          {!topicFilter && !searchQuery && (
+            <span class="text-muted">All public repositories</span>
+          )}
+        </div>
+
+        <div class="sort-controls">
+          <label class="text-muted text-sm">Sort:</label>
+          <div class="tabs">
+            <a
+              href={`/explore?${new URLSearchParams({ ...Object.fromEntries(Astro.url.searchParams), sort: "recent" }).toString()}`}
+              class={`tab ${sortBy === "recent" ? "active" : ""}`}
+            >
+              Recent
+            </a>
+            <a
+              href={`/explore?${new URLSearchParams({ ...Object.fromEntries(Astro.url.searchParams), sort: "name" }).toString()}`}
+              class={`tab ${sortBy === "name" ? "active" : ""}`}
+            >
+              Name
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {repos.length === 0 ? (
+      <div class="empty-state">
+        <p>
+          {topicFilter
+            ? `No repositories found with topic "${topicFilter}"`
+            : searchQuery
+            ? `No repositories found matching "${searchQuery}"`
+            : "No public repositories yet"}
+        </p>
+        <a href="/" class="btn mt-2">Go home</a>
+      </div>
+    ) : (
+      <ul class="repo-list">
+        {repos.map((repo) => (
+          <RepoCard repo={repo} />
+        ))}
+      </ul>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .explore-header {
+    text-align: center;
+    padding: 24px 0;
+  }
+
+  .search-form {
+    display: flex;
+    gap: 8px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  .search-input {
+    flex: 1;
+  }
+
+  .popular-topics h2 {
+    font-size: 13px;
+    color: var(--gray-400);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .topics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+
+  .topic-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--gray-950);
+    transition: all var(--transition-fast);
+    text-decoration: none;
+  }
+
+  .topic-card:hover {
+    border-color: var(--border-hover);
+    background: var(--gray-900);
+    transform: translateY(-1px);
+  }
+
+  .topic-card:active {
+    transform: translateY(0);
+  }
+
+  .topic-name {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--fg);
+  }
+
+  .topic-count {
+    font-size: 11px;
+    color: var(--gray-500);
+  }
+
+  .results-header {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .filter-active {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .clear-filter {
+    font-size: 12px;
+    color: var(--gray-400);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .clear-filter:hover {
+    color: var(--fg);
+  }
+
+  .sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  @media (max-width: 640px) {
+    .flex-between {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .topics-grid {
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    }
+  }
+</style>

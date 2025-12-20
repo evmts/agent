@@ -1,0 +1,300 @@
+---
+/**
+ * Workflow logs component with ANSI color support.
+ * Displays logs for a workflow run grouped by step.
+ */
+
+interface Props {
+  runId: number;
+  username: string;
+  reponame: string;
+  autoScroll?: boolean;
+}
+
+const { runId, username, reponame, autoScroll = false } = Astro.props;
+---
+
+<div class="workflow-logs" data-run-id={runId} data-username={username} data-reponame={reponame}>
+  <div class="logs-toolbar">
+    <label class="auto-scroll-toggle">
+      <input type="checkbox" id="auto-scroll-checkbox" checked={autoScroll} />
+      Auto-scroll
+    </label>
+    <button class="btn btn-sm" id="download-logs-btn">
+      Download Logs
+    </button>
+  </div>
+  <pre class="logs-container" id="logs-container">Loading logs...</pre>
+</div>
+
+<style>
+  .workflow-logs {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .logs-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--gray-950);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auto-scroll-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--gray-400);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .auto-scroll-toggle input {
+    width: auto;
+    cursor: pointer;
+  }
+
+  .logs-container {
+    background: #0d1117;
+    color: #e6edf3;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    max-height: 500px;
+    overflow-y: auto;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* ANSI color support */
+  .ansi-black { color: #2e3436; }
+  .ansi-red { color: #cc0000; }
+  .ansi-green { color: #4e9a06; }
+  .ansi-yellow { color: #c4a000; }
+  .ansi-blue { color: #3465a4; }
+  .ansi-magenta { color: #75507b; }
+  .ansi-cyan { color: #06989a; }
+  .ansi-white { color: #d3d7cf; }
+
+  .ansi-bright-black { color: #555753; }
+  .ansi-bright-red { color: #ef2929; }
+  .ansi-bright-green { color: #8ae234; }
+  .ansi-bright-yellow { color: #fce94f; }
+  .ansi-bright-blue { color: #729fcf; }
+  .ansi-bright-magenta { color: #ad7fa8; }
+  .ansi-bright-cyan { color: #34e2e2; }
+  .ansi-bright-white { color: #eeeeec; }
+
+  .ansi-bg-black { background-color: #2e3436; }
+  .ansi-bg-red { background-color: #cc0000; }
+  .ansi-bg-green { background-color: #4e9a06; }
+  .ansi-bg-yellow { background-color: #c4a000; }
+  .ansi-bg-blue { background-color: #3465a4; }
+  .ansi-bg-magenta { background-color: #75507b; }
+  .ansi-bg-cyan { background-color: #06989a; }
+  .ansi-bg-white { background-color: #d3d7cf; }
+
+  .ansi-bold { font-weight: bold; }
+  .ansi-dim { opacity: 0.7; }
+  .ansi-italic { font-style: italic; }
+  .ansi-underline { text-decoration: underline; }
+
+  .log-line {
+    display: block;
+  }
+
+  .log-step-header {
+    color: var(--gray-400);
+    font-weight: 600;
+    margin-top: 1rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .log-step-header:first-child {
+    margin-top: 0;
+  }
+</style>
+
+<script>
+  // ANSI escape code parser
+  function parseAnsiCodes(text: string): string {
+    // Simple ANSI code to HTML conversion
+    const ansiMap: Record<string, string> = {
+      '30': 'ansi-black',
+      '31': 'ansi-red',
+      '32': 'ansi-green',
+      '33': 'ansi-yellow',
+      '34': 'ansi-blue',
+      '35': 'ansi-magenta',
+      '36': 'ansi-cyan',
+      '37': 'ansi-white',
+      '90': 'ansi-bright-black',
+      '91': 'ansi-bright-red',
+      '92': 'ansi-bright-green',
+      '93': 'ansi-bright-yellow',
+      '94': 'ansi-bright-blue',
+      '95': 'ansi-bright-magenta',
+      '96': 'ansi-bright-cyan',
+      '97': 'ansi-bright-white',
+      '40': 'ansi-bg-black',
+      '41': 'ansi-bg-red',
+      '42': 'ansi-bg-green',
+      '43': 'ansi-bg-yellow',
+      '44': 'ansi-bg-blue',
+      '45': 'ansi-bg-magenta',
+      '46': 'ansi-bg-cyan',
+      '47': 'ansi-bg-white',
+      '1': 'ansi-bold',
+      '2': 'ansi-dim',
+      '3': 'ansi-italic',
+      '4': 'ansi-underline',
+    };
+
+    let result = '';
+    let currentClasses: string[] = [];
+    let i = 0;
+
+    while (i < text.length) {
+      if (text[i] === '\x1b' && text[i + 1] === '[') {
+        // Found ANSI escape sequence
+        let j = i + 2;
+        while (j < text.length && text[j] !== 'm') {
+          j++;
+        }
+
+        if (j < text.length) {
+          const codes = text.substring(i + 2, j).split(';');
+
+          // Close previous span if any
+          if (currentClasses.length > 0) {
+            result += '</span>';
+          }
+
+          // Reset or set new styles
+          if (codes.includes('0') || codes.includes('')) {
+            currentClasses = [];
+          } else {
+            for (const code of codes) {
+              const className = ansiMap[code];
+              if (className && !currentClasses.includes(className)) {
+                currentClasses.push(className);
+              }
+            }
+          }
+
+          // Open new span if needed
+          if (currentClasses.length > 0) {
+            result += `<span class="${currentClasses.join(' ')}">`;
+          }
+
+          i = j + 1;
+          continue;
+        }
+      }
+
+      // Regular character - escape HTML
+      const char = text[i];
+      if (char === '<') result += '&lt;';
+      else if (char === '>') result += '&gt;';
+      else if (char === '&') result += '&amp;';
+      else result += char;
+
+      i++;
+    }
+
+    // Close any remaining spans
+    if (currentClasses.length > 0) {
+      result += '</span>';
+    }
+
+    return result;
+  }
+
+  const container = document.getElementById('logs-container');
+  const autoScrollCheckbox = document.getElementById('auto-scroll-checkbox') as HTMLInputElement;
+  const downloadBtn = document.getElementById('download-logs-btn');
+  const logsDiv = document.querySelector('.workflow-logs');
+
+  if (container && logsDiv) {
+    const runId = logsDiv.getAttribute('data-run-id');
+    const username = logsDiv.getAttribute('data-username');
+    const reponame = logsDiv.getAttribute('data-reponame');
+
+    async function loadLogs() {
+      if (!runId || !username || !reponame) return;
+
+      try {
+        const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/logs`);
+        if (response.ok) {
+          const logs = await response.text();
+
+          if (logs) {
+            // Parse ANSI codes and display
+            const processedLogs = parseAnsiCodes(logs);
+            container.innerHTML = processedLogs;
+          } else {
+            container.textContent = '(no logs yet)';
+          }
+
+          // Auto-scroll if enabled
+          if (autoScrollCheckbox?.checked) {
+            container.scrollTop = container.scrollHeight;
+          }
+        } else {
+          container.textContent = '(failed to load logs)';
+        }
+      } catch (e) {
+        container.textContent = '(error loading logs)';
+        console.error('Error loading logs:', e);
+      }
+    }
+
+    loadLogs();
+
+    // Refresh logs periodically if run is active
+    const refreshInterval = setInterval(loadLogs, 5000);
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', () => {
+      clearInterval(refreshInterval);
+    });
+  }
+
+  // Download logs functionality
+  if (downloadBtn && logsDiv) {
+    const runId = logsDiv.getAttribute('data-run-id');
+    const username = logsDiv.getAttribute('data-username');
+    const reponame = logsDiv.getAttribute('data-reponame');
+
+    downloadBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/logs`);
+        if (response.ok) {
+          const logs = await response.text();
+          const blob = new Blob([logs], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `workflow-run-${runId}-logs.txt`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } else {
+          alert('Failed to download logs');
+        }
+      } catch (e) {
+        alert('Error downloading logs');
+        console.error('Error downloading logs:', e);
+      }
+    });
+  }
+</script>
