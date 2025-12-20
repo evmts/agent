@@ -142,7 +142,51 @@ async function multieditImpl(
       content = await file.text();
     }
 
-    // Apply edits sequentially
+    // Validate all edits first before applying any (atomicity)
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i]!;
+
+      // Handle file creation validation (empty oldString on first edit)
+      if (op.oldString === '' && !exists && i === 0) {
+        continue;
+      }
+
+      // Reject empty oldString on existing files
+      if (op.oldString === '' && exists) {
+        return {
+          success: false,
+          filePath: relPath,
+          editCount: 0,
+          error: ERROR_EDIT_FAILED.replace('{}', String(i + 1)).replace('{}', 'empty old_string not allowed on existing files'),
+        };
+      }
+
+      // Check if oldString exists (validate against current content state after previous edits)
+      let tempContent = content;
+      for (let j = 0; j < i; j++) {
+        const prevOp = operations[j]!;
+        if (prevOp.oldString === '' && !exists && j === 0) {
+          tempContent = prevOp.newString;
+        } else if (prevOp.replaceAll) {
+          tempContent = tempContent.split(prevOp.oldString).join(prevOp.newString);
+        } else {
+          tempContent = tempContent.replace(prevOp.oldString, prevOp.newString);
+        }
+      }
+
+      const occurrences = tempContent.split(op.oldString).length - 1;
+
+      if (occurrences === 0) {
+        return {
+          success: false,
+          filePath: relPath,
+          editCount: 0,
+          error: ERROR_EDIT_FAILED.replace('{}', String(i + 1)).replace('{}', ERROR_OLD_STRING_NOT_FOUND),
+        };
+      }
+    }
+
+    // All validations passed - now apply all edits atomically
     for (let i = 0; i < operations.length; i++) {
       const op = operations[i]!;
 
@@ -150,36 +194,6 @@ async function multieditImpl(
       if (op.oldString === '' && !exists && i === 0) {
         content = op.newString;
         continue;
-      }
-
-      // Reject empty oldString on existing files
-      if (op.oldString === '' && exists) {
-        // Write any successful edits before returning error
-        if (i > 0) {
-          await Bun.write(absPath, content);
-        }
-        return {
-          success: false,
-          filePath: relPath,
-          editCount: i,
-          error: ERROR_EDIT_FAILED.replace('{}', String(i + 1)).replace('{}', 'empty old_string not allowed on existing files'),
-        };
-      }
-
-      // Check if oldString exists
-      const occurrences = content.split(op.oldString).length - 1;
-
-      if (occurrences === 0) {
-        // Write any successful edits before returning error
-        if (i > 0) {
-          await Bun.write(absPath, content);
-        }
-        return {
-          success: false,
-          filePath: relPath,
-          editCount: i,
-          error: ERROR_EDIT_FAILED.replace('{}', String(i + 1)).replace('{}', ERROR_OLD_STRING_NOT_FOUND),
-        };
       }
 
       // Apply the edit
@@ -191,7 +205,7 @@ async function multieditImpl(
       }
     }
 
-    // Write the result
+    // Write the result atomically - all edits have been validated and applied
     await Bun.write(absPath, content);
 
     // Update tracker
