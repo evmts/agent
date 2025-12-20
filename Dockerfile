@@ -69,6 +69,7 @@ COPY server ./server
 COPY core ./core
 COPY db ./db
 COPY ai ./ai
+COPY ui/lib ./ui/lib
 
 # Copy native module (TypeScript/WebUI)
 COPY native ./native
