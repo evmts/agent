@@ -13,10 +13,52 @@ const log = std.log.scoped(.auth);
 
 const SESSION_COOKIE_NAME = "plue_session";
 
-/// Auth middleware - loads user from session cookie
+/// Hash a token using SHA256 for comparison with database
+fn hashToken(allocator: std.mem.Allocator, token: []const u8) ![]const u8 {
+    var hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(token, &hash, .{});
+    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hash)});
+}
+
+/// Extract Bearer token from Authorization header
+fn getBearerToken(auth_header: ?[]const u8) ?[]const u8 {
+    const header = auth_header orelse return null;
+    if (!std.mem.startsWith(u8, header, "Bearer ")) return null;
+    return header[7..]; // Skip "Bearer "
+}
+
+/// Auth middleware - loads user from session cookie or Bearer token
 /// Does not require authentication, just loads if present
 pub fn authMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !bool {
-    // Get session cookie
+    // First, try Bearer token authentication (for API access tokens)
+    const auth_header = req.headers.get("authorization");
+    if (getBearerToken(auth_header)) |token| {
+        // Hash the token
+        const token_hash = try hashToken(ctx.allocator, token);
+        defer ctx.allocator.free(token_hash);
+
+        // Validate token and get user
+        const user_record = db.validateAccessToken(ctx.pool, token_hash) catch null;
+        if (user_record) |ur| {
+            if (!ur.prohibit_login) {
+                // Set context from access token
+                ctx.user = User{
+                    .id = ur.id,
+                    .username = ur.username,
+                    .email = ur.email,
+                    .display_name = ur.display_name,
+                    .is_admin = ur.is_admin,
+                    .is_active = ur.is_active,
+                    .wallet_address = ur.wallet_address,
+                };
+                ctx.session_key = null; // No session key for token auth
+                _ = res;
+                return true; // Continue to next handler
+            }
+        }
+    }
+
+    // Fall back to session cookie authentication
     const cookie_header = req.headers.get("cookie");
     const session_key = getSessionFromCookie(cookie_header) orelse {
         ctx.user = null;
