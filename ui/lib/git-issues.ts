@@ -295,6 +295,7 @@ export interface IssueFilters {
   author?: string;
   assignee?: string;
   labels?: string[];
+  milestone?: string;
   search?: string;
   sort?: "created" | "updated" | "comments";
 }
@@ -323,6 +324,7 @@ export async function listIssues(
     author,
     assignee,
     labels = [],
+    milestone,
     search,
     sort = "created"
   } = filterOptions;
@@ -358,6 +360,15 @@ export async function listIssues(
     if (labels.length > 0) {
       const hasAllLabels = labels.every(label => issue.labels.includes(label));
       if (!hasAllLabels) {
+        continue;
+      }
+    }
+
+    // Filter by milestone
+    if (milestone !== undefined) {
+      if (milestone === "none" && issue.milestone !== null) {
+        continue;
+      } else if (milestone !== "none" && issue.milestone !== milestone) {
         continue;
       }
     }

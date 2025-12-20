@@ -47,7 +47,13 @@ const totalChanges = totalAdditions + totalDeletions;
       </div>
     ) : (
       files.map(file => (
-        <FileDiffCard file={file} defaultExpanded={defaultExpandAll} />
+        <FileDiffCard
+          file={file}
+          defaultExpanded={defaultExpandAll}
+          landingId={landingId}
+          comments={comments}
+          canComment={canComment}
+        />
       ))
     )}
   </div>

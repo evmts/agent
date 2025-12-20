@@ -523,7 +523,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
           window.location.reload();
         } else {
           response.json().then(data => {
-            alert(data.error || 'Failed to add comment');
+            window.toast.error(data.error || 'Failed to add comment');
           });
         }
       });
@@ -558,7 +558,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
           window.location.reload();
         } else {
           response.json().then(data => {
-            alert(data.error || 'Failed to update comment');
+            window.toast.error(data.error || 'Failed to update comment');
           });
         }
       });
@@ -583,7 +583,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
           window.location.reload();
         } else {
           response.json().then(data => {
-            alert(data.error || 'Failed to delete comment');
+            window.toast.error(data.error || 'Failed to delete comment');
           });
         }
       });

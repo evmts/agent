@@ -1,5 +1,5 @@
 /**
- * Database operations for storing mentions
+ * Database operations for storing mentions in git-based issues
  */
 
 import sql from "../../db/client";
@@ -9,7 +9,8 @@ import { getUniqueMentionedUsernames } from "./mentions";
  * Save mentions from issue body to database
  */
 export async function saveMentionsForIssue(
-  issueId: number,
+  repositoryId: number,
+  issueNumber: number,
   bodyText: string
 ): Promise<void> {
   const usernames = getUniqueMentionedUsernames(bodyText);
@@ -34,10 +35,12 @@ export async function saveMentionsForIssue(
   // Insert mentions
   for (const user of users) {
     await sql`
-      INSERT INTO mentions (issue_id, mentioned_user_id)
-      VALUES (${issueId}, ${user.id})
+      INSERT INTO mentions (repository_id, issue_number, comment_id, mentioned_user_id)
+      VALUES (${repositoryId}, ${issueNumber}, NULL, ${user.id})
       ON CONFLICT DO NOTHING
-    `;
+    `.catch(() => {
+      // Ignore duplicate errors
+    });
   }
 }
 
@@ -45,7 +48,9 @@ export async function saveMentionsForIssue(
  * Save mentions from comment body to database
  */
 export async function saveMentionsForComment(
-  commentId: number,
+  repositoryId: number,
+  issueNumber: number,
+  commentId: string,
   bodyText: string
 ): Promise<void> {
   const usernames = getUniqueMentionedUsernames(bodyText);
@@ -70,10 +75,12 @@ export async function saveMentionsForComment(
   // Insert mentions
   for (const user of users) {
     await sql`
-      INSERT INTO mentions (comment_id, mentioned_user_id)
-      VALUES (${commentId}, ${user.id})
+      INSERT INTO mentions (repository_id, issue_number, comment_id, mentioned_user_id)
+      VALUES (${repositoryId}, ${issueNumber}, ${commentId}, ${user.id})
       ON CONFLICT DO NOTHING
-    `;
+    `.catch(() => {
+      // Ignore duplicate errors
+    });
   }
 }
 
@@ -81,13 +88,15 @@ export async function saveMentionsForComment(
  * Get all users mentioned in an issue (including comments)
  */
 export async function getMentionedUsersForIssue(
-  issueId: number
+  repositoryId: number,
+  issueNumber: number
 ): Promise<Array<{ id: number; username: string }>> {
   return await sql<Array<{ id: number; username: string }>>`
     SELECT DISTINCT u.id, u.username
     FROM mentions m
     JOIN users u ON u.id = m.mentioned_user_id
-    WHERE m.issue_id = ${issueId}
+    WHERE m.repository_id = ${repositoryId}
+      AND m.issue_number = ${issueNumber}
     ORDER BY u.username
   `;
 }
@@ -100,17 +109,19 @@ export async function getMentionsForUser(
   limit: number = 50
 ): Promise<Array<{
   id: number;
-  issue_id: number | null;
-  comment_id: number | null;
+  repository_id: number;
+  issue_number: number;
+  comment_id: string | null;
   created_at: Date;
 }>> {
   return await sql<Array<{
     id: number;
-    issue_id: number | null;
-    comment_id: number | null;
+    repository_id: number;
+    issue_number: number;
+    comment_id: string | null;
     created_at: Date;
   }>>`
-    SELECT id, issue_id, comment_id, created_at
+    SELECT id, repository_id, issue_number, comment_id, created_at
     FROM mentions
     WHERE mentioned_user_id = ${userId}
     ORDER BY created_at DESC

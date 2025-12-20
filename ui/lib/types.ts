@@ -28,6 +28,25 @@ export interface Repository {
   updated_at: Date;
   // Joined fields
   username?: string;
+  star_count?: number;
+}
+
+export interface Star {
+  id: number;
+  user_id: number;
+  repository_id: number;
+  created_at: Date;
+}
+
+export type WatchLevel = 'all' | 'releases' | 'ignore';
+
+export interface Watch {
+  id: number;
+  user_id: number;
+  repository_id: number;
+  level: WatchLevel;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface Milestone {
