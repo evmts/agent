@@ -3,6 +3,11 @@ const std = @import("std");
 const client = @import("../client.zig");
 const types = @import("../types.zig");
 
+/// Helper to stringify a JSON value to a string
+fn stringifySchema(allocator: std.mem.Allocator, value: std.json.Value) ![]const u8 {
+    return std.json.Stringify.valueAlloc(allocator, value, .{});
+}
+
 // Import all tools
 pub const filesystem = @import("filesystem.zig");
 pub const grep = @import("grep.zig");
@@ -95,7 +100,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "grep",
             .description = "Search for patterns in files using ripgrep",
-            .input_schema = try grep.createGrepSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try grep.createGrepSchema(allocator)),
         });
     }
 
@@ -103,7 +108,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "readFile",
             .description = "Read a file with line numbers",
-            .input_schema = try read_file.createReadFileSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try read_file.createReadFileSchema(allocator)),
         });
     }
 
@@ -111,7 +116,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "writeFile",
             .description = "Write content to a file",
-            .input_schema = try write_file.createWriteFileSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try write_file.createWriteFileSchema(allocator)),
         });
     }
 
@@ -119,7 +124,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "multiedit",
             .description = "Apply multiple find-replace edits to a file",
-            .input_schema = try multiedit.createMultieditSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try multiedit.createMultieditSchema(allocator)),
         });
     }
 
@@ -127,7 +132,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "webFetch",
             .description = "Fetch content from a URL",
-            .input_schema = try web_fetch.createWebFetchSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try web_fetch.createWebFetchSchema(allocator)),
         });
     }
 
@@ -135,7 +140,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "github",
             .description = "Execute GitHub CLI commands",
-            .input_schema = try github.createGitHubSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try github.createGitHubSchema(allocator)),
         });
     }
 
@@ -143,7 +148,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "unifiedExec",
             .description = "Execute a command in a PTY session",
-            .input_schema = try pty_tools.createUnifiedExecSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try pty_tools.createUnifiedExecSchema(allocator)),
         });
     }
 
@@ -151,7 +156,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "writeStdin",
             .description = "Send input to a running PTY session",
-            .input_schema = try pty_tools.createWriteStdinSchema(allocator),
+            .input_schema = try stringifySchema(allocator, try pty_tools.createWriteStdinSchema(allocator)),
         });
     }
 
@@ -159,7 +164,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "closePtySession",
             .description = "Close a PTY session",
-            .input_schema = try pty_tools.createClosePtySchema(allocator),
+            .input_schema = try stringifySchema(allocator, try pty_tools.createClosePtySchema(allocator)),
         });
     }
 
@@ -167,7 +172,7 @@ pub fn getEnabledTools(
         try tools.append(allocator, client.Tool{
             .name = "listPtySessions",
             .description = "List active PTY sessions",
-            .input_schema = try pty_tools.createListPtySchema(allocator),
+            .input_schema = try stringifySchema(allocator, try pty_tools.createListPtySchema(allocator)),
         });
     }
 
