@@ -168,6 +168,25 @@ CREATE TABLE IF NOT EXISTS landing_reviews (
 CREATE INDEX IF NOT EXISTS idx_landing_reviews_landing ON landing_reviews(landing_id);
 CREATE INDEX IF NOT EXISTS idx_landing_reviews_reviewer ON landing_reviews(reviewer_id);
 
+-- Line comments on landing request diffs (inline code review comments)
+CREATE TABLE IF NOT EXISTS line_comments (
+  id SERIAL PRIMARY KEY,
+  landing_id INTEGER NOT NULL REFERENCES landing_queue(id) ON DELETE CASCADE,
+  author_id INTEGER NOT NULL REFERENCES users(id),
+  file_path TEXT NOT NULL,
+  line_number INTEGER NOT NULL,
+  side VARCHAR(10) NOT NULL CHECK (side IN ('old', 'new')),
+  body TEXT NOT NULL,
+  resolved BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_line_comments_landing ON line_comments(landing_id);
+CREATE INDEX IF NOT EXISTS idx_line_comments_file ON line_comments(landing_id, file_path);
+CREATE INDEX IF NOT EXISTS idx_line_comments_author ON line_comments(author_id);
+CREATE INDEX IF NOT EXISTS idx_line_comments_unresolved ON line_comments(resolved) WHERE resolved = false;
+
 -- =============================================================================
 -- Update existing tables
 -- =============================================================================
