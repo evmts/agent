@@ -6,9 +6,42 @@
 
 import app from './index';
 import { isPtyWebSocketRequest, createPtyWebSocketHandler } from './routes/pty';
-import { startSessionCleanup } from './lib/session';
+import { startSessionCleanup, getSession } from './lib/session';
 import { startSSHServer } from './ssh/server';
 import { repoWatcherService } from './lib/repo-watcher';
+
+const SESSION_COOKIE_NAME = 'plue_session';
+
+/**
+ * Extract session cookie from request headers.
+ */
+function getSessionCookie(req: Request): string | null {
+  const cookieHeader = req.headers.get('cookie');
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader.split(';').map(c => c.trim());
+  for (const cookie of cookies) {
+    const [name, value] = cookie.split('=');
+    if (name === SESSION_COOKIE_NAME) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Validate WebSocket authentication.
+ * Returns user ID if authenticated, null otherwise.
+ */
+async function validateWebSocketAuth(req: Request): Promise<number | null> {
+  const sessionKey = getSessionCookie(req);
+  if (!sessionKey) return null;
+
+  const sessionData = await getSession(sessionKey);
+  if (!sessionData) return null;
+
+  return sessionData.userId;
+}
 
 const port = Number(process.env.PORT) || 4000;
 const hostname = process.env.HOST || '0.0.0.0';
@@ -27,13 +60,19 @@ repoWatcherService.watchAllRepos().then(() => {
 
 const ptyWsHandler = createPtyWebSocketHandler();
 
-const _server = Bun.serve<{ ptyId: string }>({
-  fetch(req, server) {
+const _server = Bun.serve<{ ptyId: string; userId: number }>({
+  async fetch(req, server) {
     // Check for PTY WebSocket upgrade
     const ptyWs = isPtyWebSocketRequest(req);
     if (ptyWs) {
+      // Validate authentication before upgrading WebSocket
+      const userId = await validateWebSocketAuth(req);
+      if (!userId) {
+        return new Response('Authentication required', { status: 401 });
+      }
+
       const upgraded = server.upgrade(req, {
-        data: { ptyId: ptyWs.ptyId },
+        data: { ptyId: ptyWs.ptyId, userId },
       });
       if (upgraded) {
         return undefined;

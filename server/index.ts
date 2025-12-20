@@ -25,10 +25,27 @@ const app = new Hono();
 // ElectricSQL configuration
 const ELECTRIC_URL = process.env.ELECTRIC_URL || 'http://localhost:3000';
 
+// CORS configuration - use environment variable for allowed origins
+const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:4321', 'http://localhost:4000', 'http://localhost:3000'];
+
 // Middleware
 app.use('*', logger());
 app.use('*', cors({
-  origin: '*',
+  origin: (origin) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return null;
+    // Check if origin is in allowed list
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return origin;
+    }
+    // In development, allow localhost with any port
+    if (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:')) {
+      return origin;
+    }
+    return null;
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: [
@@ -84,16 +101,42 @@ app.route('/api', landingRoutes);
 // Mount existing routes
 app.route('/', routes);
 
-// Error handling
+// Standard error response type
+interface ErrorResponse {
+  error: string;
+  code?: string;
+  details?: string;
+}
+
+// Error handling - don't expose internal details in production
 app.onError((err, c) => {
   console.error('Server error:', err);
-  return c.json(
-    {
-      error: err.message,
-      type: err.name,
-    },
-    500
-  );
+
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // Determine error code from error name
+  const errorCode = err.name === 'ValidationError' ? 'VALIDATION_ERROR'
+    : err.name === 'UnauthorizedError' ? 'UNAUTHORIZED'
+    : err.name === 'NotFoundError' ? 'NOT_FOUND'
+    : 'INTERNAL_ERROR';
+
+  const response: ErrorResponse = {
+    error: isProduction ? 'An unexpected error occurred' : err.message,
+    code: errorCode,
+  };
+
+  // Only include details in development
+  if (!isProduction && err.stack) {
+    response.details = err.stack;
+  }
+
+  // Return appropriate status code
+  const status = err.name === 'ValidationError' ? 400
+    : err.name === 'UnauthorizedError' ? 401
+    : err.name === 'NotFoundError' ? 404
+    : 500;
+
+  return c.json(response, status);
 });
 
 // 404 handler

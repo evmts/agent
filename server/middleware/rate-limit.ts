@@ -31,7 +31,16 @@ export function rateLimit(options: RateLimitOptions) {
   } = options;
 
   return async (c: Context, next: Next) => {
-    const key = keyGenerator(c);
+    let key: string;
+    try {
+      key = keyGenerator(c);
+    } catch (error) {
+      // If key generation fails, return 500 error
+      return c.json({
+        error: 'Internal server error',
+      }, 500);
+    }
+
     const now = Date.now();
     const windowStart = now - windowMs;
 

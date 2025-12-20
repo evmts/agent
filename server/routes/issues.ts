@@ -6,6 +6,7 @@
  */
 
 import { Hono } from "hono";
+import { requireAuth } from "../middleware/auth";
 import {
   listIssues,
   getIssue,
@@ -14,6 +15,8 @@ import {
   closeIssue,
   reopenIssue,
   deleteIssue,
+  pinIssue,
+  unpinIssue,
   getComments,
   addComment,
   updateComment,
@@ -31,6 +34,13 @@ import {
   IssuesRepoNotInitializedError,
   GitOperationError,
 } from "../../ui/lib/git-issues";
+import {
+  addDependency,
+  removeDependency,
+  getBlockingIssues,
+  getBlockedByIssues,
+  canCloseIssue,
+} from "../../ui/lib/git-issue-dependencies";
 import { sql } from "../../ui/lib/db";
 
 const app = new Hono();
@@ -94,7 +104,7 @@ app.get("/:user/:repo/issues/:number", async (c) => {
 });
 
 // Create a new issue
-app.post("/:user/:repo/issues", async (c) => {
+app.post("/:user/:repo/issues", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const body = await c.req.json();
@@ -128,7 +138,7 @@ app.post("/:user/:repo/issues", async (c) => {
 });
 
 // Update an issue
-app.patch("/:user/:repo/issues/:number", async (c) => {
+app.patch("/:user/:repo/issues/:number", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -161,7 +171,7 @@ app.patch("/:user/:repo/issues/:number", async (c) => {
 });
 
 // Close an issue
-app.post("/:user/:repo/issues/:number/close", async (c) => {
+app.post("/:user/:repo/issues/:number/close", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -183,7 +193,7 @@ app.post("/:user/:repo/issues/:number/close", async (c) => {
 });
 
 // Reopen an issue
-app.post("/:user/:repo/issues/:number/reopen", async (c) => {
+app.post("/:user/:repo/issues/:number/reopen", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -205,7 +215,7 @@ app.post("/:user/:repo/issues/:number/reopen", async (c) => {
 });
 
 // Delete an issue
-app.delete("/:user/:repo/issues/:number", async (c) => {
+app.delete("/:user/:repo/issues/:number", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -217,6 +227,51 @@ app.delete("/:user/:repo/issues/:number", async (c) => {
   try {
     await deleteIssue(user, repo, number);
     return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Pin an issue
+app.post("/:user/:repo/issues/:number/pin", requireAuth, async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await pinIssue(user, repo, number);
+    return c.json(issue);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof Error && error.message.includes("Maximum")) {
+      return c.json({ error: error.message }, 400);
+    }
+    throw error;
+  }
+});
+
+// Unpin an issue
+app.post("/:user/:repo/issues/:number/unpin", requireAuth, async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await unpinIssue(user, repo, number);
+    return c.json(issue);
   } catch (error) {
     if (error instanceof IssueNotFoundError) {
       return c.json({ error: error.message }, 404);
@@ -251,7 +306,7 @@ app.get("/:user/:repo/issues/:number/comments", async (c) => {
 });
 
 // Add a comment to an issue
-app.post("/:user/:repo/issues/:number/comments", async (c) => {
+app.post("/:user/:repo/issues/:number/comments", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -288,7 +343,7 @@ app.post("/:user/:repo/issues/:number/comments", async (c) => {
 });
 
 // Update a comment
-app.patch("/:user/:repo/issues/:number/comments/:commentId", async (c) => {
+app.patch("/:user/:repo/issues/:number/comments/:commentId", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -328,7 +383,7 @@ app.patch("/:user/:repo/issues/:number/comments/:commentId", async (c) => {
 });
 
 // Delete a comment
-app.delete("/:user/:repo/issues/:number/comments/:commentId", async (c) => {
+app.delete("/:user/:repo/issues/:number/comments/:commentId", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -417,7 +472,7 @@ app.get("/:user/:repo/labels", async (c) => {
 });
 
 // Create a new label
-app.post("/:user/:repo/labels", async (c) => {
+app.post("/:user/:repo/labels", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const body = await c.req.json();
@@ -449,7 +504,7 @@ app.post("/:user/:repo/labels", async (c) => {
 });
 
 // Update a label
-app.patch("/:user/:repo/labels/:name", async (c) => {
+app.patch("/:user/:repo/labels/:name", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const name = decodeURIComponent(c.req.param("name"));
@@ -482,7 +537,7 @@ app.patch("/:user/:repo/labels/:name", async (c) => {
 });
 
 // Delete a label
-app.delete("/:user/:repo/labels/:name", async (c) => {
+app.delete("/:user/:repo/labels/:name", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const name = decodeURIComponent(c.req.param("name"));
@@ -499,7 +554,7 @@ app.delete("/:user/:repo/labels/:name", async (c) => {
 });
 
 // Add labels to an issue
-app.post("/:user/:repo/issues/:number/labels", async (c) => {
+app.post("/:user/:repo/issues/:number/labels", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -525,7 +580,7 @@ app.post("/:user/:repo/issues/:number/labels", async (c) => {
 });
 
 // Remove a label from an issue
-app.delete("/:user/:repo/issues/:number/labels/:label", async (c) => {
+app.delete("/:user/:repo/issues/:number/labels/:label", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -577,7 +632,7 @@ app.get("/:user/:repo/issues/:number/assignees", async (c) => {
 });
 
 // Add an assignee to an issue
-app.post("/:user/:repo/issues/:number/assignees", async (c) => {
+app.post("/:user/:repo/issues/:number/assignees", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -617,7 +672,7 @@ app.post("/:user/:repo/issues/:number/assignees", async (c) => {
 });
 
 // Remove an assignee from an issue
-app.delete("/:user/:repo/issues/:number/assignees/:username", async (c) => {
+app.delete("/:user/:repo/issues/:number/assignees/:username", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -705,7 +760,7 @@ app.get("/:user/:repo/issues/:number/reactions", async (c) => {
 });
 
 // Add a reaction to an issue
-app.post("/:user/:repo/issues/:number/reactions", async (c) => {
+app.post("/:user/:repo/issues/:number/reactions", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -748,7 +803,7 @@ app.post("/:user/:repo/issues/:number/reactions", async (c) => {
 });
 
 // Remove a reaction from an issue
-app.delete("/:user/:repo/issues/:number/reactions/:emoji", async (c) => {
+app.delete("/:user/:repo/issues/:number/reactions/:emoji", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -841,7 +896,7 @@ app.get("/:user/:repo/issues/:number/comments/:commentId/reactions", async (c) =
 });
 
 // Add a reaction to a comment
-app.post("/:user/:repo/issues/:number/comments/:commentId/reactions", async (c) => {
+app.post("/:user/:repo/issues/:number/comments/:commentId/reactions", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -885,7 +940,7 @@ app.post("/:user/:repo/issues/:number/comments/:commentId/reactions", async (c) 
 });
 
 // Remove a reaction from a comment
-app.delete("/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", async (c) => {
+app.delete("/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -978,7 +1033,7 @@ app.get("/:user/:repo/milestones", async (c) => {
 });
 
 // Create a milestone
-app.post("/:user/:repo/milestones", async (c) => {
+app.post("/:user/:repo/milestones", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const body = await c.req.json();
@@ -1054,7 +1109,7 @@ app.get("/:user/:repo/milestones/:id", async (c) => {
 });
 
 // Update a milestone
-app.patch("/:user/:repo/milestones/:id", async (c) => {
+app.patch("/:user/:repo/milestones/:id", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const id = parseInt(c.req.param("id"), 10);
@@ -1110,7 +1165,7 @@ app.patch("/:user/:repo/milestones/:id", async (c) => {
 });
 
 // Delete a milestone
-app.delete("/:user/:repo/milestones/:id", async (c) => {
+app.delete("/:user/:repo/milestones/:id", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const id = parseInt(c.req.param("id"), 10);
@@ -1149,7 +1204,7 @@ app.delete("/:user/:repo/milestones/:id", async (c) => {
 });
 
 // Set milestone for an issue
-app.post("/:user/:repo/issues/:number/milestone", async (c) => {
+app.post("/:user/:repo/issues/:number/milestone", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -1204,7 +1259,7 @@ app.post("/:user/:repo/issues/:number/milestone", async (c) => {
 });
 
 // Remove milestone from an issue
-app.delete("/:user/:repo/issues/:number/milestone", async (c) => {
+app.delete("/:user/:repo/issues/:number/milestone", requireAuth, async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
   const number = parseInt(c.req.param("number"), 10);
@@ -1240,6 +1295,181 @@ app.delete("/:user/:repo/issues/:number/milestone", async (c) => {
   } catch (error) {
     console.error("Error removing milestone:", error);
     return c.json({ error: "Failed to remove milestone" }, 500);
+  }
+});
+
+// =============================================================================
+// Dependency Routes
+// =============================================================================
+
+// Get dependencies for an issue
+app.get("/:user/:repo/issues/:number/dependencies", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    const blocking = await getBlockingIssues(user, repo, number);
+    const blockedBy = await getBlockedByIssues(user, repo, number);
+
+    return c.json({
+      blocks: blocking,
+      blocked_by: blockedBy,
+    });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Add a dependency (this issue blocks another)
+app.post("/:user/:repo/issues/:number/dependencies", requireAuth, async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!body.blocks) {
+    return c.json({ error: "blocks issue number is required" }, 400);
+  }
+
+  const blockedIssue = parseInt(body.blocks, 10);
+  if (isNaN(blockedIssue)) {
+    return c.json({ error: "Invalid blocked issue number" }, 400);
+  }
+
+  try {
+    const result = await addDependency(user, repo, number, blockedIssue);
+    return c.json(result, 201);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof Error) {
+      return c.json({ error: error.message }, 400);
+    }
+    throw error;
+  }
+});
+
+// Remove a dependency (this issue no longer blocks another)
+app.delete("/:user/:repo/issues/:number/dependencies/:blockedNumber", requireAuth, async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const blockedNumber = parseInt(c.req.param("blockedNumber"), 10);
+
+  if (isNaN(number) || isNaN(blockedNumber)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const result = await removeDependency(user, repo, number, blockedNumber);
+    return c.json(result);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Check if an issue can be closed
+app.get("/:user/:repo/issues/:number/can-close", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const result = await canCloseIssue(user, repo, number);
+    return c.json(result);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// =============================================================================
+// Due Date Routes
+// =============================================================================
+
+// Set due date for an issue
+app.post("/:user/:repo/issues/:number/due-date", requireAuth, async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!body.due_date) {
+    return c.json({ error: "Due date is required" }, 400);
+  }
+
+  try {
+    const issue = await updateIssue(user, repo, number, {
+      due_date: body.due_date,
+    });
+
+    return c.json(issue);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof GitOperationError) {
+      return c.json({ error: error.message }, 500);
+    }
+    throw error;
+  }
+});
+
+// Remove due date from an issue
+app.delete("/:user/:repo/issues/:number/due-date", requireAuth, async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await updateIssue(user, repo, number, {
+      due_date: null,
+    });
+
+    return c.json(issue);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    if (error instanceof GitOperationError) {
+      return c.json({ error: error.message }, 500);
+    }
+    throw error;
   }
 });
 
