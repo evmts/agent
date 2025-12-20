@@ -1,0 +1,14 @@
+.{
+    .name = .plue,
+    .version = "0.1.0",
+    .fingerprint = 0x642655a09d2e3a1b,
+
+    // No external dependencies - we use system commands to invoke sub-builds
+    // This allows each component to manage its own dependencies independently
+    .dependencies = .{},
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

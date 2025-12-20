@@ -54,45 +54,120 @@ plue/
 - **AI**: Claude API (direct integration)
 - **Infrastructure**: Docker, Kubernetes, Terraform
 
-## Zig Conventions
+## Build System
 
-- Build with `zig build` or `zig build -Doptimize=ReleaseFast`
-- Run server with `zig build run`
-- Run tests with `zig build test`
-- Dependencies managed via `build.zig.zon`
+The root `build.zig` is the single entrypoint for all operations. Run from repo root (never `cd` into subdirectories).
 
-## Bun Conventions (Frontend/TUI)
-
-- Use `bun <file>` not `node <file>`
-- Use `bun test` not jest/vitest
-- Use `bun install` not npm/yarn/pnpm
-- Bun auto-loads `.env` (no dotenv needed)
-
-## Development
+### Quick Reference
 
 ```bash
-# Start database
-docker compose up postgres electric -d
+zig build              # Build all (server + web + edge + tui)
+zig build run          # Start dev environment (docker + server)
+zig build test         # Run all tests (Zig + TS + Rust)
+zig build lint         # Lint all code
+zig build format       # Format all code
+zig build ci           # Full CI pipeline
+```
 
-# Run Zig server
-cd server && zig build run
+### Build Commands
 
-# Run Astro frontend
-bun run dev
+```bash
+zig build              # Build everything (default)
+zig build server       # Build Zig server only
+zig build web          # Build Astro frontend only
+zig build edge         # Build Cloudflare Worker only
+zig build tui          # Build TUI only
+```
 
-# Run TUI
-cd tui && bun run dev
+### Run Commands
+
+```bash
+zig build run          # Full dev: docker + server (recommended)
+zig build run:docker   # Start postgres + electric only
+zig build run:server   # Run Zig server only
+zig build run:web      # Run Astro dev server only
+```
+
+### Test Commands
+
+```bash
+zig build test         # All unit tests (Zig + TS + Rust)
+zig build test:zig     # All Zig tests (server + core)
+zig build test:ts      # All TypeScript tests
+zig build test:rust    # All Rust tests (jj-ffi + snapshot)
+zig build test:e2e     # Playwright E2E tests
+zig build test:server  # Server Zig tests only
+zig build test:edge    # Edge worker tests only
+```
+
+### Lint & Format
+
+```bash
+zig build lint         # Lint ALL (zig fmt --check + eslint + clippy)
+zig build lint:zig     # Zig format check
+zig build lint:ts      # ESLint
+zig build lint:rust    # Clippy
+
+zig build format       # Format ALL (zig fmt + eslint --fix + cargo fmt)
+zig build format:zig   # Format Zig
+zig build format:ts    # Format TypeScript
+zig build format:rust  # Format Rust
+```
+
+### CI & Utilities
+
+```bash
+zig build ci           # Full CI: lint + test + build
+zig build check        # Quick: lint + typecheck
+zig build clean        # Clean all build artifacts
+zig build deps         # Install dependencies (bun install)
+zig build docker       # Build Docker images
+zig build docker:up    # Start all Docker services
+zig build docker:down  # Stop all Docker services
+zig build db:migrate   # Run database migrations
+zig build db:seed      # Seed test data
+```
+
+## Conventions
+
+### Zig
+- Dependencies managed via `build.zig.zon`
+- Zig 0.15.1+ required
+
+### Bun/TypeScript
+- Use `bun` not `node/npm/yarn`
+- Bun auto-loads `.env`
+
+### Rust
+- Used for jj-lib FFI (`server/jj-ffi/`)
+- Cargo builds integrated into Zig build
+
+## Development Workflow
+
+```bash
+# First time setup
+zig build deps         # Install bun dependencies
+
+# Start development
+zig build run          # Starts docker + server
+
+# In another terminal (optional)
+zig build run:web      # Start Astro dev server
+
+# Before committing
+zig build check        # Quick lint + typecheck
+zig build test         # Run all tests
 ```
 
 ## Testing
 
 ```bash
-# Zig tests
-cd server && zig build test
+# Run all tests
+zig build test
 
-# Frontend tests
-bun test
-
-# E2E tests
-bun run test:e2e
+# Run specific test suites
+zig build test:zig     # Zig unit tests
+zig build test:ts      # TypeScript/vitest
+zig build test:rust    # Rust/cargo test
+zig build test:e2e     # Playwright (requires running services)
 ```
