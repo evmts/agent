@@ -5,7 +5,8 @@
  */
 
 import { anthropic } from '@ai-sdk/anthropic';
-import { streamText, generateText, type CoreMessage } from 'ai';
+// Use explicit path to avoid conflict with local ai/ folder
+import { streamText, generateText, type CoreMessage } from '../node_modules/ai/dist/index.mjs';
 import { getAgentConfig } from './registry';
 import { agentTools, type AgentToolName } from './tools';
 

@@ -5,7 +5,7 @@
  * memory exhaustion and denial-of-service issues.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 
 // Constants

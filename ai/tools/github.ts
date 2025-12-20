@@ -5,7 +5,7 @@
  * Only allows specific commands to prevent destructive actions.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 
 // Whitelisted gh subcommands and their allowed operations

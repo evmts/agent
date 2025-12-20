@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Plue - Collaborative Development Platform",
   "type": "module",
+  "imports": {
+    "#ai-sdk": "ai"
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro check --minimumFailingSeverity error && astro build",

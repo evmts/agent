@@ -2,7 +2,7 @@
  * Read file tool with line truncation and safety features.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 import { resolveAndValidatePath, fileExists } from './filesystem';
 import { updateFileTracker } from '../../core/state';

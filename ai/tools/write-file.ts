@@ -2,7 +2,7 @@
  * Write file tool with read-before-write safety.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 import { dirname } from 'node:path';
 import { resolveAndValidatePath, ensureDir, fileExists } from './filesystem';

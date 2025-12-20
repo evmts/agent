@@ -5,7 +5,7 @@
  * message history management, and snapshot tracking per turn.
  */
 
-import type { CoreMessage } from 'ai';
+import type { CoreMessage } from '../node_modules/ai/dist/index.mjs';
 import { streamAgent, type AgentOptions, type StreamEvent } from './agent';
 import {
   trackSnapshot,

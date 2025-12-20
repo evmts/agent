@@ -6,7 +6,7 @@
  * of previous edits.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 import { resolveAndValidatePath, getRelativePath, fileExists } from './filesystem';
 import { getFileTracker, updateFileTracker } from '../../core/state';

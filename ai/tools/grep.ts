@@ -5,7 +5,7 @@
  * and paginated results.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 
 // Constants
@@ -48,7 +48,7 @@ async function grepImpl(
   const args: string[] = [
     '--json',
     '--hidden',
-    '--glob=!.git/*',
+    '--glob=!**/.git/**',
   ];
 
   if (multiline) {

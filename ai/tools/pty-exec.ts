@@ -5,7 +5,7 @@
  * and interacting with them via stdin.
  */
 
-import { tool } from 'ai';
+import { tool } from '../../node_modules/ai/dist/index.mjs';
 import { z } from 'zod';
 import { getPtyManager, type SessionInfo } from './pty-manager';
 
