@@ -16,7 +16,7 @@ interface Props {
   baseUrl: string;
 }
 
-const { currentFilters, authors, assignees, labels, milestones, baseUrl } = Astro.props;
+const { currentFilters, authors = [], assignees = [], labels = [], milestones = [], baseUrl } = Astro.props;
 
 function buildUrl(updates: Record<string, string | null>): string {
   const params = new URLSearchParams();

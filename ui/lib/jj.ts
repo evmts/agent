@@ -13,7 +13,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { JjWorkspace, isJjWorkspace } from "../../snapshot/index.js";
+import { JjWorkspace, isJjWorkspace } from "../../snapshot/index.mjs";
 import type {
   Change,
   ChangeDetail,
@@ -70,45 +70,57 @@ function getRepoPath(user: string, name: string): string {
 
 /**
  * Initialize a new repository with jj (colocated with git for compatibility)
+ * Creates a proper jj workspace with both .jj and .git directories.
  */
 export async function initRepo(user: string, name: string): Promise<void> {
   const repoPath = getRepoPath(user, name);
-  const tempDir = `/tmp/plue-jj-init-${Date.now()}`;
 
+  // Create the repo directory
   await mkdir(repoPath, { recursive: true });
 
-  // Initialize with jj in colocated mode (maintains .git for compatibility)
-  await mkdir(tempDir, { recursive: true });
-  await runJj(['init', '--colocate'], tempDir);
+  // Use native jj-lib to initialize colocated workspace
+  // This creates both .jj and .git directories
+  try {
+    JjWorkspace.initColocated(repoPath);
 
-  // Configure jj
-  await runJj(['config', 'set', '--repo', 'user.name', 'Plue'], tempDir);
-  await runJj(['config', 'set', '--repo', 'user.email', 'plue@local'], tempDir);
+    // Configure git
+    await run(`git config user.name "Plue"`, repoPath);
+    await run(`git config user.email "plue@local"`, repoPath);
 
-  // Create initial content
-  await writeFile(`${tempDir}/README.md`, `# ${name}\n\nA new repository.`);
+    // Add .jj to .gitignore (jj internal state should not be tracked)
+    await writeFile(`${repoPath}/.gitignore`, `.jj/\n`);
 
-  // Describe the change (jj auto-tracks files)
-  await runJj(['describe', '-m', 'Initial commit'], tempDir);
+    // Create initial content
+    await writeFile(`${repoPath}/README.md`, `# ${name}\n\nA new repository.`);
 
-  // Create a new change on top (so initial commit is not the working copy)
-  await runJj(['new'], tempDir);
+    // Stage and commit with git
+    await run(`git add .`, repoPath);
+    await run(`git commit -m "Initial commit"`, repoPath);
 
-  // Create the main bookmark
-  await runJj(['bookmark', 'create', 'main', '-r', '@-'], tempDir);
+    // Import git commit into jj
+    const workspace = JjWorkspace.open(repoPath);
+    // Note: jj auto-imports git changes when you open the workspace
 
-  // For bare repo compatibility, we'll use git to create the bare structure
-  await run(`git init --bare "${repoPath}"`);
-  await run(`git remote add origin "${repoPath}"`, tempDir);
-  await run(`git push -u origin main`, tempDir);
+  } catch (e) {
+    // Fallback to pure git if native init fails (e.g., jj-lib not available)
+    console.log('Native jj initColocated failed:', e);
+    console.log('Creating git-only repo (jj features will use CLI fallback)');
 
-  // Initialize jj in the bare repo
-  await runJj(['git', 'init', '--colocate'], repoPath);
+    await mkdir(repoPath, { recursive: true });
+    await run(`git init`, repoPath);
+    await run(`git config user.name "Plue"`, repoPath);
+    await run(`git config user.email "plue@local"`, repoPath);
+
+    // Create initial content
+    await writeFile(`${repoPath}/README.md`, `# ${name}\n\nA new repository.`);
+
+    // Stage and commit with git
+    await run(`git add .`, repoPath);
+    await run(`git commit -m "Initial commit"`, repoPath);
+  }
 
   // Initialize the issues repository
   await initIssuesRepo(user, name);
-
-  await rm(tempDir, { recursive: true });
 }
 
 /**

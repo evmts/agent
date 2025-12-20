@@ -41,16 +41,24 @@ function createToast(type: ToastType, message: string, options: ToastOptions = {
     info: 'i',
   };
 
-  // Build toast HTML
-  toast.innerHTML = `
-    <div class="toast-icon">${icons[type]}</div>
-    <div class="toast-message">${escapeHtml(message)}</div>
-    <button class="toast-close" aria-label="Dismiss">✕</button>
-  `;
+  // Build toast structure using DOM APIs to prevent XSS
+  const iconDiv = document.createElement('div');
+  iconDiv.className = 'toast-icon';
+  iconDiv.textContent = icons[type];
 
-  // Add close button handler
-  const closeBtn = toast.querySelector('.toast-close');
-  closeBtn?.addEventListener('click', () => removeToast(toast));
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'toast-message';
+  messageDiv.textContent = message;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast-close';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => removeToast(toast));
+
+  toast.appendChild(iconDiv);
+  toast.appendChild(messageDiv);
+  toast.appendChild(closeBtn);
 
   // Add to container
   container.appendChild(toast);
@@ -71,12 +79,6 @@ function removeToast(toast: HTMLElement) {
   setTimeout(() => {
     toast.remove();
   }, 200);
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }
 
 // Public API
