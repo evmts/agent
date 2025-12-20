@@ -140,13 +140,20 @@ try {
       <div class="repo-info">
         {repo.description && <p class="description mb-2">{repo.description}</p>}
 
-        {repo.topics && repo.topics.length > 0 && (
-          <div class="topics mb-2">
-            {repo.topics.map((topic) => (
-              <TopicBadge topic={topic} />
-            ))}
+        <div class="topics-container mb-2">
+          <div class="topics">
+            {repo.topics && repo.topics.length > 0 ? (
+              repo.topics.map((topic) => (
+                <TopicBadge topic={topic} />
+              ))
+            ) : (
+              <span class="no-topics">No topics</span>
+            )}
           </div>
-        )}
+          <button class="btn-edit-topics" id="edit-topics-btn" title="Edit topics">
+            +
+          </button>
+        </div>
       </div>
 
       <div class="repo-actions">
@@ -208,15 +215,183 @@ try {
       </div>
     )}
   </div>
+
+  <!-- Topics Edit Modal -->
+  <div class="modal" id="topics-modal" style="display: none;">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Edit Topics</h2>
+        <button class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <form id="topics-form">
+        <div class="form-group">
+          <label for="topics-input">Topics</label>
+          <input
+            type="text"
+            id="topics-input"
+            name="topics"
+            placeholder="javascript, react, web (comma separated)"
+            value={repo.topics?.join(', ') || ''}
+          />
+          <small>Enter topics separated by commas</small>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close-modal>Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Topics</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </Layout>
 
 <style>
   .description {
     font-size: 14px;
   }
+
+  .topics-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   .topics {
     display: flex;
     flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .no-topics {
+    font-size: 12px;
+    color: var(--gray-500);
+    font-style: italic;
+  }
+
+  .btn-edit-topics {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: var(--gray-800);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--gray-400);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+  }
+
+  .btn-edit-topics:hover {
+    background: var(--gray-700);
+    color: var(--fg);
+    border-color: var(--border-hover);
+  }
+
+  /* Modal styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+  }
+
+  .modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 90%;
+    max-width: 400px;
+    padding: var(--space-5);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-4);
+  }
+
+  .modal-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--fg);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--gray-400);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .modal-close:hover {
+    color: var(--fg);
+  }
+
+  .form-group {
+    margin-bottom: var(--space-4);
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--gray-300);
+    margin-bottom: var(--space-2);
+  }
+
+  .form-group input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--fg);
+    font-size: 14px;
+    font-family: inherit;
+  }
+
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--border-hover);
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: var(--space-1);
+    font-size: 11px;
+    color: var(--gray-500);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
     gap: var(--space-2);
   }
 
@@ -517,4 +692,60 @@ try {
       });
     });
   }
+
+  // Topics editing
+  const topicsModal = document.getElementById('topics-modal');
+  const editTopicsBtn = document.getElementById('edit-topics-btn');
+  const topicsForm = document.getElementById('topics-form');
+
+  // Open modal
+  editTopicsBtn?.addEventListener('click', () => {
+    if (topicsModal) topicsModal.style.display = 'block';
+  });
+
+  // Close modal
+  document.querySelectorAll('[data-close-modal]').forEach(el => {
+    el.addEventListener('click', () => {
+      if (topicsModal) topicsModal.style.display = 'none';
+    });
+  });
+
+  // Handle topics form submission
+  topicsForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    const topicsStr = formData.get('topics') as string;
+
+    // Parse comma-separated topics
+    const topics = topicsStr
+      .split(',')
+      .map(t => t.trim().toLowerCase().replace(/\s+/g, '-'))
+      .filter(t => t.length > 0);
+
+    // Get repo info from URL
+    const pathParts = window.location.pathname.split('/');
+    const username = pathParts[1];
+    const repo = pathParts[2];
+
+    try {
+      const res = await fetch(`/api/${username}/${repo}/topics`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topics }),
+      });
+
+      if (res.ok) {
+        window.location.reload();
+      } else if (res.status === 401) {
+        window.location.href = '/login';
+      } else {
+        const data = await res.json();
+        window.toast?.error(data.error || 'Failed to update topics');
+      }
+    } catch (err) {
+      console.error('Failed to update topics:', err);
+      window.toast?.error('Failed to update topics');
+    }
+  });
 </script>
