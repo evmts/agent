@@ -157,12 +157,14 @@ export async function isJjRepo(user: string, name: string): Promise<boolean> {
 export async function listBookmarks(user: string, name: string): Promise<Bookmark[]> {
   const repoPath = getRepoPath(user, name);
   const isWorkspace = isJjWorkspace(repoPath);
+  console.log(`[jj.ts listBookmarks] repoPath=${repoPath} isWorkspace=${isWorkspace} cwd=${process.cwd()}`);
 
   // Use native jj-lib bindings
   if (isWorkspace) {
     try {
       const workspace = JjWorkspace.open(repoPath);
       const nativeBookmarks = workspace.listBookmarks();
+      console.log(`[jj.ts listBookmarks] native returned ${nativeBookmarks.length} bookmarks:`, nativeBookmarks.map(b => b.name));
 
       return nativeBookmarks.map((bm, index) => ({
         id: index + 1,
@@ -175,6 +177,7 @@ export async function listBookmarks(user: string, name: string): Promise<Bookmar
         updatedAt: new Date(),
       }));
     } catch (e) {
+      console.error(`[jj.ts listBookmarks] native error:`, e);
       // Log error and fall through to CLI fallback
     }
   }
