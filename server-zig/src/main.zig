@@ -7,6 +7,7 @@ const ssh = @import("ssh/server.zig");
 const pty = @import("websocket/pty.zig");
 const ws_handler = @import("websocket/handler.zig");
 const middleware = @import("middleware/mod.zig");
+const repo_watcher = @import("services/repo_watcher.zig");
 
 const log = std.log.scoped(.server);
 
@@ -45,6 +46,18 @@ pub fn main() !void {
 
     log.info("Rate limiters initialized", .{});
 
+    // Initialize repository watcher
+    var watcher = repo_watcher.RepoWatcher.init(allocator, pool, .{});
+    defer watcher.deinit();
+
+    // Start watcher service
+    if (cfg.watcher_enabled) {
+        try watcher.start();
+        log.info("Repository watcher started", .{});
+    } else {
+        log.info("Repository watcher disabled (set WATCHER_ENABLED=true to enable)", .{});
+    }
+
     // Create server context
     var ctx = Context{
         .allocator = allocator,
@@ -53,6 +66,7 @@ pub fn main() !void {
         .pty_manager = &pty_manager,
         .api_rate_limiter = &api_rate_limiter,
         .auth_rate_limiter = &auth_rate_limiter,
+        .repo_watcher = if (cfg.watcher_enabled) &watcher else null,
     };
 
     // Initialize HTTP server
@@ -99,6 +113,9 @@ pub fn main() !void {
     server.listen() catch |err| {
         log.err("Server error: {}", .{err});
 
+        // Stop repository watcher
+        watcher.stop();
+
         // Stop SSH server if running
         if (ssh_server) |*ssh_srv| {
             ssh_srv.stop();
@@ -119,6 +136,7 @@ pub const Context = struct {
     pty_manager: *pty.Manager,
     api_rate_limiter: *middleware.RateLimiter,
     auth_rate_limiter: *middleware.RateLimiter,
+    repo_watcher: ?*repo_watcher.RepoWatcher = null,
     // User set by auth middleware
     user: ?User = null,
     session_key: ?[]const u8 = null,

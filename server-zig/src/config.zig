@@ -13,6 +13,9 @@ pub const Config = struct {
     ssh_enabled: bool,
     ssh_host: []const u8,
     ssh_port: u16,
+
+    // Repository Watcher Configuration
+    watcher_enabled: bool,
 };
 
 /// Load configuration from environment variables
@@ -43,6 +46,10 @@ pub fn load() Config {
         .ssh_port = blk: {
             const port_str = std.posix.getenv("SSH_PORT") orelse "2222";
             break :blk std.fmt.parseInt(u16, port_str, 10) catch 2222;
+        },
+        .watcher_enabled = blk: {
+            const enabled = std.posix.getenv("WATCHER_ENABLED") orelse "true";
+            break :blk std.mem.eql(u8, enabled, "true") or std.mem.eql(u8, enabled, "1");
         },
     };
 }
