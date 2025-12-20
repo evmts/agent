@@ -33,7 +33,9 @@ if (sessionCookie) {
     <nav>
       <a href="/" class:list={[{ active: currentPath === "/" }]}>home</a>
       <a href="/explore" class:list={[{ active: currentPath === "/explore" }]}>explore</a>
+      <a href="/users" class:list={[{ active: currentPath === "/users" }]}>users</a>
       <a href="/sessions" class:list={[{ active: currentPath === "/sessions" }]}>sessions</a>
+      <a href="/terminal" class:list={[{ active: currentPath === "/terminal" }]}>terminal</a>
       <a href="/new" class:list={[{ active: currentPath === "/new" }]}>new</a>
     </nav>
   </div>
@@ -48,8 +50,7 @@ if (sessionCookie) {
       </div>
     ) : (
       <div class="auth-links">
-        <a href="/login" class="link">Sign in</a>
-        <a href="/register" class="btn btn-primary">Sign up</a>
+        <a href="/login" class="btn btn-primary">Sign in</a>
       </div>
     )}
   </div>
