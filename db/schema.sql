@@ -976,3 +976,17 @@ CREATE INDEX IF NOT EXISTS idx_conflicts_repo ON conflicts(repository_id);
 CREATE INDEX IF NOT EXISTS idx_conflicts_change ON conflicts(change_id);
 CREATE INDEX IF NOT EXISTS idx_conflicts_resolved ON conflicts(resolved);
 CREATE INDEX IF NOT EXISTS idx_conflicts_file ON conflicts(file_path);
+
+-- =============================================================================
+-- Rate Limiting
+-- =============================================================================
+
+-- Distributed rate limiting using PostgreSQL
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key VARCHAR(255) PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  window_start TIMESTAMP NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
