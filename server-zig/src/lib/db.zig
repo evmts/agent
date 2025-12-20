@@ -7,6 +7,26 @@ const pg = @import("pg");
 
 const log = std.log.scoped(.db);
 
+// =============================================================================
+// Duration constants (in milliseconds)
+// =============================================================================
+
+/// Session validity duration (30 days)
+pub const SESSION_DURATION_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
+/// Session auto-refresh threshold - refresh if expires within 7 days
+pub const SESSION_REFRESH_THRESHOLD_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Password reset token validity (1 hour)
+pub const PASSWORD_RESET_TOKEN_DURATION_MS: i64 = 1 * 60 * 60 * 1000;
+
+/// Email verification token validity (24 hours)
+pub const EMAIL_VERIFICATION_TOKEN_DURATION_MS: i64 = 24 * 60 * 60 * 1000;
+
+// =============================================================================
+// Types
+// =============================================================================
+
 pub const Pool = pg.Pool;
 pub const Conn = pg.Conn;
 pub const Result = pg.Result;
@@ -51,8 +71,8 @@ pub fn createSession(
         std.fmt.fmtSliceHexLower(&key_bytes),
     });
 
-    // 30 days from now in milliseconds
-    const expires_at = std.time.milliTimestamp() + (30 * 24 * 60 * 60 * 1000);
+    // Session expiration time
+    const expires_at = std.time.milliTimestamp() + SESSION_DURATION_MS;
 
     _ = try pool.exec(
         \\INSERT INTO auth_sessions (session_key, user_id, username, is_admin, expires_at)
@@ -389,22 +409,16 @@ pub fn updateUserProfile(
     bio: ?[]const u8,
     email: ?[]const u8,
 ) !void {
-    // Build dynamic update based on what's provided
-    if (display_name) |dn| {
-        _ = try pool.exec(
-            \\UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2
-        , .{ dn, user_id });
-    }
-    if (bio) |b| {
-        _ = try pool.exec(
-            \\UPDATE users SET bio = $1, updated_at = NOW() WHERE id = $2
-        , .{ b, user_id });
-    }
-    if (email) |e| {
-        _ = try pool.exec(
-            \\UPDATE users SET email = $1, lower_email = lower($1), updated_at = NOW() WHERE id = $2
-        , .{ e, user_id });
-    }
+    // Single efficient UPDATE using COALESCE to only update provided fields
+    _ = try pool.exec(
+        \\UPDATE users SET
+        \\    display_name = COALESCE($1, display_name),
+        \\    bio = COALESCE($2, bio),
+        \\    email = COALESCE($3, email),
+        \\    lower_email = COALESCE(lower($3), lower_email),
+        \\    updated_at = NOW()
+        \\WHERE id = $4
+    , .{ display_name, bio, email, user_id });
 }
 
 // ============================================================================
@@ -1466,7 +1480,7 @@ pub fn assignTaskToRunner(pool: *Pool, task_id: i64, runner_id: i64, token_hash:
     , .{ runner_id, token_hash, task_id });
 }
 
-pub fn getTaskByToken(pool: *Pool, token_hash: []const u8) !?WorkflowTask {
+pub fn getTaskByToken(pool: *Pool, allocator: std.mem.Allocator, token_hash: []const u8) !?WorkflowTask {
     const row = try pool.row(
         \\SELECT id, job_id, attempt, repository_id, commit_sha,
         \\       COALESCE(workflow_content, '') as workflow_content,
@@ -1476,8 +1490,6 @@ pub fn getTaskByToken(pool: *Pool, token_hash: []const u8) !?WorkflowTask {
     , .{token_hash});
 
     if (row) |r| {
-        // Note: This leaks memory - caller should handle deallocation
-        const allocator = std.heap.page_allocator;
         return WorkflowTask{
             .id = r.get(i64, 0),
             .job_id = r.get(i64, 1),
@@ -1489,6 +1501,12 @@ pub fn getTaskByToken(pool: *Pool, token_hash: []const u8) !?WorkflowTask {
         };
     }
     return null;
+}
+
+/// Free a WorkflowTask's allocated strings
+pub fn freeWorkflowTask(allocator: std.mem.Allocator, task: *WorkflowTask) void {
+    allocator.free(task.workflow_content);
+    allocator.free(task.workflow_path);
 }
 
 pub fn updateTaskStatus(pool: *Pool, task_id: i64, status: i32) !void {
@@ -2024,4 +2042,120 @@ pub fn deleteLineComment(pool: *Pool, comment_id: i64) !void {
     _ = try pool.exec(
         \\DELETE FROM line_comments WHERE id = $1
     , .{comment_id});
+}
+
+// ============================================================================
+// JJ Operations
+// ============================================================================
+
+/// JJ operation record from jj_operations table
+pub const JjOperation = struct {
+    id: i64,
+    repository_id: i64,
+    operation_id: []const u8,
+    operation_type: []const u8,
+    description: []const u8,
+    timestamp: i64,
+    is_undone: bool,
+};
+
+pub const JjOperationList = struct {
+    items: []JjOperation,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *JjOperationList) void {
+        self.allocator.free(self.items);
+    }
+};
+
+/// Get operations for a repository
+pub fn getOperationsByRepository(
+    pool: *Pool,
+    allocator: std.mem.Allocator,
+    repository_id: i64,
+    limit: i32,
+) !JjOperationList {
+    var result = try pool.query(
+        \\SELECT id, repository_id, operation_id, operation_type, description, timestamp, is_undone
+        \\FROM jj_operations
+        \\WHERE repository_id = $1
+        \\ORDER BY timestamp DESC
+        \\LIMIT $2
+    , .{ repository_id, limit });
+    defer result.deinit();
+
+    var operations = std.ArrayList(JjOperation).init(allocator);
+    errdefer operations.deinit();
+
+    while (try result.next()) |row| {
+        try operations.append(JjOperation{
+            .id = row.get(i64, 0),
+            .repository_id = row.get(i64, 1),
+            .operation_id = row.get([]const u8, 2),
+            .operation_type = row.get([]const u8, 3),
+            .description = row.get([]const u8, 4),
+            .timestamp = row.get(i64, 5),
+            .is_undone = row.get(bool, 6),
+        });
+    }
+
+    return JjOperationList{
+        .items = try operations.toOwnedSlice(),
+        .allocator = allocator,
+    };
+}
+
+/// Get a specific operation by ID
+pub fn getOperationById(
+    pool: *Pool,
+    repository_id: i64,
+    operation_id: []const u8,
+) !?JjOperation {
+    const row = try pool.row(
+        \\SELECT id, repository_id, operation_id, operation_type, description, timestamp, is_undone
+        \\FROM jj_operations
+        \\WHERE repository_id = $1 AND operation_id = $2
+    , .{ repository_id, operation_id });
+
+    if (row) |r| {
+        return JjOperation{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .operation_id = r.get([]const u8, 2),
+            .operation_type = r.get([]const u8, 3),
+            .description = r.get([]const u8, 4),
+            .timestamp = r.get(i64, 5),
+            .is_undone = r.get(bool, 6),
+        };
+    }
+    return null;
+}
+
+/// Create a new operation record
+pub fn createOperation(
+    pool: *Pool,
+    repository_id: i64,
+    operation_id: []const u8,
+    operation_type: []const u8,
+    description: []const u8,
+    timestamp: i64,
+) !void {
+    _ = try pool.exec(
+        \\INSERT INTO jj_operations (repository_id, operation_id, operation_type, description, timestamp, is_undone)
+        \\VALUES ($1, $2, $3, $4, $5, false)
+        \\ON CONFLICT (repository_id, operation_id) DO NOTHING
+    , .{ repository_id, operation_id, operation_type, description, timestamp });
+}
+
+/// Mark operations as undone after a certain timestamp
+pub fn markOperationsAsUndone(
+    pool: *Pool,
+    repository_id: i64,
+    after_timestamp: i64,
+) !void {
+    _ = try pool.exec(
+        \\UPDATE jj_operations
+        \\SET is_undone = true
+        \\WHERE repository_id = $1 AND timestamp > $2
+    , .{ repository_id, after_timestamp });
 }

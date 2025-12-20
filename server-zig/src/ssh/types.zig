@@ -214,3 +214,119 @@ test "GitCommand parse" {
     try std.testing.expectEqualStrings("bob", cmd2.user);
     try std.testing.expectEqualStrings("project", cmd2.repo);
 }
+
+test "GitCommand parse unsupported command" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.UnsupportedCommand, GitCommand.parse(allocator, "git-fetch '/user/repo'"));
+}
+
+test "GitCommand parse missing repo path" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.MissingRepoPath, GitCommand.parse(allocator, "git-upload-pack"));
+}
+
+test "GitCommand parse invalid command" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.InvalidCommand, GitCommand.parse(allocator, ""));
+}
+
+test "MessageType fromByte" {
+    // Valid message types
+    try std.testing.expectEqual(MessageType.SSH_MSG_DISCONNECT, MessageType.fromByte(1).?);
+    try std.testing.expectEqual(MessageType.SSH_MSG_KEXINIT, MessageType.fromByte(20).?);
+    try std.testing.expectEqual(MessageType.SSH_MSG_USERAUTH_REQUEST, MessageType.fromByte(50).?);
+    try std.testing.expectEqual(MessageType.SSH_MSG_CHANNEL_OPEN, MessageType.fromByte(90).?);
+
+    // Invalid message type
+    try std.testing.expect(MessageType.fromByte(255) == null);
+    try std.testing.expect(MessageType.fromByte(0) == null);
+}
+
+test "PacketWriter" {
+    const allocator = std.testing.allocator;
+
+    var writer = PacketWriter.init(allocator);
+    defer writer.deinit();
+
+    try writer.writeByte(0x42);
+    try writer.writeU32(0x12345678);
+    try writer.writeBoolean(true);
+    try writer.writeBoolean(false);
+
+    const data = writer.buffer.items;
+
+    // Check byte
+    try std.testing.expectEqual(@as(u8, 0x42), data[0]);
+
+    // Check u32 (big endian)
+    try std.testing.expectEqual(@as(u8, 0x12), data[1]);
+    try std.testing.expectEqual(@as(u8, 0x34), data[2]);
+    try std.testing.expectEqual(@as(u8, 0x56), data[3]);
+    try std.testing.expectEqual(@as(u8, 0x78), data[4]);
+
+    // Check booleans
+    try std.testing.expectEqual(@as(u8, 1), data[5]);
+    try std.testing.expectEqual(@as(u8, 0), data[6]);
+}
+
+test "PacketWriter writeString" {
+    const allocator = std.testing.allocator;
+
+    var writer = PacketWriter.init(allocator);
+    defer writer.deinit();
+
+    try writer.writeString("hello");
+
+    const data = writer.buffer.items;
+
+    // Length should be 4 bytes (big endian u32) + string
+    try std.testing.expectEqual(@as(usize, 9), data.len);
+
+    // Check length (5 in big endian)
+    try std.testing.expectEqual(@as(u8, 0), data[0]);
+    try std.testing.expectEqual(@as(u8, 0), data[1]);
+    try std.testing.expectEqual(@as(u8, 0), data[2]);
+    try std.testing.expectEqual(@as(u8, 5), data[3]);
+
+    // Check string content
+    try std.testing.expectEqualStrings("hello", data[4..9]);
+}
+
+test "PacketWriter toOwnedSlice" {
+    const allocator = std.testing.allocator;
+
+    var writer = PacketWriter.init(allocator);
+    // Note: don't defer deinit since toOwnedSlice transfers ownership
+
+    try writer.writeByte(0x01);
+    try writer.writeByte(0x02);
+
+    const slice = try writer.toOwnedSlice();
+    defer allocator.free(slice);
+
+    try std.testing.expectEqual(@as(usize, 2), slice.len);
+    try std.testing.expectEqual(@as(u8, 0x01), slice[0]);
+    try std.testing.expectEqual(@as(u8, 0x02), slice[1]);
+}
+
+test "Channel ChannelState" {
+    const state1 = Channel.ChannelState.open;
+    const state2 = Channel.ChannelState.closed;
+
+    try std.testing.expect(state1 != state2);
+}
+
+test "DisconnectReason values" {
+    try std.testing.expectEqual(@as(u32, 1), @intFromEnum(DisconnectReason.SSH_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT));
+    try std.testing.expectEqual(@as(u32, 2), @intFromEnum(DisconnectReason.SSH_DISCONNECT_PROTOCOL_ERROR));
+    try std.testing.expectEqual(@as(u32, 11), @intFromEnum(DisconnectReason.SSH_DISCONNECT_BY_APPLICATION));
+}
+
+test "ChannelOpenFailure values" {
+    try std.testing.expectEqual(@as(u32, 1), @intFromEnum(ChannelOpenFailure.SSH_OPEN_ADMINISTRATIVELY_PROHIBITED));
+    try std.testing.expectEqual(@as(u32, 3), @intFromEnum(ChannelOpenFailure.SSH_OPEN_UNKNOWN_CHANNEL_TYPE));
+}
+
+test "SSH_VERSION constant" {
+    try std.testing.expect(std.mem.startsWith(u8, SSH_VERSION, "SSH-2.0-"));
+}

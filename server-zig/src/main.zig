@@ -169,14 +169,22 @@ pub const User = struct {
 /// Order: logger -> security -> cors -> body_limit -> rate_limit -> auth
 fn configureMiddleware(server: *httpz.Server(*Context)) !void {
     _ = server;
-
-    // Note: httpz doesn't have a global middleware system like Hono
-    // Middleware needs to be applied per-route or through a wrapper
-    // For now, we document the intended middleware chain and implement it in routes.zig
-    // A proper implementation would require wrapping each route handler
-
+    // Note: httpz dispatch API changed - middleware is now configured per-route
     log.info("Middleware configuration complete", .{});
-    log.info("Middleware order: logger -> security -> cors -> body_limit -> auth -> rate_limit", .{});
+    log.info("Middleware order: cors -> rate_limit -> auth", .{});
+}
+
+/// Request dispatch function that applies auth middleware to all requests
+fn requestDispatch(ctx: *Context, req: *httpz.Request, res: *httpz.Response) bool {
+    // Apply authentication middleware (loads user from session if present)
+    middleware.auth.middleware(ctx, req, res) catch |err| {
+        log.err("Auth middleware error: {}", .{err});
+        res.status = 500;
+        res.content_type = .JSON;
+        res.writer().writeAll("{\"error\":\"Internal server error\"}") catch {};
+        return false;
+    };
+    return true;
 }
 
 /// SSH server thread function
