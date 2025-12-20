@@ -1,27 +1,21 @@
 ---
 import type { Comment } from "../lib/types";
 import Markdown from "./Markdown.astro";
+import Avatar from "./Avatar.astro";
+import RelativeTime from "./RelativeTime.astro";
 
 interface Props {
   comment: Comment;
 }
 
 const { comment } = Astro.props;
-
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 ---
 
 <div class="comment">
   <div class="comment-header">
+    <Avatar user={{ username: comment.author_username || 'unknown' }} size="sm" />
     <strong>{comment.author_username}</strong>
-    <span class="time">· {formatDate(comment.created_at)}</span>
+    <span class="time">· <RelativeTime date={comment.created_at} /></span>
   </div>
   <div class="comment-body">
     <Markdown content={comment.body} />

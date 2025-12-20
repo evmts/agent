@@ -227,7 +227,7 @@ const totalPages = Math.ceil(totalCount / perPage);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 1rem 0;
+    padding: 1rem 24px;
   }
 
   .workflows-header h1 {
@@ -236,22 +236,72 @@ const totalPages = Math.ceil(totalCount / perPage);
     margin: 0;
   }
 
-  .btn {
+  .workflows-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 0;
+    min-height: calc(100vh - 300px);
+  }
+
+  .workflow-sidebar {
+    border-right: 1px solid var(--border);
+    padding: 1rem 0;
+    background: var(--gray-950);
+  }
+
+  .workflow-sidebar h2 {
+    padding: 0 1rem 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--gray-400);
+  }
+
+  .workflow-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .workflow-list a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 0.5rem 1rem;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    cursor: pointer;
-    font-family: inherit;
+    color: var(--gray-400);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: all var(--transition-fast);
   }
 
-  .btn-primary {
-    background: var(--fg);
-    color: var(--bg);
-    border-color: var(--fg);
+  .workflow-list a:hover {
+    background: var(--hover);
+    color: var(--fg);
   }
 
-  .btn-primary:hover {
-    opacity: 0.9;
+  .workflow-list a.active {
+    background: var(--gray-800);
+    color: var(--fg);
+    border-left: 2px solid var(--fg);
+  }
+
+  .error-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--error);
+    color: white;
+    border-radius: 10px;
+  }
+
+  .workflow-content {
+    padding: 0 24px;
   }
 
   .status-tabs {
@@ -264,9 +314,10 @@ const totalPages = Math.ceil(totalCount / perPage);
   .status-tabs a {
     padding: 0.5rem 1rem;
     text-decoration: none;
-    color: var(--muted);
+    color: var(--gray-400);
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
+    transition: all var(--transition-fast);
   }
 
   .status-tabs a:hover {
@@ -293,12 +344,12 @@ const totalPages = Math.ceil(totalCount / perPage);
   }
 
   .empty-state .hint {
-    color: var(--muted);
+    color: var(--gray-400);
     font-size: 0.875rem;
   }
 
   .empty-state code {
-    background: var(--muted-bg, #f3f4f6);
+    background: var(--gray-800);
     padding: 0.125rem 0.25rem;
   }
 
@@ -308,6 +359,7 @@ const totalPages = Math.ceil(totalCount / perPage);
     align-items: center;
     gap: 1rem;
     margin: 2rem 0;
+    padding: 0 24px;
   }
 
   .pagination a {
@@ -317,8 +369,19 @@ const totalPages = Math.ceil(totalCount / perPage);
   }
 
   .page-info {
-    color: var(--muted);
+    color: var(--gray-400);
     font-size: 0.875rem;
+  }
+
+  @media (max-width: 768px) {
+    .workflows-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .workflow-sidebar {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
   }
 </style>
 

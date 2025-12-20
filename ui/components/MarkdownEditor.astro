@@ -7,6 +7,8 @@
  *   <MarkdownEditor name="body" initialValue="# Hello" height="400px" />
  */
 
+import MentionAutocomplete from "./MentionAutocomplete.astro";
+
 interface Props {
   name: string;
   id?: string;
@@ -43,6 +45,7 @@ const {
     class="editor-hidden-textarea"
     aria-hidden="true"
   >{initialValue}</textarea>
+  <MentionAutocomplete />
 </div>
 
 <style>

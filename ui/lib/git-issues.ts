@@ -290,19 +290,42 @@ export async function getIssue(
   };
 }
 
+export interface IssueFilters {
+  state?: "open" | "closed" | "all";
+  author?: string;
+  assignee?: string;
+  labels?: string[];
+  search?: string;
+  sort?: "created" | "updated" | "comments";
+}
+
 /**
- * List all issues, optionally filtered by state
+ * List all issues, optionally filtered
  */
 export async function listIssues(
   user: string,
   repo: string,
-  state: "open" | "closed" | "all" = "all"
+  filters: IssueFilters | "open" | "closed" | "all" = "all"
 ): Promise<GitIssue[]> {
   const issuesPath = getIssuesPath(user, repo);
 
   if (!existsSync(issuesPath)) {
     return [];
   }
+
+  // Handle legacy string parameter for backwards compatibility
+  const filterOptions: IssueFilters = typeof filters === "string"
+    ? { state: filters }
+    : filters;
+
+  const {
+    state = "all",
+    author,
+    assignee,
+    labels = [],
+    search,
+    sort = "created"
+  } = filterOptions;
 
   const entries = await readdir(issuesPath, { withFileTypes: true });
   const issues: GitIssue[] = [];
@@ -316,13 +339,61 @@ export async function listIssues(
     const issue = await getIssue(user, repo, issueNumber);
     if (!issue) continue;
 
-    if (state === "all" || issue.state === state) {
-      issues.push(issue);
+    // Filter by state
+    if (state !== "all" && issue.state !== state) {
+      continue;
     }
+
+    // Filter by author
+    if (author && issue.author.username !== author) {
+      continue;
+    }
+
+    // Filter by assignee
+    if (assignee && !issue.assignees.includes(assignee)) {
+      continue;
+    }
+
+    // Filter by labels (issue must have ALL specified labels)
+    if (labels.length > 0) {
+      const hasAllLabels = labels.every(label => issue.labels.includes(label));
+      if (!hasAllLabels) {
+        continue;
+      }
+    }
+
+    // Filter by search text (search in title and body)
+    if (search) {
+      const searchLower = search.toLowerCase();
+      const titleMatch = issue.title.toLowerCase().includes(searchLower);
+      const bodyMatch = issue.body.toLowerCase().includes(searchLower);
+      if (!titleMatch && !bodyMatch) {
+        continue;
+      }
+    }
+
+    issues.push(issue);
   }
 
-  // Sort by issue number descending (newest first)
-  return issues.sort((a, b) => b.number - a.number);
+  // Sort issues
+  switch (sort) {
+    case "updated":
+      issues.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      break;
+    case "comments":
+      // For comments sort, we need to count comments for each issue
+      // For now, we'll just use updated_at as a proxy
+      // TODO: Implement actual comment counting
+      issues.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      break;
+    case "created":
+    default:
+      // Sort by issue number descending (newest first)
+      issues.sort((a, b) => b.number - a.number);
+      break;
+  }
+
+  return issues;
 }
 
 /**
@@ -560,6 +631,133 @@ export async function getComments(
 
   // Sort by ID ascending (oldest first)
   return comments.sort((a, b) => a.id - b.id);
+}
+
+/**
+ * Update a comment
+ */
+export async function updateComment(
+  user: string,
+  repo: string,
+  issueNumber: number,
+  commentId: number,
+  data: { body: string }
+): Promise<GitComment> {
+  const issuesPath = getIssuesPath(user, repo);
+  const issue = await getIssue(user, repo, issueNumber);
+
+  if (!issue) {
+    throw new IssueNotFoundError(user, repo, issueNumber);
+  }
+
+  const commentIdStr = commentId.toString().padStart(3, "0");
+  const commentPath = `${issuesPath}/${issueNumber}/comments/${commentIdStr}.md`;
+
+  if (!existsSync(commentPath)) {
+    throw new Error(`Comment #${commentId} not found`);
+  }
+
+  // Read existing comment
+  const content = await readFile(commentPath, "utf-8");
+  const { data: existingData } = parseFrontmatter<CommentFrontmatter>(content);
+
+  // Update comment data
+  const now = new Date().toISOString();
+  const updatedData: CommentFrontmatter = {
+    ...existingData,
+    updated_at: now,
+    edited: true,
+  };
+
+  // Write updated comment
+  const updatedContent = stringifyFrontmatter(
+    updatedData as unknown as Record<string, unknown>,
+    data.body
+  );
+  await writeFile(commentPath, updatedContent);
+
+  // Update issue's updated_at
+  const frontmatter: IssueFrontmatter = {
+    id: issue.id,
+    title: issue.title,
+    state: issue.state,
+    author: issue.author,
+    created_at: issue.created_at,
+    updated_at: now,
+    closed_at: issue.closed_at,
+    labels: issue.labels,
+    assignees: issue.assignees,
+    milestone: issue.milestone,
+  };
+  const issueContent = stringifyFrontmatter(
+    frontmatter as unknown as Record<string, unknown>,
+    issue.body
+  );
+  await writeFile(`${issuesPath}/${issueNumber}/issue.md`, issueContent);
+
+  await atomicCommit(
+    issuesPath,
+    [`${issueNumber}/comments/${commentIdStr}.md`, `${issueNumber}/issue.md`],
+    createCommitMessage("edit comment", issueNumber, `Update comment #${commentId}`)
+  );
+
+  return {
+    ...updatedData,
+    body: data.body,
+  };
+}
+
+/**
+ * Delete a comment
+ */
+export async function deleteComment(
+  user: string,
+  repo: string,
+  issueNumber: number,
+  commentId: number
+): Promise<void> {
+  const issuesPath = getIssuesPath(user, repo);
+  const issue = await getIssue(user, repo, issueNumber);
+
+  if (!issue) {
+    throw new IssueNotFoundError(user, repo, issueNumber);
+  }
+
+  const commentIdStr = commentId.toString().padStart(3, "0");
+  const commentPath = `${issuesPath}/${issueNumber}/comments/${commentIdStr}.md`;
+
+  if (!existsSync(commentPath)) {
+    throw new Error(`Comment #${commentId} not found`);
+  }
+
+  // Remove comment file
+  await rm(commentPath);
+
+  // Update issue's updated_at
+  const now = new Date().toISOString();
+  const frontmatter: IssueFrontmatter = {
+    id: issue.id,
+    title: issue.title,
+    state: issue.state,
+    author: issue.author,
+    created_at: issue.created_at,
+    updated_at: now,
+    closed_at: issue.closed_at,
+    labels: issue.labels,
+    assignees: issue.assignees,
+    milestone: issue.milestone,
+  };
+  const issueContent = stringifyFrontmatter(
+    frontmatter as unknown as Record<string, unknown>,
+    issue.body
+  );
+  await writeFile(`${issuesPath}/${issueNumber}/issue.md`, issueContent);
+
+  await atomicCommit(
+    issuesPath,
+    [`${issueNumber}/comments/${commentIdStr}.md`, `${issueNumber}/issue.md`],
+    createCommitMessage("delete comment", issueNumber, `Delete comment #${commentId}`)
+  );
 }
 
 // =============================================================================

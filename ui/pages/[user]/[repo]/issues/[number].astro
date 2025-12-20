@@ -264,4 +264,35 @@ function formatDate(date: string | Date): string {
     color: var(--error);
     font-size: 13px;
   }
+
+  .issue-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 32px;
+    align-items: start;
+  }
+
+  .issue-main {
+    min-width: 0;
+  }
+
+  .issue-sidebar-wrapper {
+    position: sticky;
+    top: 80px;
+  }
+
+  @media (max-width: 968px) {
+    .issue-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .issue-sidebar-wrapper {
+      position: static;
+      order: 2;
+    }
+
+    .issue-main {
+      order: 1;
+    }
+  }
 </style>

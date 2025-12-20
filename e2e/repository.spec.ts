@@ -1,23 +1,19 @@
-import { test, expect, selectors } from './fixtures';
+import { test, expect, selectors, TEST_DATA } from './fixtures';
+
+const { user, repo } = TEST_DATA;
 
 test.describe('Repository Page', () => {
   test.describe('Navigation', () => {
     test('should display breadcrumb with user and repo', async ({ page }) => {
-      // This test requires a valid user/repo in the database
-      // Skip if no test data is set up
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const breadcrumb = page.locator(selectors.breadcrumb);
       await expect(breadcrumb).toBeVisible();
-      await expect(breadcrumb.locator('a').first()).toHaveText('testuser');
+      await expect(breadcrumb.locator('a').first()).toHaveText(user);
     });
 
     test('should display repository navigation tabs', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const nav = page.locator(selectors.repoNav);
       await expect(nav).toBeVisible();
@@ -31,9 +27,7 @@ test.describe('Repository Page', () => {
     });
 
     test('should mark Code tab as active on repo page', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const codeLink = page.locator(`${selectors.repoNav} a.active`);
       await expect(codeLink).toHaveText('Code');
@@ -42,19 +36,15 @@ test.describe('Repository Page', () => {
 
   test.describe('Clone URL', () => {
     test('should display clone URL', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const cloneUrl = page.locator(selectors.cloneUrl);
       await expect(cloneUrl).toBeVisible();
-      await expect(cloneUrl).toContainText('testuser/testrepo');
+      await expect(cloneUrl).toContainText(`${user}/${repo}`);
     });
 
     test('should have copy button for clone URL', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const copyBtn = page.locator('.clone-url button');
       await expect(copyBtn).toBeVisible();
@@ -62,9 +52,7 @@ test.describe('Repository Page', () => {
     });
 
     test('should have link to SSH keys settings', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const sshLink = page.locator('.ssh-key-link');
       await expect(sshLink).toBeVisible();
@@ -74,18 +62,14 @@ test.describe('Repository Page', () => {
 
   test.describe('File Tree', () => {
     test('should display file tree on repo page', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const fileTree = page.locator(selectors.fileTree);
       await expect(fileTree).toBeVisible();
     });
 
     test('should display files and directories', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       // Should have at least one file or directory
       const items = page.locator(selectors.fileTreeItem);
@@ -94,9 +78,7 @@ test.describe('Repository Page', () => {
     });
 
     test('directories should have triangle icon', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const directory = page.locator(selectors.fileTreeDirectory).first();
       if (await directory.count() > 0) {
@@ -106,9 +88,7 @@ test.describe('Repository Page', () => {
     });
 
     test('files should have dot icon', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const file = page.locator(`${selectors.fileTreeItem}:not(.directory)`).first();
       if (await file.count() > 0) {
@@ -118,9 +98,7 @@ test.describe('Repository Page', () => {
     });
 
     test('clicking a directory should navigate to tree view', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const directory = page.locator(selectors.fileTreeDirectory).first();
       if (await directory.count() > 0) {
@@ -133,9 +111,7 @@ test.describe('Repository Page', () => {
     });
 
     test('clicking a file should navigate to blob view', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       const file = page.locator(`${selectors.fileTreeItem}:not(.directory)`).first();
       if (await file.count() > 0) {
@@ -150,31 +126,25 @@ test.describe('Repository Page', () => {
 
   test.describe('README Display', () => {
     test('should render README if present', async ({ page }) => {
-      test.skip(true, 'Requires test data setup - update with actual user/repo with README');
-
-      await page.goto('/testuser/testrepo');
+      await page.goto(`/${user}/${repo}`);
 
       // README is rendered in a Markdown component
       const readme = page.locator(selectors.readme);
-      // May or may not be present depending on repo
-      if (await readme.count() > 0) {
-        await expect(readme).toBeVisible();
-      }
+      // The seeded repo should have a README
+      await expect(readme).toBeVisible();
     });
   });
 });
 
 test.describe('404 Handling', () => {
   test('should redirect to 404 for non-existent user', async ({ page }) => {
-    await page.goto('/nonexistentuser12345/somerepo');
+    await page.goto('/nonexistentuser12345xyz/somerepo');
     await expect(page).toHaveURL('/404');
   });
 
   test('should redirect to 404 for non-existent repo', async ({ page }) => {
-    // This assumes 'testuser' exists but 'nonexistentrepo' does not
-    test.skip(true, 'Requires a valid user in database');
-
-    await page.goto('/testuser/nonexistentrepo12345');
+    // Use existing user but non-existent repo
+    await page.goto(`/${user}/nonexistentrepo12345xyz`);
     await expect(page).toHaveURL('/404');
   });
 });

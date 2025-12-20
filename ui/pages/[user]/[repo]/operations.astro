@@ -353,7 +353,7 @@ function getOperationColor(type: string): string {
       window.location.reload();
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to undo operation');
+      window.toast.error(data.error || 'Failed to undo operation');
     }
   });
 
@@ -372,7 +372,7 @@ function getOperationColor(type: string): string {
         window.location.reload();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to restore operation');
+        window.toast.error(data.error || 'Failed to restore operation');
       }
     });
   });
