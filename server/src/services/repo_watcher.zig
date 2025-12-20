@@ -199,7 +199,7 @@ pub const RepoWatcher = struct {
             };
 
             // Sleep for poll interval
-            std.time.sleep(self.config.poll_interval_ms * std.time.ns_per_ms);
+            std.Thread.sleep(self.config.poll_interval_ms * std.time.ns_per_ms);
         }
 
         log.info("Watcher thread stopped", .{});
@@ -532,12 +532,13 @@ pub const RepoWatcher = struct {
             defer if (op_result.error_message != null) jj.jj_string_free(op_result.error_message);
             return error.GetOperationFailed;
         }
-        defer jj.jj_operation_info_free(op_result.operation);
+        const op_ptr = op_result.operation orelse return error.OperationNotFound;
+        defer jj.jj_operation_info_free(op_ptr);
 
         var conn = try self.pool.acquire();
         defer conn.release();
 
-        const op = op_result.operation;
+        const op = op_ptr.*;
         const op_id = std.mem.span(op.id);
         const description = std.mem.span(op.description);
 
