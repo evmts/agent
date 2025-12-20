@@ -46,5 +46,11 @@ snapshot/*.node
 
 # Reference code (not part of project)
 gitea/
+gitea-ref/
+git-ssh-ref/
 electric-ai-chat/
 reports/
+
+# Local data directories
+repos/
+runner/
