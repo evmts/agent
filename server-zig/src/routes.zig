@@ -36,12 +36,84 @@ fn healthCheck(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     try res.writer().writeAll("{\"status\":\"ok\"}");
 }
 
-fn shapeProxy(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
-    // Proxy request to ElectricSQL
-    _ = ctx;
-    res.status = 503; // Service Unavailable
+fn shapeProxy(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const allocator = ctx.allocator;
+
+    // Build Electric URL with /v1/shape path
+    var electric_url = std.ArrayList(u8).initCapacity(allocator, ctx.config.electric_url.len + 256) catch |err| {
+        log.err("Failed to allocate URL buffer: {}", .{err});
+        res.status = 500;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    };
+    defer electric_url.deinit(allocator);
+
+    try electric_url.appendSlice(allocator, ctx.config.electric_url);
+    try electric_url.appendSlice(allocator, "/v1/shape");
+
+    // Forward all query parameters from the request
+    // Query parameters include: table, offset, live, handle, where, etc.
+    const query_string = req.url.query;
+    if (query_string.len > 0) {
+        try electric_url.append(allocator, '?');
+        try electric_url.appendSlice(allocator, query_string);
+    }
+
+    const url = try electric_url.toOwnedSlice(allocator);
+    defer allocator.free(url);
+
+    log.debug("Proxying shape request to: {s}", .{url});
+
+    // Parse the Electric URL
+    const uri = std.Uri.parse(url) catch |err| {
+        log.err("Failed to parse Electric URL: {}", .{err});
+        res.status = 500;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Invalid Electric URL configuration\"}");
+        return;
+    };
+
+    // Create HTTP client
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    // Create a buffer to store the response body
+    var body_buffer = std.ArrayList(u8){};
+    defer body_buffer.deinit(allocator);
+
+    // Create a writer for the response
+    var response_writer = body_buffer.writer(allocator);
+
+    // Prepare fetch options
+    const fetch_options = std.http.Client.FetchOptions{
+        .location = .{ .uri = uri },
+        .method = .GET,
+        .response_writer = @ptrCast(&response_writer),
+    };
+
+    // Make the request
+    const fetch_result = client.fetch(fetch_options) catch |err| {
+        log.err("Failed to fetch from Electric: {}", .{err});
+        res.status = 503;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Electric service unavailable\"}");
+        return;
+    };
+
+    // Set response status from Electric
+    res.status = @intFromEnum(fetch_result.status);
+
+    // Set content-type to JSON (Electric shape responses are JSON)
     res.content_type = .JSON;
-    try res.writer().writeAll("{\"error\":\"Electric proxy not yet implemented\"}");
+
+    // Note: Zig 0.15.1 fetch() doesn't provide access to response headers
+    // In production, you may want to use a lower-level HTTP client to forward headers
+    // like electric-offset, electric-handle, etc. For now, we just proxy the body.
+
+    // Write the response body
+    try res.writer().writeAll(body_buffer.items);
+    log.debug("Shape proxy completed: status={d}, body_size={d}", .{ res.status, body_buffer.items.len });
 }
 
 // Auth handlers (stubbed for now)
