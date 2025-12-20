@@ -1,0 +1,468 @@
+---
+/**
+ * Bookmarks Page - JJ-Native
+ *
+ * Lists all bookmarks (replaces branches) in a repository.
+ * Bookmarks are movable labels pointing to change IDs.
+ */
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import { sql } from "../../../lib/db";
+import * as jj from "../../../lib/jj";
+import type { User, Repository } from "../../../lib/types";
+import type { Bookmark, Change } from "../../../lib/jj-types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get bookmarks from jj
+let bookmarks: Bookmark[] = [];
+try {
+  bookmarks = await jj.listBookmarks(username, reponame);
+} catch (e) {
+  // Fallback to database if jj not available
+  bookmarks = await sql<Bookmark[]>`
+    SELECT * FROM bookmarks
+    WHERE repository_id = ${repo.id}
+    ORDER BY is_default DESC, updated_at DESC
+  `;
+}
+
+// Get change details for each bookmark
+const bookmarksWithChanges: (Bookmark & { change?: Change })[] = [];
+for (const bookmark of bookmarks) {
+  let change: Change | null = null;
+  try {
+    change = await jj.getChange(username, reponame, bookmark.targetChangeId);
+  } catch (e) {
+    // Change details not available
+  }
+  bookmarksWithChanges.push({ ...bookmark, change: change || undefined });
+}
+
+const defaultBookmark = repo.default_bookmark || 'main';
+
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues
+  WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+const [{ count: landingCount }] = await sql`
+  SELECT COUNT(*) as count FROM landing_queue
+  WHERE repository_id = ${repo.id} AND status NOT IN ('landed', 'cancelled')
+`;
+---
+
+<Layout title={`Bookmarks · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">bookmarks</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`} class="active">Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+    </a>
+  </nav>
+
+  <div class="container">
+    <div class="header-row">
+      <h2>{bookmarksWithChanges.length} bookmarks</h2>
+      <button class="btn" data-action="new-bookmark">New bookmark</button>
+    </div>
+
+    <div class="jj-info">
+      <span class="jj-badge">jj</span>
+      Bookmarks are movable labels pointing to changes. Unlike git branches, they don't affect history.
+    </div>
+
+    <div class="bookmark-list">
+      {bookmarksWithChanges.map((bookmark) => (
+        <div class="bookmark-item">
+          <div class="bookmark-info">
+            <div class="bookmark-name">
+              <a href={`/${username}/${reponame}/tree/${bookmark.name}`}>
+                {bookmark.name}
+              </a>
+              {bookmark.name === defaultBookmark && (
+                <span class="badge default">default</span>
+              )}
+            </div>
+            <div class="bookmark-meta">
+              <span class="change-id" title="Change ID (stable)">
+                {bookmark.targetChangeId.substring(0, 8)}
+              </span>
+              {bookmark.change && (
+                <>
+                  <span class="sep">·</span>
+                  <span class="author">{bookmark.change.author.name}</span>
+                  <span class="sep">·</span>
+                  <span class="date">
+                    {new Date(bookmark.change.timestamp).toLocaleDateString()}
+                  </span>
+                </>
+              )}
+            </div>
+            <div class="change-description">
+              {bookmark.change?.description || "No description"}
+            </div>
+          </div>
+
+          <div class="bookmark-actions">
+            <a
+              href={`/${username}/${reponame}/changes/${bookmark.name}`}
+              class="btn-sm"
+            >
+              History
+            </a>
+            {bookmark.name !== defaultBookmark && (
+              <>
+                <button
+                  class="btn-sm"
+                  data-action="move"
+                  data-bookmark={bookmark.name}
+                  data-change={bookmark.targetChangeId}
+                >
+                  Move
+                </button>
+                <button
+                  class="btn-sm btn-danger"
+                  data-action="delete"
+                  data-bookmark={bookmark.name}
+                >
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {bookmarksWithChanges.length === 0 && (
+        <div class="empty-state">
+          No bookmarks yet. Create one to track a change.
+        </div>
+      )}
+    </div>
+  </div>
+
+  <!-- New Bookmark Modal -->
+  <dialog id="new-bookmark-modal">
+    <form id="new-bookmark-form">
+      <h3>Create new bookmark</h3>
+
+      <label>
+        Bookmark name
+        <input type="text" name="name" required placeholder="feature-x" />
+      </label>
+
+      <label>
+        Point to change (optional)
+        <input type="text" name="change_id" placeholder="Leave empty for current change" />
+        <span class="help">Enter a change ID or leave empty to use the current working copy</span>
+      </label>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn">Create</button>
+        <button type="button" class="btn-secondary" data-action="close-modal">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Move Bookmark Modal -->
+  <dialog id="move-bookmark-modal">
+    <form id="move-bookmark-form">
+      <h3>Move bookmark</h3>
+
+      <input type="hidden" name="bookmark_name" />
+
+      <label>
+        New target change ID
+        <input type="text" name="change_id" required placeholder="abc12345" />
+      </label>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn">Move</button>
+        <button type="button" class="btn-secondary" data-action="close-modal">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </dialog>
+</Layout>
+
+<style>
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .jj-info {
+    background: var(--background-alt, #f5f5f5);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .jj-badge {
+    background: #7c3aed;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 0.5rem;
+  }
+
+  .bookmark-list {
+    border: 2px solid var(--border);
+  }
+
+  .bookmark-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .bookmark-item:last-child {
+    border-bottom: none;
+  }
+
+  .bookmark-info {
+    flex: 1;
+  }
+
+  .bookmark-name {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+  }
+
+  .bookmark-name a {
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .bookmark-name a:hover {
+    text-decoration: underline;
+  }
+
+  .bookmark-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .change-id {
+    font-family: var(--font-mono);
+    background: #e5e7eb;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    color: #7c3aed;
+    font-weight: 500;
+  }
+
+  .change-description {
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .bookmark-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  dialog {
+    border: 2px solid var(--border);
+    padding: 2rem;
+    max-width: 500px;
+    background: var(--background);
+  }
+
+  dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .help {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+
+  .badge {
+    background: var(--primary);
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    margin-left: 0.5rem;
+  }
+
+  .badge.default {
+    background: #7c3aed;
+  }
+
+  .btn-danger {
+    background: #dc2626;
+    color: white;
+  }
+
+  .btn-danger:hover {
+    background: #b91c1c;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>
+
+<script>
+  const username = window.location.pathname.split('/')[1];
+  const reponame = window.location.pathname.split('/')[2];
+
+  // Modal handling
+  document.querySelector('[data-action="new-bookmark"]')?.addEventListener('click', () => {
+    (document.getElementById('new-bookmark-modal') as HTMLDialogElement)?.showModal();
+  });
+
+  document.querySelectorAll('[data-action="close-modal"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      (e.target as HTMLElement).closest('dialog')?.close();
+    });
+  });
+
+  // Create bookmark
+  document.getElementById('new-bookmark-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+
+    const response = await fetch(`/api/${username}/${reponame}/bookmarks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: formData.get('name'),
+        change_id: formData.get('change_id') || undefined
+      })
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create bookmark');
+    }
+  });
+
+  // Move bookmark
+  document.querySelectorAll('[data-action="move"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const bookmarkName = target.dataset.bookmark!;
+      const currentChange = target.dataset.change!;
+
+      const modal = document.getElementById('move-bookmark-modal') as HTMLDialogElement;
+      const form = modal.querySelector('form') as HTMLFormElement;
+
+      (form.elements.namedItem('bookmark_name') as HTMLInputElement).value = bookmarkName;
+      (form.elements.namedItem('change_id') as HTMLInputElement).value = currentChange;
+
+      modal.showModal();
+    });
+  });
+
+  document.getElementById('move-bookmark-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    const bookmarkName = formData.get('bookmark_name') as string;
+    const changeId = formData.get('change_id') as string;
+
+    const response = await fetch(`/api/${username}/${reponame}/bookmarks/${bookmarkName}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ change_id: changeId })
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to move bookmark');
+    }
+  });
+
+  // Delete bookmark
+  document.querySelectorAll('[data-action="delete"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const bookmarkName = (e.target as HTMLElement).dataset.bookmark!;
+
+      if (!confirm(`Delete bookmark "${bookmarkName}"?`)) return;
+
+      const response = await fetch(`/api/${username}/${reponame}/bookmarks/${bookmarkName}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to delete bookmark');
+      }
+    });
+  });
+</script>
