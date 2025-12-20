@@ -1,0 +1,20 @@
+.{
+    .name = .server_zig,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.15.1",
+    .fingerprint = 0xff071adbcf6f8725,
+    .dependencies = .{
+        .httpz = .{
+            .url = "https://github.com/karlseguin/http.zig/archive/refs/heads/master.tar.gz",
+            .hash = "httpz-0.0.0-PNVzrEktBwCzPoiua-S8LAYo2tILqczm3tSpneEzLQ9L",
+        },
+        .pg = .{
+            .url = "https://github.com/karlseguin/pg.zig/archive/refs/heads/master.tar.gz",
+            .hash = "pg-0.0.0-Wp_7gag6BgD_QAZrPhNNEGpnUZR_LEkKT40Ura3p-4yX",
+        },
+        .voltaire = .{
+            .path = "voltaire",
+        },
+    },
+    .paths = .{""},
+}
