@@ -1,0 +1,203 @@
+# =============================================================================
+# API Server Deployment
+# =============================================================================
+# Hono/Bun API server with WebSocket support for PTY terminals.
+
+resource "kubernetes_deployment" "api" {
+  metadata {
+    name      = "api"
+    namespace = var.namespace
+
+    labels = {
+      app        = "api"
+      managed-by = "terraform"
+    }
+  }
+
+  spec {
+    replicas = var.api_replicas
+
+    selector {
+      match_labels = {
+        app = "api"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app = "api"
+        }
+      }
+
+      spec {
+        service_account_name = var.service_account_name
+
+        container {
+          name  = "api"
+          image = "${var.registry_url}/plue-api:${var.image_tag}"
+
+          port {
+            container_port = 4000
+            name           = "http"
+          }
+
+          env {
+            name  = "NODE_ENV"
+            value = "production"
+          }
+
+          env {
+            name  = "PORT"
+            value = "4000"
+          }
+
+          env {
+            name  = "HOST"
+            value = "0.0.0.0"
+          }
+
+          env {
+            name = "DATABASE_URL"
+            value_from {
+              secret_key_ref {
+                name = "database-url"
+                key  = "url"
+              }
+            }
+          }
+
+          env {
+            name  = "ELECTRIC_URL"
+            value = "http://electric:3000"
+          }
+
+          env {
+            name = "ANTHROPIC_API_KEY"
+            value_from {
+              secret_key_ref {
+                name = "anthropic-api-key"
+                key  = "key"
+              }
+            }
+          }
+
+          env {
+            name = "SESSION_SECRET"
+            value_from {
+              secret_key_ref {
+                name = "session-secret"
+                key  = "secret"
+              }
+            }
+          }
+
+          env {
+            name  = "SECURE_COOKIES"
+            value = "true"
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/health"
+              port = 4000
+            }
+            initial_delay_seconds = 15
+            period_seconds        = 10
+            timeout_seconds       = 5
+            failure_threshold     = 3
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/health"
+              port = 4000
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 5
+            timeout_seconds       = 3
+            failure_threshold     = 3
+          }
+
+          resources {
+            requests = {
+              cpu    = "250m"
+              memory = "512Mi"
+            }
+            limits = {
+              cpu    = "2000m"
+              memory = "4Gi"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "api" {
+  metadata {
+    name      = "api"
+    namespace = var.namespace
+
+    labels = {
+      app        = "api"
+      managed-by = "terraform"
+    }
+  }
+
+  spec {
+    selector = {
+      app = "api"
+    }
+
+    port {
+      port        = 4000
+      target_port = 4000
+      name        = "http"
+    }
+
+    type = "ClusterIP"
+  }
+}
+
+# Horizontal Pod Autoscaler for API
+resource "kubernetes_horizontal_pod_autoscaler_v2" "api" {
+  metadata {
+    name      = "api"
+    namespace = var.namespace
+  }
+
+  spec {
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = kubernetes_deployment.api.metadata[0].name
+    }
+
+    min_replicas = var.api_replicas
+    max_replicas = var.api_replicas * 3
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "cpu"
+        target {
+          type                = "Utilization"
+          average_utilization = 70
+        }
+      }
+    }
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "memory"
+        target {
+          type                = "Utilization"
+          average_utilization = 80
+        }
+      }
+    }
+  }
+}

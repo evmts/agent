@@ -1,0 +1,48 @@
+# =============================================================================
+# Example terraform.tfvars
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values.
+# DO NOT commit terraform.tfvars to version control!
+
+# -----------------------------------------------------------------------------
+# GCP Configuration
+# -----------------------------------------------------------------------------
+project_id      = "plue-prod-XXXXX"      # Must be globally unique
+org_id          = "123456789012"         # Your GCP organization ID
+billing_account = "XXXXXX-XXXXXX-XXXXXX" # Your billing account ID
+region          = "us-west1"             # Oregon (closest to Seattle/Bay Area)
+
+# -----------------------------------------------------------------------------
+# Domain Configuration
+# -----------------------------------------------------------------------------
+domain               = "plue.example.com" # Your domain
+subdomain            = ""                 # Empty for root, or "app" for app.example.com
+cloudflare_api_token = "xxxxx"            # Cloudflare API token
+cloudflare_zone_id   = "xxxxx"            # Cloudflare Zone ID
+
+# -----------------------------------------------------------------------------
+# GKE Configuration (optional - defaults are reasonable)
+# -----------------------------------------------------------------------------
+# gke_machine_type = "e2-standard-4"
+# gke_min_nodes    = 1
+# gke_max_nodes    = 5
+
+# -----------------------------------------------------------------------------
+# Cloud SQL Configuration (optional - defaults are reasonable)
+# -----------------------------------------------------------------------------
+# db_tier        = "db-custom-2-8192"  # 2 vCPU, 8GB RAM
+# db_disk_size_gb = 50
+# db_ha_enabled  = true
+
+# -----------------------------------------------------------------------------
+# Application Configuration (optional)
+# -----------------------------------------------------------------------------
+# image_tag             = "v1.0.0"
+# api_replicas          = 2
+# electric_storage_size = "50Gi"
+# repos_storage_size    = "100Gi"
+
+# -----------------------------------------------------------------------------
+# Safety (set to false only for dev/testing)
+# -----------------------------------------------------------------------------
+# deletion_protection = true
