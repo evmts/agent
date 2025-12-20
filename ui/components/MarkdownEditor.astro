@@ -1,0 +1,389 @@
+---
+/**
+ * WYSIWYG Markdown Editor using TOAST UI Editor.
+ *
+ * Usage:
+ *   <MarkdownEditor name="body" placeholder="Write something..." />
+ *   <MarkdownEditor name="body" initialValue="# Hello" height="400px" />
+ */
+
+interface Props {
+  name: string;
+  id?: string;
+  placeholder?: string;
+  initialValue?: string;
+  height?: string;
+  required?: boolean;
+  class?: string;
+}
+
+const {
+  name,
+  id = name,
+  placeholder = "Write your content...",
+  initialValue = "",
+  height = "300px",
+  required = false,
+  class: className,
+} = Astro.props;
+---
+
+<div
+  class:list={["markdown-editor-wrapper", className]}
+  data-markdown-editor
+  data-placeholder={placeholder}
+  data-height={height}
+  data-initial-value={initialValue}
+>
+  <div class="editor-container"></div>
+  <textarea
+    name={name}
+    id={id}
+    required={required}
+    class="editor-hidden-textarea"
+    aria-hidden="true"
+  >{initialValue}</textarea>
+</div>
+
+<style>
+  .markdown-editor-wrapper {
+    width: 100%;
+  }
+
+  .editor-container {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .editor-hidden-textarea {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* TOAST UI Editor dark theme overrides */
+  :global(.toastui-editor-defaultUI) {
+    border: none !important;
+    background: #000 !important;
+  }
+
+  :global(.toastui-editor-defaultUI .toastui-editor-md-tab-container) {
+    background: #1a1a1a !important;
+    border-bottom: 1px solid #262626 !important;
+  }
+
+  :global(.toastui-editor-defaultUI .toastui-editor-mode-switch) {
+    background: #1a1a1a !important;
+    border-top: 1px solid #262626 !important;
+  }
+
+  :global(.toastui-editor-defaultUI .tab-item) {
+    color: #888 !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  :global(.toastui-editor-defaultUI .tab-item.active) {
+    color: #fafafa !important;
+    background: #000 !important;
+  }
+
+  :global(.toastui-editor-defaultUI-toolbar) {
+    background: #1a1a1a !important;
+    border-bottom: 1px solid #262626 !important;
+  }
+
+  :global(.toastui-editor-toolbar-icons) {
+    background-position: 0 0 !important;
+    filter: invert(0.8);
+  }
+
+  :global(.toastui-editor-toolbar-icons:hover) {
+    filter: invert(1);
+    background-color: #333 !important;
+  }
+
+  :global(.toastui-editor-defaultUI .toastui-editor-md-container),
+  :global(.toastui-editor-defaultUI .toastui-editor-ww-container) {
+    background: #0a0a0a !important;
+  }
+
+  :global(.toastui-editor-md-container .toastui-editor-md-preview) {
+    background: #111 !important;
+  }
+
+  /* Main editor text - WYSIWYG mode */
+  :global(.toastui-editor-ww-container .ProseMirror) {
+    color: #fafafa !important;
+    caret-color: #fafafa !important;
+  }
+
+  /* Main editor text - Markdown mode */
+  :global(.toastui-editor-md-container .toastui-editor-md-preview),
+  :global(.toastui-editor-md-container .CodeMirror),
+  :global(.toastui-editor-md-container .CodeMirror-code),
+  :global(.toastui-editor-md-container .CodeMirror pre) {
+    color: #fafafa !important;
+  }
+
+  :global(.CodeMirror) {
+    background: #0a0a0a !important;
+    color: #fafafa !important;
+  }
+
+  :global(.CodeMirror-cursor) {
+    border-left-color: #fafafa !important;
+  }
+
+  :global(.CodeMirror-gutters) {
+    background: #111 !important;
+    border-right-color: #262626 !important;
+  }
+
+  :global(.CodeMirror-linenumber) {
+    color: #666 !important;
+  }
+
+  :global(.ProseMirror),
+  :global(.toastui-editor-contents) {
+    color: #fafafa !important;
+    font-family: "Geist Mono", "SF Mono", "Fira Code", monospace !important;
+    font-size: 13px !important;
+  }
+
+  :global(.toastui-editor-contents p),
+  :global(.toastui-editor-contents li),
+  :global(.toastui-editor-contents span) {
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-contents h1),
+  :global(.toastui-editor-contents h2),
+  :global(.toastui-editor-contents h3),
+  :global(.toastui-editor-contents h4),
+  :global(.toastui-editor-contents h5),
+  :global(.toastui-editor-contents h6) {
+    color: #fafafa !important;
+    border-bottom-color: #262626 !important;
+  }
+
+  :global(.toastui-editor-contents code) {
+    background: #222 !important;
+    color: #00d26a !important;
+  }
+
+  :global(.toastui-editor-contents pre) {
+    background: #111 !important;
+  }
+
+  :global(.toastui-editor-contents pre code) {
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-contents blockquote) {
+    border-left-color: #444 !important;
+    color: #a1a1a1 !important;
+  }
+
+  :global(.toastui-editor-contents a) {
+    color: #00d26a !important;
+  }
+
+  :global(.toastui-editor-contents ul),
+  :global(.toastui-editor-contents ol) {
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-contents hr) {
+    border-color: #262626 !important;
+  }
+
+  :global(.toastui-editor-contents table th),
+  :global(.toastui-editor-contents table td) {
+    border-color: #262626 !important;
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-contents table th) {
+    background: #1a1a1a !important;
+  }
+
+  :global(.toastui-editor-md-splitter) {
+    background: #262626 !important;
+  }
+
+  :global(.toastui-editor-popup) {
+    background: #1a1a1a !important;
+    border-color: #262626 !important;
+  }
+
+  :global(.toastui-editor-popup-body label) {
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-popup-body input) {
+    background: #0a0a0a !important;
+    border-color: #262626 !important;
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-defaultUI button) {
+    color: #fafafa !important;
+  }
+
+  :global(.toastui-editor-mode-switch .tab-item) {
+    color: #888 !important;
+    background: transparent !important;
+    border: none !important;
+  }
+
+  :global(.toastui-editor-mode-switch .tab-item.active) {
+    color: #fafafa !important;
+  }
+
+  /* Placeholder styling */
+  :global(.toastui-editor-contents .placeholder),
+  :global(.ProseMirror .placeholder) {
+    color: #666 !important;
+  }
+
+  :global(.ProseMirror p.ProseMirror-placeholder::before) {
+    color: #666 !important;
+  }
+
+  /* Selection styling */
+  :global(.ProseMirror ::selection) {
+    background: rgba(0, 210, 106, 0.3) !important;
+  }
+
+  :global(.CodeMirror-selected) {
+    background: rgba(0, 210, 106, 0.3) !important;
+  }
+</style>
+
+<script>
+  import Editor from "@toast-ui/editor";
+  import "@toast-ui/editor/dist/toastui-editor.css";
+
+  interface EditorInstance {
+    editor: Editor;
+    dispose: () => void;
+  }
+
+  const EDITOR_MODE_KEY = "plue-editor-mode";
+  const instances = new Map<HTMLElement, EditorInstance>();
+
+  function getPreferredMode(): "wysiwyg" | "markdown" {
+    try {
+      const saved = localStorage.getItem(EDITOR_MODE_KEY);
+      if (saved === "markdown" || saved === "wysiwyg") {
+        return saved;
+      }
+    } catch {
+      // localStorage not available
+    }
+    return "wysiwyg";
+  }
+
+  function savePreferredMode(mode: "wysiwyg" | "markdown") {
+    try {
+      localStorage.setItem(EDITOR_MODE_KEY, mode);
+    } catch {
+      // localStorage not available
+    }
+  }
+
+  function initEditor(wrapper: HTMLElement): EditorInstance {
+    const container = wrapper.querySelector<HTMLElement>(".editor-container");
+    const textarea = wrapper.querySelector<HTMLTextAreaElement>(".editor-hidden-textarea");
+
+    if (!container || !textarea) {
+      throw new Error("MarkdownEditor: Missing required elements");
+    }
+
+    const placeholder = wrapper.dataset.placeholder || "Write your content...";
+    const height = wrapper.dataset.height || "300px";
+    const initialValue = wrapper.dataset.initialValue || "";
+    const preferredMode = getPreferredMode();
+
+    const editor = new Editor({
+      el: container,
+      height,
+      initialEditType: preferredMode,
+      previewStyle: "tab",
+      initialValue,
+      placeholder,
+      usageStatistics: false,
+      toolbarItems: [
+        ["heading", "bold", "italic", "strike"],
+        ["hr", "quote"],
+        ["ul", "ol", "task"],
+        ["table", "link"],
+        ["code", "codeblock"],
+      ],
+      autofocus: false,
+    });
+
+    // Save mode preference when user switches
+    editor.on("changeMode", (mode: string) => {
+      savePreferredMode(mode as "wysiwyg" | "markdown");
+    });
+
+    // Sync editor content to hidden textarea on change
+    editor.on("change", () => {
+      textarea.value = editor.getMarkdown();
+    });
+
+    // Also sync on blur to ensure form submission gets latest value
+    editor.on("blur", () => {
+      textarea.value = editor.getMarkdown();
+    });
+
+    // Handle form submission - ensure we have latest content
+    const form = wrapper.closest("form");
+    if (form) {
+      form.addEventListener("submit", () => {
+        textarea.value = editor.getMarkdown();
+      });
+    }
+
+    const instance: EditorInstance = {
+      editor,
+      dispose: () => {
+        editor.destroy();
+        instances.delete(wrapper);
+      },
+    };
+
+    instances.set(wrapper, instance);
+    return instance;
+  }
+
+  // Initialize all editor containers
+  function initAllEditors() {
+    document.querySelectorAll<HTMLElement>("[data-markdown-editor]").forEach((wrapper) => {
+      if (!instances.has(wrapper)) {
+        try {
+          initEditor(wrapper);
+        } catch (error) {
+          console.error("Failed to initialize markdown editor:", error);
+        }
+      }
+    });
+  }
+
+  // Initial load
+  initAllEditors();
+
+  // Re-initialize on Astro page transitions
+  document.addEventListener("astro:page-load", initAllEditors);
+
+  // Cleanup on page unload
+  document.addEventListener("astro:before-preparation", () => {
+    instances.forEach((instance) => instance.dispose());
+  });
+</script>
