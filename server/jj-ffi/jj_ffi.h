@@ -93,6 +93,12 @@ typedef struct JjOperationInfoResult {
     char* error_message;
 } JjOperationInfoResult;
 
+typedef struct JjTreeHash {
+    char* hash;
+    bool success;
+    char* error_message;
+} JjTreeHash;
+
 // Core functions
 
 /**
@@ -165,6 +171,14 @@ JjStringResult jj_get_file_content(const JjWorkspace* workspace, const char* rev
 JjOperationInfoResult jj_get_current_operation(const JjWorkspace* workspace);
 
 /**
+ * Get the tree hash (merkle root) for a revision
+ * @param workspace Workspace handle
+ * @param revision Commit ID or bookmark name
+ * @return Result containing hex-encoded tree hash or error
+ */
+JjTreeHash jj_get_tree_hash(const JjWorkspace* workspace, const char* revision);
+
+/**
  * Check if a path contains a jj workspace
  * @param path Path to check
  * @return true if the path contains a .jj directory
@@ -223,6 +237,12 @@ void jj_bookmark_array_free(JjBookmarkInfo* bookmarks, size_t len);
  * @param len Length of the array
  */
 void jj_commit_array_free(JjCommitInfo** commits, size_t len);
+
+/**
+ * Free a tree hash result
+ * @param result Tree hash result to free
+ */
+void jj_free_tree_hash(JjTreeHash result);
 
 #ifdef __cplusplus
 }

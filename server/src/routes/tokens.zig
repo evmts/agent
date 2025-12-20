@@ -151,7 +151,8 @@ pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     }
 
     // Validate scopes
-    const valid_scopes = [_][]const u8{ "repo", "user", "admin" };
+    // Supported scopes: repo (full), repo:read, repo:write, user (full), user:read, user:write, admin
+    const valid_scopes = [_][]const u8{ "repo", "repo:read", "repo:write", "user", "user:read", "user:write", "admin" };
     for (scopes) |scope| {
         var valid = false;
         for (valid_scopes) |vs| {
@@ -162,7 +163,7 @@ pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         }
         if (!valid) {
             res.status = 400;
-            try res.writer().writeAll("{\"error\":\"Invalid scope. Must be one of: repo, user, admin\"}");
+            try res.writer().writeAll("{\"error\":\"Invalid scope. Must be one of: repo, repo:read, repo:write, user, user:read, user:write, admin\"}");
             return;
         }
     }

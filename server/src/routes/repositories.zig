@@ -7,24 +7,84 @@ const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
 const db = @import("../lib/db.zig");
+const auth = @import("../middleware/auth.zig");
 
 const log = std.log.scoped(.repo_routes);
+
+// Import jj-ffi C bindings
+const c = @cImport({
+    @cInclude("jj_ffi.h");
+});
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Get the repository path on disk
+fn getRepoPath(allocator: std.mem.Allocator, username: []const u8, reponame: []const u8) ![]const u8 {
+    const cwd = try std.process.getCwdAlloc(allocator);
+    defer allocator.free(cwd);
+    return std.fmt.allocPrint(allocator, "{s}/repos/{s}/{s}", .{ cwd, username, reponame });
+}
+
+/// Run a jj command and return stdout
+fn runJjCommand(allocator: std.mem.Allocator, repo_path: []const u8, args: []const []const u8) ![]const u8 {
+    var arg_list = try std.ArrayList([]const u8).initCapacity(allocator, args.len + 1);
+    defer arg_list.deinit(allocator);
+
+    try arg_list.append(allocator, "jj");
+    for (args) |arg| {
+        try arg_list.append(allocator, arg);
+    }
+
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = arg_list.items,
+        .cwd = repo_path,
+        .max_output_bytes = 10 * 1024 * 1024, // 10MB
+    });
+    defer allocator.free(result.stderr);
+
+    if (result.term != .Exited or result.term.Exited != 0) {
+        allocator.free(result.stdout);
+        return error.JjCommandFailed;
+    }
+
+    return result.stdout;
+}
+
+/// Escape a string for JSON
+fn escapeJson(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
+    var result = try std.ArrayList(u8).initCapacity(allocator, input.len * 2);
+    defer result.deinit(allocator);
+
+    for (input) |char| {
+        switch (char) {
+            '"' => try result.appendSlice(allocator, "\\\""),
+            '\\' => try result.appendSlice(allocator, "\\\\"),
+            '\n' => try result.appendSlice(allocator, "\\n"),
+            '\r' => try result.appendSlice(allocator, "\\r"),
+            '\t' => try result.appendSlice(allocator, "\\t"),
+            else => try result.append(allocator, char),
+        }
+    }
+
+    return result.toOwnedSlice(allocator);
+}
 
 // =============================================================================
 // Repository CRUD Routes
 // =============================================================================
 
 /// POST /api/repos - Create a new repository
-/// Requires authentication
+/// Requires authentication and repo:write scope
 pub fn createRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Authentication required to create a repository\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?; // Safe unwrap - checkScope verified user exists
 
     // Parse request body
     const body = req.body() orelse {
@@ -48,8 +108,8 @@ pub fn createRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     }
 
     // Check for valid characters (alphanumeric, dash, underscore)
-    for (name) |c| {
-        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_' and c != '.') {
+    for (name) |char| {
+        if (!std.ascii.isAlphanumeric(char) and char != '-' and char != '_' and char != '.') {
             res.status = 400;
             try res.writer().writeAll("{\"error\":\"Repository name can only contain alphanumeric characters, dashes, underscores, and dots\"}");
             return;
@@ -91,10 +151,65 @@ pub fn createRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response
         return;
     };
 
-    // TODO: Initialize the repository on disk with jj
-    // For now, we just create the database record
+    // Initialize the repository on disk with jj
+    const repo_path = getRepoPath(ctx.allocator, user.username, name) catch |err| {
+        log.err("Failed to construct repository path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create repository\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path);
 
-    log.info("Repository created: {s}/{s} (id={d})", .{ user.username, name, repo_id });
+    // Ensure parent directory exists
+    const parent_dir = std.fs.path.dirname(repo_path) orelse {
+        log.err("Failed to get parent directory for: {s}", .{repo_path});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create repository\"}");
+        return;
+    };
+    std.fs.cwd().makePath(parent_dir) catch |err| {
+        log.err("Failed to create parent directory {s}: {}", .{ parent_dir, err });
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create repository\"}");
+        return;
+    };
+
+    // Initialize jj workspace
+    const repo_path_z = try ctx.allocator.dupeZ(u8, repo_path);
+    defer ctx.allocator.free(repo_path_z);
+
+    const workspace_result = c.jj_workspace_init(repo_path_z.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        const err_msg = if (workspace_result.error_message != null)
+            std.mem.span(workspace_result.error_message)
+        else
+            "Unknown error";
+        log.err("Failed to initialize jj workspace at {s}: {s}", .{ repo_path, err_msg });
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to initialize repository workspace\"}");
+        return;
+    }
+
+    log.info("Repository created: {s}/{s} (id={d}) at {s}", .{ user.username, name, repo_id, repo_path });
+
+    // Notify edge of repository creation
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ user.username, name });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("repositories", repo_key) catch |err| {
+            log.warn("Failed to notify edge of repository creation: {}", .{err});
+            // Don't fail the request, edge will sync eventually
+        };
+    }
 
     var writer = res.writer();
     res.status = 201;
@@ -167,12 +282,10 @@ pub fn getStargazers(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
 pub fn starRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -214,6 +327,15 @@ pub fn starRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     };
 
+    // Notify edge of star creation
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("stars", repo_key) catch |err| {
+            log.warn("Failed to notify edge of star creation: {}", .{err});
+        };
+    }
+
     // Get updated count
     const count = db.getStarCount(ctx.pool, repo.id) catch 0;
 
@@ -226,12 +348,10 @@ pub fn starRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 pub fn unstarRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -265,6 +385,15 @@ pub fn unstarRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response
         return;
     };
 
+    // Notify edge of star deletion
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("stars", repo_key) catch |err| {
+            log.warn("Failed to notify edge of star deletion: {}", .{err});
+        };
+    }
+
     // Get updated count
     const count = db.getStarCount(ctx.pool, repo.id) catch 0;
 
@@ -276,12 +405,10 @@ pub fn unstarRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response
 pub fn watchRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -329,6 +456,15 @@ pub fn watchRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         return;
     };
 
+    // Notify edge of watch update
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("watchers", repo_key) catch |err| {
+            log.warn("Failed to notify edge of watch update: {}", .{err});
+        };
+    }
+
     var writer = res.writer();
     try writer.print("{{\"message\":\"Watch preferences updated\",\"level\":\"{s}\"}}", .{level});
 }
@@ -337,12 +473,10 @@ pub fn watchRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
 pub fn unwatchRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -375,6 +509,15 @@ pub fn unwatchRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Respons
         try res.writer().writeAll("{\"error\":\"Failed to unwatch repository\"}");
         return;
     };
+
+    // Notify edge of watch deletion
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("watchers", repo_key) catch |err| {
+            log.warn("Failed to notify edge of watch deletion: {}", .{err});
+        };
+    }
 
     try res.writer().writeAll("{\"message\":\"Repository unwatched\"}");
 }
@@ -422,12 +565,10 @@ pub fn updateTopics(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
     res.content_type = .JSON;
     const allocator = ctx.allocator;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -486,6 +627,15 @@ pub fn updateTopics(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         try res.writer().writeAll("{\"error\":\"Failed to update topics\"}");
         return;
     };
+
+    // Notify edge of topics update
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("repositories", repo_key) catch |err| {
+            log.warn("Failed to notify edge of topics update: {}", .{err});
+        };
+    }
 
     var writer = res.writer();
     try writer.writeAll("{\"topics\":[");
@@ -611,12 +761,10 @@ pub fn getBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
 pub fn createBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -672,6 +820,15 @@ pub fn createBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     };
 
+    // Notify edge of bookmark creation
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("bookmarks", repo_key) catch |err| {
+            log.warn("Failed to notify edge of bookmark creation: {}", .{err});
+        };
+    }
+
     var writer = res.writer();
     res.status = 201;
     try writer.print("{{\"bookmark\":{{\"id\":{d},\"name\":\"{s}\",\"targetChangeId\":\"{s}\"}}}}", .{
@@ -685,12 +842,10 @@ pub fn createBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 pub fn updateBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -750,6 +905,15 @@ pub fn updateBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     };
 
+    // Notify edge of bookmark update
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("bookmarks", repo_key) catch |err| {
+            log.warn("Failed to notify edge of bookmark update: {}", .{err});
+        };
+    }
+
     var writer = res.writer();
     try writer.print("{{\"bookmark\":{{\"name\":\"{s}\",\"targetChangeId\":\"{s}\"}}}}", .{
         name,
@@ -761,12 +925,10 @@ pub fn updateBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 pub fn deleteBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -822,6 +984,15 @@ pub fn deleteBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     };
 
+    // Notify edge of bookmark deletion
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("bookmarks", repo_key) catch |err| {
+            log.warn("Failed to notify edge of bookmark deletion: {}", .{err});
+        };
+    }
+
     try res.writer().writeAll("{\"success\":true}");
 }
 
@@ -829,12 +1000,10 @@ pub fn deleteBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 pub fn setDefaultBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    const user = ctx.user orelse {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
-        return;
-    };
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .repo_write)) return;
+
+    const user = ctx.user.?;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -894,6 +1063,15 @@ pub fn setDefaultBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
         return;
     };
 
+    // Notify edge of default bookmark change
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, reponame });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("repositories", repo_key) catch |err| {
+            log.warn("Failed to notify edge of default bookmark change: {}", .{err});
+        };
+    }
+
     try res.writer().writeAll("{\"success\":true}");
 }
 
@@ -918,8 +1096,8 @@ pub fn listChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     };
 
-    // Get repository
-    const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
+    // Get repository (verify it exists)
+    _ = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Internal server error\"}");
@@ -930,26 +1108,87 @@ pub fn listChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     };
 
-    // Get changes (stub - would call jj in production)
-    const changes = db.listChanges(ctx.pool, allocator, repo.id) catch |err| {
-        log.err("Failed to list changes: {}", .{err});
+    // Get repository path on disk
+    const repo_path = getRepoPath(allocator, username, reponame) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to access repository\"}");
+        return;
+    };
+    defer allocator.free(repo_path);
+
+    // Check if it's a jj workspace
+    const repo_path_z = try allocator.dupeZ(u8, repo_path);
+    defer allocator.free(repo_path_z);
+
+    const is_jj = c.jj_is_jj_workspace(repo_path_z.ptr);
+    if (!is_jj) {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Repository is not a jj workspace\"}");
+        return;
+    }
+
+    // Open the workspace
+    const workspace_result = c.jj_workspace_open(repo_path_z.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        const err_msg = if (workspace_result.error_message != null)
+            std.mem.span(workspace_result.error_message)
+        else
+            "Unknown error";
+        log.err("Failed to open workspace: {s}", .{err_msg});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open repository workspace\"}");
+        return;
+    }
+
+    const workspace = workspace_result.workspace;
+
+    // List changes from jj
+    const changes_result = c.jj_list_changes(workspace, 50, null);
+    defer {
+        if (changes_result.success and changes_result.commits != null) {
+            c.jj_commit_array_free(changes_result.commits, changes_result.len);
+        }
+        if (changes_result.error_message != null) {
+            c.jj_string_free(changes_result.error_message);
+        }
+    }
+
+    if (!changes_result.success) {
+        const err_msg = if (changes_result.error_message != null)
+            std.mem.span(changes_result.error_message)
+        else
+            "Unknown error";
+        log.err("Failed to list changes: {s}", .{err_msg});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to list changes\"}");
         return;
-    };
-    defer allocator.free(changes);
+    }
 
     var writer = res.writer();
     try writer.writeAll("{\"changes\":[");
-    for (changes, 0..) |change, i| {
+    const commits = changes_result.commits[0..changes_result.len];
+    for (commits, 0..) |commit_ptr, i| {
         if (i > 0) try writer.writeAll(",");
+        const commit = commit_ptr.*;
+        const change_id = std.mem.span(commit.change_id);
+        const commit_id = std.mem.span(commit.id);
+        const description = std.mem.span(commit.description);
         try writer.print("{{\"changeId\":\"{s}\",\"commitId\":\"{s}\",\"description\":\"{s}\"}}", .{
-            change.change_id,
-            change.commit_id,
-            change.description,
+            change_id,
+            commit_id,
+            description,
         });
     }
-    try writer.print("],\"total\":{d}}}", .{changes.len});
+    try writer.print("],\"total\":{d}}}", .{changes_result.len});
 }
 
 /// GET /:user/:repo/changes/:changeId - Get change
@@ -1009,6 +1248,7 @@ pub fn getChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
 /// GET /:user/:repo/changes/:changeId/diff - Get change diff
 pub fn getChangeDiff(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
+    const allocator = ctx.allocator;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -1039,13 +1279,30 @@ pub fn getChangeDiff(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         try res.writer().writeAll("{\"error\":\"Repository not found\"}");
         return;
     };
-
-    // Get diff (stub - would call jj diff in production)
     _ = repo;
-    _ = change_id;
+
+    // Get repository path on disk
+    const repo_path = getRepoPath(allocator, username, reponame) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to access repository\"}");
+        return;
+    };
+    defer allocator.free(repo_path);
+
+    // Use jj CLI to get diff for this change
+    const args = &[_][]const u8{ "diff", "-r", change_id };
+    const diff_output = runJjCommand(allocator, repo_path, args) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to get diff\"}");
+        return;
+    };
+    defer allocator.free(diff_output);
+
+    const escaped = try escapeJson(allocator, diff_output);
+    defer allocator.free(escaped);
 
     var writer = res.writer();
-    try writer.writeAll("{\"diff\":\"(diff output would go here)\"}");
+    try writer.print("{{\"diff\":\"{s}\"}}", .{escaped});
 }
 
 // =============================================================================
@@ -1115,8 +1372,8 @@ pub fn parseTopicsFromJson(allocator: std.mem.Allocator, json: []const u8) ![][]
         // Remove quotes and normalize to lowercase
         const topic = trimmed[1 .. trimmed.len - 1];
         var normalized = try allocator.alloc(u8, topic.len);
-        for (topic, 0..) |c, j| {
-            normalized[j] = std.ascii.toLower(c);
+        for (topic, 0..) |char, j| {
+            normalized[j] = std.ascii.toLower(char);
         }
         topics[i] = normalized;
     }

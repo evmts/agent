@@ -9,6 +9,7 @@ const ws_handler = @import("websocket/handler.zig");
 const middleware = @import("middleware/mod.zig");
 const repo_watcher = @import("services/repo_watcher.zig");
 const session_cleanup = @import("services/session_cleanup.zig");
+const edge_notifier = @import("services/edge_notifier.zig");
 
 const log = std.log.scoped(.server);
 
@@ -38,17 +39,23 @@ pub fn main() !void {
 
     log.info("PTY manager initialized", .{});
 
-    // Initialize rate limiters
-    var api_rate_limiter = middleware.RateLimiter.init(allocator, middleware.rate_limit_presets.api);
-    defer api_rate_limiter.deinit();
+    // Initialize CSRF token store
+    var csrf_store = middleware.CsrfStore.init(allocator);
+    defer csrf_store.deinit();
 
-    var auth_rate_limiter = middleware.RateLimiter.init(allocator, middleware.rate_limit_presets.auth);
-    defer auth_rate_limiter.deinit();
+    log.info("CSRF protection initialized", .{});
 
-    log.info("Rate limiters initialized", .{});
+    // Initialize edge notifier
+    var edge_notify = edge_notifier.EdgeNotifier.init(allocator, cfg.edge_url, cfg.edge_push_secret);
+    const edge_notifier_ptr: ?*edge_notifier.EdgeNotifier = if (cfg.edge_url.len > 0) &edge_notify else null;
+    if (cfg.edge_url.len > 0) {
+        log.info("Edge notifier initialized (edge_url: {s})", .{cfg.edge_url});
+    } else {
+        log.info("Edge notifier disabled (set EDGE_URL to enable)", .{});
+    }
 
     // Initialize repository watcher
-    var watcher = repo_watcher.RepoWatcher.init(allocator, pool, .{});
+    var watcher = repo_watcher.RepoWatcher.init(allocator, pool, .{}, edge_notifier_ptr);
     defer watcher.deinit();
 
     // Start watcher service
@@ -73,9 +80,9 @@ pub fn main() !void {
         .pool = pool,
         .config = cfg,
         .pty_manager = &pty_manager,
-        .api_rate_limiter = &api_rate_limiter,
-        .auth_rate_limiter = &auth_rate_limiter,
+        .csrf_store = &csrf_store,
         .repo_watcher = if (cfg.watcher_enabled) &watcher else null,
+        .edge_notifier = edge_notifier_ptr,
     };
 
     // Initialize HTTP server
@@ -144,12 +151,14 @@ pub const Context = struct {
     pool: *db.Pool,
     config: config.Config,
     pty_manager: *pty.Manager,
-    api_rate_limiter: *middleware.RateLimiter,
-    auth_rate_limiter: *middleware.RateLimiter,
+    csrf_store: *middleware.CsrfStore,
     repo_watcher: ?*repo_watcher.RepoWatcher = null,
+    edge_notifier: ?*edge_notifier.EdgeNotifier = null,
     // User set by auth middleware
     user: ?User = null,
     session_key: ?[]const u8 = null,
+    // Token scopes (comma-separated) set by auth middleware when using API tokens
+    token_scopes: ?[]const u8 = null,
 
     // WebSocket handler type for PTY connections
     pub const WebsocketHandler = ws_handler.PtyWebSocket;

@@ -36,11 +36,11 @@ pub fn runAgent(
     const anthropic = client.AnthropicClient.init(allocator, api_key);
 
     // Run agent loop
-    var current_messages = std.ArrayList(client.Message).init(allocator);
-    defer current_messages.deinit();
+    var current_messages = std.ArrayList(client.Message){};
+    defer current_messages.deinit(allocator);
 
     for (messages) |msg| {
-        try current_messages.append(msg);
+        try current_messages.append(allocator, msg);
     }
 
     var steps: u32 = 0;

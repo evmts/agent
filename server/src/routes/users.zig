@@ -9,8 +9,36 @@ const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
 const db = @import("../lib/db.zig");
+const auth = @import("../middleware/auth.zig");
 
 const log = std.log.scoped(.user_routes);
+
+/// Escape LIKE special characters to prevent SQL injection
+/// Escapes: %, _, [, ]
+fn escapeLikePattern(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    // Count special characters to determine buffer size
+    var special_count: usize = 0;
+    for (input) |c| {
+        if (c == '%' or c == '_' or c == '[' or c == ']') {
+            special_count += 1;
+        }
+    }
+
+    // Allocate buffer with extra space for escape characters
+    const escaped = try allocator.alloc(u8, input.len + special_count);
+    var idx: usize = 0;
+
+    for (input) |c| {
+        if (c == '%' or c == '_' or c == '[' or c == ']') {
+            escaped[idx] = '\\';
+            idx += 1;
+        }
+        escaped[idx] = c;
+        idx += 1;
+    }
+
+    return escaped;
+}
 
 /// GET /users/search?q=query
 /// Search active users by username
@@ -34,13 +62,17 @@ pub fn search(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     var conn = try ctx.pool.acquire();
     defer conn.release();
 
-    var pattern_buf: [256]u8 = undefined;
-    const pattern = try std.fmt.bufPrint(&pattern_buf, "%{s}%", .{query});
+    // Sanitize query to prevent SQL injection in LIKE pattern
+    const escaped_query = try escapeLikePattern(ctx.allocator, query);
+    defer ctx.allocator.free(escaped_query);
+
+    var pattern_buf: [512]u8 = undefined;
+    const pattern = try std.fmt.bufPrint(&pattern_buf, "%{s}%", .{escaped_query});
 
     var result = try conn.query(
         \\SELECT id, username, display_name, avatar_url
         \\FROM users
-        \\WHERE is_active = true AND lower_username LIKE lower($1)
+        \\WHERE is_active = true AND lower_username LIKE lower($1) ESCAPE '\'
         \\ORDER BY username
         \\LIMIT 20
     , .{pattern});
@@ -127,12 +159,8 @@ pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
 pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Require authentication
-    if (ctx.user == null) {
-        res.status = 401;
-        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
-        return;
-    }
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .user_write)) return;
 
     if (!ctx.user.?.is_active) {
         res.status = 403;
@@ -219,6 +247,13 @@ pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         _ = try conn.exec(
             \\UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2
         , .{ avatar_url, user_id });
+    }
+
+    // Notify edge of user profile update
+    if (ctx.edge_notifier) |notifier| {
+        notifier.notifySqlChange("users", null) catch |err| {
+            log.warn("Failed to notify edge of user profile update: {}", .{err});
+        };
     }
 
     try res.writer().writeAll("{\"message\":\"Profile updated successfully\"}");

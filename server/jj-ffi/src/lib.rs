@@ -119,6 +119,13 @@ pub struct JjOperationInfoResult {
     pub error_message: *mut c_char,
 }
 
+#[repr(C)]
+pub struct JjTreeHash {
+    pub hash: *mut c_char, // hex-encoded tree root hash
+    pub success: bool,
+    pub error_message: *mut c_char,
+}
+
 // Helper functions
 fn create_settings() -> Result<UserSettings, String> {
     let config = StackedConfig::with_defaults();
@@ -920,6 +927,108 @@ pub unsafe extern "C" fn jj_get_current_operation(
     }
 }
 
+/// Get the tree hash (merkle root) for a revision
+///
+/// # Safety
+/// workspace must be a valid pointer from jj_workspace_open
+/// revision must be a valid null-terminated C string
+#[no_mangle]
+pub unsafe extern "C" fn jj_get_tree_hash(
+    workspace: *const JjWorkspace,
+    revision: *const c_char,
+) -> JjTreeHash {
+    if workspace.is_null() {
+        return JjTreeHash {
+            hash: std::ptr::null_mut(),
+            success: false,
+            error_message: CString::new("Workspace is null").unwrap().into_raw(),
+        };
+    }
+
+    if revision.is_null() {
+        return JjTreeHash {
+            hash: std::ptr::null_mut(),
+            success: false,
+            error_message: CString::new("Revision is null").unwrap().into_raw(),
+        };
+    }
+
+    let ws = &*workspace;
+    let c_str = CStr::from_ptr(revision);
+    let revision_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            return JjTreeHash {
+                hash: std::ptr::null_mut(),
+                success: false,
+                error_message: CString::new(format!("Invalid UTF-8: {}", e)).unwrap().into_raw(),
+            };
+        }
+    };
+
+    let (_workspace, repo) = match load_repo(&ws.workspace_root) {
+        Ok(r) => r,
+        Err(e) => {
+            return JjTreeHash {
+                hash: std::ptr::null_mut(),
+                success: false,
+                error_message: CString::new(e).unwrap().into_raw(),
+            };
+        }
+    };
+
+    // Resolve revision to commit
+    let commit = match CommitId::try_from_hex(revision_str) {
+        Some(id) => match repo.store().get_commit(&id) {
+            Ok(c) => c,
+            Err(e) => {
+                return JjTreeHash {
+                    hash: std::ptr::null_mut(),
+                    success: false,
+                    error_message: CString::new(format!("Failed to get commit: {}", e))
+                        .unwrap()
+                        .into_raw(),
+                };
+            }
+        },
+        None => {
+            return JjTreeHash {
+                hash: std::ptr::null_mut(),
+                success: false,
+                error_message: CString::new(format!("Invalid commit ID: {}", revision_str))
+                    .unwrap()
+                    .into_raw(),
+            };
+        }
+    };
+
+    // Get the tree from the commit and then its ID
+    let tree = commit.tree();
+    let tree_ids = tree.tree_ids();
+
+    // Get the resolved tree ID (if there are conflicts, return an error)
+    let tree_id = match tree_ids.as_resolved() {
+        Some(id) => id,
+        None => {
+            return JjTreeHash {
+                hash: std::ptr::null_mut(),
+                success: false,
+                error_message: CString::new("Tree has unresolved conflicts")
+                    .unwrap()
+                    .into_raw(),
+            };
+        }
+    };
+
+    let tree_hash = tree_id.hex();
+
+    JjTreeHash {
+        hash: CString::new(tree_hash).unwrap_or_default().into_raw(),
+        success: true,
+        error_message: std::ptr::null_mut(),
+    }
+}
+
 /// Check if a path contains a jj workspace
 #[no_mangle]
 pub unsafe extern "C" fn jj_is_jj_workspace(path: *const c_char) -> bool {
@@ -1058,5 +1167,16 @@ pub unsafe extern "C" fn jj_commit_array_free(commits: *mut *mut JjCommitInfo, l
                 jj_commit_info_free(*ptr);
             }
         }
+    }
+}
+
+/// Free a tree hash result
+#[no_mangle]
+pub unsafe extern "C" fn jj_free_tree_hash(result: JjTreeHash) {
+    if !result.hash.is_null() {
+        let _ = CString::from_raw(result.hash);
+    }
+    if !result.error_message.is_null() {
+        let _ = CString::from_raw(result.error_message);
     }
 }

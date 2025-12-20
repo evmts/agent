@@ -1,7 +1,6 @@
 const std = @import("std");
 
 /// Path validation and security utilities
-
 /// Resolve and validate a path, ensuring it doesn't escape the working directory
 pub fn resolveAndValidatePathSecure(
     allocator: std.mem.Allocator,

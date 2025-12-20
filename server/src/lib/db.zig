@@ -382,18 +382,29 @@ pub fn deleteAccessToken(pool: *Pool, token_id: i64, user_id: i64) !bool {
     return affected != null and affected.? > 0;
 }
 
-pub fn validateAccessToken(pool: *Pool, token_hash: []const u8) !?UserRecord {
-    // Update last_used_at and return user
+/// Result from validating an access token with user and scopes
+pub const TokenValidationResult = struct {
+    user: UserRecord,
+    scopes: []const u8,
+};
+
+pub fn validateAccessToken(pool: *Pool, token_hash: []const u8) !?TokenValidationResult {
+    // Update last_used_at and return user_id + scopes
     const row = try pool.row(
         \\UPDATE access_tokens
         \\SET last_used_at = NOW()
         \\WHERE token_hash = $1
-        \\RETURNING user_id
+        \\RETURNING user_id, scopes
     , .{token_hash});
 
     if (row) |r| {
         const user_id = r.get(i64, 0);
-        return try getUserById(pool, user_id);
+        const scopes = r.get([]const u8, 1);
+        const user = try getUserById(pool, user_id) orelse return null;
+        return TokenValidationResult{
+            .user = user,
+            .scopes = scopes,
+        };
     }
     return null;
 }
@@ -2182,4 +2193,104 @@ pub fn markOperationsAsUndone(
         \\SET is_undone = true
         \\WHERE repository_id = $1 AND timestamp > $2
     , .{ repository_id, after_timestamp });
+}
+
+// ============================================================================
+// Rate Limiting operations
+// ============================================================================
+
+/// Result of rate limit check
+pub const RateLimitResult = struct {
+    allowed: bool,
+    count: i32,
+    limit: i32,
+    reset_at: i64, // Unix timestamp in seconds
+};
+
+/// Check and increment rate limit counter
+/// Returns RateLimitResult with current state
+pub fn checkRateLimit(
+    pool: *Pool,
+    key: []const u8,
+    limit: i32,
+    window_seconds: i32,
+) !RateLimitResult {
+    // Use INSERT ... ON CONFLICT to atomically check and increment
+    // The CASE expressions handle window expiration
+    const row = try pool.row(
+        \\INSERT INTO rate_limits (key, count, window_start, expires_at)
+        \\VALUES ($1, 1, NOW(), NOW() + $2 * INTERVAL '1 second')
+        \\ON CONFLICT (key) DO UPDATE SET
+        \\  count = CASE
+        \\    WHEN rate_limits.expires_at < NOW()
+        \\    THEN 1
+        \\    ELSE rate_limits.count + 1
+        \\  END,
+        \\  window_start = CASE
+        \\    WHEN rate_limits.expires_at < NOW()
+        \\    THEN NOW()
+        \\    ELSE rate_limits.window_start
+        \\  END,
+        \\  expires_at = CASE
+        \\    WHEN rate_limits.expires_at < NOW()
+        \\    THEN NOW() + $2 * INTERVAL '1 second'
+        \\    ELSE rate_limits.expires_at
+        \\  END
+        \\RETURNING count, EXTRACT(EPOCH FROM expires_at)::bigint as reset_at
+    , .{ key, window_seconds });
+
+    if (row) |r| {
+        const count = r.get(i32, 0);
+        const reset_at = r.get(i64, 1);
+        return RateLimitResult{
+            .allowed = count <= limit,
+            .count = count,
+            .limit = limit,
+            .reset_at = reset_at,
+        };
+    }
+    return error.RateLimitCheckFailed;
+}
+
+/// Get current rate limit state without incrementing
+pub fn getRateLimitState(
+    pool: *Pool,
+    key: []const u8,
+    limit: i32,
+) !RateLimitResult {
+    const row = try pool.row(
+        \\SELECT
+        \\  CASE WHEN expires_at < NOW() THEN 0 ELSE count END as count,
+        \\  EXTRACT(EPOCH FROM expires_at)::bigint as reset_at
+        \\FROM rate_limits
+        \\WHERE key = $1
+    , .{key});
+
+    if (row) |r| {
+        const count = r.get(i32, 0);
+        const reset_at = r.get(i64, 1);
+        return RateLimitResult{
+            .allowed = count < limit,
+            .count = count,
+            .limit = limit,
+            .reset_at = reset_at,
+        };
+    }
+
+    // Key not found, return default state
+    const now = std.time.timestamp();
+    return RateLimitResult{
+        .allowed = true,
+        .count = 0,
+        .limit = limit,
+        .reset_at = now,
+    };
+}
+
+/// Cleanup expired rate limit entries
+/// Should be called periodically (e.g., every 5 minutes)
+pub fn cleanupExpiredRateLimits(pool: *Pool) !?i64 {
+    return try pool.exec(
+        \\DELETE FROM rate_limits WHERE expires_at < NOW()
+    , .{});
 }

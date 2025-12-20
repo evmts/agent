@@ -70,9 +70,9 @@ pub fn securityMiddleware(config: SecurityConfig) fn (*Context, *httpz.Request, 
                 const allocator = ctx.allocator;
 
                 // Build CSP string
-                var csp_list = std.ArrayList(u8).init(allocator);
-                defer csp_list.deinit();
-                const writer = csp_list.writer();
+                var csp_list = std.ArrayList(u8){};
+                defer csp_list.deinit(allocator);
+                const writer = csp_list.writer(allocator);
 
                 // default-src
                 try writer.writeAll("default-src ");
@@ -110,7 +110,7 @@ pub fn securityMiddleware(config: SecurityConfig) fn (*Context, *httpz.Request, 
                 try writer.writeAll("; frame-src ");
                 try writeCSPValues(writer, config.csp_frame_src);
 
-                const csp = try csp_list.toOwnedSlice();
+                const csp = try csp_list.toOwnedSlice(allocator);
                 res.headers.add("Content-Security-Policy", csp);
             }
 
@@ -134,11 +134,11 @@ fn writeCSPValues(writer: anytype, values: []const []const u8) !void {
 test "writeCSPValues" {
     const allocator = std.testing.allocator;
 
-    var list = std.ArrayList(u8).init(allocator);
-    defer list.deinit();
+    var list = std.ArrayList(u8){};
+    defer list.deinit(allocator);
 
     const values = &.{ "'self'", "https:" };
-    try writeCSPValues(list.writer(), values);
+    try writeCSPValues(list.writer(allocator), values);
 
     try std.testing.expectEqualStrings("'self' https:", list.items);
 }
@@ -146,11 +146,11 @@ test "writeCSPValues" {
 test "writeCSPValues single" {
     const allocator = std.testing.allocator;
 
-    var list = std.ArrayList(u8).init(allocator);
-    defer list.deinit();
+    var list = std.ArrayList(u8){};
+    defer list.deinit(allocator);
 
     const values = &.{"'self'"};
-    try writeCSPValues(list.writer(), values);
+    try writeCSPValues(list.writer(allocator), values);
 
     try std.testing.expectEqualStrings("'self'", list.items);
 }
@@ -158,11 +158,11 @@ test "writeCSPValues single" {
 test "writeCSPValues empty" {
     const allocator = std.testing.allocator;
 
-    var list = std.ArrayList(u8).init(allocator);
-    defer list.deinit();
+    var list = std.ArrayList(u8){};
+    defer list.deinit(allocator);
 
     const values: []const []const u8 = &.{};
-    try writeCSPValues(list.writer(), values);
+    try writeCSPValues(list.writer(allocator), values);
 
     try std.testing.expectEqualStrings("", list.items);
 }

@@ -88,7 +88,59 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Link jj-ffi library for tests
+    unit_tests.step.dependOn(&jj_ffi_build.step);
+    unit_tests.addIncludePath(b.path("jj-ffi"));
+    unit_tests.addLibraryPath(b.path("jj-ffi/target/release"));
+    unit_tests.linkSystemLibrary("jj_ffi");
+    unit_tests.linkLibC();
+
+    // Link system libraries required by jj-lib for tests
+    if (target.result.os.tag == .macos) {
+        unit_tests.linkFramework("Security");
+        unit_tests.linkFramework("CoreFoundation");
+        unit_tests.linkSystemLibrary("resolv");
+    }
+
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    // Integration tests
+    const integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tests/integration/mod.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "httpz", .module = httpz_dep.module("httpz") },
+                .{ .name = "pg", .module = pg_dep.module("pg") },
+                .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
+                .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+            },
+        }),
+    });
+
+    // Link jj-ffi library for integration tests
+    integration_tests.step.dependOn(&jj_ffi_build.step);
+    integration_tests.addIncludePath(b.path("jj-ffi"));
+    integration_tests.addLibraryPath(b.path("jj-ffi/target/release"));
+    integration_tests.linkSystemLibrary("jj_ffi");
+    integration_tests.linkLibC();
+
+    // Link system libraries required by jj-lib for integration tests
+    if (target.result.os.tag == .macos) {
+        integration_tests.linkFramework("Security");
+        integration_tests.linkFramework("CoreFoundation");
+        integration_tests.linkSystemLibrary("resolv");
+    }
+
+    const run_integration_tests = b.addRunArtifact(integration_tests);
+    const integration_test_step = b.step("test:integration", "Run integration tests (requires TEST_DATABASE_URL)");
+    integration_test_step.dependOn(&run_integration_tests.step);
+
+    // All tests (unit + integration)
+    const all_tests_step = b.step("test:all", "Run all tests (unit + integration)");
+    all_tests_step.dependOn(&run_unit_tests.step);
+    all_tests_step.dependOn(&run_integration_tests.step);
 }

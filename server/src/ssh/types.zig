@@ -167,33 +167,35 @@ pub const GitCommand = struct {
 pub const PacketWriter = struct {
     buffer: std.ArrayList(u8),
 
+    allocator: std.mem.Allocator,
+
     pub fn init(allocator: std.mem.Allocator) PacketWriter {
-        return .{ .buffer = std.ArrayList(u8).init(allocator) };
+        return .{ .buffer = std.ArrayList(u8){}, .allocator = allocator };
     }
 
     pub fn deinit(self: *PacketWriter) void {
-        self.buffer.deinit();
+        self.buffer.deinit(self.allocator);
     }
 
     pub fn writeByte(self: *PacketWriter, value: u8) !void {
-        try self.buffer.append(value);
+        try self.buffer.append(self.allocator, value);
     }
 
     pub fn writeU32(self: *PacketWriter, value: u32) !void {
-        try self.buffer.writer().writeInt(u32, value, .big);
+        try self.buffer.writer(self.allocator).writeInt(u32, value, .big);
     }
 
     pub fn writeString(self: *PacketWriter, str: []const u8) !void {
         try self.writeU32(@intCast(str.len));
-        try self.buffer.appendSlice(str);
+        try self.buffer.appendSlice(self.allocator, str);
     }
 
     pub fn writeBoolean(self: *PacketWriter, value: bool) !void {
-        try self.buffer.append(if (value) 1 else 0);
+        try self.buffer.append(self.allocator, if (value) 1 else 0);
     }
 
     pub fn toOwnedSlice(self: *PacketWriter) ![]u8 {
-        return self.buffer.toOwnedSlice();
+        return self.buffer.toOwnedSlice(self.allocator);
     }
 };
 

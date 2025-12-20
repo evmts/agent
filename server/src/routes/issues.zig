@@ -279,6 +279,15 @@ pub fn createIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     };
 
+    // Notify edge of issue creation
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ username, repo_name });
+        defer allocator.free(repo_key);
+        notifier.notifySqlChange("issues", repo_key) catch |err| {
+            log.warn("Failed to notify edge of issue creation: {}", .{err});
+        };
+    }
+
     // Return created issue
     res.status = 201;
     var writer = res.writer();
@@ -373,6 +382,15 @@ pub fn updateIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     };
 
+    // Notify edge of issue update
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ username, repo_name });
+        defer allocator.free(repo_key);
+        notifier.notifySqlChange("issues", repo_key) catch |err| {
+            log.warn("Failed to notify edge of issue update: {}", .{err});
+        };
+    }
+
     // Return updated issue
     var writer = res.writer();
     try writer.print(
@@ -446,6 +464,15 @@ pub fn closeIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
         try res.writer().writeAll("{\"error\":\"Failed to close issue\"}");
         return;
     };
+
+    // Notify edge of issue closure
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ username, repo_name });
+        defer allocator.free(repo_key);
+        notifier.notifySqlChange("issues", repo_key) catch |err| {
+            log.warn("Failed to notify edge of issue closure: {}", .{err});
+        };
+    }
 
     // Get updated issue
     const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
@@ -532,6 +559,15 @@ pub fn reopenIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         try res.writer().writeAll("{\"error\":\"Failed to reopen issue\"}");
         return;
     };
+
+    // Notify edge of issue reopening
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ username, repo_name });
+        defer allocator.free(repo_key);
+        notifier.notifySqlChange("issues", repo_key) catch |err| {
+            log.warn("Failed to notify edge of issue reopening: {}", .{err});
+        };
+    }
 
     // Get updated issue
     const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
@@ -745,6 +781,15 @@ pub fn addComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
         return;
     };
 
+    // Notify edge of comment creation
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, repo_name });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("issue_comments", repo_key) catch |err| {
+            log.warn("Failed to notify edge of comment creation: {}", .{err});
+        };
+    }
+
     // Return created comment
     res.status = 201;
     var writer = res.writer();
@@ -770,6 +815,18 @@ pub fn updateComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         try res.writer().writeAll("{\"error\":\"Authentication required\"}");
         return;
     }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
 
     const comment_id_str = req.param("commentId") orelse {
         res.status = 400;
@@ -815,6 +872,15 @@ pub fn updateComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         return;
     };
 
+    // Notify edge of comment update
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, repo_name });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("issue_comments", repo_key) catch |err| {
+            log.warn("Failed to notify edge of comment update: {}", .{err});
+        };
+    }
+
     // Return updated comment
     var writer = res.writer();
     try writer.print(
@@ -840,6 +906,18 @@ pub fn deleteComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         return;
     }
 
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
     const comment_id_str = req.param("commentId") orelse {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing comment ID parameter\"}");
@@ -859,6 +937,15 @@ pub fn deleteComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         try res.writer().writeAll("{\"error\":\"Failed to delete comment\"}");
         return;
     };
+
+    // Notify edge of comment deletion
+    if (ctx.edge_notifier) |notifier| {
+        const repo_key = try std.fmt.allocPrint(ctx.allocator, "{s}/{s}", .{ username, repo_name });
+        defer ctx.allocator.free(repo_key);
+        notifier.notifySqlChange("issue_comments", repo_key) catch |err| {
+            log.warn("Failed to notify edge of comment deletion: {}", .{err});
+        };
+    }
 
     try res.writer().writeAll("{\"success\":true}");
 }

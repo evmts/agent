@@ -1,6 +1,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("main.zig").Context;
+const middleware = @import("middleware/mod.zig");
 const pty_routes = @import("routes/pty.zig");
 const auth_routes = @import("routes/auth.zig");
 const ssh_keys = @import("routes/ssh_keys.zig");
@@ -21,6 +22,49 @@ const operations = @import("routes/operations.zig");
 
 const log = std.log.scoped(.routes);
 
+/// Helper function to apply auth + CSRF middleware to a handler
+/// Use this wrapper for all POST/PUT/PATCH/DELETE routes that require auth
+fn withAuthAndCsrf(
+    comptime handler: fn (*Context, *httpz.Request, *httpz.Response) anyerror!void,
+) fn (*Context, *httpz.Request, *httpz.Response) anyerror!void {
+    return struct {
+        fn wrapped(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+            // Apply auth middleware
+            if (!try middleware.authMiddleware(ctx, req, res)) {
+                return; // Auth middleware already set error response
+            }
+
+            // Apply CSRF middleware (configured with context's csrf_store)
+            const csrf_config = middleware.csrf_default;
+            const csrf_handler = middleware.csrfMiddleware(ctx.csrf_store, csrf_config);
+            if (!try csrf_handler(ctx, req, res)) {
+                return; // CSRF middleware already set error response
+            }
+
+            // Call the actual handler
+            return handler(ctx, req, res);
+        }
+    }.wrapped;
+}
+
+/// Helper function to apply auth middleware to a handler
+/// Use this wrapper for routes that require auth but not CSRF (e.g., GET routes)
+fn withAuth(
+    comptime handler: fn (*Context, *httpz.Request, *httpz.Response) anyerror!void,
+) fn (*Context, *httpz.Request, *httpz.Response) anyerror!void {
+    return struct {
+        fn wrapped(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+            // Apply auth middleware
+            if (!try middleware.authMiddleware(ctx, req, res)) {
+                return; // Auth middleware already set error response
+            }
+
+            // Call the actual handler
+            return handler(ctx, req, res);
+        }
+    }.wrapped;
+}
+
 pub fn configure(server: *httpz.Server(*Context)) !void {
     var router = try server.router(.{});
 
@@ -31,47 +75,48 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/shape", shapeProxy, .{});
 
     // API routes - auth (delegating to auth_routes module for consistency)
+    // Note: Auth routes use session-based CSRF protection
     router.get("/api/auth/siwe/nonce", auth_routes.getNonce, .{});
-    router.post("/api/auth/siwe/verify", auth_routes.verify, .{});
-    router.post("/api/auth/siwe/register", auth_routes.register, .{});
-    router.post("/api/auth/logout", auth_routes.logout, .{});
+    router.post("/api/auth/siwe/verify", withAuthAndCsrf(auth_routes.verify), .{});
+    router.post("/api/auth/siwe/register", withAuthAndCsrf(auth_routes.register), .{});
+    router.post("/api/auth/logout", withAuthAndCsrf(auth_routes.logout), .{});
     router.get("/api/auth/me", auth_routes.me, .{});
-    router.post("/api/auth/refresh", auth_routes.refresh, .{});
+    router.post("/api/auth/refresh", withAuthAndCsrf(auth_routes.refresh), .{});
 
     // API routes - users
     router.get("/api/users/search", users.search, .{});
     router.get("/api/users/:username", users.getProfile, .{});
-    router.patch("/api/users/me", users.updateProfile, .{});
+    router.patch("/api/users/me", withAuthAndCsrf(users.updateProfile), .{});
 
-    // API routes - SSH keys
+    // API routes - SSH keys (CSRF protected)
     router.get("/api/ssh-keys", ssh_keys.list, .{});
-    router.post("/api/ssh-keys", ssh_keys.create, .{});
-    router.delete("/api/ssh-keys/:id", ssh_keys.delete, .{});
+    router.post("/api/ssh-keys", withAuthAndCsrf(ssh_keys.create), .{});
+    router.delete("/api/ssh-keys/:id", withAuthAndCsrf(ssh_keys.delete), .{});
 
-    // API routes - access tokens
+    // API routes - access tokens (CSRF protected)
     router.get("/api/user/tokens", tokens.list, .{});
-    router.post("/api/user/tokens", tokens.create, .{});
-    router.delete("/api/user/tokens/:id", tokens.delete, .{});
+    router.post("/api/user/tokens", withAuthAndCsrf(tokens.create), .{});
+    router.delete("/api/user/tokens/:id", withAuthAndCsrf(tokens.delete), .{});
 
-    // API routes - repositories
-    router.post("/api/repos", repo_routes.createRepository, .{}); // Create repository (requires auth)
+    // API routes - repositories (CSRF protected)
+    router.post("/api/repos", withAuthAndCsrf(repo_routes.createRepository), .{});
 
-    // API routes - repositories (stars, watches, topics)
+    // API routes - repositories (stars, watches, topics) - CSRF protected
     router.get("/api/:user/:repo/stargazers", repo_routes.getStargazers, .{});
-    router.post("/api/:user/:repo/star", repo_routes.starRepository, .{});
-    router.delete("/api/:user/:repo/star", repo_routes.unstarRepository, .{});
-    router.post("/api/:user/:repo/watch", repo_routes.watchRepository, .{});
-    router.delete("/api/:user/:repo/watch", repo_routes.unwatchRepository, .{});
+    router.post("/api/:user/:repo/star", withAuthAndCsrf(repo_routes.starRepository), .{});
+    router.delete("/api/:user/:repo/star", withAuthAndCsrf(repo_routes.unstarRepository), .{});
+    router.post("/api/:user/:repo/watch", withAuthAndCsrf(repo_routes.watchRepository), .{});
+    router.delete("/api/:user/:repo/watch", withAuthAndCsrf(repo_routes.unwatchRepository), .{});
     router.get("/api/:user/:repo/topics", repo_routes.getTopics, .{});
-    router.put("/api/:user/:repo/topics", repo_routes.updateTopics, .{});
+    router.put("/api/:user/:repo/topics", withAuthAndCsrf(repo_routes.updateTopics), .{});
 
-    // API routes - bookmarks (jj branches)
+    // API routes - bookmarks (jj branches) - CSRF protected
     router.get("/api/:user/:repo/bookmarks", repo_routes.listBookmarks, .{});
     router.get("/api/:user/:repo/bookmarks/:name", repo_routes.getBookmark, .{});
-    router.post("/api/:user/:repo/bookmarks", repo_routes.createBookmark, .{});
-    router.put("/api/:user/:repo/bookmarks/:name", repo_routes.updateBookmark, .{});
-    router.post("/api/:user/:repo/bookmarks/:name/set-default", repo_routes.setDefaultBookmark, .{});
-    router.delete("/api/:user/:repo/bookmarks/:name", repo_routes.deleteBookmark, .{});
+    router.post("/api/:user/:repo/bookmarks", withAuthAndCsrf(repo_routes.createBookmark), .{});
+    router.put("/api/:user/:repo/bookmarks/:name", withAuthAndCsrf(repo_routes.updateBookmark), .{});
+    router.post("/api/:user/:repo/bookmarks/:name/set-default", withAuthAndCsrf(repo_routes.setDefaultBookmark), .{});
+    router.delete("/api/:user/:repo/bookmarks/:name", withAuthAndCsrf(repo_routes.deleteBookmark), .{});
 
     // API routes - changes (jj)
     router.get("/api/:user/:repo/changes", repo_routes.listChanges, .{});
@@ -81,105 +126,105 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/:user/:repo/changes/:changeId/file/*", changes.getFileAtChange, .{});
     router.get("/api/:user/:repo/changes/:fromChangeId/compare/:toChangeId", changes.compareChanges, .{});
     router.get("/api/:user/:repo/changes/:changeId/conflicts", changes.getConflicts, .{});
-    router.post("/api/:user/:repo/changes/:changeId/conflicts/:filePath/resolve", changes.resolveConflict, .{});
+    router.post("/api/:user/:repo/changes/:changeId/conflicts/:filePath/resolve", withAuthAndCsrf(changes.resolveConflict), .{});
 
-    // API routes - operations (jj operation log)
+    // API routes - operations (jj operation log) - CSRF protected
     router.get("/api/:user/:repo/operations", operations.listOperations, .{});
     router.get("/api/:user/:repo/operations/:operationId", operations.getOperation, .{});
-    router.post("/api/:user/:repo/operations/undo", operations.undoOperation, .{});
-    router.post("/api/:user/:repo/operations/:operationId/restore", operations.restoreOperation, .{});
+    router.post("/api/:user/:repo/operations/undo", withAuthAndCsrf(operations.undoOperation), .{});
+    router.post("/api/:user/:repo/operations/:operationId/restore", withAuthAndCsrf(operations.restoreOperation), .{});
 
-    // API routes - issues
+    // API routes - issues - CSRF protected
     router.get("/api/:user/:repo/issues", issues.listIssues, .{});
     router.get("/api/:user/:repo/issues/counts", issues.getIssueCounts, .{});
     router.get("/api/:user/:repo/issues/:number", issues.getIssue, .{});
     router.get("/api/:user/:repo/issues/:number/history", issues.getIssueHistory, .{});
-    router.post("/api/:user/:repo/issues", issues.createIssue, .{});
-    router.patch("/api/:user/:repo/issues/:number", issues.updateIssue, .{});
-    router.post("/api/:user/:repo/issues/:number/close", issues.closeIssue, .{});
-    router.post("/api/:user/:repo/issues/:number/reopen", issues.reopenIssue, .{});
-    router.delete("/api/:user/:repo/issues/:number", issues.deleteIssue, .{});
+    router.post("/api/:user/:repo/issues", withAuthAndCsrf(issues.createIssue), .{});
+    router.patch("/api/:user/:repo/issues/:number", withAuthAndCsrf(issues.updateIssue), .{});
+    router.post("/api/:user/:repo/issues/:number/close", withAuthAndCsrf(issues.closeIssue), .{});
+    router.post("/api/:user/:repo/issues/:number/reopen", withAuthAndCsrf(issues.reopenIssue), .{});
+    router.delete("/api/:user/:repo/issues/:number", withAuthAndCsrf(issues.deleteIssue), .{});
 
-    // API routes - issue comments
+    // API routes - issue comments - CSRF protected
     router.get("/api/:user/:repo/issues/:number/comments", issues.getComments, .{});
-    router.post("/api/:user/:repo/issues/:number/comments", issues.addComment, .{});
-    router.patch("/api/:user/:repo/issues/:number/comments/:commentId", issues.updateComment, .{});
-    router.delete("/api/:user/:repo/issues/:number/comments/:commentId", issues.deleteComment, .{});
+    router.post("/api/:user/:repo/issues/:number/comments", withAuthAndCsrf(issues.addComment), .{});
+    router.patch("/api/:user/:repo/issues/:number/comments/:commentId", withAuthAndCsrf(issues.updateComment), .{});
+    router.delete("/api/:user/:repo/issues/:number/comments/:commentId", withAuthAndCsrf(issues.deleteComment), .{});
 
-    // API routes - labels
+    // API routes - labels - CSRF protected
     router.get("/api/:user/:repo/labels", issues.getLabels, .{});
-    router.post("/api/:user/:repo/labels", issues.createLabel, .{});
-    router.patch("/api/:user/:repo/labels/:name", issues.updateLabel, .{});
-    router.delete("/api/:user/:repo/labels/:name", issues.deleteLabel, .{});
-    router.post("/api/:user/:repo/issues/:number/labels", issues.addLabelsToIssue, .{});
-    router.delete("/api/:user/:repo/issues/:number/labels/:labelId", issues.removeLabelFromIssue, .{});
+    router.post("/api/:user/:repo/labels", withAuthAndCsrf(issues.createLabel), .{});
+    router.patch("/api/:user/:repo/labels/:name", withAuthAndCsrf(issues.updateLabel), .{});
+    router.delete("/api/:user/:repo/labels/:name", withAuthAndCsrf(issues.deleteLabel), .{});
+    router.post("/api/:user/:repo/issues/:number/labels", withAuthAndCsrf(issues.addLabelsToIssue), .{});
+    router.delete("/api/:user/:repo/issues/:number/labels/:labelId", withAuthAndCsrf(issues.removeLabelFromIssue), .{});
 
-    // API routes - pin/unpin issues
-    router.post("/api/:user/:repo/issues/:number/pin", issues.pinIssue, .{});
-    router.post("/api/:user/:repo/issues/:number/unpin", issues.unpinIssue, .{});
+    // API routes - pin/unpin issues - CSRF protected
+    router.post("/api/:user/:repo/issues/:number/pin", withAuthAndCsrf(issues.pinIssue), .{});
+    router.post("/api/:user/:repo/issues/:number/unpin", withAuthAndCsrf(issues.unpinIssue), .{});
 
-    // API routes - reactions
-    router.post("/api/:user/:repo/issues/:number/reactions", issues.addReactionToIssue, .{});
-    router.delete("/api/:user/:repo/issues/:number/reactions/:emoji", issues.removeReactionFromIssue, .{});
+    // API routes - reactions - CSRF protected
+    router.post("/api/:user/:repo/issues/:number/reactions", withAuthAndCsrf(issues.addReactionToIssue), .{});
+    router.delete("/api/:user/:repo/issues/:number/reactions/:emoji", withAuthAndCsrf(issues.removeReactionFromIssue), .{});
 
-    // API routes - comment reactions
+    // API routes - comment reactions - CSRF protected
     router.get("/api/:user/:repo/issues/:number/comments/:commentId/reactions", issues.getCommentReactions, .{});
-    router.post("/api/:user/:repo/issues/:number/comments/:commentId/reactions", issues.addCommentReaction, .{});
-    router.delete("/api/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", issues.removeCommentReaction, .{});
+    router.post("/api/:user/:repo/issues/:number/comments/:commentId/reactions", withAuthAndCsrf(issues.addCommentReaction), .{});
+    router.delete("/api/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", withAuthAndCsrf(issues.removeCommentReaction), .{});
 
-    // API routes - assignees
-    router.post("/api/:user/:repo/issues/:number/assignees", issues.addAssigneeToIssue, .{});
-    router.delete("/api/:user/:repo/issues/:number/assignees/:userId", issues.removeAssigneeFromIssue, .{});
+    // API routes - assignees - CSRF protected
+    router.post("/api/:user/:repo/issues/:number/assignees", withAuthAndCsrf(issues.addAssigneeToIssue), .{});
+    router.delete("/api/:user/:repo/issues/:number/assignees/:userId", withAuthAndCsrf(issues.removeAssigneeFromIssue), .{});
 
-    // API routes - dependencies
-    router.post("/api/:user/:repo/issues/:number/dependencies", issues.addDependencyToIssue, .{});
-    router.delete("/api/:user/:repo/issues/:number/dependencies/:blockedNumber", issues.removeDependencyFromIssue, .{});
+    // API routes - dependencies - CSRF protected
+    router.post("/api/:user/:repo/issues/:number/dependencies", withAuthAndCsrf(issues.addDependencyToIssue), .{});
+    router.delete("/api/:user/:repo/issues/:number/dependencies/:blockedNumber", withAuthAndCsrf(issues.removeDependencyFromIssue), .{});
 
-    // API routes - due dates
+    // API routes - due dates - CSRF protected
     router.get("/api/:user/:repo/issues/:number/due-date", issues.getDueDate, .{});
-    router.put("/api/:user/:repo/issues/:number/due-date", issues.setDueDate, .{});
-    router.delete("/api/:user/:repo/issues/:number/due-date", issues.removeDueDate, .{});
+    router.put("/api/:user/:repo/issues/:number/due-date", withAuthAndCsrf(issues.setDueDate), .{});
+    router.delete("/api/:user/:repo/issues/:number/due-date", withAuthAndCsrf(issues.removeDueDate), .{});
 
-    // API routes - milestones
+    // API routes - milestones - CSRF protected
     router.get("/api/:user/:repo/milestones", milestones.listMilestones, .{});
     router.get("/api/:user/:repo/milestones/:id", milestones.getMilestone, .{});
-    router.post("/api/:user/:repo/milestones", milestones.createMilestone, .{});
-    router.patch("/api/:user/:repo/milestones/:id", milestones.updateMilestone, .{});
-    router.delete("/api/:user/:repo/milestones/:id", milestones.deleteMilestone, .{});
+    router.post("/api/:user/:repo/milestones", withAuthAndCsrf(milestones.createMilestone), .{});
+    router.patch("/api/:user/:repo/milestones/:id", withAuthAndCsrf(milestones.updateMilestone), .{});
+    router.delete("/api/:user/:repo/milestones/:id", withAuthAndCsrf(milestones.deleteMilestone), .{});
 
-    // API routes - issue milestone assignment
-    router.put("/api/:user/:repo/issues/:number/milestone", milestones.assignMilestoneToIssue, .{});
-    router.delete("/api/:user/:repo/issues/:number/milestone", milestones.removeMilestoneFromIssue, .{});
+    // API routes - issue milestone assignment - CSRF protected
+    router.put("/api/:user/:repo/issues/:number/milestone", withAuthAndCsrf(milestones.assignMilestoneToIssue), .{});
+    router.delete("/api/:user/:repo/issues/:number/milestone", withAuthAndCsrf(milestones.removeMilestoneFromIssue), .{});
 
-    // API routes - landing queue (jj-native PR replacement)
+    // API routes - landing queue (jj-native PR replacement) - CSRF protected
     router.get("/api/:user/:repo/landing", landing_queue.listLandingRequests, .{});
     router.get("/api/:user/:repo/landing/:id", landing_queue.getLandingRequest, .{});
-    router.post("/api/:user/:repo/landing", landing_queue.createLandingRequest, .{});
-    router.post("/api/:user/:repo/landing/:id/check", landing_queue.checkLandingStatus, .{});
-    router.post("/api/:user/:repo/landing/:id/land", landing_queue.executeLanding, .{});
-    router.delete("/api/:user/:repo/landing/:id", landing_queue.cancelLandingRequest, .{});
-    router.post("/api/:user/:repo/landing/:id/reviews", landing_queue.addReview, .{});
+    router.post("/api/:user/:repo/landing", withAuthAndCsrf(landing_queue.createLandingRequest), .{});
+    router.post("/api/:user/:repo/landing/:id/check", withAuthAndCsrf(landing_queue.checkLandingStatus), .{});
+    router.post("/api/:user/:repo/landing/:id/land", withAuthAndCsrf(landing_queue.executeLanding), .{});
+    router.delete("/api/:user/:repo/landing/:id", withAuthAndCsrf(landing_queue.cancelLandingRequest), .{});
+    router.post("/api/:user/:repo/landing/:id/reviews", withAuthAndCsrf(landing_queue.addReview), .{});
     router.get("/api/:user/:repo/landing/:id/files", landing_queue.getLandingFiles, .{});
     router.get("/api/:user/:repo/landing/:id/comments", landing_queue.getLineComments, .{});
-    router.post("/api/:user/:repo/landing/:id/comments", landing_queue.createLineComment, .{});
-    router.patch("/api/:user/:repo/landing/:id/comments/:commentId", landing_queue.updateLineComment, .{});
-    router.delete("/api/:user/:repo/landing/:id/comments/:commentId", landing_queue.deleteLineComment, .{});
+    router.post("/api/:user/:repo/landing/:id/comments", withAuthAndCsrf(landing_queue.createLineComment), .{});
+    router.patch("/api/:user/:repo/landing/:id/comments/:commentId", withAuthAndCsrf(landing_queue.updateLineComment), .{});
+    router.delete("/api/:user/:repo/landing/:id/comments/:commentId", withAuthAndCsrf(landing_queue.deleteLineComment), .{});
 
-    // PTY routes
-    router.post("/pty", pty_routes.create, .{});
+    // PTY routes - CSRF protected
+    router.post("/pty", withAuthAndCsrf(pty_routes.create), .{});
     router.get("/pty", pty_routes.list, .{});
     router.get("/pty/:id", pty_routes.get, .{});
-    router.delete("/pty/:id", pty_routes.close, .{});
-    router.post("/pty/:id/resize", pty_routes.resize, .{});
+    router.delete("/pty/:id", withAuthAndCsrf(pty_routes.close), .{});
+    router.post("/pty/:id/resize", withAuthAndCsrf(pty_routes.resize), .{});
     router.get("/pty/:id/ws", pty_routes.websocket, .{});
 
-    // API routes - sessions (agent sessions)
+    // API routes - sessions (agent sessions) - CSRF protected
     router.get("/api/sessions", sessions.listSessions, .{});
-    router.post("/api/sessions", sessions.createSession, .{});
+    router.post("/api/sessions", withAuthAndCsrf(sessions.createSession), .{});
     router.get("/api/sessions/:sessionId", sessions.getSession, .{});
-    router.patch("/api/sessions/:sessionId", sessions.updateSession, .{});
-    router.delete("/api/sessions/:sessionId", sessions.deleteSession, .{});
-    router.post("/api/sessions/:sessionId/abort", sessions.abortSession, .{});
+    router.patch("/api/sessions/:sessionId", withAuthAndCsrf(sessions.updateSession), .{});
+    router.delete("/api/sessions/:sessionId", withAuthAndCsrf(sessions.deleteSession), .{});
+    router.post("/api/sessions/:sessionId/abort", withAuthAndCsrf(sessions.abortSession), .{});
     router.get("/api/sessions/:sessionId/diff", sessions.getSessionDiff, .{});
     router.get("/api/sessions/:sessionId/changes", sessions.getSessionChanges, .{});
     router.get("/api/sessions/:sessionId/changes/:changeId", sessions.getSpecificChange, .{});
@@ -188,52 +233,52 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/sessions/:sessionId/changes/:changeId/file/*", sessions.getFileAtChange, .{});
     router.get("/api/sessions/:sessionId/conflicts", sessions.getSessionConflicts, .{});
     router.get("/api/sessions/:sessionId/operations", sessions.getSessionOperations, .{});
-    router.post("/api/sessions/:sessionId/operations/undo", sessions.undoLastOperation, .{});
-    router.post("/api/sessions/:sessionId/operations/:operationId/restore", sessions.restoreOperation, .{});
-    router.post("/api/sessions/:sessionId/fork", sessions.forkSession, .{});
-    router.post("/api/sessions/:sessionId/revert", sessions.revertSession, .{});
-    router.post("/api/sessions/:sessionId/unrevert", sessions.unrevertSession, .{});
-    router.post("/api/sessions/:sessionId/undo", sessions.undoTurns, .{});
+    router.post("/api/sessions/:sessionId/operations/undo", withAuthAndCsrf(sessions.undoLastOperation), .{});
+    router.post("/api/sessions/:sessionId/operations/:operationId/restore", withAuthAndCsrf(sessions.restoreOperation), .{});
+    router.post("/api/sessions/:sessionId/fork", withAuthAndCsrf(sessions.forkSession), .{});
+    router.post("/api/sessions/:sessionId/revert", withAuthAndCsrf(sessions.revertSession), .{});
+    router.post("/api/sessions/:sessionId/unrevert", withAuthAndCsrf(sessions.unrevertSession), .{});
+    router.post("/api/sessions/:sessionId/undo", withAuthAndCsrf(sessions.undoTurns), .{});
 
-    // API routes - messages (agent messages and parts)
+    // API routes - messages (agent messages and parts) - CSRF protected
     router.get("/api/sessions/:sessionId/messages", messages.listMessages, .{});
-    router.post("/api/sessions/:sessionId/messages", messages.createMessage, .{});
+    router.post("/api/sessions/:sessionId/messages", withAuthAndCsrf(messages.createMessage), .{});
     router.get("/api/sessions/:sessionId/messages/:messageId", messages.getMessage, .{});
-    router.patch("/api/sessions/:sessionId/messages/:messageId", messages.updateMessage, .{});
-    router.delete("/api/sessions/:sessionId/messages/:messageId", messages.deleteMessage, .{});
+    router.patch("/api/sessions/:sessionId/messages/:messageId", withAuthAndCsrf(messages.updateMessage), .{});
+    router.delete("/api/sessions/:sessionId/messages/:messageId", withAuthAndCsrf(messages.deleteMessage), .{});
     router.get("/api/sessions/:sessionId/messages/:messageId/parts", messages.listParts, .{});
-    router.post("/api/sessions/:sessionId/messages/:messageId/parts", messages.createPart, .{});
-    router.patch("/api/sessions/:sessionId/messages/:messageId/parts/:partId", messages.updatePart, .{});
-    router.delete("/api/sessions/:sessionId/messages/:messageId/parts/:partId", messages.deletePart, .{});
+    router.post("/api/sessions/:sessionId/messages/:messageId/parts", withAuthAndCsrf(messages.createPart), .{});
+    router.patch("/api/sessions/:sessionId/messages/:messageId/parts/:partId", withAuthAndCsrf(messages.updatePart), .{});
+    router.delete("/api/sessions/:sessionId/messages/:messageId/parts/:partId", withAuthAndCsrf(messages.deletePart), .{});
 
-    // API routes - AI agent
-    router.post("/api/sessions/:sessionId/run", agent_routes.runAgentHandler, .{});
+    // API routes - AI agent - CSRF protected
+    router.post("/api/sessions/:sessionId/run", withAuthAndCsrf(agent_routes.runAgentHandler), .{});
     router.get("/api/agents", agent_routes.listAgentsHandler, .{});
     router.get("/api/agents/:name", agent_routes.getAgentHandler, .{});
     router.get("/api/tools", agent_routes.listToolsHandler, .{});
 
-    // API routes - workflows
+    // API routes - workflows - CSRF protected
     router.get("/api/:user/:repo/workflows/runs", workflows.listRuns, .{});
     router.get("/api/:user/:repo/workflows/runs/:runId", workflows.getRun, .{});
-    router.post("/api/:user/:repo/workflows/runs", workflows.createRun, .{});
-    router.patch("/api/:user/:repo/workflows/runs/:runId", workflows.updateRun, .{});
-    router.post("/api/:user/:repo/workflows/runs/:runId/cancel", workflows.cancelRun, .{});
+    router.post("/api/:user/:repo/workflows/runs", withAuthAndCsrf(workflows.createRun), .{});
+    router.patch("/api/:user/:repo/workflows/runs/:runId", withAuthAndCsrf(workflows.updateRun), .{});
+    router.post("/api/:user/:repo/workflows/runs/:runId/cancel", withAuthAndCsrf(workflows.cancelRun), .{});
     router.get("/api/:user/:repo/workflows/runs/:runId/jobs", workflows.getJobs, .{});
     router.get("/api/:user/:repo/workflows/runs/:runId/logs", workflows.getLogs, .{});
 
-    // API routes - runners
-    router.post("/api/runners/register", runners.register, .{});
-    router.post("/api/runners/heartbeat", runners.heartbeat, .{});
+    // API routes - runners - CSRF protected
+    router.post("/api/runners/register", withAuthAndCsrf(runners.register), .{});
+    router.post("/api/runners/heartbeat", withAuthAndCsrf(runners.heartbeat), .{});
     router.get("/api/runners/tasks/fetch", runners.fetchTask, .{});
-    router.post("/api/runners/tasks/:taskId/status", runners.updateTaskStatus, .{});
-    router.post("/api/runners/tasks/:taskId/logs", runners.appendLogs, .{});
+    router.post("/api/runners/tasks/:taskId/status", withAuthAndCsrf(runners.updateTaskStatus), .{});
+    router.post("/api/runners/tasks/:taskId/logs", withAuthAndCsrf(runners.appendLogs), .{});
 
-    // API routes - repository watcher
+    // API routes - repository watcher - CSRF protected
     router.get("/api/watcher/status", watcher_routes.getWatcherStatus, .{});
     router.get("/api/watcher/repos", watcher_routes.listWatchedRepos, .{});
-    router.post("/api/watcher/watch/:user/:repo", watcher_routes.watchRepository, .{});
-    router.delete("/api/watcher/watch/:user/:repo", watcher_routes.unwatchRepository, .{});
-    router.post("/api/watcher/sync/:user/:repo", watcher_routes.syncRepository, .{});
+    router.post("/api/watcher/watch/:user/:repo", withAuthAndCsrf(watcher_routes.watchRepository), .{});
+    router.delete("/api/watcher/watch/:user/:repo", withAuthAndCsrf(watcher_routes.unwatchRepository), .{});
+    router.post("/api/watcher/sync/:user/:repo", withAuthAndCsrf(watcher_routes.syncRepository), .{});
 
     log.info("Routes configured", .{});
 }

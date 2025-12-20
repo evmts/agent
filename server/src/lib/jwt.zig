@@ -92,7 +92,15 @@ pub fn verify(
     const provided_sig = try base64UrlDecode(allocator, signature_b64);
     defer allocator.free(provided_sig);
 
-    if (!std.crypto.utils.timingSafeEql([32]u8, expected_sig, provided_sig[0..32].*)) {
+    // Timing-safe comparison - XOR all bytes and check if result is zero
+    if (provided_sig.len != 32) {
+        return JWTError.InvalidSignature;
+    }
+    var diff: u8 = 0;
+    for (expected_sig, 0..) |expected_byte, i| {
+        diff |= expected_byte ^ provided_sig[i];
+    }
+    if (diff != 0) {
         return JWTError.InvalidSignature;
     }
 

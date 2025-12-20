@@ -76,8 +76,14 @@ case "$COMMAND" in
             # Trigger sync (async via background process)
             (
                 echo "$(date -Iseconds) - Triggering jj sync for $USER_NAME/$REPO_NAME" >> "$LOG_DIR/jj-sync.log"
-                # TODO: Call Zig server API to trigger sync
-                # curl -X POST http://localhost:3000/internal/sync -d '{"owner":"'$USER_NAME'","repo":"'$REPO_NAME'"}' || true
+
+                # Call Plue API to trigger sync
+                API_URL="${PLUE_API_URL:-http://localhost:8080}"
+                SYNC_URL="$API_URL/api/watcher/sync/$USER_NAME/$REPO_NAME"
+
+                curl -X POST -s -f -m 5 "$SYNC_URL" >> "$LOG_DIR/jj-sync.log" 2>&1 || {
+                    echo "$(date -Iseconds) - Failed to trigger sync for $USER_NAME/$REPO_NAME" >> "$LOG_DIR/jj-sync.log"
+                }
             ) &
         fi
 

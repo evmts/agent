@@ -24,6 +24,17 @@ const db = @import("../lib/db.zig");
 
 const log = std.log.scoped(.landing_queue);
 
+// Import jj-ffi C library
+const c = @cImport({
+    @cInclude("jj_ffi.h");
+});
+
+/// Build repository path from username and repository name
+fn getRepoPath(allocator: std.mem.Allocator, username: []const u8, repo_name: []const u8) ![]const u8 {
+    const repos_dir = std.posix.getenv("PLUE_REPOS_DIR") orelse "repos";
+    return std.fs.path.join(allocator, &.{ repos_dir, username, repo_name });
+}
+
 // ============================================================================
 // List Landing Queue
 // ============================================================================
@@ -355,13 +366,95 @@ pub fn checkLandingStatus(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
         return;
     };
 
-    // TODO: Call jj to check for conflicts
-    // For now, assume no conflicts
-    const has_conflicts = false;
+    // Get repository path
+    const repo_path = getRepoPath(ctx.allocator, username, repo_name) catch |err| {
+        log.err("Failed to build repo path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to build repository path\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path);
+
+    // Convert repo path to null-terminated C string
+    const repo_path_z = ctx.allocator.dupeZ(u8, repo_path) catch |err| {
+        log.err("Failed to allocate null-terminated path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Memory allocation error\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path_z);
+
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(repo_path_z.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        const err_msg = std.mem.span(workspace_result.error_message);
+        log.err("Failed to open jj workspace: {s}", .{err_msg});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open repository workspace\"}");
+        return;
+    }
+
+    // Convert change_id to null-terminated C string
+    const change_id_z = ctx.allocator.dupeZ(u8, req_data.change_id) catch |err| {
+        log.err("Failed to allocate change_id: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Memory allocation error\"}");
+        return;
+    };
+    defer ctx.allocator.free(change_id_z);
+
+    // Check for conflicts by attempting to get tree hash
+    // If the tree has conflicts, jj_get_tree_hash will return success=false
+    const tree_result = c.jj_get_tree_hash(workspace_result.workspace, change_id_z.ptr);
+    defer c.jj_free_tree_hash(tree_result);
+
+    const has_conflicts = !tree_result.success;
     const new_status = if (has_conflicts) "conflicted" else "ready";
 
+    // If there are conflicts, try to get the list of conflicted files
+    var conflicted_files = try std.ArrayList([]const u8).initCapacity(ctx.allocator, 0);
+    defer {
+        for (conflicted_files.items) |file| {
+            ctx.allocator.free(file);
+        }
+        conflicted_files.deinit(ctx.allocator);
+    }
+
+    if (has_conflicts) {
+        // List files in the change to identify which ones might have conflicts
+        const files_result = c.jj_list_files(workspace_result.workspace, change_id_z.ptr);
+        defer {
+            if (files_result.success and files_result.strings != null) {
+                c.jj_string_array_free(files_result.strings, files_result.len);
+            }
+            if (files_result.error_message != null) {
+                c.jj_string_free(files_result.error_message);
+            }
+        }
+
+        if (files_result.success) {
+            const files = files_result.strings[0..files_result.len];
+            for (files) |file_ptr| {
+                const file = std.mem.span(file_ptr);
+                // TODO: In a full implementation, we'd check each file for conflict markers
+                // For now, we'll add all files as potentially conflicted
+                const file_copy = try ctx.allocator.dupe(u8, file);
+                try conflicted_files.append(ctx.allocator, file_copy);
+            }
+        }
+    }
+
     // Update landing request with conflict status
-    db.updateLandingRequestConflicts(ctx.pool, landing_id, has_conflicts, &[_][]const u8{}) catch |err| {
+    db.updateLandingRequestConflicts(ctx.pool, landing_id, has_conflicts, conflicted_files.items) catch |err| {
         log.err("Failed to update conflicts: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to update conflicts\"}");
@@ -375,11 +468,17 @@ pub fn checkLandingStatus(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
         return;
     };
 
-    // Return status
+    // Return status with conflicted files
     var writer = res.writer();
     try writer.print(
-        \\{{"status":"{s}","hasConflicts":{s},"conflictedFiles":[]}}
+        \\{{"status":"{s}","hasConflicts":{s},"conflictedFiles":[
     , .{ new_status, if (has_conflicts) "true" else "false" });
+
+    for (conflicted_files.items, 0..) |file, i| {
+        if (i > 0) try writer.writeAll(",");
+        try writer.print("\"{s}\"", .{file});
+    }
+    try writer.writeAll("]}}");
 }
 
 // ============================================================================
@@ -471,9 +570,98 @@ pub fn executeLanding(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     }
 
-    // TODO: Execute actual landing via jj commands
-    // For now, just mark as landed
-    const landed_change_id = req_data.change_id; // In reality, this would be the new change ID after landing
+    // Get repository path
+    const repo_path = getRepoPath(ctx.allocator, username, repo_name) catch |err| {
+        log.err("Failed to build repo path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to build repository path\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path);
+
+    // Convert repo path to null-terminated C string
+    const repo_path_z = ctx.allocator.dupeZ(u8, repo_path) catch |err| {
+        log.err("Failed to allocate null-terminated path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Memory allocation error\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path_z);
+
+    // Open jj workspace to verify the change exists
+    const workspace_result = c.jj_workspace_open(repo_path_z.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        const err_msg = std.mem.span(workspace_result.error_message);
+        log.err("Failed to open jj workspace: {s}", .{err_msg});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open repository workspace\"}");
+        return;
+    }
+
+    // Convert change_id to null-terminated C string
+    const change_id_z = ctx.allocator.dupeZ(u8, req_data.change_id) catch |err| {
+        log.err("Failed to allocate change_id: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Memory allocation error\"}");
+        return;
+    };
+    defer ctx.allocator.free(change_id_z);
+
+    // Verify the change exists and has no conflicts
+    const commit_result = c.jj_get_commit(workspace_result.workspace, change_id_z.ptr);
+    defer {
+        if (commit_result.success and commit_result.commit != null) {
+            c.jj_commit_info_free(commit_result.commit);
+        }
+        if (commit_result.error_message != null) {
+            c.jj_string_free(commit_result.error_message);
+        }
+    }
+
+    if (!commit_result.success) {
+        const err_msg = std.mem.span(commit_result.error_message);
+        log.err("Failed to get commit: {s}", .{err_msg});
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Change not found in repository\"}");
+        return;
+    }
+
+    // Check for conflicts one more time before landing
+    const tree_result = c.jj_get_tree_hash(workspace_result.workspace, change_id_z.ptr);
+    defer c.jj_free_tree_hash(tree_result);
+
+    if (!tree_result.success) {
+        log.err("Change has conflicts, cannot land", .{});
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Change has unresolved conflicts\"}");
+        return;
+    }
+
+    // NOTE: The jj-ffi library does not yet expose merge/rebase operations.
+    // In a full implementation, we would:
+    // 1. Use jj_merge or jj_rebase to land the change onto the target bookmark
+    // 2. Get the new commit ID after the merge
+    // 3. Update the bookmark to point to the new commit
+    //
+    // For now, we verify the change is valid and mark it as landed.
+    // The actual merge operation should be performed by a separate jj CLI command
+    // or by extending the jj-ffi library to expose merge/rebase operations.
+    //
+    // TODO: Extend jj-ffi with:
+    // - jj_merge_commits(workspace, source_id, dest_id) -> JjCommitInfoResult
+    // - jj_rebase_change(workspace, change_id, dest_id) -> JjCommitInfoResult
+    // - jj_update_bookmark(workspace, bookmark_name, commit_id) -> JjResult
+
+    const landed_change_id = req_data.change_id;
 
     // Mark as landed
     db.markLandingRequestLanded(ctx.pool, landing_id, ctx.user.?.id, landed_change_id) catch |err| {
@@ -482,6 +670,8 @@ pub fn executeLanding(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         try res.writer().writeAll("{\"error\":\"Failed to mark as landed\"}");
         return;
     };
+
+    log.warn("Landing marked complete but actual merge not performed - jj-ffi needs merge/rebase operations", .{});
 
     // Return success
     var writer = res.writer();
@@ -754,9 +944,98 @@ pub fn getLandingFiles(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         return;
     }
 
-    // TODO: Get diff files from jj
-    // For now, return empty array
-    try res.writer().writeAll("{\"files\":[]}");
+    const req_data = request.?;
+
+    // Get repository path
+    const repo_path = getRepoPath(ctx.allocator, username, repo_name) catch |err| {
+        log.err("Failed to build repo path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to build repository path\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path);
+
+    // Convert repo path to null-terminated C string
+    const repo_path_z = ctx.allocator.dupeZ(u8, repo_path) catch |err| {
+        log.err("Failed to allocate null-terminated path: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Memory allocation error\"}");
+        return;
+    };
+    defer ctx.allocator.free(repo_path_z);
+
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(repo_path_z.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        const err_msg = std.mem.span(workspace_result.error_message);
+        log.err("Failed to open jj workspace: {s}", .{err_msg});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open repository workspace\"}");
+        return;
+    }
+
+    // Convert change_id to null-terminated C string
+    const change_id_z = ctx.allocator.dupeZ(u8, req_data.change_id) catch |err| {
+        log.err("Failed to allocate change_id: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Memory allocation error\"}");
+        return;
+    };
+    defer ctx.allocator.free(change_id_z);
+
+    // Get list of files in the change
+    const files_result = c.jj_list_files(workspace_result.workspace, change_id_z.ptr);
+    defer {
+        if (files_result.success and files_result.strings != null) {
+            c.jj_string_array_free(files_result.strings, files_result.len);
+        }
+        if (files_result.error_message != null) {
+            c.jj_string_free(files_result.error_message);
+        }
+    }
+
+    if (!files_result.success) {
+        const err_msg = std.mem.span(files_result.error_message);
+        log.err("Failed to list files: {s}", .{err_msg});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to list files\"}");
+        return;
+    }
+
+    // Build file list response
+    // NOTE: For now we just list the files. A full implementation would:
+    // 1. Get file content from both the change and its parent
+    // 2. Compare the contents to generate a proper diff
+    // 3. Calculate additions/deletions/changes statistics
+    //
+    // The jj-ffi library provides jj_get_file_content which could be used
+    // but generating proper diffs requires additional logic.
+    var writer = res.writer();
+    try writer.writeAll("{\"files\":[");
+
+    const files = files_result.strings[0..files_result.len];
+    for (files, 0..) |file_ptr, i| {
+        const file = std.mem.span(file_ptr);
+        if (i > 0) try writer.writeAll(",");
+        // Return basic file info - in a full implementation this would include:
+        // - status (added/modified/deleted)
+        // - additions/deletions count
+        // - diff content
+        try writer.print(
+            \\{{"path":"{s}","status":"modified","additions":0,"deletions":0}}
+        , .{file});
+    }
+
+    try writer.writeAll("]}");
 }
 
 // ============================================================================
@@ -1204,8 +1483,8 @@ fn writeLandingReviewJson(writer: anytype, review: db.LandingReview) !void {
         \\{{"id":{d},"landingId":{d},"reviewerId":{d},"type":"{s}","content":
     , .{ review.id, review.landing_id, review.reviewer_id, review.review_type });
 
-    if (review.content) |c| {
-        try writer.print("\"{s}\"", .{c});
+    if (review.content) |content| {
+        try writer.print("\"{s}\"", .{content});
     } else {
         try writer.writeAll("null");
     }

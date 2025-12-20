@@ -417,17 +417,18 @@ test "PTY session manager" {
     std.Thread.sleep(100 * std.time.ns_per_ms);
 
     // Read output
-    var output: std.ArrayList(u8) = .init(std.testing.allocator);
+    var output = std.ArrayList(u8){};
 
     for (0..10) |_| {
         if (try session.read()) |data| {
-            try output.appendSlice(data);
+            try output.appendSlice(std.testing.allocator, data);
         }
-        std.time.sleep(50 * std.time.ns_per_ms);
+        std.Thread.sleep(50 * std.time.ns_per_ms);
     }
 
     // Check we got some output
     try std.testing.expect(output.items.len > 0);
+    defer output.deinit(std.testing.allocator);
 
     // Close session
     try manager.closeSession(session.id);

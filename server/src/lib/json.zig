@@ -73,18 +73,18 @@ pub fn getStringArray(allocator: std.mem.Allocator, json_str: []const u8, field:
 
     if (parsed.value.object.get(field)) |value| {
         if (value == .array) {
-            var result = std.ArrayList([]const u8).init(allocator);
+            var result = std.ArrayList([]const u8){};
             errdefer {
                 for (result.items) |item| allocator.free(item);
-                result.deinit();
+                result.deinit(allocator);
             }
 
             for (value.array.items) |item| {
                 if (item == .string) {
-                    try result.append(try allocator.dupe(u8, item.string));
+                    try result.append(allocator, try allocator.dupe(u8, item.string));
                 }
             }
-            return try result.toOwnedSlice();
+            return try result.toOwnedSlice(allocator);
         }
     }
     return null;
@@ -93,28 +93,28 @@ pub fn getStringArray(allocator: std.mem.Allocator, json_str: []const u8, field:
 /// Escape a string for JSON output.
 /// Handles special characters: ", \, \n, \r, \t, and control characters.
 pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result = std.ArrayList(u8){};
+    errdefer result.deinit(allocator);
 
     for (input) |c| {
         switch (c) {
-            '"' => try result.appendSlice("\\\""),
-            '\\' => try result.appendSlice("\\\\"),
-            '\n' => try result.appendSlice("\\n"),
-            '\r' => try result.appendSlice("\\r"),
-            '\t' => try result.appendSlice("\\t"),
-            0x00...0x1F => {
-                // Control characters - encode as \u00XX
-                try result.appendSlice("\\u00");
+            '"' => try result.appendSlice(allocator, "\\\""),
+            '\\' => try result.appendSlice(allocator, "\\\\"),
+            '\n' => try result.appendSlice(allocator, "\\n"),
+            '\r' => try result.appendSlice(allocator, "\\r"),
+            '\t' => try result.appendSlice(allocator, "\\t"),
+            0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F => {
+                // Control characters (excluding \t=0x09, \n=0x0A, \r=0x0D) - encode as \u00XX
+                try result.appendSlice(allocator, "\\u00");
                 const hex = "0123456789abcdef";
-                try result.append(hex[c >> 4]);
-                try result.append(hex[c & 0x0F]);
+                try result.append(allocator, hex[c >> 4]);
+                try result.append(allocator, hex[c & 0x0F]);
             },
-            else => try result.append(c),
+            else => try result.append(allocator, c),
         }
     }
 
-    return try result.toOwnedSlice();
+    return try result.toOwnedSlice(allocator);
 }
 
 /// Write a JSON string value with proper escaping to a writer.
@@ -127,8 +127,8 @@ pub fn writeString(writer: anytype, value: []const u8) !void {
             '\n' => try writer.writeAll("\\n"),
             '\r' => try writer.writeAll("\\r"),
             '\t' => try writer.writeAll("\\t"),
-            0x00...0x1F => {
-                // Control characters - encode as \u00XX
+            0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F => {
+                // Control characters (excluding \t=0x09, \n=0x0A, \r=0x0D) - encode as \u00XX
                 try writer.writeAll("\\u00");
                 const hex = "0123456789abcdef";
                 try writer.writeByte(hex[c >> 4]);

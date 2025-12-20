@@ -88,8 +88,13 @@ pub fn executeGitCommand(
 
     // If this was a push (git-receive-pack) and succeeded, trigger jj sync
     if (command.command == .git_receive_pack and exit_code == 0) {
-        // TODO: Trigger jj sync to database
-        log.info("Push successful, jj sync needed for {s}/{s}", .{ command.user, command.repo });
+        log.info("Push successful, triggering jj sync for {s}/{s}", .{ command.user, command.repo });
+
+        // Trigger sync by making HTTP request to internal sync endpoint
+        triggerJjSync(allocator, command.user, command.repo) catch |err| {
+            // Log error but don't fail the push
+            log.err("Failed to trigger jj sync for {s}/{s}: {}", .{ command.user, command.repo, err });
+        };
     }
 
     return ExecResult{
@@ -102,6 +107,60 @@ pub fn executeGitCommand(
 /// Get full path to a repository
 fn getRepoPath(allocator: std.mem.Allocator, user: []const u8, repo: []const u8) ![]u8 {
     return std.fs.path.join(allocator, &.{ REPOS_DIR, user, repo });
+}
+
+/// Trigger jj sync to database after successful push
+/// Makes HTTP POST request to internal sync endpoint
+fn triggerJjSync(allocator: std.mem.Allocator, user: []const u8, repo: []const u8) !void {
+    // Get API URL from environment, default to localhost
+    const api_url = std.posix.getenv("PLUE_API_URL") orelse "http://localhost:8080";
+
+    // Build URL: POST /api/watcher/sync/:user/:repo
+    const url = try std.fmt.allocPrint(allocator, "{s}/api/watcher/sync/{s}/{s}", .{ api_url, user, repo });
+    defer allocator.free(url);
+
+    log.debug("Triggering jj sync via: {s}", .{url});
+
+    // Use curl for simplicity (available in most environments)
+    // In production, consider using a proper HTTP client library
+    var child = std.process.Child.init(&.{
+        "curl",
+        "-X",
+        "POST",
+        "-s", // Silent mode
+        "-f", // Fail silently on HTTP errors
+        "-m",
+        "5", // 5 second timeout
+        url,
+    }, allocator);
+
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    try child.spawn();
+
+    // Read and discard output
+    const stdout = try child.stdout.?.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
+    defer allocator.free(stdout);
+    const stderr = try child.stderr.?.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
+    defer allocator.free(stderr);
+
+    const term = try child.wait();
+
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                log.warn("Sync trigger failed with exit code {d}: {s}", .{ code, stderr });
+                return error.SyncTriggerFailed;
+            }
+            log.debug("Sync triggered successfully: {s}", .{stdout});
+        },
+        else => {
+            log.warn("Sync trigger terminated abnormally", .{});
+            return error.SyncTriggerFailed;
+        },
+    }
 }
 
 /// Validate that the authenticated user has access to the repository

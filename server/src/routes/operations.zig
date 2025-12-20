@@ -10,6 +10,21 @@ const db = @import("../lib/db.zig");
 
 const log = std.log.scoped(.operations_routes);
 
+// Import jj-ffi C library
+const c = @cImport({
+    @cInclude("jj_ffi.h");
+});
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+fn getRepoPath(allocator: std.mem.Allocator, username: []const u8, repo_name: []const u8) ![]const u8 {
+    // TODO: Make this configurable
+    const base_path = "/tmp/plue/repos";
+    return std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ base_path, username, repo_name });
+}
+
 // =============================================================================
 // List Operations
 // =============================================================================
@@ -50,8 +65,61 @@ pub fn listOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return;
     }
 
-    // TODO: Get operations from jj using jj-ffi
-    // For now, return operations from database cache
+    // Get repository path for jj operations
+    const repo_path = try getRepoPath(ctx.allocator, user, repo);
+    defer ctx.allocator.free(repo_path);
+
+    // Convert to null-terminated C string
+    const repo_path_z = try ctx.allocator.dupeZ(u8, repo_path);
+    defer ctx.allocator.free(repo_path_z);
+
+    // Try to get current operation from jj-ffi
+    // NOTE: Full operation log listing requires jj_list_operations FFI function
+    // which needs to be added to jj-ffi/src/lib.rs
+    if (c.jj_is_jj_workspace(repo_path_z.ptr)) {
+        const workspace_result = c.jj_workspace_open(repo_path_z.ptr);
+        defer {
+            if (workspace_result.success and workspace_result.workspace != null) {
+                c.jj_workspace_free(workspace_result.workspace);
+            }
+            if (workspace_result.error_message != null) {
+                c.jj_string_free(workspace_result.error_message);
+            }
+        }
+
+        if (workspace_result.success and workspace_result.workspace != null) {
+            const op_result = c.jj_get_current_operation(workspace_result.workspace);
+            defer {
+                if (op_result.success and op_result.operation != null) {
+                    c.jj_operation_info_free(op_result.operation);
+                }
+                if (op_result.error_message != null) {
+                    c.jj_string_free(op_result.error_message);
+                }
+            }
+
+            if (op_result.success and op_result.operation != null) {
+                const op = op_result.operation.*;
+                const op_id = std.mem.span(op.id);
+                const op_desc = std.mem.span(op.description);
+
+                // Store current operation in cache
+                db.createOperation(
+                    ctx.pool,
+                    repository.?.id,
+                    op_id,
+                    "current",
+                    op_desc,
+                    op.timestamp,
+                ) catch |err| {
+                    log.warn("Failed to cache operation: {}", .{err});
+                };
+            }
+        }
+    }
+
+    // Return operations from database cache
+    // TODO: Once jj_list_operations is added to FFI, fetch directly from jj
     var operations = db.getOperationsByRepository(ctx.pool, ctx.allocator, repository.?.id, limit) catch |err| {
         log.err("Failed to get operations: {}", .{err});
         res.status = 500;
@@ -120,7 +188,62 @@ pub fn getOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         return;
     }
 
-    // Get operation from database
+    // Try to get operation from jj-ffi first
+    const repo_path = try getRepoPath(ctx.allocator, user, repo);
+    defer ctx.allocator.free(repo_path);
+
+    // Convert to null-terminated C string
+    const repo_path_z = try ctx.allocator.dupeZ(u8, repo_path);
+    defer ctx.allocator.free(repo_path_z);
+
+    var found_in_jj = false;
+
+    if (c.jj_is_jj_workspace(repo_path_z.ptr)) {
+        const workspace_result = c.jj_workspace_open(repo_path_z.ptr);
+        defer {
+            if (workspace_result.success and workspace_result.workspace != null) {
+                c.jj_workspace_free(workspace_result.workspace);
+            }
+            if (workspace_result.error_message != null) {
+                c.jj_string_free(workspace_result.error_message);
+            }
+        }
+
+        if (workspace_result.success and workspace_result.workspace != null) {
+            const op_result = c.jj_get_current_operation(workspace_result.workspace);
+            defer {
+                if (op_result.success and op_result.operation != null) {
+                    c.jj_operation_info_free(op_result.operation);
+                }
+                if (op_result.error_message != null) {
+                    c.jj_string_free(op_result.error_message);
+                }
+            }
+
+            if (op_result.success and op_result.operation != null) {
+                const op = op_result.operation.*;
+                const op_id = std.mem.span(op.id);
+
+                // Check if this is the operation we're looking for
+                if (std.mem.eql(u8, op_id, operation_id)) {
+                    found_in_jj = true;
+                    const op_desc = std.mem.span(op.description);
+
+                    var writer = res.writer();
+                    try writer.writeAll("{\"operation\":{");
+                    try writer.print("\"operationId\":\"{s}\",", .{op_id});
+                    try writer.print("\"type\":\"current\",", .{});
+                    try writer.print("\"description\":\"{s}\",", .{op_desc});
+                    try writer.print("\"timestamp\":{d}", .{op.timestamp});
+                    try writer.writeAll("}}");
+                    return;
+                }
+            }
+        }
+    }
+
+    // Fall back to database cache
+    // NOTE: Full operation retrieval by ID requires jj_get_operation FFI function
     const operation = db.getOperationById(ctx.pool, repository.?.id, operation_id) catch |err| {
         log.err("Failed to get operation: {}", .{err});
         res.status = 500;
@@ -129,7 +252,6 @@ pub fn getOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
     };
 
     if (operation == null) {
-        // TODO: Try to find in jj op log using jj-ffi
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Operation not found\"}");
         return;
@@ -183,8 +305,34 @@ pub fn undoOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         return;
     }
 
-    // TODO: Call jj undo operation using jj-ffi
-    // For now, just record the undo in the database
+    // NOTE: This requires jj_undo FFI function to be added to jj-ffi/src/lib.rs
+    // The FFI function should call jj's operation undo functionality
+    // For now, we return an error indicating the feature is not yet available
+
+    const repo_path = try getRepoPath(ctx.allocator, user, repo);
+    defer ctx.allocator.free(repo_path);
+
+    // Convert to null-terminated C string
+    const repo_path_z = try ctx.allocator.dupeZ(u8, repo_path);
+    defer ctx.allocator.free(repo_path_z);
+
+    // Verify it's a jj workspace
+    if (!c.jj_is_jj_workspace(repo_path_z.ptr)) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Repository is not a jj workspace\"}");
+        return;
+    }
+
+    // TODO: Once jj_undo is implemented in FFI, call it here
+    // Example implementation would be:
+    // const workspace_result = c.jj_workspace_open(repo_path.ptr);
+    // defer cleanup...
+    // const undo_result = c.jj_undo(workspace_result.workspace);
+    // if (!undo_result.success) { return error }
+
+    log.warn("Undo operation requested but jj_undo FFI not yet implemented", .{});
+
+    // For now, record the undo request in the database for tracking
     const timestamp = std.time.milliTimestamp();
     const undo_id = try std.fmt.allocPrint(ctx.allocator, "undo-{d}", .{timestamp});
     defer ctx.allocator.free(undo_id);
@@ -194,16 +342,17 @@ pub fn undoOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         repository.?.id,
         undo_id,
         "undo",
-        "Undo last operation",
+        "Undo operation (pending FFI implementation)",
         timestamp,
     ) catch |err| {
         log.err("Failed to record undo operation: {}", .{err});
         res.status = 500;
-        try res.writer().writeAll("{\"error\":\"Failed to undo operation\"}");
+        try res.writer().writeAll("{\"error\":\"Failed to record undo operation\"}");
         return;
     };
 
-    try res.writer().writeAll("{\"success\":true}");
+    res.status = 501; // Not Implemented
+    try res.writer().writeAll("{\"error\":\"Undo operation requires jj_undo FFI function\",\"status\":\"not_implemented\"}");
 }
 
 // =============================================================================
@@ -247,7 +396,24 @@ pub fn restoreOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response
         return;
     }
 
-    // Verify the target operation exists
+    // NOTE: This requires jj_restore_operation FFI function to be added to jj-ffi/src/lib.rs
+    // The FFI function should call jj's operation restore functionality
+
+    const repo_path = try getRepoPath(ctx.allocator, user, repo);
+    defer ctx.allocator.free(repo_path);
+
+    // Convert to null-terminated C string
+    const repo_path_z = try ctx.allocator.dupeZ(u8, repo_path);
+    defer ctx.allocator.free(repo_path_z);
+
+    // Verify it's a jj workspace
+    if (!c.jj_is_jj_workspace(repo_path_z.ptr)) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Repository is not a jj workspace\"}");
+        return;
+    }
+
+    // Verify the target operation exists in database cache
     const target_op = db.getOperationById(ctx.pool, repository.?.id, operation_id) catch |err| {
         log.err("Failed to get target operation: {}", .{err});
         res.status = 500;
@@ -261,8 +427,16 @@ pub fn restoreOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response
         return;
     }
 
-    // TODO: Call jj restore operation using jj-ffi
-    // For now, just mark intermediate operations as undone and record the restore
+    // TODO: Once jj_restore_operation is implemented in FFI, call it here
+    // Example implementation would be:
+    // const workspace_result = c.jj_workspace_open(repo_path.ptr);
+    // defer cleanup...
+    // const restore_result = c.jj_restore_operation(workspace_result.workspace, operation_id.ptr);
+    // if (!restore_result.success) { return error }
+
+    log.warn("Restore operation requested but jj_restore_operation FFI not yet implemented", .{});
+
+    // For now, mark intermediate operations as undone in cache and record the restore
     db.markOperationsAsUndone(ctx.pool, repository.?.id, target_op.?.timestamp) catch |err| {
         log.err("Failed to mark operations as undone: {}", .{err});
         // Continue anyway, this is just cache management
@@ -272,7 +446,7 @@ pub fn restoreOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     const restore_id = try std.fmt.allocPrint(ctx.allocator, "restore-{d}", .{timestamp});
     defer ctx.allocator.free(restore_id);
 
-    const description = try std.fmt.allocPrint(ctx.allocator, "Restore to operation {s}", .{operation_id});
+    const description = try std.fmt.allocPrint(ctx.allocator, "Restore to operation {s} (pending FFI implementation)", .{operation_id});
     defer ctx.allocator.free(description);
 
     db.createOperation(
@@ -285,9 +459,10 @@ pub fn restoreOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     ) catch |err| {
         log.err("Failed to record restore operation: {}", .{err});
         res.status = 500;
-        try res.writer().writeAll("{\"error\":\"Failed to restore operation\"}");
+        try res.writer().writeAll("{\"error\":\"Failed to record restore operation\"}");
         return;
     };
 
-    try res.writer().writeAll("{\"success\":true}");
+    res.status = 501; // Not Implemented
+    try res.writer().writeAll("{\"error\":\"Restore operation requires jj_restore_operation FFI function\",\"status\":\"not_implemented\"}");
 }

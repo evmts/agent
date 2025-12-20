@@ -93,7 +93,7 @@ pub fn timedLoggerMiddleware() fn (*Context, *httpz.Request, *httpz.Response) an
             // For now, just log the incoming request
             log.info("[{s}] --> {s} {s}", .{
                 request_id,
-                req.method,
+                @tagName(req.method),
                 req.url.path,
             });
 
@@ -115,7 +115,7 @@ pub fn simpleLoggerMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Re
     // Log request
     log.info("[{s}] {s} {s}", .{
         &request_id,
-        req.method,
+        @tagName(req.method),
         req.url.path,
     });
 

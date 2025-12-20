@@ -29,6 +29,11 @@ const db = @import("../lib/db.zig");
 
 const log = std.log.scoped(.session_routes);
 
+// Import JJ FFI
+const c = @cImport({
+    @cInclude("jj_ffi.h");
+});
+
 /// Helper to generate session ID
 fn generateSessionId(allocator: std.mem.Allocator) ![]const u8 {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -349,9 +354,10 @@ pub fn abortSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         return;
     }
 
-    // TODO: Implement actual abort logic with task tracking
-    // For now, just return success
-    try res.writer().writeAll("{\"success\":true,\"aborted\":false}");
+    // Note: Task cancellation requires coordination with the agent runner
+    // This would need a task tracking system to abort running operations
+    res.status = 501;
+    try res.writer().writeAll("{\"error\":\"Abort not implemented - requires task tracking system\",\"success\":false}");
 }
 
 /// GET /api/sessions/:sessionId/diff
@@ -366,18 +372,72 @@ pub fn getSessionDiff(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     }
 
-    // TODO: Implement JJ-based diff computation
-    // For now, return empty diffs
     const query_params = try req.query();
     _ = query_params.get("messageId");
-    try res.writer().writeAll("{\"diffs\":[]}");
+
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        try res.writer().writeAll("{\"diffs\":[]}");
+        return;
+    }
+
+    // List recent changes to show as diffs
+    const changes_result = c.jj_list_changes(workspace_result.workspace, 10, null);
+    defer {
+        if (changes_result.success and changes_result.commits != null) {
+            c.jj_commit_array_free(changes_result.commits, changes_result.len);
+        }
+        if (changes_result.error_message != null) {
+            c.jj_string_free(changes_result.error_message);
+        }
+    }
+
+    if (!changes_result.success) {
+        log.err("Failed to list changes: {s}", .{std.mem.span(changes_result.error_message)});
+        try res.writer().writeAll("{\"diffs\":[]}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"diffs\":[");
+
+    if (changes_result.commits != null) {
+        const commits = changes_result.commits[0..changes_result.len];
+        for (commits, 0..) |commit_ptr, i| {
+            if (i > 0) try writer.writeAll(",");
+
+            const commit = commit_ptr.*;
+            const change_id = std.mem.span(commit.change_id);
+            const desc = std.mem.span(commit.description);
+
+            try writer.writeAll("{");
+            try writer.print("\"changeId\":\"{s}\",", .{change_id});
+            try writer.print("\"description\":\"{s}\",", .{desc});
+            try writer.print("\"timestamp\":{d},", .{commit.author_timestamp});
+            try writer.print("\"isEmpty\":{s}", .{if (commit.is_empty) "true" else "false"});
+            try writer.writeAll("}");
+        }
+    }
+
+    try writer.writeAll("]}");
 }
 
 /// GET /api/sessions/:sessionId/changes
@@ -392,18 +452,89 @@ pub fn getSessionChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Respons
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     }
 
-    // TODO: Implement JJ-based snapshot/change tracking
-    // For now, return empty changes
     const query_params = try req.query();
-    _ = query_params.get("limit");
-    try res.writer().writeAll("{\"changes\":[],\"currentChangeId\":null,\"total\":0}");
+    const limit_str = query_params.get("limit");
+    const limit: u32 = if (limit_str) |l| std.fmt.parseInt(u32, l, 10) catch 50 else 50;
+
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        try res.writer().writeAll("{\"changes\":[],\"currentChangeId\":null,\"total\":0}");
+        return;
+    }
+
+    // List changes
+    const changes_result = c.jj_list_changes(workspace_result.workspace, limit, null);
+    defer {
+        if (changes_result.success and changes_result.commits != null) {
+            c.jj_commit_array_free(changes_result.commits, changes_result.len);
+        }
+        if (changes_result.error_message != null) {
+            c.jj_string_free(changes_result.error_message);
+        }
+    }
+
+    if (!changes_result.success) {
+        log.err("Failed to list changes: {s}", .{std.mem.span(changes_result.error_message)});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to list changes\"}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"changes\":[");
+
+    if (changes_result.commits != null) {
+        const commits = changes_result.commits[0..changes_result.len];
+        for (commits, 0..) |commit_ptr, i| {
+            if (i > 0) try writer.writeAll(",");
+
+            const commit = commit_ptr.*;
+            const change_id = std.mem.span(commit.change_id);
+            const desc = std.mem.span(commit.description);
+            const author_name = std.mem.span(commit.author_name);
+            const author_email = std.mem.span(commit.author_email);
+
+            try writer.writeAll("{");
+            try writer.print("\"changeId\":\"{s}\",", .{change_id});
+            try writer.print("\"commitId\":\"{s}\",", .{std.mem.span(commit.id)});
+            try writer.print("\"description\":\"{s}\",", .{desc});
+            try writer.print("\"author\":{{\"name\":\"{s}\",\"email\":\"{s}\"}},", .{ author_name, author_email });
+            try writer.print("\"timestamp\":{d},", .{commit.author_timestamp});
+            try writer.print("\"isEmpty\":{s}", .{if (commit.is_empty) "true" else "false"});
+            try writer.writeAll("}");
+        }
+    }
+
+    const current_change_id = if (changes_result.len > 0 and changes_result.commits != null)
+        std.mem.span(changes_result.commits[0].*.change_id)
+    else
+        "";
+
+    try writer.print("],\"currentChangeId\":", .{});
+    if (current_change_id.len > 0) {
+        try writer.print("\"{s}\"", .{current_change_id});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(",\"total\":{d}}}", .{changes_result.len});
 }
 
 /// GET /api/sessions/:sessionId/changes/:changeId
@@ -424,17 +555,78 @@ pub fn getSpecificChange(ctx: *Context, req: *httpz.Request, res: *httpz.Respons
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     }
 
-    // TODO: Implement JJ-based change retrieval
-    _ = change_id;
-    res.status = 404;
-    try res.writer().writeAll("{\"error\":\"Change not found\"}");
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open workspace\"}");
+        return;
+    }
+
+    // Get commit info by ID
+    const commit_result = c.jj_get_commit(workspace_result.workspace, change_id.ptr);
+    defer {
+        if (commit_result.success and commit_result.commit != null) {
+            c.jj_commit_info_free(commit_result.commit);
+        }
+        if (commit_result.error_message != null) {
+            c.jj_string_free(commit_result.error_message);
+        }
+    }
+
+    if (!commit_result.success) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Change not found\"}");
+        return;
+    }
+
+    const commit = commit_result.commit.*;
+    const change_id_str = std.mem.span(commit.change_id);
+    const desc = std.mem.span(commit.description);
+    const author_name = std.mem.span(commit.author_name);
+    const author_email = std.mem.span(commit.author_email);
+    const committer_name = std.mem.span(commit.committer_name);
+    const committer_email = std.mem.span(commit.committer_email);
+
+    var writer = res.writer();
+    try writer.writeAll("{\"change\":{");
+    try writer.print("\"changeId\":\"{s}\",", .{change_id_str});
+    try writer.print("\"commitId\":\"{s}\",", .{std.mem.span(commit.id)});
+    try writer.print("\"description\":\"{s}\",", .{desc});
+    try writer.print("\"author\":{{\"name\":\"{s}\",\"email\":\"{s}\"}},", .{ author_name, author_email });
+    try writer.print("\"committer\":{{\"name\":\"{s}\",\"email\":\"{s}\"}},", .{ committer_name, committer_email });
+    try writer.print("\"timestamp\":{d},", .{commit.author_timestamp});
+    try writer.print("\"isEmpty\":{s},", .{if (commit.is_empty) "true" else "false"});
+
+    // Parent IDs
+    try writer.writeAll("\"parents\":[");
+    if (commit.parent_ids != null and commit.parent_ids_len > 0) {
+        const parent_ids = commit.parent_ids[0..commit.parent_ids_len];
+        for (parent_ids, 0..) |parent_id_ptr, i| {
+            if (i > 0) try writer.writeAll(",");
+            try writer.print("\"{s}\"", .{std.mem.span(parent_id_ptr)});
+        }
+    }
+    try writer.writeAll("]");
+
+    try writer.writeAll("}}");
 }
 
 /// GET /api/sessions/:sessionId/changes/:fromChangeId/compare/:toChangeId
@@ -461,17 +653,66 @@ pub fn compareChanges(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     }
 
-    // TODO: Implement JJ-based diff comparison
-    _ = from_change_id;
-    _ = to_change_id;
-    try res.writer().writeAll("{\"diffs\":[]}");
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open workspace\"}");
+        return;
+    }
+
+    // Get both commits to verify they exist
+    const from_commit_result = c.jj_get_commit(workspace_result.workspace, from_change_id.ptr);
+    defer {
+        if (from_commit_result.success and from_commit_result.commit != null) {
+            c.jj_commit_info_free(from_commit_result.commit);
+        }
+        if (from_commit_result.error_message != null) {
+            c.jj_string_free(from_commit_result.error_message);
+        }
+    }
+
+    const to_commit_result = c.jj_get_commit(workspace_result.workspace, to_change_id.ptr);
+    defer {
+        if (to_commit_result.success and to_commit_result.commit != null) {
+            c.jj_commit_info_free(to_commit_result.commit);
+        }
+        if (to_commit_result.error_message != null) {
+            c.jj_string_free(to_commit_result.error_message);
+        }
+    }
+
+    if (!from_commit_result.success or !to_commit_result.success) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"One or both changes not found\"}");
+        return;
+    }
+
+    // Note: Full diff computation would require additional FFI functions
+    // For now, return metadata about the changes being compared
+    var writer = res.writer();
+    try writer.writeAll("{\"from\":\"");
+    try writer.writeAll(from_change_id);
+    try writer.writeAll("\",\"to\":\"");
+    try writer.writeAll(to_change_id);
+    try writer.writeAll("\",\"diffs\":[],\"note\":\"Full diff computation requires additional FFI support\"}");
 }
 
 /// GET /api/sessions/:sessionId/changes/:changeId/files
@@ -492,16 +733,62 @@ pub fn getFilesAtChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     }
 
-    // TODO: Implement JJ-based file listing at change
-    _ = change_id;
-    try res.writer().writeAll("{\"files\":[]}");
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open workspace\"}");
+        return;
+    }
+
+    // List files at change
+    const files_result = c.jj_list_files(workspace_result.workspace, change_id.ptr);
+    defer {
+        if (files_result.success and files_result.strings != null) {
+            c.jj_string_array_free(files_result.strings, files_result.len);
+        }
+        if (files_result.error_message != null) {
+            c.jj_string_free(files_result.error_message);
+        }
+    }
+
+    if (!files_result.success) {
+        log.err("Failed to list files: {s}", .{std.mem.span(files_result.error_message)});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to list files\"}");
+        return;
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"files\":[");
+
+    if (files_result.strings != null) {
+        const files = files_result.strings[0..files_result.len];
+        for (files, 0..) |file_ptr, i| {
+            if (i > 0) try writer.writeAll(",");
+            const file_path = std.mem.span(file_ptr);
+            try writer.print("\"{s}\"", .{file_path});
+        }
+    }
+
+    try writer.writeAll("]}");
 }
 
 /// GET /api/sessions/:sessionId/changes/:changeId/file/*
@@ -522,8 +809,8 @@ pub fn getFileAtChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
@@ -546,11 +833,61 @@ pub fn getFileAtChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         return;
     }
 
-    // TODO: Implement JJ-based file content retrieval
-    _ = change_id;
-    res.status = 404;
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to open workspace\"}");
+        return;
+    }
+
+    // Get file content at change
+    const content_result = c.jj_get_file_content(workspace_result.workspace, change_id.ptr, file_path.ptr);
+    defer {
+        if (content_result.string != null) {
+            c.jj_string_free(content_result.string);
+        }
+        if (content_result.error_message != null) {
+            c.jj_string_free(content_result.error_message);
+        }
+    }
+
+    if (!content_result.success) {
+        res.status = 404;
+        var writer = res.writer();
+        try writer.print("{{\"error\":\"File '{s}' not found at this change\"}}", .{file_path});
+        return;
+    }
+
+    const content = std.mem.span(content_result.string);
     var writer = res.writer();
-    try writer.print("{{\"error\":\"File '{s}' not found at this change\"}}", .{file_path});
+    try writer.writeAll("{\"path\":\"");
+    try writer.writeAll(file_path);
+    try writer.writeAll("\",\"content\":\"");
+
+    // Escape JSON string content
+    for (content) |ch| {
+        switch (ch) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(ch),
+        }
+    }
+
+    try writer.writeAll("\"}");
 }
 
 /// GET /api/sessions/:sessionId/conflicts
@@ -590,17 +927,62 @@ pub fn getSessionOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     };
 
     // Verify session exists
-    const existing = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (existing == null) {
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
+    if (session == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     }
 
-    // TODO: Implement JJ operation log
     const query_params = try req.query();
     _ = query_params.get("limit");
-    try res.writer().writeAll("{\"operations\":[],\"total\":0}");
+
+    // Open jj workspace
+    const workspace_result = c.jj_workspace_open(session.?.directory.ptr);
+    defer {
+        if (workspace_result.success and workspace_result.workspace != null) {
+            c.jj_workspace_free(workspace_result.workspace);
+        }
+        if (workspace_result.error_message != null) {
+            c.jj_string_free(workspace_result.error_message);
+        }
+    }
+
+    if (!workspace_result.success) {
+        log.warn("Failed to open jj workspace: {s}", .{std.mem.span(workspace_result.error_message)});
+        try res.writer().writeAll("{\"operations\":[],\"total\":0}");
+        return;
+    }
+
+    // Get current operation
+    const op_result = c.jj_get_current_operation(workspace_result.workspace);
+    defer {
+        if (op_result.success and op_result.operation != null) {
+            c.jj_operation_info_free(op_result.operation);
+        }
+        if (op_result.error_message != null) {
+            c.jj_string_free(op_result.error_message);
+        }
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"operations\":[");
+
+    if (op_result.success and op_result.operation != null) {
+        const op = op_result.operation.*;
+        const op_id = std.mem.span(op.id);
+        const op_desc = std.mem.span(op.description);
+
+        try writer.writeAll("{");
+        try writer.print("\"id\":\"{s}\",", .{op_id});
+        try writer.print("\"description\":\"{s}\",", .{op_desc});
+        try writer.print("\"timestamp\":{d}", .{op.timestamp});
+        try writer.writeAll("}");
+
+        try writer.writeAll("],\"total\":1}");
+    } else {
+        try writer.writeAll("],\"total\":0}");
+    }
 }
 
 /// POST /api/sessions/:sessionId/operations/undo
@@ -622,8 +1004,9 @@ pub fn undoLastOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Respons
         return;
     }
 
-    // TODO: Implement JJ undo operation
-    try res.writer().writeAll("{\"success\":true}");
+    // Note: jj_undo is not available in the FFI yet
+    res.status = 501;
+    try res.writer().writeAll("{\"error\":\"Undo operation not implemented in FFI\",\"success\":false}");
 }
 
 /// POST /api/sessions/:sessionId/operations/:operationId/restore
@@ -651,9 +1034,11 @@ pub fn restoreOperation(ctx: *Context, req: *httpz.Request, res: *httpz.Response
         return;
     }
 
-    // TODO: Implement JJ restore operation
-    var writer = res.writer();
-    try writer.print("{{\"success\":true,\"restoredTo\":\"{s}\"}}", .{operation_id});
+    _ = operation_id;
+
+    // Note: jj_restore_operation is not available in the FFI yet
+    res.status = 501;
+    try res.writer().writeAll("{\"error\":\"Restore operation not implemented in FFI\",\"success\":false}");
 }
 
 /// POST /api/sessions/:sessionId/fork
@@ -773,20 +1158,9 @@ pub fn revertSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     };
     defer parsed.deinit();
 
-    // TODO: Implement revert logic with snapshot restoration
-
-    // Return updated session
-    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (session == null) {
-        res.status = 500;
-        try res.writer().writeAll("{\"error\":\"Session reverted but not found\"}");
-        return;
-    }
-
-    var writer = res.writer();
-    try writer.writeAll("{\"session\":");
-    try writeSessionJson(writer, session.?);
-    try writer.writeAll("}");
+    // Note: jj_revert is not available in the FFI yet
+    res.status = 501;
+    try res.writer().writeAll("{\"error\":\"Revert operation not implemented in FFI\",\"success\":false}");
 }
 
 /// POST /api/sessions/:sessionId/unrevert
@@ -808,20 +1182,9 @@ pub fn unrevertSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         return;
     }
 
-    // TODO: Implement unrevert logic
-
-    // Return updated session
-    const session = db.getAgentSessionById(ctx.pool, session_id) catch null;
-    if (session == null) {
-        res.status = 500;
-        try res.writer().writeAll("{\"error\":\"Session unreverted but not found\"}");
-        return;
-    }
-
-    var writer = res.writer();
-    try writer.writeAll("{\"session\":");
-    try writeSessionJson(writer, session.?);
-    try writer.writeAll("}");
+    // Note: jj_unrevert is not available in the FFI yet
+    res.status = 501;
+    try res.writer().writeAll("{\"error\":\"Unrevert operation not implemented in FFI\",\"success\":false}");
 }
 
 /// POST /api/sessions/:sessionId/undo
@@ -859,10 +1222,10 @@ pub fn undoTurns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     };
     defer parsed.deinit();
 
-    const count = parsed.value.count orelse 1;
+    _ = parsed.value.count;
 
-    // TODO: Implement undo turns logic (remove messages, restore snapshots)
-    _ = count;
-
-    try res.writer().writeAll("{\"turnsUndone\":0,\"messagesRemoved\":0,\"filesReverted\":0,\"snapshotRestored\":false}");
+    // Note: Undo turns requires coordination between message deletion and jj operations
+    // This needs additional FFI support and database logic
+    res.status = 501;
+    try res.writer().writeAll("{\"error\":\"Undo turns not implemented\",\"success\":false}");
 }

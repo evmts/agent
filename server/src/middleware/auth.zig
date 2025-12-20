@@ -13,11 +13,77 @@ const log = std.log.scoped(.auth);
 
 const SESSION_COOKIE_NAME = "plue_session";
 
+// =============================================================================
+// Token Scopes
+// =============================================================================
+
+/// API token scopes
+pub const TokenScope = enum {
+    repo_read,
+    repo_write,
+    user_read,
+    user_write,
+    admin,
+
+    /// Parse scope from string
+    pub fn fromString(str: []const u8) ?TokenScope {
+        if (std.mem.eql(u8, str, "repo:read")) return .repo_read;
+        if (std.mem.eql(u8, str, "repo:write")) return .repo_write;
+        if (std.mem.eql(u8, str, "repo")) return .repo_write; // "repo" grants full repo access
+        if (std.mem.eql(u8, str, "user:read")) return .user_read;
+        if (std.mem.eql(u8, str, "user:write")) return .user_write;
+        if (std.mem.eql(u8, str, "user")) return .user_write; // "user" grants full user access
+        if (std.mem.eql(u8, str, "admin")) return .admin;
+        return null;
+    }
+
+    /// Convert scope to string
+    pub fn toString(self: TokenScope) []const u8 {
+        return switch (self) {
+            .repo_read => "repo:read",
+            .repo_write => "repo:write",
+            .user_read => "user:read",
+            .user_write => "user:write",
+            .admin => "admin",
+        };
+    }
+};
+
+/// Check if a token has a required scope
+/// Scopes are stored as comma-separated strings like "repo,user"
+/// Write scopes imply read scopes (e.g., repo:write includes repo:read)
+pub fn hasScope(scopes: []const u8, required: TokenScope) bool {
+    // Parse comma-separated scopes
+    var it = std.mem.splitSequence(u8, scopes, ",");
+    while (it.next()) |scope_str| {
+        const trimmed = std.mem.trim(u8, scope_str, " \t\n\r");
+        if (trimmed.len == 0) continue;
+
+        const scope = TokenScope.fromString(trimmed) orelse continue;
+
+        // Exact match
+        if (scope == required) return true;
+
+        // Write implies read for the same resource
+        switch (required) {
+            .repo_read => if (scope == .repo_write) return true,
+            .user_read => if (scope == .user_write) return true,
+            else => {},
+        }
+
+        // Admin has all permissions
+        if (scope == .admin) return true;
+    }
+
+    return false;
+}
+
 /// Hash a token using SHA256 for comparison with database
 fn hashToken(allocator: std.mem.Allocator, token: []const u8) ![]const u8 {
     var hash: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(token, &hash, .{});
-    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hash)});
+    const hex = std.fmt.bytesToHex(hash, .lower);
+    return allocator.dupe(u8, &hex);
 }
 
 /// Extract Bearer token from Authorization header
@@ -37,21 +103,22 @@ pub fn authMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         const token_hash = try hashToken(ctx.allocator, token);
         defer ctx.allocator.free(token_hash);
 
-        // Validate token and get user
-        const user_record = db.validateAccessToken(ctx.pool, token_hash) catch null;
-        if (user_record) |ur| {
-            if (!ur.prohibit_login) {
+        // Validate token and get user + scopes
+        const token_result = db.validateAccessToken(ctx.pool, token_hash) catch null;
+        if (token_result) |result| {
+            if (!result.user.prohibit_login) {
                 // Set context from access token
                 ctx.user = User{
-                    .id = ur.id,
-                    .username = ur.username,
-                    .email = ur.email,
-                    .display_name = ur.display_name,
-                    .is_admin = ur.is_admin,
-                    .is_active = ur.is_active,
-                    .wallet_address = ur.wallet_address,
+                    .id = result.user.id,
+                    .username = result.user.username,
+                    .email = result.user.email,
+                    .display_name = result.user.display_name,
+                    .is_admin = result.user.is_admin,
+                    .is_active = result.user.is_active,
+                    .wallet_address = result.user.wallet_address,
                 };
                 ctx.session_key = null; // No session key for token auth
+                ctx.token_scopes = result.scopes; // Store scopes for scope checking
                 _ = res;
                 return true; // Continue to next handler
             }
@@ -153,6 +220,35 @@ pub fn requireAdmin(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !boo
         try res.writer().writeAll("{\"error\":\"Admin access required\"}");
         return false;
     }
+    return true;
+}
+
+/// Check if the request has a required scope (for use in route handlers)
+/// Returns true if authorized, false if unauthorized (and sets appropriate HTTP response)
+/// Note: Session-based auth (cookies) bypasses scope checks - only API tokens are restricted
+pub fn checkScope(ctx: *Context, res: *httpz.Response, required: TokenScope) !bool {
+    // Require authentication first
+    if (ctx.user == null) {
+        res.status = 401;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return false;
+    }
+
+    // If using session auth (no token_scopes), allow access
+    // Session-based auth has full access
+    const scopes = ctx.token_scopes orelse return true;
+
+    // Check if token has required scope
+    if (!hasScope(scopes, required)) {
+        res.status = 403;
+        res.content_type = .JSON;
+        var buf: [256]u8 = undefined;
+        const msg = try std.fmt.bufPrint(&buf, "{{\"error\":\"Insufficient scope. Required: {s}\"}}", .{required.toString()});
+        try res.writer().writeAll(msg);
+        return false;
+    }
+
     return true;
 }
 

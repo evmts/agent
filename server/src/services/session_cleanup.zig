@@ -105,6 +105,14 @@ pub const SessionCleanup = struct {
                 log.info("Cleaned up {d} expired nonce(s)", .{count});
             }
         }
+
+        // Cleanup expired rate limits
+        const cleaned_rate_limits = try db.cleanupExpiredRateLimits(self.pool);
+        if (cleaned_rate_limits) |count| {
+            if (count > 0) {
+                log.info("Cleaned up {d} expired rate limit(s)", .{count});
+            }
+        }
     }
 };
 

@@ -5,6 +5,8 @@
 
 const std = @import("std");
 const db = @import("../lib/db.zig");
+const EdgeNotifier = @import("edge_notifier.zig").EdgeNotifier;
+const WorkflowTrigger = @import("workflow_trigger.zig").WorkflowTrigger;
 const jj = @cImport({
     @cInclude("jj_ffi.h");
 });
@@ -51,8 +53,9 @@ pub const RepoWatcher = struct {
     running: std.atomic.Value(bool),
     thread: ?std.Thread,
     mutex: std.Thread.Mutex,
+    edge_notifier: ?*EdgeNotifier,
 
-    pub fn init(allocator: std.mem.Allocator, pool: *db.Pool, config: Config) RepoWatcher {
+    pub fn init(allocator: std.mem.Allocator, pool: *db.Pool, config: Config, edge_notifier: ?*EdgeNotifier) RepoWatcher {
         return .{
             .allocator = allocator,
             .pool = pool,
@@ -61,6 +64,7 @@ pub const RepoWatcher = struct {
             .running = std.atomic.Value(bool).init(false),
             .thread = null,
             .mutex = .{},
+            .edge_notifier = edge_notifier,
         };
     }
 
@@ -330,6 +334,41 @@ pub const RepoWatcher = struct {
                 log.err("Sync failed for type {d}: {s}", .{ i, @errorName(result.err) });
             }
         }
+
+        // After successful sync, notify edge with merkle root
+        if (self.edge_notifier) |notifier| {
+            // Get tree hash for the working copy revision
+            const tree_hash = jj.jj_get_tree_hash(workspace, "@");
+
+            if (tree_hash.success) {
+                defer jj.jj_free_tree_hash(tree_hash);
+
+                const repo_key = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{s}/{s}",
+                    .{ watched_repo.user, watched_repo.repo },
+                );
+                defer self.allocator.free(repo_key);
+
+                const hash_str = std.mem.span(tree_hash.hash);
+
+                notifier.notifyGitChange(repo_key, hash_str) catch |err| {
+                    log.warn("Failed to notify edge of git change: {}", .{err});
+                };
+
+                log.debug("Notified edge of merkle root update: {s} -> {s}", .{ repo_key, hash_str[0..@min(hash_str.len, 8)] });
+            } else {
+                if (tree_hash.error_message) |msg| {
+                    log.warn("Failed to get tree hash: {s}", .{std.mem.span(msg)});
+                    jj.jj_free_tree_hash(tree_hash);
+                }
+            }
+        }
+
+        // After successful sync, trigger workflows for push event
+        self.triggerPushWorkflows(watched_repo, workspace) catch |err| {
+            log.warn("Failed to trigger workflows: {}", .{err});
+        };
     }
 
     const SyncType = enum(usize) {
@@ -590,6 +629,53 @@ pub const RepoWatcher = struct {
 
         log.debug("Synced conflicts for {s}/{s}", .{ watched_repo.user, watched_repo.repo });
     }
+
+    /// Trigger workflows for push event
+    fn triggerPushWorkflows(self: *RepoWatcher, watched_repo: *WatchedRepo, workspace: *jj.JjWorkspace) !void {
+        // Get current revision info
+        const changes_result = jj.jj_list_changes(workspace, 1, null);
+        if (!changes_result.success) {
+            return error.ListChangesFailed;
+        }
+        defer jj.jj_commit_array_free(changes_result.commits, changes_result.len);
+
+        if (changes_result.len == 0) {
+            return; // No changes to trigger on
+        }
+
+        const latest_change = changes_result.commits[0].*;
+        const commit_sha = std.mem.span(latest_change.id);
+
+        // Get current bookmark/branch
+        const bookmarks_result = jj.jj_list_bookmarks(workspace);
+        var ref: ?[]const u8 = null;
+        if (bookmarks_result.success and bookmarks_result.len > 0) {
+            // Use first bookmark as ref
+            ref = std.mem.span(bookmarks_result.bookmarks[0].name);
+        }
+        defer if (bookmarks_result.success) jj.jj_bookmark_array_free(bookmarks_result.bookmarks, bookmarks_result.len);
+
+        // Initialize workflow trigger
+        var trigger = WorkflowTrigger.init(self.allocator, self.pool);
+
+        // Trigger workflows for push event
+        trigger.triggerWorkflows(
+            watched_repo.repo_id,
+            "push",
+            ref,
+            commit_sha,
+            null, // trigger_user_id (could be extracted from commit author)
+        ) catch |err| {
+            log.err("Failed to trigger workflows for {s}/{s}: {}", .{
+                watched_repo.user,
+                watched_repo.repo,
+                err,
+            });
+            return err;
+        };
+
+        log.debug("Triggered push workflows for {s}/{s}", .{ watched_repo.user, watched_repo.repo });
+    }
 };
 
 test "RepoWatcher init/deinit" {
@@ -598,7 +684,7 @@ test "RepoWatcher init/deinit" {
     // Mock pool (would use real pool in integration tests)
     var mock_pool: db.Pool = undefined;
 
-    var watcher = RepoWatcher.init(allocator, &mock_pool, .{});
+    var watcher = RepoWatcher.init(allocator, &mock_pool, .{}, null);
     defer watcher.deinit();
 
     try std.testing.expect(!watcher.running.load(.acquire));
