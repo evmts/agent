@@ -82,8 +82,16 @@ pub fn authMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return true;
     }
 
-    // Refresh session expiration
-    try db.refreshSession(ctx.pool, session_key);
+    // Check if session is near expiry (less than 7 days remaining)
+    const now = std.time.milliTimestamp();
+    const expires_at_ms = session_data.?.expires_at * 1000; // Convert to milliseconds
+    const time_remaining = expires_at_ms - now;
+    const seven_days_ms = 7 * 24 * 60 * 60 * 1000;
+
+    // Auto-refresh if near expiry
+    if (time_remaining < seven_days_ms and time_remaining > 0) {
+        try db.refreshSession(ctx.pool, session_key);
+    }
 
     // Set context
     const ur = user_record.?;

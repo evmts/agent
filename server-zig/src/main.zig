@@ -8,6 +8,7 @@ const pty = @import("websocket/pty.zig");
 const ws_handler = @import("websocket/handler.zig");
 const middleware = @import("middleware/mod.zig");
 const repo_watcher = @import("services/repo_watcher.zig");
+const session_cleanup = @import("services/session_cleanup.zig");
 
 const log = std.log.scoped(.server);
 
@@ -57,6 +58,14 @@ pub fn main() !void {
     } else {
         log.info("Repository watcher disabled (set WATCHER_ENABLED=true to enable)", .{});
     }
+
+    // Initialize session cleanup service
+    var cleanup_service = session_cleanup.SessionCleanup.init(allocator, pool, .{});
+    defer cleanup_service.deinit();
+
+    // Start session cleanup service
+    try cleanup_service.start();
+    log.info("Session cleanup service started", .{});
 
     // Create server context
     var ctx = Context{
@@ -113,7 +122,8 @@ pub fn main() !void {
     server.listen() catch |err| {
         log.err("Server error: {}", .{err});
 
-        // Stop repository watcher
+        // Stop services
+        cleanup_service.stop();
         watcher.stop();
 
         // Stop SSH server if running

@@ -1121,3 +1121,33 @@ pub fn getIssueHistory(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, 
 
     return events.toOwnedSlice();
 }
+
+// ============================================================================
+// Due date operations
+// ============================================================================
+
+pub fn setDueDate(pool: *Pool, repo_id: i64, issue_number: i64, due_date_timestamp: i64) !void {
+    _ = try pool.exec(
+        \\UPDATE issues SET due_date = to_timestamp($3), updated_at = NOW()
+        \\WHERE repository_id = $1 AND issue_number = $2
+    , .{ repo_id, issue_number, due_date_timestamp });
+}
+
+pub fn removeDueDate(pool: *Pool, repo_id: i64, issue_number: i64) !void {
+    _ = try pool.exec(
+        \\UPDATE issues SET due_date = NULL, updated_at = NOW()
+        \\WHERE repository_id = $1 AND issue_number = $2
+    , .{ repo_id, issue_number });
+}
+
+pub fn getDueDate(pool: *Pool, repo_id: i64, issue_number: i64) !?i64 {
+    const row = try pool.row(
+        \\SELECT EXTRACT(EPOCH FROM due_date)::bigint FROM issues
+        \\WHERE repository_id = $1 AND issue_number = $2
+    , .{ repo_id, issue_number });
+
+    if (row) |r| {
+        return r.get(?i64, 0);
+    }
+    return null;
+}
