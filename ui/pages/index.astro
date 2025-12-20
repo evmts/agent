@@ -2,17 +2,34 @@
 import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import RepoCard from "../components/RepoCard.astro";
+import Pagination from "../components/Pagination.astro";
 import { sql } from "../lib/db";
 import type { Repository } from "../lib/types";
 
-const repos = await sql`
+// Pagination settings
+const PAGE_SIZE = 20;
+const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
+const offset = (page - 1) * PAGE_SIZE;
+
+// Get total count for pagination
+const [{ count }] = await sql<[{ count: number }]>`
+  SELECT COUNT(*)::int as count
+  FROM repositories r
+  WHERE r.is_public = true
+`;
+
+const totalPages = Math.ceil(count / PAGE_SIZE);
+
+// Get paginated results
+const repos = await sql<Repository[]>`
   SELECT r.*, u.username
   FROM repositories r
   JOIN users u ON r.user_id = u.id
   WHERE r.is_public = true
   ORDER BY r.updated_at DESC
-  LIMIT 50
-` as Repository[];
+  LIMIT ${PAGE_SIZE}
+  OFFSET ${offset}
+`;
 ---
 
 <Layout title="plue">
@@ -23,7 +40,7 @@ const repos = await sql`
       <a href="/new" class="btn btn-primary">Create new</a>
     </div>
 
-    {repos.length === 0 ? (
+    {repos.length === 0 && page === 1 ? (
       <div class="empty-state">
         <div class="empty-state-icon">□</div>
         <div class="empty-state-title">No repositories yet</div>
@@ -33,11 +50,20 @@ const repos = await sql`
         <a href="/new" class="btn btn-primary">Create your first repository</a>
       </div>
     ) : (
-      <ul class="repo-list">
-        {repos.map((repo) => (
-          <RepoCard repo={repo} />
-        ))}
-      </ul>
+      <>
+        <ul class="repo-list">
+          {repos.map((repo) => (
+            <RepoCard repo={repo} />
+          ))}
+        </ul>
+        {totalPages > 1 && (
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            baseUrl="/"
+          />
+        )}
+      </>
     )}
   </div>
 </Layout>
