@@ -43,16 +43,16 @@ pub fn securityMiddleware(config: SecurityConfig) fn (*Context, *httpz.Request, 
     return struct {
         fn handler(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !bool {
             // X-Content-Type-Options
-            res.headers.put("X-Content-Type-Options", config.x_content_type_options);
+            res.headers.add("X-Content-Type-Options", config.x_content_type_options);
 
             // X-Frame-Options
-            res.headers.put("X-Frame-Options", config.x_frame_options);
+            res.headers.add("X-Frame-Options", config.x_frame_options);
 
             // X-XSS-Protection
-            res.headers.put("X-XSS-Protection", config.x_xss_protection);
+            res.headers.add("X-XSS-Protection", config.x_xss_protection);
 
             // Referrer-Policy
-            res.headers.put("Referrer-Policy", config.referrer_policy);
+            res.headers.add("Referrer-Policy", config.referrer_policy);
 
             // Strict-Transport-Security (HSTS) - only in production
             if (config.hsts_enabled and ctx.config.is_production) {
@@ -62,7 +62,7 @@ pub fn securityMiddleware(config: SecurityConfig) fn (*Context, *httpz.Request, 
                     if (config.hsts_include_subdomains) "; includeSubDomains" else "",
                     if (config.hsts_preload) "; preload" else "",
                 });
-                res.headers.put("Strict-Transport-Security", hsts);
+                res.headers.add("Strict-Transport-Security", hsts);
             }
 
             // Content-Security-Policy
@@ -111,7 +111,7 @@ pub fn securityMiddleware(config: SecurityConfig) fn (*Context, *httpz.Request, 
                 try writeCSPValues(writer, config.csp_frame_src);
 
                 const csp = try csp_list.toOwnedSlice();
-                res.headers.put("Content-Security-Policy", csp);
+                res.headers.add("Content-Security-Policy", csp);
             }
 
             return true; // Continue to next handler
