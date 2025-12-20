@@ -1614,7 +1614,7 @@ pub fn listLandingRequests(
             .author_id = row.get(i64, 6),
             .status = row.get([]const u8, 7),
             .has_conflicts = row.get(bool, 8),
-            .conflicted_files = row.get(?[][]const u8, 9),
+            .conflicted_files = null, // PostgreSQL array type needs special handling
             .created_at = row.get(i64, 10),
             .updated_at = row.get(i64, 11),
             .landed_at = row.get(?i64, 12),
@@ -1623,7 +1623,7 @@ pub fn listLandingRequests(
         });
     }
 
-    return requests.toOwnedSlice();
+    return requests.toOwnedSlice(allocator);
 }
 
 pub fn countLandingRequests(pool: *Pool, repository_id: i64, status_filter: ?[]const u8) !i64 {
@@ -1665,7 +1665,7 @@ pub fn getLandingRequestById(pool: *Pool, repository_id: i64, landing_id: i64) !
             .author_id = r.get(i64, 6),
             .status = r.get([]const u8, 7),
             .has_conflicts = r.get(bool, 8),
-            .conflicted_files = r.get(?[][]const u8, 9),
+            .conflicted_files = null, // PostgreSQL array type needs special handling
             .created_at = r.get(i64, 10),
             .updated_at = r.get(i64, 11),
             .landed_at = r.get(?i64, 12),
@@ -1699,7 +1699,7 @@ pub fn findLandingRequestByChangeId(pool: *Pool, repository_id: i64, change_id: 
             .author_id = r.get(i64, 6),
             .status = r.get([]const u8, 7),
             .has_conflicts = r.get(bool, 8),
-            .conflicted_files = r.get(?[][]const u8, 9),
+            .conflicted_files = null, // PostgreSQL array type needs special handling
             .created_at = r.get(i64, 10),
             .updated_at = r.get(i64, 11),
             .landed_at = r.get(?i64, 12),
@@ -1743,7 +1743,7 @@ pub fn createLandingRequest(
             .author_id = r.get(i64, 6),
             .status = r.get([]const u8, 7),
             .has_conflicts = r.get(bool, 8),
-            .conflicted_files = r.get(?[][]const u8, 9),
+            .conflicted_files = null, // PostgreSQL array type needs special handling
             .created_at = r.get(i64, 10),
             .updated_at = r.get(i64, 11),
             .landed_at = r.get(?i64, 12),
@@ -1816,7 +1816,7 @@ pub fn getLandingReviews(pool: *Pool, allocator: std.mem.Allocator, landing_id: 
         });
     }
 
-    return reviews.toOwnedSlice();
+    return reviews.toOwnedSlice(allocator);
 }
 
 pub fn createLandingReview(
