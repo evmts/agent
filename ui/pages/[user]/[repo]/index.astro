@@ -74,6 +74,7 @@ try {
       Landing
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
+    <a href={`/${username}/${reponame}/workflows`}>Workflows</a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
     <a href={`/${username}/${reponame}/operations`}>Operations</a>
@@ -87,6 +88,7 @@ try {
       <button class="btn btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">
         Copy
       </button>
+      <a href="/settings/ssh-keys" class="ssh-key-link">Add SSH key</a>
     </div>
 
     <FileTree tree={tree} user={username} repo={reponame} branch={defaultBookmark} />
@@ -102,5 +104,13 @@ try {
 <style>
   .description {
     font-size: 14px;
+  }
+  .ssh-key-link {
+    margin-left: 0.5rem;
+    font-size: 12px;
+    color: var(--link);
+  }
+  .ssh-key-link:hover {
+    text-decoration: underline;
   }
 </style>
