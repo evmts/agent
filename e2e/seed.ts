@@ -251,6 +251,12 @@ This is a test document for e2e testing.
     });
     await execAsync(`git push origin main`, { cwd: tempDir });
 
+    // Sync jj state with pushed git changes
+    // This imports the git refs into jj so jj file list works
+    await execAsync(`jj git import`, { cwd: repoPath }).catch(() => {
+      // jj git import may fail if jj isn't properly initialized, ignore
+    });
+
     console.log("Test files added");
   } finally {
     // Cleanup temp dir

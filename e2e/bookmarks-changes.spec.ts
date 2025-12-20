@@ -218,7 +218,8 @@ test.describe('Changes Page (JJ Commits)', () => {
       if (await changeId.count() > 0) {
         await expect(changeId).toBeVisible();
         const text = await changeId.textContent();
-        expect(text?.length).toBe(8);
+        // Trim whitespace before checking length
+        expect(text?.trim().length).toBe(8);
       }
     });
 

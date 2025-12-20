@@ -66,8 +66,8 @@ export const selectors = {
   fileMeta: '.file-header .meta',
 
   // Repository page
-  cloneUrl: '.clone-url code',
-  readme: '.markdown',
+  cloneUrl: '.clone-url-input',
+  readme: '.markdown-body',
 
   // Bookmarks page
   bookmarkList: '.bookmark-list',

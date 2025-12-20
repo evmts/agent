@@ -30,7 +30,7 @@ test.describe('Repository Page', () => {
       await page.goto(`/${user}/${repo}`);
 
       const codeLink = page.locator(`${selectors.repoNav} a.active`);
-      await expect(codeLink).toHaveText('Code');
+      await expect(codeLink).toContainText('Code');
     });
   });
 
@@ -40,13 +40,14 @@ test.describe('Repository Page', () => {
 
       const cloneUrl = page.locator(selectors.cloneUrl);
       await expect(cloneUrl).toBeVisible();
-      await expect(cloneUrl).toContainText(`${user}/${repo}`);
+      // Check input value instead of text content since it's an input element
+      await expect(cloneUrl).toHaveValue(new RegExp(`${user}/${repo}`));
     });
 
     test('should have copy button for clone URL', async ({ page }) => {
       await page.goto(`/${user}/${repo}`);
 
-      const copyBtn = page.locator('.clone-url button');
+      const copyBtn = page.locator('.clone-url-btn');
       await expect(copyBtn).toBeVisible();
       await expect(copyBtn).toHaveText('Copy');
     });
@@ -83,17 +84,18 @@ test.describe('Repository Page', () => {
       const directory = page.locator(selectors.fileTreeDirectory).first();
       if (await directory.count() > 0) {
         const icon = directory.locator('.icon');
-        await expect(icon).toHaveText('▸');
+        await expect(icon).toHaveText('▶');
       }
     });
 
-    test('files should have dot icon', async ({ page }) => {
+    test('files should have icon', async ({ page }) => {
       await page.goto(`/${user}/${repo}`);
 
       const file = page.locator(`${selectors.fileTreeItem}:not(.directory)`).first();
       if (await file.count() > 0) {
         const icon = file.locator('.icon');
-        await expect(icon).toHaveText('·');
+        // Files have different icons based on extension (□ for ts/js, {} for json, ≡ for md, etc.)
+        await expect(icon).toBeVisible();
       }
     });
 

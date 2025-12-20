@@ -644,17 +644,12 @@ describe('edge cases', () => {
       },
     });
 
-    // The error will be thrown during middleware execution
-    // The test documents that errors in keyGenerator are not silently caught
-    try {
-      await makeRequest(limiter);
-      // If we reach here, Hono caught the error and returned a response
-      // This is acceptable behavior - the error handling is up to the framework
-      expect(true).toBe(true);
-    } catch (error) {
-      // Or the error propagates, which is also acceptable
-      expect(error).toBeDefined();
-    }
+    // The middleware should catch the error and return 500
+    const response = await makeRequest(limiter);
+    expect(response.status).toBe(500);
+
+    const body = await response.json();
+    expect(body.error).toBe('Internal server error');
   });
 
   test('counts both successful and failed requests by default', async () => {
