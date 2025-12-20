@@ -8,7 +8,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 // Use explicit path to avoid conflict with local ai/ folder
 import { streamText, generateText, type CoreMessage } from '../node_modules/ai/dist/index.mjs';
 import { getAgentConfig } from './registry';
-import { agentTools, type AgentToolName } from './tools';
+import { agentTools, createToolsWithContext, type AgentToolName } from './tools';
 
 // Re-export types from core to maintain compatibility
 export type { MessageWithParts } from '../core/state';
@@ -23,6 +23,8 @@ export interface AgentOptions {
   agentName: string;
   /** Working directory for file operations */
   workingDir: string;
+  /** Session ID for file tracking (optional for backwards compatibility) */
+  sessionId?: string;
   /** Optional abort signal for cancellation */
   abortSignal?: AbortSignal;
 }
@@ -39,12 +41,23 @@ export type StreamEvent =
 
 /**
  * Get enabled tools for an agent based on its configuration.
+ * If sessionId is provided, returns context-aware tools with read-before-write safety.
  */
-function getEnabledTools(agentName: string): Record<string, typeof agentTools[AgentToolName]> {
+function getEnabledTools(
+  agentName: string,
+  workingDir: string,
+  sessionId?: string
+): Record<string, typeof agentTools[AgentToolName]> {
   const config = getAgentConfig(agentName);
+
+  // Use context-aware tools if sessionId is provided
+  const toolsToUse = sessionId
+    ? createToolsWithContext({ sessionId, workingDir })
+    : agentTools;
+
   const enabledTools: Record<string, typeof agentTools[AgentToolName]> = {};
 
-  for (const [name, tool] of Object.entries(agentTools)) {
+  for (const [name, tool] of Object.entries(toolsToUse)) {
     const enabled = config.toolsEnabled[name as AgentToolName];
     // Default to true if not explicitly disabled
     if (enabled !== false) {
@@ -72,7 +85,7 @@ export async function* streamAgent(
   options: AgentOptions
 ): AsyncGenerator<StreamEvent, void, unknown> {
   const config = getAgentConfig(options.agentName);
-  const enabledTools = getEnabledTools(options.agentName);
+  const enabledTools = getEnabledTools(options.agentName, options.workingDir, options.sessionId);
   const model = anthropic(options.modelId);
 
   try {
@@ -132,7 +145,7 @@ export async function runAgent(
   options: AgentOptions
 ): Promise<string> {
   const config = getAgentConfig(options.agentName);
-  const enabledTools = getEnabledTools(options.agentName);
+  const enabledTools = getEnabledTools(options.agentName, options.workingDir, options.sessionId);
   const model = anthropic(options.modelId);
 
   const result = await generateText({
@@ -204,8 +217,14 @@ export async function* persistedStreamAgent(
   const messageId = generateMessageId();
   let sortOrder = 0;
 
+  // Pass sessionId to streamAgent for context-aware tools
+  const optionsWithSession: AgentOptions = {
+    ...options,
+    sessionId,
+  };
+
   try {
-    for await (const event of streamAgent(messages, options)) {
+    for await (const event of streamAgent(messages, optionsWithSession)) {
       // Persist event to database
       if (event.type === 'text' && event.data) {
         await appendStreamingPart(sessionId, messageId, {

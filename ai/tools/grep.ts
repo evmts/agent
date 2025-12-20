@@ -287,4 +287,34 @@ Examples:
   },
 });
 
+/**
+ * Create a grep tool with context (sessionId and workingDir) bound to it.
+ */
+export function createGrepTool(context: { sessionId: string; workingDir: string }) {
+  return tool({
+    description: grepTool.description,
+    parameters: grepParameters,
+    // @ts-expect-error - Zod v4 type inference issue with AI SDK
+    execute: async (args: z.infer<typeof grepParameters>) => {
+      const result = await grepImpl(
+        args.pattern,
+        args.path,
+        args.glob,
+        args.multiline,
+        args.caseInsensitive,
+        args.maxCount,
+        args.contextBefore,
+        args.contextAfter,
+        args.contextLines,
+        args.headLimit,
+        args.offset,
+        context.workingDir
+      );
+      return result.success
+        ? result.formattedOutput!
+        : `Error: ${result.error}`;
+    },
+  });
+}
+
 export { grepImpl };

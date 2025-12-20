@@ -684,7 +684,7 @@ export async function getSubtasks(
     WHERE session_id = ${sessionId}
     ORDER BY created_at ASC
   `;
-  return rows.map((r) => JSON.parse((r.result as string) ?? '{}') as Record<string, unknown>);
+  return rows.map((r) => safeJsonParse((r.result as string), {}) as Record<string, unknown>);
 }
 
 export async function appendSubtask(
