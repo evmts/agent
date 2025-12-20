@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByUsernameOrEmail, createSession } from '../../../../db/auth';
+import { getUserByUsernameOrEmail, createSession } from '../../../lib/auth-db';
 import { createSessionCookie } from '../../../lib/auth-helpers';
 import { verify } from '@node-rs/argon2';
 import { randomBytes } from 'crypto';

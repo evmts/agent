@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByEmail, createPasswordResetToken } from '../../../../../db/auth';
+import { getUserByEmail, createPasswordResetToken } from '../../../../lib/auth-db';
 import { randomBytes } from 'crypto';
 
 export const POST: APIRoute = async ({ request }) => {
