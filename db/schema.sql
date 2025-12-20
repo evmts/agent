@@ -149,6 +149,23 @@ CREATE TABLE IF NOT EXISTS comments (
   edited BOOLEAN NOT NULL DEFAULT false
 );
 
+-- Mentions (for potential notifications)
+CREATE TABLE IF NOT EXISTS mentions (
+  id SERIAL PRIMARY KEY,
+  issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+  comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+  mentioned_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT mentions_target_check CHECK (
+    (issue_id IS NOT NULL AND comment_id IS NULL) OR
+    (issue_id IS NULL AND comment_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_mentions_issue ON mentions(issue_id);
+CREATE INDEX IF NOT EXISTS idx_mentions_comment ON mentions(comment_id);
+CREATE INDEX IF NOT EXISTS idx_mentions_user ON mentions(mentioned_user_id);
+
 -- Issue assignees (many-to-many relationship)
 CREATE TABLE IF NOT EXISTS issue_assignees (
   id SERIAL PRIMARY KEY,

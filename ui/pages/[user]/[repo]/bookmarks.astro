@@ -403,7 +403,7 @@ const [{ count: landingCount }] = await sql`
       window.location.reload();
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to create bookmark');
+      window.toast.error(data.error || 'Failed to create bookmark');
     }
   });
 
@@ -442,7 +442,7 @@ const [{ count: landingCount }] = await sql`
       window.location.reload();
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to move bookmark');
+      window.toast.error(data.error || 'Failed to move bookmark');
     }
   });
 
@@ -461,7 +461,7 @@ const [{ count: landingCount }] = await sql`
         window.location.reload();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to delete bookmark');
+        window.toast.error(data.error || 'Failed to delete bookmark');
       }
     });
   });

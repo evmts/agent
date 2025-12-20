@@ -374,3 +374,25 @@ export interface FileDiff {
   /** Whether this file has a conflict */
   hasConflict: boolean;
 }
+
+// =============================================================================
+// Blame/Annotate Types
+// =============================================================================
+
+export interface BlameLine {
+  /** Line number (1-indexed) */
+  lineNumber: number;
+  /** Line content */
+  content: string;
+  /** Change ID that last modified this line */
+  changeId: string;
+  /** Author who last modified this line */
+  author: {
+    name: string;
+    email: string;
+  };
+  /** Timestamp of the change */
+  timestamp: number;
+  /** Short description of the change */
+  description: string;
+}

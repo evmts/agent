@@ -2,15 +2,34 @@
 /**
  * FileDiffCard - Display a single file's diff with expand/collapse
  * Shows the filename, stats, and diff hunks with line numbers
+ * Supports inline comments when landingId and comments are provided
  */
-import type { FileDiff } from "../lib/jj-types";
+import type { FileDiff, LineComment } from "../lib/jj-types";
+import LineComment from "./LineComment.astro";
 
 interface Props {
   file: FileDiff;
   defaultExpanded?: boolean;
+  landingId?: number;
+  comments?: LineComment[];
+  canComment?: boolean;
 }
 
-const { file, defaultExpanded = false } = Astro.props;
+const { file, defaultExpanded = false, landingId, comments = [], canComment = false } = Astro.props;
+
+// Group comments by line and side
+const commentsByLine = new Map<string, LineComment[]>();
+if (landingId) {
+  comments.forEach(comment => {
+    if (comment.filePath === file.path) {
+      const key = `${comment.lineNumber}:${comment.side}`;
+      if (!commentsByLine.has(key)) {
+        commentsByLine.set(key, []);
+      }
+      commentsByLine.get(key)!.push(comment);
+    }
+  });
+}
 
 function getStatusLabel(status: string): string {
   switch (status) {

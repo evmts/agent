@@ -16,7 +16,8 @@
     "postinstall": "astro sync",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:debug": "playwright test --debug"
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:seed": "bun e2e/seed.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",

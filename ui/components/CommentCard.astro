@@ -3,23 +3,161 @@ import type { Comment } from "../lib/types";
 import Markdown from "./Markdown.astro";
 import Avatar from "./Avatar.astro";
 import RelativeTime from "./RelativeTime.astro";
+import MarkdownEditor from "./MarkdownEditor.astro";
 
 interface Props {
   comment: Comment;
   owner?: string;
   repo?: string;
+  currentUserId?: number;
+  issueNumber?: number;
 }
 
-const { comment, owner, repo } = Astro.props;
+const { comment, owner, repo, currentUserId, issueNumber } = Astro.props;
+const isAuthor = currentUserId && currentUserId === comment.author_id;
 ---
 
-<div class="comment">
+<div class="comment" data-comment-id={comment.id}>
   <div class="comment-header">
     <Avatar user={{ username: comment.author_username || 'unknown' }} size="sm" />
     <strong>{comment.author_username}</strong>
-    <span class="time">· <RelativeTime date={comment.created_at} /></span>
+    <span class="time">
+      · <RelativeTime date={comment.created_at} />
+      {comment.edited && <span class="edited"> (edited)</span>}
+    </span>
+    {isAuthor && (
+      <div class="comment-actions">
+        <button class="btn-text edit-btn" type="button">Edit</button>
+        <button class="btn-text delete-btn" type="button">Delete</button>
+      </div>
+    )}
   </div>
   <div class="comment-body">
     <Markdown content={comment.body} owner={owner} repo={repo} />
   </div>
+  {isAuthor && (
+    <div class="comment-edit" style="display: none;">
+      <form method="POST" class="edit-form">
+        <input type="hidden" name="action" value="edit_comment" />
+        <input type="hidden" name="comment_id" value={comment.id} />
+        <MarkdownEditor
+          name="body"
+          initialValue={comment.body}
+          height="150px"
+        />
+        <div class="flex gap-1 mt-1">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" class="btn cancel-edit">Cancel</button>
+        </div>
+      </form>
+    </div>
+  )}
 </div>
+
+<style>
+  .comment-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .time {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .edited {
+    font-style: italic;
+  }
+
+  .comment-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-text {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+
+  .btn-text:hover {
+    color: var(--text);
+  }
+
+  .delete-btn:hover {
+    color: var(--error);
+  }
+
+  .comment-edit {
+    margin-top: 12px;
+  }
+</style>
+
+<script>
+  document.addEventListener("astro:page-load", () => {
+    // Handle edit button clicks
+    document.querySelectorAll(".edit-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const comment = (e.target as HTMLElement).closest(".comment");
+        if (!comment) return;
+
+        const body = comment.querySelector(".comment-body") as HTMLElement;
+        const editForm = comment.querySelector(".comment-edit") as HTMLElement;
+
+        if (body && editForm) {
+          body.style.display = "none";
+          editForm.style.display = "block";
+        }
+      });
+    });
+
+    // Handle cancel button clicks
+    document.querySelectorAll(".cancel-edit").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const comment = (e.target as HTMLElement).closest(".comment");
+        if (!comment) return;
+
+        const body = comment.querySelector(".comment-body") as HTMLElement;
+        const editForm = comment.querySelector(".comment-edit") as HTMLElement;
+
+        if (body && editForm) {
+          body.style.display = "block";
+          editForm.style.display = "none";
+        }
+      });
+    });
+
+    // Handle delete button clicks
+    document.querySelectorAll(".delete-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        if (!confirm("Are you sure you want to delete this comment?")) {
+          return;
+        }
+
+        const comment = (e.target as HTMLElement).closest(".comment");
+        if (!comment) return;
+
+        const commentId = comment.getAttribute("data-comment-id");
+        if (!commentId) return;
+
+        // Submit delete form
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.innerHTML = `
+          <input type="hidden" name="action" value="delete_comment" />
+          <input type="hidden" name="comment_id" value="${commentId}" />
+        `;
+        document.body.appendChild(form);
+        form.submit();
+      });
+    });
+  });
+</script>

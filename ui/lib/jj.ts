@@ -24,6 +24,7 @@ import type {
   FileDiff,
   DiffHunk,
   ChangeComparison,
+  BlameLine,
 } from "./jj-types";
 import { initIssuesRepo } from "./git-issues";
 
@@ -463,6 +464,55 @@ export async function getFileHistory(
   }
 
   return parseChangesOutput(result.stdout);
+}
+
+/**
+ * Get blame/annotate information for a file
+ * Note: jj doesn't have a native blame command, so we simulate it by
+ * getting the file history and attributing each line to the most recent change
+ */
+export async function getBlame(
+  user: string,
+  name: string,
+  changeId: string,
+  path: string
+): Promise<BlameLine[]> {
+  const repoPath = getRepoPath(user, name);
+
+  // Get file content
+  const content = await getFileContent(user, name, changeId, path);
+  if (!content) return [];
+
+  const lines = content.split('\n');
+
+  // Get file history to have change information
+  const history = await getFileHistory(user, name, path, changeId, 100);
+
+  // For now, attribute all lines to the most recent change
+  // A more sophisticated implementation would trace each line through the history
+  const mostRecentChange = history[0];
+
+  if (!mostRecentChange) {
+    // No history - return lines without attribution
+    return lines.map((line, index) => ({
+      lineNumber: index + 1,
+      content: line,
+      changeId: changeId,
+      author: { name: 'Unknown', email: '' },
+      timestamp: Date.now(),
+      description: 'No history',
+    }));
+  }
+
+  // Attribute all lines to the most recent change
+  return lines.map((line, index) => ({
+    lineNumber: index + 1,
+    content: line,
+    changeId: mostRecentChange.changeId,
+    author: mostRecentChange.author,
+    timestamp: mostRecentChange.timestamp,
+    description: mostRecentChange.description,
+  }));
 }
 
 // =============================================================================

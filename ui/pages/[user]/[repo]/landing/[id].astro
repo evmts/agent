@@ -8,6 +8,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import TabNav from "../../../../components/TabNav.astro";
 import DiffView from "../../../../components/DiffView.astro";
+import StatusChecks from "../../../../components/StatusChecks.astro";
 import type { Tab } from "../../../../components/TabNav.astro";
 import { sql } from "../../../../lib/db";
 import * as jj from "../../../../lib/jj";
@@ -666,15 +667,20 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
   .commit-item {
     padding: 1rem;
     border-bottom: 1px solid var(--border);
+    transition: background var(--transition-fast);
   }
 
   .commit-item:last-child {
     border-bottom: none;
   }
 
+  .commit-item:hover {
+    background: var(--hover);
+  }
+
   .commit-header {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     gap: 0.75rem;
     margin-bottom: 0.5rem;
   }
@@ -682,6 +688,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
   .commit-message {
     flex: 1;
     font-size: 14px;
+    font-weight: 500;
   }
 
   .commit-meta {
@@ -694,6 +701,11 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
 
   .commit-author {
     font-weight: 500;
+    color: var(--gray-300);
+  }
+
+  .commit-date {
+    color: var(--gray-500);
   }
 
   @media (max-width: 768px) {

@@ -649,4 +649,281 @@ app.delete("/:user/:repo/issues/:number/assignees/:username", async (c) => {
   }
 });
 
+// =============================================================================
+// Reaction Routes
+// =============================================================================
+
+// Get reactions for an issue
+app.get("/:user/:repo/issues/:number/reactions", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    // Verify issue exists
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Get reactions from database
+    const reactions = await sql<Array<{ id: number; user_id: number; username: string; emoji: string; created_at: Date }>>`
+      SELECT r.id, r.user_id, u.username, r.emoji, r.created_at
+      FROM reactions r
+      JOIN users u ON r.user_id = u.id
+      WHERE r.target_type = 'issue' AND r.target_id = ${number}
+      ORDER BY r.created_at ASC
+    `;
+
+    // Group by emoji
+    const grouped = reactions.reduce((acc, r) => {
+      if (!acc[r.emoji]) {
+        acc[r.emoji] = {
+          emoji: r.emoji,
+          count: 0,
+          users: [],
+        };
+      }
+      acc[r.emoji].count++;
+      acc[r.emoji].users.push({ id: r.user_id, username: r.username });
+      return acc;
+    }, {} as Record<string, { emoji: string; count: number; users: Array<{ id: number; username: string }> }>);
+
+    return c.json({
+      reactions: Object.values(grouped),
+    });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Add a reaction to an issue
+app.post("/:user/:repo/issues/:number/reactions", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!body.user_id || !body.emoji) {
+    return c.json({ error: "user_id and emoji are required" }, 400);
+  }
+
+  try {
+    // Verify issue exists
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Insert reaction (or ignore if duplicate due to unique constraint)
+    const [reaction] = await sql<Array<{ id: number; user_id: number; target_type: string; target_id: number; emoji: string; created_at: Date }>>`
+      INSERT INTO reactions (user_id, target_type, target_id, emoji)
+      VALUES (${body.user_id}, 'issue', ${number}, ${body.emoji})
+      ON CONFLICT (user_id, target_type, target_id, emoji) DO NOTHING
+      RETURNING id, user_id, target_type, target_id, emoji, created_at
+    `;
+
+    if (!reaction) {
+      return c.json({ message: "Reaction already exists" }, 200);
+    }
+
+    return c.json(reaction, 201);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Remove a reaction from an issue
+app.delete("/:user/:repo/issues/:number/reactions/:emoji", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const emoji = c.req.param("emoji");
+  const userId = c.req.query("user_id");
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!userId) {
+    return c.json({ error: "user_id query parameter is required" }, 400);
+  }
+
+  try {
+    // Verify issue exists
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Delete reaction
+    await sql`
+      DELETE FROM reactions
+      WHERE user_id = ${userId}
+        AND target_type = 'issue'
+        AND target_id = ${number}
+        AND emoji = ${emoji}
+    `;
+
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Get reactions for a comment
+app.get("/:user/:repo/issues/:number/comments/:commentId/reactions", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const commentId = parseInt(c.req.param("commentId"), 10);
+
+  if (isNaN(number) || isNaN(commentId)) {
+    return c.json({ error: "Invalid issue or comment number" }, 400);
+  }
+
+  try {
+    // Verify issue exists
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Get reactions from database
+    const reactions = await sql<Array<{ id: number; user_id: number; username: string; emoji: string; created_at: Date }>>`
+      SELECT r.id, r.user_id, u.username, r.emoji, r.created_at
+      FROM reactions r
+      JOIN users u ON r.user_id = u.id
+      WHERE r.target_type = 'comment' AND r.target_id = ${commentId}
+      ORDER BY r.created_at ASC
+    `;
+
+    // Group by emoji
+    const grouped = reactions.reduce((acc, r) => {
+      if (!acc[r.emoji]) {
+        acc[r.emoji] = {
+          emoji: r.emoji,
+          count: 0,
+          users: [],
+        };
+      }
+      acc[r.emoji].count++;
+      acc[r.emoji].users.push({ id: r.user_id, username: r.username });
+      return acc;
+    }, {} as Record<string, { emoji: string; count: number; users: Array<{ id: number; username: string }> }>);
+
+    return c.json({
+      reactions: Object.values(grouped),
+    });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Add a reaction to a comment
+app.post("/:user/:repo/issues/:number/comments/:commentId/reactions", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const commentId = parseInt(c.req.param("commentId"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number) || isNaN(commentId)) {
+    return c.json({ error: "Invalid issue or comment number" }, 400);
+  }
+
+  if (!body.user_id || !body.emoji) {
+    return c.json({ error: "user_id and emoji are required" }, 400);
+  }
+
+  try {
+    // Verify issue exists
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Insert reaction (or ignore if duplicate due to unique constraint)
+    const [reaction] = await sql<Array<{ id: number; user_id: number; target_type: string; target_id: number; emoji: string; created_at: Date }>>`
+      INSERT INTO reactions (user_id, target_type, target_id, emoji)
+      VALUES (${body.user_id}, 'comment', ${commentId}, ${body.emoji})
+      ON CONFLICT (user_id, target_type, target_id, emoji) DO NOTHING
+      RETURNING id, user_id, target_type, target_id, emoji, created_at
+    `;
+
+    if (!reaction) {
+      return c.json({ message: "Reaction already exists" }, 200);
+    }
+
+    return c.json(reaction, 201);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Remove a reaction from a comment
+app.delete("/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const commentId = parseInt(c.req.param("commentId"), 10);
+  const emoji = c.req.param("emoji");
+  const userId = c.req.query("user_id");
+
+  if (isNaN(number) || isNaN(commentId)) {
+    return c.json({ error: "Invalid issue or comment number" }, 400);
+  }
+
+  if (!userId) {
+    return c.json({ error: "user_id query parameter is required" }, 400);
+  }
+
+  try {
+    // Verify issue exists
+    const issue = await getIssue(user, repo, number);
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    // Delete reaction
+    await sql`
+      DELETE FROM reactions
+      WHERE user_id = ${userId}
+        AND target_type = 'comment'
+        AND target_id = ${commentId}
+        AND emoji = ${emoji}
+    `;
+
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
 export default app;
