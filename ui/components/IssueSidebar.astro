@@ -1,0 +1,262 @@
+---
+interface Props {
+  issue: {
+    id: number;
+    issue_number: number;
+    state: 'open' | 'closed';
+  };
+  users: Array<{ id: number; username: string }>;
+}
+
+const { issue, users } = Astro.props;
+
+// Placeholder data - will be implemented later
+const assignees: Array<{ id: number; username: string }> = [];
+const labels: Array<{ id: number; name: string; color: string }> = [];
+const milestone: { title: string; dueDate?: string } | null = null;
+const isSubscribed = false;
+---
+
+<aside class="issue-sidebar">
+  <div class="sidebar-section">
+    <h3 class="sidebar-heading">Assignees</h3>
+    <div class="sidebar-content">
+      {assignees.length === 0 ? (
+        <div class="sidebar-empty">
+          <p class="text-muted text-xs">No one assigned</p>
+          <button type="button" class="sidebar-link">Assign yourself</button>
+        </div>
+      ) : (
+        <div class="assignee-list">
+          {assignees.map(assignee => (
+            <div class="assignee-item">
+              <span class="assignee-name">{assignee.username}</span>
+              <button type="button" class="btn-remove" aria-label="Remove assignee">×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3 class="sidebar-heading">Labels</h3>
+    <div class="sidebar-content">
+      {labels.length === 0 ? (
+        <div class="sidebar-empty">
+          <p class="text-muted text-xs">None yet</p>
+          <button type="button" class="sidebar-link">Add labels</button>
+        </div>
+      ) : (
+        <div class="label-list">
+          {labels.map(label => (
+            <span class="label-tag" style={`background-color: ${label.color}`}>
+              {label.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3 class="sidebar-heading">Milestone</h3>
+    <div class="sidebar-content">
+      {!milestone ? (
+        <div class="sidebar-empty">
+          <p class="text-muted text-xs">No milestone</p>
+          <button type="button" class="sidebar-link">Set milestone</button>
+        </div>
+      ) : (
+        <div class="milestone-info">
+          <span class="milestone-title">{milestone.title}</span>
+          {milestone.dueDate && (
+            <span class="milestone-due text-xs text-muted">Due: {milestone.dueDate}</span>
+          )}
+        </div>
+      )}
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3 class="sidebar-heading">Notifications</h3>
+    <div class="sidebar-content">
+      <button type="button" class="notification-toggle">
+        <span class="notification-icon">{isSubscribed ? '🔔' : '🔕'}</span>
+        <span class="notification-text">
+          {isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+        </span>
+      </button>
+      <p class="text-muted text-xs mt-1">
+        {isSubscribed
+          ? 'You will receive notifications for this issue.'
+          : 'You will not receive notifications for this issue.'}
+      </p>
+    </div>
+  </div>
+</aside>
+
+<style>
+  .issue-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .sidebar-section {
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .sidebar-heading {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 12px;
+  }
+
+  .sidebar-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sidebar-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sidebar-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--gray-400);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: color var(--transition-fast);
+    font-family: inherit;
+  }
+
+  .sidebar-link:hover {
+    color: var(--fg);
+    text-decoration: underline;
+  }
+
+  /* Assignees */
+  .assignee-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .assignee-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+
+  .assignee-name {
+    color: var(--fg);
+  }
+
+  .btn-remove {
+    background: none;
+    border: none;
+    color: var(--gray-500);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    transition: color var(--transition-fast);
+    font-family: inherit;
+  }
+
+  .btn-remove:hover {
+    color: var(--error);
+  }
+
+  /* Labels */
+  .label-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .label-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--bg);
+    letter-spacing: 0.01em;
+  }
+
+  /* Milestone */
+  .milestone-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 12px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .milestone-title {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  .milestone-due {
+    font-size: 11px;
+    color: var(--gray-500);
+  }
+
+  /* Notifications */
+  .notification-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    width: 100%;
+    font-family: inherit;
+  }
+
+  .notification-toggle:hover {
+    background: var(--gray-900);
+    border-color: var(--border-hover);
+  }
+
+  .notification-icon {
+    font-size: 16px;
+  }
+
+  .notification-text {
+    flex: 1;
+    text-align: left;
+  }
+</style>

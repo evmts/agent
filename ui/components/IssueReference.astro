@@ -1,0 +1,69 @@
+---
+import type { Issue } from "../lib/types";
+
+interface Props {
+  issue: Issue;
+  user: string;
+  repo: string;
+  showState?: boolean;
+}
+
+const { issue, user, repo, showState = true } = Astro.props;
+const issueUrl = `/${user}/${repo}/issues/${issue.issue_number}`;
+---
+
+<a href={issueUrl} class="issue-ref">
+  <span class:list={["ref-state", issue.state]}>{showState ? issue.state : ""}</span>
+  <span class="ref-number">#{issue.issue_number}</span>
+  <span class="ref-title">{issue.title}</span>
+</a>
+
+<style>
+  .issue-ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: var(--fg);
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+
+  .issue-ref:hover {
+    border-color: var(--fg);
+    background: var(--bg-muted);
+  }
+
+  .ref-state {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 4px;
+    border-radius: 2px;
+  }
+
+  .ref-state.open {
+    background: rgba(46, 160, 67, 0.15);
+    color: rgb(46, 160, 67);
+  }
+
+  .ref-state.closed {
+    background: rgba(215, 58, 73, 0.15);
+    color: rgb(215, 58, 73);
+  }
+
+  .ref-number {
+    font-weight: 600;
+    font-family: var(--font-mono);
+  }
+
+  .ref-title {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>

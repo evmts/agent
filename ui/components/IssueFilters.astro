@@ -1,0 +1,357 @@
+---
+interface Props {
+  currentFilters: {
+    state: string;
+    author: string | null;
+    assignee: string | null;
+    labels: string[];
+    sort: string;
+    search: string | null;
+  };
+  authors: Array<{ username: string }>;
+  assignees: Array<{ username: string }>;
+  labels: Array<{ name: string; color: string }>;
+  baseUrl: string;
+}
+
+const { currentFilters, authors, assignees, labels, baseUrl } = Astro.props;
+
+function buildUrl(updates: Record<string, string | null>): string {
+  const params = new URLSearchParams();
+
+  // Start with current filters
+  if (currentFilters.state) params.set('state', currentFilters.state);
+  if (currentFilters.author) params.set('author', currentFilters.author);
+  if (currentFilters.assignee) params.set('assignee', currentFilters.assignee);
+  if (currentFilters.labels.length > 0) params.set('labels', currentFilters.labels.join(','));
+  if (currentFilters.sort && currentFilters.sort !== 'created') params.set('sort', currentFilters.sort);
+  if (currentFilters.search) params.set('search', currentFilters.search);
+
+  // Apply updates
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null) {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+  }
+
+  const queryString = params.toString();
+  return queryString ? `${baseUrl}?${queryString}` : baseUrl;
+}
+
+function removeLabel(labelToRemove: string): string {
+  const newLabels = currentFilters.labels.filter(l => l !== labelToRemove);
+  return buildUrl({ labels: newLabels.length > 0 ? newLabels.join(',') : null });
+}
+
+const hasActiveFilters = currentFilters.author || currentFilters.assignee ||
+                        currentFilters.labels.length > 0 || currentFilters.search;
+---
+
+<div class="issue-filters">
+  <div class="filters-bar">
+    <div class="filter-group">
+      <label for="author-filter" class="filter-label">Author</label>
+      <select
+        id="author-filter"
+        class="filter-select"
+        onchange={`window.location.href = this.value`}
+      >
+        <option value={buildUrl({ author: null })}>All authors</option>
+        {authors.map(author => (
+          <option
+            value={buildUrl({ author: author.username })}
+            selected={currentFilters.author === author.username}
+          >
+            {author.username}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="assignee-filter" class="filter-label">Assignee</label>
+      <select
+        id="assignee-filter"
+        class="filter-select"
+        onchange={`window.location.href = this.value`}
+      >
+        <option value={buildUrl({ assignee: null })}>All assignees</option>
+        {assignees.map(assignee => (
+          <option
+            value={buildUrl({ assignee: assignee.username })}
+            selected={currentFilters.assignee === assignee.username}
+          >
+            {assignee.username}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="label-filter" class="filter-label">Label</label>
+      <select
+        id="label-filter"
+        class="filter-select"
+        onchange={`
+          if (this.value) {
+            const currentLabels = '${currentFilters.labels.join(',')}';
+            const labelsArray = currentLabels ? currentLabels.split(',') : [];
+            if (!labelsArray.includes(this.value)) {
+              labelsArray.push(this.value);
+            }
+            const params = new URLSearchParams(window.location.search);
+            params.set('labels', labelsArray.join(','));
+            window.location.href = '${baseUrl}?' + params.toString();
+            this.value = '';
+          }
+        `}
+      >
+        <option value="">Add label</option>
+        {labels.map(label => (
+          <option
+            value={label.name}
+            disabled={currentFilters.labels.includes(label.name)}
+          >
+            {label.name}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label for="sort-filter" class="filter-label">Sort</label>
+      <select
+        id="sort-filter"
+        class="filter-select"
+        onchange={`window.location.href = this.value`}
+      >
+        <option
+          value={buildUrl({ sort: 'created' })}
+          selected={currentFilters.sort === 'created'}
+        >
+          Created (newest)
+        </option>
+        <option
+          value={buildUrl({ sort: 'updated' })}
+          selected={currentFilters.sort === 'updated'}
+        >
+          Updated (newest)
+        </option>
+        <option
+          value={buildUrl({ sort: 'comments' })}
+          selected={currentFilters.sort === 'comments'}
+        >
+          Most commented
+        </option>
+      </select>
+    </div>
+
+    <div class="filter-group filter-search">
+      <label for="search-filter" class="filter-label">Search</label>
+      <form class="search-form" action={baseUrl} method="get">
+        <input type="hidden" name="state" value={currentFilters.state} />
+        {currentFilters.author && <input type="hidden" name="author" value={currentFilters.author} />}
+        {currentFilters.assignee && <input type="hidden" name="assignee" value={currentFilters.assignee} />}
+        {currentFilters.labels.map(label => (
+          <input type="hidden" name="labels" value={currentFilters.labels.join(',')} />
+        ))}
+        {currentFilters.sort !== 'created' && <input type="hidden" name="sort" value={currentFilters.sort} />}
+        <input
+          type="text"
+          id="search-filter"
+          name="search"
+          class="filter-input"
+          placeholder="Search issues..."
+          value={currentFilters.search || ''}
+        />
+      </form>
+    </div>
+  </div>
+
+  {hasActiveFilters && (
+    <div class="active-filters">
+      {currentFilters.author && (
+        <a href={buildUrl({ author: null })} class="filter-chip">
+          Author: {currentFilters.author}
+          <span class="chip-remove">×</span>
+        </a>
+      )}
+
+      {currentFilters.assignee && (
+        <a href={buildUrl({ assignee: null })} class="filter-chip">
+          Assignee: {currentFilters.assignee}
+          <span class="chip-remove">×</span>
+        </a>
+      )}
+
+      {currentFilters.labels.map(label => (
+        <a href={removeLabel(label)} class="filter-chip">
+          Label: {label}
+          <span class="chip-remove">×</span>
+        </a>
+      ))}
+
+      {currentFilters.search && (
+        <a href={buildUrl({ search: null })} class="filter-chip">
+          Search: {currentFilters.search}
+          <span class="chip-remove">×</span>
+        </a>
+      )}
+
+      <a href={baseUrl + '?state=' + currentFilters.state} class="clear-filters">
+        Clear all filters
+      </a>
+    </div>
+  )}
+</div>
+
+<style>
+  .issue-filters {
+    margin-bottom: 16px;
+  }
+
+  .filters-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 140px;
+  }
+
+  .filter-search {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .filter-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gray-500);
+    margin-bottom: 0;
+  }
+
+  .filter-select {
+    height: 32px;
+    padding: 0 32px 0 10px;
+    font-size: 13px;
+    background-color: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .filter-select:hover {
+    border-color: var(--border-hover);
+    background-color: var(--gray-800);
+  }
+
+  .filter-select:focus {
+    outline: none;
+    border-color: var(--gray-400);
+    background-color: var(--bg);
+  }
+
+  .search-form {
+    display: flex;
+  }
+
+  .filter-input {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 13px;
+    background-color: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg);
+    transition: all var(--transition-fast);
+  }
+
+  .filter-input:hover {
+    border-color: var(--border-hover);
+  }
+
+  .filter-input:focus {
+    outline: none;
+    border-color: var(--gray-400);
+    background-color: var(--bg);
+  }
+
+  .filter-input::placeholder {
+    color: var(--gray-500);
+  }
+
+  .active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+    align-items: center;
+  }
+
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 10px;
+    background: var(--gray-800);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    font-size: 12px;
+    color: var(--gray-200);
+    transition: all var(--transition-fast);
+  }
+
+  .filter-chip:hover {
+    background: var(--gray-700);
+    border-color: var(--border-hover);
+    color: var(--fg);
+  }
+
+  .chip-remove {
+    font-size: 18px;
+    line-height: 1;
+    color: var(--gray-400);
+    transition: color var(--transition-fast);
+  }
+
+  .filter-chip:hover .chip-remove {
+    color: var(--fg);
+  }
+
+  .clear-filters {
+    font-size: 12px;
+    color: var(--gray-400);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    padding: 4px 8px;
+  }
+
+  .clear-filters:hover {
+    color: var(--fg);
+  }
+
+  @media (max-width: 768px) {
+    .filters-bar {
+      flex-direction: column;
+    }
+
+    .filter-group {
+      min-width: 100%;
+    }
+  }
+</style>
