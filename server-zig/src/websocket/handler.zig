@@ -131,3 +131,42 @@ test "PtyWebSocket basic" {
     const T = PtyWebSocket;
     _ = T;
 }
+
+test "UpgradeContext structure" {
+    // Test that UpgradeContext has the expected structure
+    const T = UpgradeContext;
+    _ = T;
+
+    // The struct should have a session field
+    const info = @typeInfo(UpgradeContext);
+    try std.testing.expect(info == .@"struct");
+}
+
+test "PtyWebSocket struct fields" {
+    // Test struct layout
+    const info = @typeInfo(PtyWebSocket);
+    try std.testing.expect(info == .@"struct");
+
+    // Should have fields: conn, session, running, reader_thread
+    const fields = info.@"struct".fields;
+    try std.testing.expect(fields.len == 4);
+}
+
+test "control message detection" {
+    // Test logic for detecting JSON control messages
+    const json_msg = "{\"type\":\"resize\",\"cols\":80,\"rows\":24}";
+    const regular_msg = "ls -la\n";
+
+    // JSON messages start with '{'
+    try std.testing.expect(json_msg.len > 0 and json_msg[0] == '{');
+    try std.testing.expect(regular_msg.len > 0 and regular_msg[0] != '{');
+}
+
+test "resize message detection" {
+    const resize_msg = "{\"type\":\"resize\",\"cols\":80,\"rows\":24}";
+    const other_msg = "{\"type\":\"ping\"}";
+
+    // Check for resize type
+    try std.testing.expect(std.mem.indexOf(u8, resize_msg, "\"type\":\"resize\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, other_msg, "\"type\":\"resize\"") == null);
+}

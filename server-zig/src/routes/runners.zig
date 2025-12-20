@@ -218,8 +218,14 @@ pub fn updateTaskStatus(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     defer ctx.allocator.free(token_hash);
 
     // Verify task token
-    const task = try db.getTaskByToken(ctx.pool, token_hash);
-    if (task == null or task.?.id != task_id) {
+    var task = try db.getTaskByToken(ctx.pool, ctx.allocator, token_hash) orelse {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Invalid task token\"}");
+        return;
+    };
+    defer db.freeWorkflowTask(ctx.allocator, &task);
+
+    if (task.id != task_id) {
         res.status = 401;
         try res.writer().writeAll("{\"error\":\"Invalid task token\"}");
         return;
@@ -254,7 +260,7 @@ pub fn updateTaskStatus(ctx: *Context, req: *httpz.Request, res: *httpz.Response
 
     // If task is done, update job status too
     if (status == .success or status == .failure or status == .cancelled) {
-        try db.updateJobStatusFromTask(ctx.pool, task.?.job_id, status_int);
+        try db.updateJobStatusFromTask(ctx.pool, task.job_id, status_int);
     }
 
     try res.writer().writeAll("{\"ok\":true}");
@@ -288,8 +294,14 @@ pub fn appendLogs(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     defer ctx.allocator.free(token_hash);
 
     // Verify task token
-    const task = try db.getTaskByToken(ctx.pool, token_hash);
-    if (task == null or task.?.id != task_id) {
+    var task = try db.getTaskByToken(ctx.pool, ctx.allocator, token_hash) orelse {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Invalid task token\"}");
+        return;
+    };
+    defer db.freeWorkflowTask(ctx.allocator, &task);
+
+    if (task.id != task_id) {
         res.status = 401;
         try res.writer().writeAll("{\"error\":\"Invalid task token\"}");
         return;

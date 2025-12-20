@@ -2300,13 +2300,6 @@ pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz
 }
 // Additional issue route handlers
 
-const std = @import("std");
-const httpz = @import("httpz");
-const Context = @import("../main.zig").Context;
-const db_issues = @import("../lib/db_issues.zig");
-
-const log = std.log.scoped(.issue_routes_new);
-
 /// DELETE /:user/:repo/issues/:number
 /// Delete an issue
 pub fn deleteIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
@@ -2677,13 +2670,6 @@ pub fn getIssueCounts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     try writer.print("{{\"open\":{d},\"closed\":{d}}}", .{ counts.open, counts.closed });
 }
 // Due date route handlers
-
-const std = @import("std");
-const httpz = @import("httpz");
-const Context = @import("../main.zig").Context;
-const db_issues = @import("../lib/db_issues.zig");
-
-const log = std.log.scoped(.issue_routes_due_date);
 
 /// GET /:user/:repo/issues/:number/due-date
 /// Get issue due date

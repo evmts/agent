@@ -129,6 +129,68 @@ pub fn close(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     try res.writer().writeAll("{\"success\":true}");
 }
 
+/// Resize a PTY session
+/// POST /pty/:id/resize
+pub fn resize(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const id = req.param("id") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing session id\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Extract cols and rows from JSON
+    const cols = extractJsonNumber(body, "cols") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing cols field\"}");
+        return;
+    };
+
+    const rows = extractJsonNumber(body, "rows") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing rows field\"}");
+        return;
+    };
+
+    // Validate dimensions
+    if (cols == 0 or rows == 0 or cols > 1000 or rows > 1000) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid dimensions: cols and rows must be between 1 and 1000\"}");
+        return;
+    }
+
+    // Get the PTY session
+    const session = ctx.pty_manager.getSession(id) catch {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Session not found\"}");
+        return;
+    };
+
+    // Resize the PTY
+    session.resize(@intCast(cols), @intCast(rows)) catch |err| {
+        log.err("Failed to resize PTY session {s}: {}", .{ id, err });
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to resize PTY session\"}");
+        return;
+    };
+
+    log.info("PTY session resized via API: id={s}, cols={d}, rows={d}", .{ id, cols, rows });
+
+    // Return success response
+    var writer = res.writer();
+    try writer.print(
+        \\{{"success":true,"cols":{d},"rows":{d}}}
+    , .{ cols, rows });
+}
+
 /// WebSocket upgrade handler for PTY streaming
 /// GET /pty/:id/ws (with Upgrade: websocket header)
 pub fn websocket(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
@@ -188,4 +250,38 @@ fn extractJsonString(json: []const u8, key: []const u8) ?[]const u8 {
     const value_end = std.mem.indexOfPos(u8, json, value_start, "\"") orelse return null;
 
     return json[value_start..value_end];
+}
+
+/// Simple JSON number extractor (avoids need for full JSON parser)
+fn extractJsonNumber(json: []const u8, key: []const u8) ?u32 {
+    // Find "key":
+    var pattern_buf: [256]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\":", .{key}) catch return null;
+
+    const start_idx = std.mem.indexOf(u8, json, pattern) orelse return null;
+    const value_start = start_idx + pattern.len;
+
+    // Skip whitespace
+    var pos = value_start;
+    while (pos < json.len and (json[pos] == ' ' or json[pos] == '\t' or json[pos] == '\n' or json[pos] == '\r')) {
+        pos += 1;
+    }
+
+    if (pos >= json.len) return null;
+
+    // Find end of number (next comma, brace, bracket, or whitespace)
+    var value_end = pos;
+    while (value_end < json.len) {
+        const c = json[value_end];
+        if (c == ',' or c == '}' or c == ']' or c == ' ' or c == '\t' or c == '\n' or c == '\r') {
+            break;
+        }
+        value_end += 1;
+    }
+
+    if (value_end == pos) return null;
+
+    // Parse the number
+    const num_str = json[pos..value_end];
+    return std.fmt.parseInt(u32, num_str, 10) catch null;
 }

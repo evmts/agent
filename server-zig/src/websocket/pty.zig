@@ -168,6 +168,39 @@ pub const Session = struct {
         }
     }
 
+    /// Resize the PTY terminal
+    pub fn resize(self: *Session, cols: u16, rows: u16) !void {
+        if (!self.running) {
+            return PtyError.InvalidState;
+        }
+
+        // Define winsize struct for ioctl
+        const winsize = extern struct {
+            ws_row: u16,
+            ws_col: u16,
+            ws_xpixel: u16,
+            ws_ypixel: u16,
+        };
+
+        const ws = winsize{
+            .ws_row = rows,
+            .ws_col = cols,
+            .ws_xpixel = 0,
+            .ws_ypixel = 0,
+        };
+
+        // TIOCSWINSZ ioctl constant for macOS
+        const TIOCSWINSZ: u32 = 0x80087467;
+
+        const result = std.c.ioctl(self.master_fd, TIOCSWINSZ, @intFromPtr(&ws));
+        if (result < 0) {
+            log.err("Failed to resize PTY: ioctl returned {d}", .{result});
+            return error.ResizeFailed;
+        }
+
+        log.info("PTY resized: id={s}, cols={d}, rows={d}", .{ self.id, cols, rows });
+    }
+
     /// Terminate the PTY process
     pub fn terminate(self: *Session) !void {
         if (!self.running) return;

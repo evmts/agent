@@ -70,14 +70,14 @@ fn escapeJson(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
     var escaped = std.ArrayList(u8).init(allocator);
     errdefer escaped.deinit();
 
-    for (input) |c| {
-        switch (c) {
+    for (input) |char| {
+        switch (char) {
             '"' => try escaped.appendSlice("\\\""),
             '\\' => try escaped.appendSlice("\\\\"),
             '\n' => try escaped.appendSlice("\\n"),
             '\r' => try escaped.appendSlice("\\r"),
             '\t' => try escaped.appendSlice("\\t"),
-            else => try escaped.append(c),
+            else => try escaped.append(char),
         }
     }
 
@@ -478,8 +478,8 @@ pub fn getConflicts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         return;
     };
 
-    // Get repository from database
-    const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
+    // Get repository from database (validate it exists)
+    _ = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Internal server error\"}");
@@ -564,7 +564,6 @@ pub fn getConflicts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
 
 pub fn resolveConflict(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
-    const allocator = ctx.allocator;
 
     // Require authentication
     const user = ctx.user orelse {
