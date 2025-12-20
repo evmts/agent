@@ -1,0 +1,345 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import Header from "../../components/Header.astro";
+import { sql } from "../../lib/db";
+
+// Check authentication
+let currentUser = null;
+const sessionCookie = Astro.cookies.get('plue_session');
+
+if (!sessionCookie) {
+  return Astro.redirect('/login');
+}
+
+try {
+  const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
+    headers: {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    },
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    currentUser = data.user;
+  } else {
+    return Astro.redirect('/login');
+  }
+} catch (error) {
+  console.error('Failed to fetch current user:', error);
+  return Astro.redirect('/login');
+}
+
+// Fetch user's SSH keys
+let sshKeys = [];
+try {
+  sshKeys = await sql`
+    SELECT id, name, fingerprint, created_at
+    FROM ssh_keys
+    WHERE user_id = ${currentUser.id}
+    ORDER BY created_at DESC
+  `;
+} catch (error) {
+  console.error('Failed to fetch SSH keys:', error);
+}
+---
+
+<Layout title="SSH Keys - plue">
+  <Header />
+  <div class="container">
+    <div class="settings-container">
+      <h1>SSH Keys</h1>
+      <p class="description">
+        SSH keys allow you to establish a secure connection for git operations
+        like push and pull without entering your password each time.
+      </p>
+
+      <div class="divider"></div>
+
+      <h2>Add New SSH Key</h2>
+      <form id="ssh-key-form" class="settings-form">
+        <div class="form-group">
+          <label for="key-name">Key Name</label>
+          <input
+            type="text"
+            id="key-name"
+            name="name"
+            required
+            maxlength="255"
+            placeholder="e.g., Laptop, Work PC"
+          />
+          <small>Choose a descriptive name to identify this key</small>
+        </div>
+
+        <div class="form-group">
+          <label for="public-key">Public Key</label>
+          <textarea
+            id="public-key"
+            name="publicKey"
+            required
+            rows="6"
+            placeholder="Paste your public key here (ssh-rsa, ssh-ed25519, etc.)"
+          ></textarea>
+          <small>Paste the contents of your public key file (e.g., ~/.ssh/id_rsa.pub)</small>
+        </div>
+
+        <div id="key-error" class="error-message" style="display: none;"></div>
+        <div id="key-success" class="success-message" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary" id="add-key-submit">
+          Add SSH Key
+        </button>
+      </form>
+
+      <div class="divider"></div>
+
+      <h2>Your SSH Keys</h2>
+
+      {sshKeys.length === 0 ? (
+        <div class="empty-state">
+          <p>You haven't added any SSH keys yet.</p>
+        </div>
+      ) : (
+        <div class="keys-list">
+          {sshKeys.map((key) => (
+            <div class="key-item" data-key-id={key.id}>
+              <div class="key-info">
+                <div class="key-name">{key.name}</div>
+                <div class="key-fingerprint">{key.fingerprint}</div>
+                <div class="key-meta">
+                  Added {new Date(key.created_at).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })}
+                </div>
+              </div>
+              <button
+                class="btn btn-danger btn-sm delete-key-btn"
+                data-key-id={key.id}
+                data-key-name={key.name}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .settings-container {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .description {
+    color: var(--gray-400);
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+  }
+
+  .settings-form {
+    margin-bottom: 2rem;
+  }
+
+  .form-group small {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--gray-400);
+  }
+
+  .error-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--error-dim);
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    color: var(--error);
+  }
+
+  .success-message {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--success-dim);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+    color: var(--success);
+  }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 3rem 0 2rem 0;
+  }
+
+  h2 {
+    font-size: 16px;
+    color: var(--fg);
+    margin-bottom: 1rem;
+    text-transform: none;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+
+  .keys-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .key-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--gray-950);
+    transition: border-color var(--transition-fast);
+  }
+
+  .key-item:hover {
+    border-color: var(--border-hover);
+  }
+
+  .key-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .key-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+
+  .key-fingerprint {
+    font-size: 12px;
+    color: var(--gray-400);
+    font-family: monospace;
+    margin-bottom: 4px;
+    word-break: break-all;
+  }
+
+  .key-meta {
+    font-size: 12px;
+    color: var(--gray-500);
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  @media (max-width: 640px) {
+    .key-item {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .delete-key-btn {
+      width: 100%;
+    }
+  }
+</style>
+
+<script>
+  const keyForm = document.getElementById('ssh-key-form') as HTMLFormElement;
+  const keyErrorDiv = document.getElementById('key-error') as HTMLDivElement;
+  const keySuccessDiv = document.getElementById('key-success') as HTMLDivElement;
+  const addKeySubmitBtn = document.getElementById('add-key-submit') as HTMLButtonElement;
+
+  // Add SSH key form handler
+  keyForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    keyErrorDiv.style.display = 'none';
+    keySuccessDiv.style.display = 'none';
+    addKeySubmitBtn.disabled = true;
+    addKeySubmitBtn.textContent = 'Adding...';
+
+    const name = (document.getElementById('key-name') as HTMLInputElement).value.trim();
+    const publicKey = (document.getElementById('public-key') as HTMLTextAreaElement).value.trim();
+
+    try {
+      const res = await fetch('/api/ssh-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, publicKey }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add SSH key');
+      }
+
+      keySuccessDiv.textContent = 'SSH key added successfully!';
+      keySuccessDiv.style.display = 'block';
+
+      // Reload page after a short delay to show the new key
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (error) {
+      keyErrorDiv.textContent = error instanceof Error ? error.message : 'Failed to add SSH key';
+      keyErrorDiv.style.display = 'block';
+      addKeySubmitBtn.disabled = false;
+      addKeySubmitBtn.textContent = 'Add SSH Key';
+    }
+  });
+
+  // Delete SSH key handler
+  const deleteKeyBtns = document.querySelectorAll('.delete-key-btn');
+
+  deleteKeyBtns.forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const target = e.target as HTMLButtonElement;
+      const keyId = target.dataset.keyId;
+      const keyName = target.dataset.keyName;
+
+      if (!keyId) return;
+
+      if (!confirm(`Are you sure you want to delete the SSH key "${keyName}"? This cannot be undone.`)) {
+        return;
+      }
+
+      target.disabled = true;
+      target.textContent = 'Deleting...';
+
+      try {
+        const res = await fetch(`/api/ssh-keys/${keyId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to delete SSH key');
+        }
+
+        // Remove the key item from the DOM
+        const keyItem = target.closest('.key-item');
+        if (keyItem) {
+          keyItem.remove();
+        }
+
+        // Check if there are no more keys and show empty state
+        const keysList = document.querySelector('.keys-list');
+        if (keysList && keysList.children.length === 0) {
+          window.location.reload();
+        }
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Failed to delete SSH key');
+        target.disabled = false;
+        target.textContent = 'Delete';
+      }
+    });
+  });
+</script>
