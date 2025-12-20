@@ -4,6 +4,10 @@ import Header from "../../components/Header.astro";
 
 const { user: username } = Astro.params;
 
+if (!username) {
+  return Astro.redirect('/404');
+}
+
 // Check if user is authenticated and viewing their own profile
 let currentUser = null;
 let userProfile = null;

@@ -1,19 +1,23 @@
 ---
-import Layout from "../../../../../layouts/Layout.astro";
-import Header from "../../../../../components/Header.astro";
-import { sql } from "../../../../../lib/db";
-import { listBranches } from "../../../../../lib/git";
-import type { User, Repository } from "../../../../../lib/types";
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import { listBranches } from "../../../../lib/git";
+import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 if (!repo) return Astro.redirect("/404");
 
 const branches = await listBranches(username, reponame);
@@ -86,7 +90,7 @@ const [{ pr_count }] = await sql`
         <div class="form-group">
           <label for="base_branch">Base branch</label>
           <select id="base_branch" name="base_branch" required>
-            {branches.map(branch => (
+            {branches.map((branch: string) => (
               <option value={branch} selected={branch === repo.default_branch}>
                 {branch}
               </option>
@@ -99,7 +103,7 @@ const [{ pr_count }] = await sql`
         <div class="form-group">
           <label for="head_branch">Compare branch</label>
           <select id="head_branch" name="head_branch" required>
-            {branches.map(branch => (
+            {branches.map((branch: string) => (
               <option value={branch} selected={branch !== repo.default_branch}>
                 {branch}
               </option>

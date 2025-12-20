@@ -8,24 +8,28 @@ import type { User, Repository, Issue } from "../../../../lib/types";
 const { user: username, repo: reponame } = Astro.params;
 const state = Astro.url.searchParams.get("state") || "open";
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 
 if (!repo) return Astro.redirect("/404");
 
-const issues = await sql`
+const issues = await sql<Issue[]>`
   SELECT i.*, u.username as author_username
   FROM issues i
   JOIN users u ON i.author_id = u.id
   WHERE i.repository_id = ${repo.id}
   ${state === "all" ? sql`` : sql`AND i.state = ${state}`}
   ORDER BY i.created_at DESC
-` as Issue[];
+`;
 
 const [{ open_count }] = await sql`
   SELECT COUNT(*) as open_count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
@@ -92,7 +96,7 @@ const [{ count: prCount }] = await sql`
     ) : (
       <div class="issue-list">
         {issues.map((issue) => (
-          <IssueCard issue={issue} user={username!} repo={reponame!} />
+          <IssueCard issue={issue} user={username} repo={reponame} />
         ))}
       </div>
     )}

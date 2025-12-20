@@ -8,13 +8,17 @@ import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame, path: pathParam } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 
 if (!repo) return Astro.redirect("/404");
 
@@ -23,7 +27,7 @@ const branch = pathParts[0] || repo.default_branch || "main";
 const filePath = pathParts.slice(1).join("/");
 const filename = pathParts[pathParts.length - 1] || "";
 
-const content = await getFileContent(username!, reponame!, branch, filePath);
+const content = await getFileContent(username, reponame, branch, filePath);
 
 if (content === null) {
   return Astro.redirect("/404");

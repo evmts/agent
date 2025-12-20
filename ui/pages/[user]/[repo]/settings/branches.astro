@@ -6,13 +6,17 @@ import type { User, Repository, ProtectedBranch } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 
 if (!repo) return Astro.redirect("/404");
 
@@ -290,7 +294,7 @@ const protectionRules = await sql<ProtectedBranch[]>`
 
   // Modal handling
   document.querySelector('[data-action="new-rule"]')?.addEventListener('click', () => {
-    document.getElementById('new-rule-modal')?.showModal();
+    (document.getElementById('new-rule-modal') as HTMLDialogElement)?.showModal();
   });
 
   document.querySelectorAll('[data-action="close-modal"]').forEach(btn => {
@@ -334,7 +338,7 @@ const protectionRules = await sql<ProtectedBranch[]>`
       const form = modal.querySelector('form') as HTMLFormElement;
       
       // Populate form with current values
-      form.elements.namedItem('rule_id')!.value = target.dataset.ruleId!;
+      (form.elements.namedItem('rule_id') as HTMLInputElement).value = target.dataset.ruleId!;
       document.getElementById('edit-rule-name-display')!.textContent = target.dataset.ruleName!;
       (form.elements.namedItem('can_push') as HTMLInputElement).checked = target.dataset.canPush === 'true';
       (form.elements.namedItem('can_force_push') as HTMLInputElement).checked = target.dataset.canForcePush === 'true';

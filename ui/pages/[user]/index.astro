@@ -7,19 +7,23 @@ import type { User, Repository } from "../../lib/types";
 
 const { user: username } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 
 if (!user) {
   return Astro.redirect("/404");
 }
 
-const repos = await sql`
+const repos = await sql<Repository[]>`
   SELECT r.*, u.username
   FROM repositories r
   JOIN users u ON r.user_id = u.id
   WHERE r.user_id = ${user.id} AND r.is_public = true
   ORDER BY r.updated_at DESC
-` as Repository[];
+`;
 ---
 
 <Layout title={`${user.username} · plue`}>

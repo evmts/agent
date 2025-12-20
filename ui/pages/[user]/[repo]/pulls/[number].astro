@@ -1,28 +1,35 @@
 ---
-import Layout from "../../../../../layouts/Layout.astro";
-import Header from "../../../../../components/Header.astro";
-import Markdown from "../../../../../components/Markdown.astro";
-import { sql } from "../../../../../lib/db";
-import type { User, Repository, PullRequest } from "../../../../../lib/types";
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import Markdown from "../../../../components/Markdown.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository, PullRequest, Issue } from "../../../../lib/types";
+
+// Combined type for PR with joined issue and author data
+type PRWithIssue = PullRequest & Issue & { author_username: string };
 
 const { user: username, repo: reponame, number } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame || !number) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 if (!repo) return Astro.redirect("/404");
 
-const [pr] = await sql`
+const [pr] = await sql<PRWithIssue[]>`
   SELECT pr.*, i.*, u.username as author_username
   FROM pull_requests pr
   JOIN issues i ON pr.issue_id = i.id
   JOIN users u ON i.author_id = u.id
-  WHERE i.repository_id = ${repo.id} AND i.issue_number = ${parseInt(number!, 10)}
-` as PullRequest[];
+  WHERE i.repository_id = ${repo.id} AND i.issue_number = ${parseInt(number, 10)}
+`;
 
 if (!pr) return Astro.redirect("/404");
 

@@ -7,38 +7,42 @@ import type { User, Repository, Branch } from "../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 
 if (!repo) return Astro.redirect("/404");
 
 // Get all branch names from git first
-const gitBranches = await listBranches(username!, reponame!);
+const gitBranches = await listBranches(username, reponame);
 
 // Get or create branch records in database
 const branches: (Branch & { pusher_username?: string })[] = [];
 
 for (const branchName of gitBranches) {
   // Check if branch exists in database
-  let [dbBranch] = await sql`
+  let [dbBranch] = await sql<(Branch & { pusher_username?: string })[]>`
     SELECT b.*, u.username as pusher_username
     FROM branches b
     LEFT JOIN users u ON b.pusher_id = u.id
     WHERE b.repository_id = ${repo.id}
       AND b.name = ${branchName}
       AND b.is_deleted = false
-  ` as (Branch & { pusher_username?: string })[];
+  `;
 
   if (!dbBranch) {
     // Create missing branch record
-    const commitInfo = await getBranchCommit(username!, reponame!, branchName);
-    
-    [dbBranch] = await sql`
+    const commitInfo = await getBranchCommit(username, reponame, branchName);
+
+    [dbBranch] = await sql<Branch[]>`
       INSERT INTO branches (
         repository_id, name, commit_id, commit_message,
         commit_time, pusher_id
@@ -49,8 +53,8 @@ for (const branchName of gitBranches) {
         ${repo.user_id}
       )
       RETURNING *
-    ` as Branch[];
-    
+    `;
+
     dbBranch.pusher_username = username;
   }
 
@@ -297,7 +301,7 @@ const [{ count: issueCount }] = await sql`
 
   // Modal handling
   document.querySelector('[data-action="new-branch"]')?.addEventListener('click', () => {
-    document.getElementById('new-branch-modal')?.showModal();
+    (document.getElementById('new-branch-modal') as HTMLDialogElement)?.showModal();
   });
 
   document.querySelectorAll('[data-action="close-modal"]').forEach(btn => {
@@ -337,8 +341,8 @@ const [{ count: issueCount }] = await sql`
       const modal = document.getElementById('rename-branch-modal') as HTMLDialogElement;
       const form = modal.querySelector('form') as HTMLFormElement;
       
-      form.elements.namedItem('old_name')!.value = branchName;
-      form.elements.namedItem('new_name')!.value = branchName;
+      (form.elements.namedItem('old_name') as HTMLInputElement).value = branchName;
+      (form.elements.namedItem('new_name') as HTMLInputElement).value = branchName;
       
       modal.showModal();
     });

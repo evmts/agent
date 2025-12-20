@@ -9,18 +9,22 @@ import type { User, Repository } from "../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
-const [user] = await sql`SELECT * FROM users WHERE username = ${username}` as User[];
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql`
+const [repo] = await sql<Repository[]>`
   SELECT * FROM repositories
   WHERE user_id = ${user.id} AND name = ${reponame}
-` as Repository[];
+`;
 
 if (!repo) return Astro.redirect("/404");
 
 const defaultBranch = repo.default_branch || "main";
-const tree = await getTree(username!, reponame!, defaultBranch);
+const tree = await getTree(username, reponame, defaultBranch);
 
 // Try to get README
 let readme = "";
@@ -28,10 +32,10 @@ const readmeFile = tree.find(
   (f) => f.name.toLowerCase().startsWith("readme") && f.type === "blob"
 );
 if (readmeFile) {
-  readme = (await getFileContent(username!, reponame!, defaultBranch, readmeFile.name)) || "";
+  readme = (await getFileContent(username, reponame, defaultBranch, readmeFile.name)) || "";
 }
 
-const cloneUrl = getCloneUrl(username!, reponame!);
+const cloneUrl = getCloneUrl(username, reponame);
 
 const [{ count: issueCount }] = await sql`
   SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
@@ -78,7 +82,7 @@ const [{ count: prCount }] = await sql`
       </button>
     </div>
 
-    <FileTree tree={tree} user={username!} repo={reponame!} branch={defaultBranch} />
+    <FileTree tree={tree} user={username} repo={reponame} branch={defaultBranch} />
 
     {readme && (
       <div class="mt-3">
