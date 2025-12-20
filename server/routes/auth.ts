@@ -6,7 +6,7 @@ import { createSession, deleteSession } from '../lib/session';
 import { setSessionCookie, clearSessionCookie } from '../middleware/auth';
 import { signJWT, setJWTCookie, clearJWTCookie } from '../lib/jwt';
 import { authRateLimit } from '../middleware/rate-limit';
-import sql from '../../db/client';
+import sql from '../db/client';
 import { getCookie } from 'hono/cookie';
 
 const app = new Hono();

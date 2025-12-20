@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createHash, randomBytes } from 'crypto';
 import { zValidator } from '@hono/zod-validator';
 import { requireAuth, requireActiveAccount } from '../middleware/auth';
-import { sql } from '../../db/client';
+import { sql } from '../db/client';
 import { createAccessTokenSchema } from '../lib/validation';
 
 const app = new Hono();

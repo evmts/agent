@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import type { MessageWithParts } from '../../core/state';
-import { saveMessage } from '../../db/agent-state';
+import { saveMessage } from '../db/agent-state';
 
 // Re-export for compatibility
 export { saveMessage };

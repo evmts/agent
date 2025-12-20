@@ -20,7 +20,7 @@ import {
   parseStatusString,
   updateCommitStatusFromRun,
 } from '../../core/workflows';
-import sql from '../../db/client';
+import sql from '../db/client';
 
 const app = new Hono();
 
