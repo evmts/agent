@@ -43,11 +43,21 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 tools/native/target
 snapshot/target
 snapshot/*.node
+server/jj-ffi/target/
+**/target/
+
+# Backup files
+*.bak
 
 # Zig build artifacts
 tools/*/zig-out/
 tools/*/.zig-cache/
 tools/*/zig-cache/
+server/.zig-cache/
+server/zig-out/
+core/.zig-cache/
+core/zig-out/
+*.o
 
 # Reference code (not part of project)
 gitea/
