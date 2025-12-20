@@ -18,6 +18,7 @@ import {
   getWorkflowDefinitionByName,
   WorkflowStatus,
   parseStatusString,
+  updateCommitStatusFromRun,
 } from '../../core/workflows';
 import sql from '../../db/client';
 
@@ -44,6 +45,30 @@ async function getRepositoryId(
       AND LOWER(r.name) = ${repoName.toLowerCase()}
   `;
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Update run status and also update commit status.
+ */
+async function updateRunStatusWithCommitStatus(
+  runId: number,
+  status: WorkflowStatus,
+  stoppedAt?: Date
+): Promise<void> {
+  await updateRunStatus(runId, status, stoppedAt);
+
+  // Update commit status if run has completed
+  if (
+    status === WorkflowStatus.Success ||
+    status === WorkflowStatus.Failure ||
+    status === WorkflowStatus.Cancelled ||
+    status === WorkflowStatus.Blocked
+  ) {
+    const run = await getRun(runId);
+    if (run) {
+      await updateCommitStatusFromRun(run);
+    }
+  }
 }
 
 // =============================================================================
@@ -289,7 +314,7 @@ app.post('/:user/:repo/workflows/runs/:runId/cancel', async (c) => {
     return c.json({ error: 'Cannot cancel completed workflow' }, 400);
   }
 
-  await updateRunStatus(runId, WorkflowStatus.Cancelled, new Date());
+  await updateRunStatusWithCommitStatus(runId, WorkflowStatus.Cancelled, new Date());
 
   return c.json({ ok: true });
 });

@@ -341,6 +341,28 @@ app.post("/:user/:repo/landing/:id/land", async (c) => {
       return c.json({ error: "Cannot land with unresolved conflicts" }, 400);
     }
 
+    // Check commit statuses - get the change to find commit SHA
+    const change = await jj.getChange(user, repo, request.changeId);
+    if (change?.commitId) {
+      const statuses = await sql`
+        SELECT state FROM commit_statuses
+        WHERE repository_id = ${repository.id} AND commit_sha = ${change.commitId}
+      `;
+
+      const hasFailing = statuses.some((s: any) =>
+        s.state === 'failure' || s.state === 'error'
+      );
+      const hasPending = statuses.some((s: any) => s.state === 'pending');
+
+      if (hasFailing) {
+        return c.json({ error: "Cannot land: required checks are failing" }, 400);
+      }
+
+      if (hasPending) {
+        return c.json({ error: "Cannot land: checks are still running" }, 400);
+      }
+    }
+
     // Get user info for commit
     const [author] = await sql`
       SELECT username, email FROM users WHERE id = ${request.authorId}
@@ -653,32 +675,33 @@ app.patch("/:user/:repo/landing/:id/comments/:commentId", async (c) => {
       return c.json({ error: "Comment not found" }, 404);
     }
 
-    // Build update query
-    const updates: string[] = [];
-    const values: any[] = [];
+    // Build and execute update
+    let updatedComment;
 
-    if (body !== undefined) {
-      updates.push('body = $' + (updates.length + 1));
-      values.push(body);
-    }
-
-    if (resolved !== undefined) {
-      updates.push('resolved = $' + (updates.length + 1));
-      values.push(resolved);
-    }
-
-    if (updates.length === 0) {
+    if (body !== undefined && resolved !== undefined) {
+      [updatedComment] = await sql`
+        UPDATE line_comments
+        SET body = ${body}, resolved = ${resolved}, updated_at = NOW()
+        WHERE id = ${commentId}
+        RETURNING *
+      `;
+    } else if (body !== undefined) {
+      [updatedComment] = await sql`
+        UPDATE line_comments
+        SET body = ${body}, updated_at = NOW()
+        WHERE id = ${commentId}
+        RETURNING *
+      `;
+    } else if (resolved !== undefined) {
+      [updatedComment] = await sql`
+        UPDATE line_comments
+        SET resolved = ${resolved}, updated_at = NOW()
+        WHERE id = ${commentId}
+        RETURNING *
+      `;
+    } else {
       return c.json({ error: "No updates provided" }, 400);
     }
-
-    updates.push('updated_at = NOW()');
-
-    const [updatedComment] = await sql`
-      UPDATE line_comments
-      SET ${sql(updates.join(', '))}
-      WHERE id = ${commentId}
-      RETURNING *
-    `;
 
     return c.json({ comment: updatedComment });
   } catch (error: unknown) {
