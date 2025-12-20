@@ -54,6 +54,11 @@ try {
 } catch {
   // landing_queue table may not exist yet
 }
+
+// Get star count
+const [{ count: starCount }] = await sql`
+  SELECT COUNT(*) as count FROM stars WHERE repository_id = ${repo.id}
+`;
 ---
 
 <Layout title={`${username}/${reponame} · plue`}>
@@ -83,15 +88,39 @@ try {
   </nav>
 
   <div class="container">
-    {repo.description && <p class="description mb-2">{repo.description}</p>}
+    <div class="repo-header mb-3">
+      <div class="repo-info">
+        {repo.description && <p class="description mb-2">{repo.description}</p>}
 
-    {repo.topics && repo.topics.length > 0 && (
-      <div class="topics mb-2">
-        {repo.topics.map((topic) => (
-          <TopicBadge topic={topic} />
-        ))}
+        {repo.topics && repo.topics.length > 0 && (
+          <div class="topics mb-2">
+            {repo.topics.map((topic) => (
+              <TopicBadge topic={topic} />
+            ))}
+          </div>
+        )}
       </div>
-    )}
+
+      <div class="repo-actions">
+        <button id="star-btn" class="btn btn-sm" data-username={username} data-repo={reponame}>
+          <span id="star-icon">☆</span>
+          <span id="star-text">Star</span>
+          <span id="star-count" class="badge">{starCount}</span>
+        </button>
+
+        <div class="watch-dropdown">
+          <button id="watch-btn" class="btn btn-sm">
+            <span id="watch-icon">👁</span>
+            <span id="watch-text">Watch</span>
+          </button>
+          <div id="watch-menu" class="dropdown-menu">
+            <button data-level="all">Watch all activity</button>
+            <button data-level="releases">Watch releases only</button>
+            <button data-level="ignore">Unwatch</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="clone-url mb-3">
       <code>{cloneUrl}</code>

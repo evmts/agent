@@ -145,10 +145,26 @@ const baseUrl = `/${username}/${reponame}/issues`;
       </a>
     </div>
 
+    <IssueFilters
+      currentFilters={currentFilters}
+      authors={authors}
+      assignees={assignees}
+      labels={availableLabels}
+      baseUrl={baseUrl}
+    />
+
+    <div class="issue-results-count">
+      Showing {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+    </div>
+
     {issues.length === 0 ? (
       <div class="empty-state">
-        <p>No {state} issues</p>
-        <a href={`/${username}/${reponame}/issues/new`} class="btn mt-2">Create an issue</a>
+        <p>No {state} issues found</p>
+        {!author && !assignee && !search && labels.length === 0 ? (
+          <a href={`/${username}/${reponame}/issues/new`} class="btn mt-2">Create an issue</a>
+        ) : (
+          <a href={`/${username}/${reponame}/issues?state=${state}`} class="btn mt-2">Clear filters</a>
+        )}
       </div>
     ) : (
       <div class="issue-list">
@@ -159,3 +175,12 @@ const baseUrl = `/${username}/${reponame}/issues`;
     )}
   </div>
 </Layout>
+
+<style>
+  .issue-results-count {
+    font-size: 12px;
+    color: var(--gray-400);
+    margin-bottom: 12px;
+    padding-left: 2px;
+  }
+</style>
