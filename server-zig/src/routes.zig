@@ -100,14 +100,11 @@ fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     defer allocator.free(addr_hex);
 
     // Check if user exists or needs to register
-    const user = db.getUserByAddress(ctx.pool, addr_hex) catch null;
+    const user = db.getUserByWallet(ctx.pool, addr_hex) catch null;
 
     if (user) |u| {
         // Create session token
-        const token = jwt.sign(allocator, .{
-            .user_id = u.id,
-            .address = addr_hex,
-        }, ctx.config.jwt_secret) catch {
+        const token = jwt.create(allocator, u.id, u.username, u.is_admin, ctx.config.jwt_secret) catch {
             res.status = 500;
             try res.writer().writeAll("{\"error\":\"Failed to create session\"}");
             return;
