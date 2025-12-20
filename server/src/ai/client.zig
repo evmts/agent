@@ -25,10 +25,10 @@ pub const AnthropicClient = struct {
         max_tokens: u32,
     ) !Response {
         // Build request JSON
-        var json_buf = std.ArrayList(u8).init(self.allocator);
-        defer json_buf.deinit();
+        var json_buf = std.ArrayList(u8){};
+        defer json_buf.deinit(self.allocator);
 
-        var writer = json_buf.writer();
+        var writer = json_buf.writer(self.allocator);
         try writer.writeAll("{");
         try writer.print("\"model\":\"{s}\",", .{model_id});
         try writer.print("\"max_tokens\":{d},", .{max_tokens});
@@ -65,7 +65,9 @@ pub const AnthropicClient = struct {
         var client = std.http.Client{ .allocator = self.allocator };
         defer client.deinit();
 
-        const uri = try std.Uri.parse(self.base_url ++ "/v1/messages");
+        const url = try std.fmt.allocPrint(self.allocator, "{s}/v1/messages", .{self.base_url});
+        defer self.allocator.free(url);
+        const uri = try std.Uri.parse(url);
 
         var buf: [16384]u8 = undefined;
         var req = try client.open(.POST, uri, .{
@@ -217,7 +219,7 @@ fn parseResponse(allocator: std.mem.Allocator, body: []const u8) !Response {
     const root = parsed.value.object;
 
     // Extract content blocks
-    var content_list = std.ArrayList(Response.ContentBlock).init(allocator);
+    var content_list = std.ArrayList(Response.ContentBlock){};
     if (root.get("content")) |content_array| {
         for (content_array.array.items) |item| {
             const obj = item.object;
@@ -225,20 +227,20 @@ fn parseResponse(allocator: std.mem.Allocator, body: []const u8) !Response {
 
             if (std.mem.eql(u8, content_type, "text")) {
                 const text = try allocator.dupe(u8, obj.get("text").?.string);
-                try content_list.append(.{ .text = text });
+                try content_list.append(allocator, .{ .text = text });
             } else if (std.mem.eql(u8, content_type, "tool_use")) {
                 const id = try allocator.dupe(u8, obj.get("id").?.string);
                 const name = try allocator.dupe(u8, obj.get("name").?.string);
 
                 // Serialize input back to JSON string
-                var input_buf = std.ArrayList(u8).init(allocator);
-                try std.json.stringify(obj.get("input").?, .{}, input_buf.writer());
+                var input_buf = std.ArrayList(u8){};
+                try std.json.stringify(obj.get("input").?, .{}, input_buf.writer(allocator));
 
-                try content_list.append(.{
+                try content_list.append(allocator, .{
                     .tool_use = .{
                         .id = id,
                         .name = name,
-                        .input = try input_buf.toOwnedSlice(),
+                        .input = try input_buf.toOwnedSlice(allocator),
                     },
                 });
             }
@@ -247,7 +249,7 @@ fn parseResponse(allocator: std.mem.Allocator, body: []const u8) !Response {
 
     return .{
         .id = try allocator.dupe(u8, root.get("id").?.string),
-        .content = try content_list.toOwnedSlice(),
+        .content = try content_list.toOwnedSlice(allocator),
         .stop_reason = if (root.get("stop_reason")) |sr| try allocator.dupe(u8, sr.string) else null,
         .usage = .{
             .input_tokens = @intCast(root.get("usage").?.object.get("input_tokens").?.integer),
@@ -257,18 +259,18 @@ fn parseResponse(allocator: std.mem.Allocator, body: []const u8) !Response {
 }
 
 fn escapeJson(allocator: std.mem.Allocator, str: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.ArrayList(u8){};
     for (str) |c| {
         switch (c) {
-            '"' => try result.appendSlice("\\\""),
-            '\\' => try result.appendSlice("\\\\"),
-            '\n' => try result.appendSlice("\\n"),
-            '\r' => try result.appendSlice("\\r"),
-            '\t' => try result.appendSlice("\\t"),
-            else => try result.append(c),
+            '"' => try result.appendSlice(allocator, "\\\""),
+            '\\' => try result.appendSlice(allocator, "\\\\"),
+            '\n' => try result.appendSlice(allocator, "\\n"),
+            '\r' => try result.appendSlice(allocator, "\\r"),
+            '\t' => try result.appendSlice(allocator, "\\t"),
+            else => try result.append(allocator, c),
         }
     }
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 test "escapeJson" {

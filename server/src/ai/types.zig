@@ -159,6 +159,26 @@ pub const StreamEvent = union(enum) {
         message: ?[]const u8 = null,
     };
 
+    /// Escape a string for JSON (simple implementation)
+    fn escapeJsonString(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
+        var result = std.ArrayList(u8){};
+        errdefer result.deinit(allocator);
+
+        try result.append(allocator, '"');
+        for (input) |char| {
+            switch (char) {
+                '"' => try result.appendSlice(allocator, "\\\""),
+                '\\' => try result.appendSlice(allocator, "\\\\"),
+                '\n' => try result.appendSlice(allocator, "\\n"),
+                '\r' => try result.appendSlice(allocator, "\\r"),
+                '\t' => try result.appendSlice(allocator, "\\t"),
+                else => try result.append(allocator, char),
+            }
+        }
+        try result.append(allocator, '"');
+        return result.toOwnedSlice(allocator);
+    }
+
     /// Serialize event to JSON for SSE streaming
     pub fn toJson(self: StreamEvent, allocator: std.mem.Allocator) ![]const u8 {
         var list = std.ArrayList(u8){};
@@ -170,18 +190,24 @@ pub const StreamEvent = union(enum) {
                 try list.appendSlice(allocator, "text\"");
                 if (t.data) |data| {
                     try list.appendSlice(allocator, ",\"data\":");
-                    try std.json.Stringify.encodeJsonString(data, .{}, list.writer(allocator));
+                    const escaped = try escapeJsonString(allocator, data);
+                    defer allocator.free(escaped);
+                    try list.appendSlice(allocator, escaped);
                 }
             },
             .tool_call => |tc| {
                 try list.appendSlice(allocator, "tool_call\"");
                 if (tc.tool_name) |name| {
                     try list.appendSlice(allocator, ",\"toolName\":");
-                    try std.json.Stringify.encodeJsonString(name, .{}, list.writer(allocator));
+                    const escaped = try escapeJsonString(allocator, name);
+                    defer allocator.free(escaped);
+                    try list.appendSlice(allocator, escaped);
                 }
                 if (tc.tool_id) |id| {
                     try list.appendSlice(allocator, ",\"toolId\":");
-                    try std.json.Stringify.encodeJsonString(id, .{}, list.writer(allocator));
+                    const escaped = try escapeJsonString(allocator, id);
+                    defer allocator.free(escaped);
+                    try list.appendSlice(allocator, escaped);
                 }
                 if (tc.args) |args| {
                     try list.appendSlice(allocator, ",\"args\":");
@@ -192,18 +218,24 @@ pub const StreamEvent = union(enum) {
                 try list.appendSlice(allocator, "tool_result\"");
                 if (tr.tool_id) |id| {
                     try list.appendSlice(allocator, ",\"toolId\":");
-                    try std.json.Stringify.encodeJsonString(id, .{}, list.writer(allocator));
+                    const escaped = try escapeJsonString(allocator, id);
+                    defer allocator.free(escaped);
+                    try list.appendSlice(allocator, escaped);
                 }
                 if (tr.tool_output) |output| {
                     try list.appendSlice(allocator, ",\"toolOutput\":");
-                    try std.json.Stringify.encodeJsonString(output, .{}, list.writer(allocator));
+                    const escaped = try escapeJsonString(allocator, output);
+                    defer allocator.free(escaped);
+                    try list.appendSlice(allocator, escaped);
                 }
             },
             .error_event => |e| {
                 try list.appendSlice(allocator, "error\"");
                 if (e.message) |msg| {
                     try list.appendSlice(allocator, ",\"error\":");
-                    try std.json.Stringify.encodeJsonString(msg, .{}, list.writer(allocator));
+                    const escaped = try escapeJsonString(allocator, msg);
+                    defer allocator.free(escaped);
+                    try list.appendSlice(allocator, escaped);
                 }
             },
             .done => {
