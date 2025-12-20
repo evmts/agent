@@ -3,7 +3,8 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import IssueCard from "../../../../components/IssueCard.astro";
 import { sql } from "../../../../lib/db";
-import type { User, Repository, Issue } from "../../../../lib/types";
+import { listIssues, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
+import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 const state = Astro.url.searchParams.get("state") || "open";
@@ -22,21 +23,24 @@ const [repo] = await sql<Repository[]>`
 
 if (!repo) return Astro.redirect("/404");
 
-const issues = await sql<Issue[]>`
-  SELECT i.*, u.username as author_username
-  FROM issues i
-  JOIN users u ON i.author_id = u.id
-  WHERE i.repository_id = ${repo.id}
-  ${state === "all" ? sql`` : sql`AND i.state = ${state}`}
-  ORDER BY i.created_at DESC
-`;
+// Ensure issues repo exists
+await ensureIssuesRepo(username, reponame);
 
-const [{ open_count }] = await sql`
-  SELECT COUNT(*) as open_count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
-`;
-const [{ closed_count }] = await sql`
-  SELECT COUNT(*) as closed_count FROM issues WHERE repository_id = ${repo.id} AND state = 'closed'
-`;
+// Get issues from git
+const gitIssues = await listIssues(username, reponame, state as "open" | "closed" | "all");
+const counts = await getIssueCounts(username, reponame);
+
+// Transform to match expected shape
+const issues = gitIssues.map(issue => ({
+  ...issue,
+  issue_number: issue.number,
+  author_username: issue.author.username,
+  author_id: issue.author.id,
+  repository_id: repo.id,
+  created_at: new Date(issue.created_at),
+  updated_at: new Date(issue.updated_at),
+  closed_at: issue.closed_at ? new Date(issue.closed_at) : null,
+}));
 
 // Count pending landing requests
 let landingCount = 0;
@@ -85,13 +89,13 @@ try {
         href={`/${username}/${reponame}/issues?state=open`}
         class:list={["tab", { active: state === "open" }]}
       >
-        {open_count} Open
+        {counts.open} Open
       </a>
       <a
         href={`/${username}/${reponame}/issues?state=closed`}
         class:list={["tab", { active: state === "closed" }]}
       >
-        {closed_count} Closed
+        {counts.closed} Closed
       </a>
     </div>
 

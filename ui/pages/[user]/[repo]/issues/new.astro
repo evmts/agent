@@ -2,6 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import { sql } from "../../../../lib/db";
+import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
@@ -22,9 +23,9 @@ if (!repo) return Astro.redirect("/404");
 
 const users = await sql<User[]>`SELECT * FROM users ORDER BY username`;
 
-const [{ count: issueCount }] = await sql`
-  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
-`;
+// Ensure issues repo exists and get counts
+await ensureIssuesRepo(username, reponame);
+const counts = await getIssueCounts(username, reponame);
 
 // Count pending landing requests
 let landingCount = 0;
@@ -45,23 +46,29 @@ if (Astro.request.method === "POST") {
   const formData = await Astro.request.formData();
   const authorId = formData.get("author_id") as string;
   const title = (formData.get("title") as string)?.trim();
-  const body = formData.get("body") as string;
+  const body = (formData.get("body") as string) || "";
 
   if (!authorId || !title) {
     error = "Author and title are required";
   } else {
     try {
-      const [{ next_num }] = await sql`
-        SELECT COALESCE(MAX(issue_number), 0) + 1 as next_num
-        FROM issues WHERE repository_id = ${repo.id}
-      `;
+      // Get author info from DB
+      const [author] = await sql<User[]>`SELECT * FROM users WHERE id = ${authorId}`;
+      if (!author) {
+        error = "Author not found";
+      } else {
+        // Create issue in git repo
+        const issue = await createIssue(username, reponame, {
+          title,
+          body,
+          author: {
+            id: parseInt(authorId),
+            username: author.username,
+          },
+        });
 
-      await sql`
-        INSERT INTO issues (repository_id, author_id, issue_number, title, body)
-        VALUES (${repo.id}, ${authorId}, ${next_num}, ${title}, ${body})
-      `;
-
-      return Astro.redirect(`/${username}/${reponame}/issues/${next_num}`);
+        return Astro.redirect(`/${username}/${reponame}/issues/${issue.number}`);
+      }
     } catch (e) {
       error = (e as Error).message;
     }
@@ -86,7 +93,7 @@ if (Astro.request.method === "POST") {
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`} class="active">
       Issues
-      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+      {counts.open > 0 && <span class="badge">{counts.open}</span>}
     </a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing

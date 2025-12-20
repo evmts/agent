@@ -270,3 +270,117 @@ export function useSessionRealtime(_sessionId: string): {
 } {
   throw new Error('useSessionRealtime must be imported from a client component');
 }
+
+// =============================================================================
+// JJ Change Shapes
+// =============================================================================
+
+export interface ChangeRow {
+  change_id: string;
+  repository_id: number;
+  session_id: string | null;
+  commit_id: string;
+  description: string;
+  author_name: string;
+  author_email: string;
+  timestamp: number;
+  is_empty: boolean;
+  has_conflicts: boolean;
+  created_at: Date;
+}
+
+export interface BookmarkRow {
+  id: number;
+  repository_id: number;
+  name: string;
+  target_change_id: string;
+  pusher_id: number | null;
+  is_default: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ConflictRow {
+  id: number;
+  repository_id: number;
+  session_id: string | null;
+  change_id: string;
+  file_path: string;
+  conflict_type: string;
+  resolved: boolean;
+  resolved_by: number | null;
+  resolution_method: string | null;
+  resolved_at: Date | null;
+  created_at: Date;
+}
+
+export interface JjOperationRow {
+  id: number;
+  repository_id: number;
+  session_id: string | null;
+  operation_id: string;
+  operation_type: string;
+  description: string;
+  timestamp: number;
+  is_undone: boolean;
+}
+
+export function changesShapeConfig(repositoryId: number): ShapeOptions {
+  return {
+    url: `${API_URL}/shape`,
+    params: {
+      table: 'changes',
+      where: `repository_id = '${repositoryId}'`,
+    },
+    signal: new AbortController().signal,
+  };
+}
+
+export function useChangesShape(_repositoryId: number): { data: ChangeRow[]; isLoading: boolean } {
+  throw new Error('useChangesShape must be imported from a client component');
+}
+
+export function bookmarksShapeConfig(repositoryId: number): ShapeOptions {
+  return {
+    url: `${API_URL}/shape`,
+    params: {
+      table: 'bookmarks',
+      where: `repository_id = '${repositoryId}'`,
+    },
+    signal: new AbortController().signal,
+  };
+}
+
+export function useBookmarksShape(_repositoryId: number): { data: BookmarkRow[]; isLoading: boolean } {
+  throw new Error('useBookmarksShape must be imported from a client component');
+}
+
+export function conflictsShapeConfig(repositoryId: number): ShapeOptions {
+  return {
+    url: `${API_URL}/shape`,
+    params: {
+      table: 'conflicts',
+      where: `repository_id = '${repositoryId}'`,
+    },
+    signal: new AbortController().signal,
+  };
+}
+
+export function useConflictsShape(_repositoryId: number): { data: ConflictRow[]; isLoading: boolean } {
+  throw new Error('useConflictsShape must be imported from a client component');
+}
+
+export function jjOperationsShapeConfig(repositoryId: number): ShapeOptions {
+  return {
+    url: `${API_URL}/shape`,
+    params: {
+      table: 'jj_operations',
+      where: `repository_id = '${repositoryId}'`,
+    },
+    signal: new AbortController().signal,
+  };
+}
+
+export function useJjOperationsShape(_repositoryId: number): { data: JjOperationRow[]; isLoading: boolean } {
+  throw new Error('useJjOperationsShape must be imported from a client component');
+}

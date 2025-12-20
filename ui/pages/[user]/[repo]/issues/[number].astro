@@ -4,7 +4,16 @@ import Header from "../../../../components/Header.astro";
 import Markdown from "../../../../components/Markdown.astro";
 import CommentCard from "../../../../components/CommentCard.astro";
 import { sql } from "../../../../lib/db";
-import type { User, Repository, Issue, Comment } from "../../../../lib/types";
+import {
+  getIssue,
+  getComments,
+  addComment,
+  closeIssue,
+  reopenIssue,
+  getIssueCounts,
+  ensureIssuesRepo,
+} from "../../../../lib/git-issues";
+import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame, number: issueNumber } = Astro.params;
 
@@ -22,28 +31,39 @@ const [repo] = await sql<Repository[]>`
 
 if (!repo) return Astro.redirect("/404");
 
-const [issue] = await sql<Issue[]>`
-  SELECT i.*, u.username as author_username
-  FROM issues i
-  JOIN users u ON i.author_id = u.id
-  WHERE i.repository_id = ${repo.id} AND i.issue_number = ${issueNumber}
-`;
+// Ensure issues repo exists
+await ensureIssuesRepo(username, reponame);
 
-if (!issue) return Astro.redirect("/404");
+// Get issue from git
+const gitIssue = await getIssue(username, reponame, parseInt(issueNumber));
+if (!gitIssue) return Astro.redirect("/404");
 
-const comments = await sql<Comment[]>`
-  SELECT c.*, u.username as author_username
-  FROM comments c
-  JOIN users u ON c.author_id = u.id
-  WHERE c.issue_id = ${issue.id}
-  ORDER BY c.created_at ASC
-`;
+// Get comments from git
+const gitComments = await getComments(username, reponame, parseInt(issueNumber));
+
+// Transform to match expected shapes
+const issue = {
+  ...gitIssue,
+  issue_number: gitIssue.number,
+  author_username: gitIssue.author.username,
+  author_id: gitIssue.author.id,
+  repository_id: repo.id,
+  created_at: new Date(gitIssue.created_at),
+  updated_at: new Date(gitIssue.updated_at),
+  closed_at: gitIssue.closed_at ? new Date(gitIssue.closed_at) : null,
+};
+
+const comments = gitComments.map(c => ({
+  ...c,
+  author_username: c.author.username,
+  author_id: c.author.id,
+  issue_id: gitIssue.id,
+  created_at: new Date(c.created_at),
+}));
 
 const users = await sql<User[]>`SELECT * FROM users ORDER BY username`;
 
-const [{ count: issueCount }] = await sql`
-  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
-`;
+const counts = await getIssueCounts(username, reponame);
 
 // Count pending landing requests
 let landingCount = 0;
@@ -71,31 +91,43 @@ if (Astro.request.method === "POST") {
     if (!authorId || !body) {
       error = "Comment cannot be empty";
     } else {
-      await sql`
-        INSERT INTO comments (issue_id, author_id, body)
-        VALUES (${issue.id}, ${authorId}, ${body})
-      `;
-      await sql`UPDATE issues SET updated_at = NOW() WHERE id = ${issue.id}`;
-      return Astro.redirect(Astro.url.pathname);
+      try {
+        // Get author info from DB
+        const [author] = await sql<User[]>`SELECT * FROM users WHERE id = ${authorId}`;
+        if (!author) {
+          error = "Author not found";
+        } else {
+          await addComment(username, reponame, parseInt(issueNumber), {
+            body,
+            author: {
+              id: parseInt(authorId),
+              username: author.username,
+            },
+          });
+          return Astro.redirect(Astro.url.pathname);
+        }
+      } catch (e) {
+        error = (e as Error).message;
+      }
     }
   } else if (action === "close") {
-    await sql`
-      UPDATE issues
-      SET state = 'closed', closed_at = NOW(), updated_at = NOW()
-      WHERE id = ${issue.id}
-    `;
-    return Astro.redirect(Astro.url.pathname);
+    try {
+      await closeIssue(username, reponame, parseInt(issueNumber));
+      return Astro.redirect(Astro.url.pathname);
+    } catch (e) {
+      error = (e as Error).message;
+    }
   } else if (action === "reopen") {
-    await sql`
-      UPDATE issues
-      SET state = 'open', closed_at = NULL, updated_at = NOW()
-      WHERE id = ${issue.id}
-    `;
-    return Astro.redirect(Astro.url.pathname);
+    try {
+      await reopenIssue(username, reponame, parseInt(issueNumber));
+      return Astro.redirect(Astro.url.pathname);
+    } catch (e) {
+      error = (e as Error).message;
+    }
   }
 }
 
-function formatDate(date: Date): string {
+function formatDate(date: string | Date): string {
   return new Date(date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -121,11 +153,11 @@ function formatDate(date: Date): string {
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`} class="active">
       Issues
-      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+      {counts.open > 0 && <span class="badge">{counts.open}</span>}
     </a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
-      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+      {landingCount > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>

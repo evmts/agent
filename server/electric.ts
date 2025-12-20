@@ -85,6 +85,58 @@ export function subtasksShapeConfig(sessionId: string): ShapeConfig {
 }
 
 /**
+ * Create a shape config for syncing changes for a specific repository.
+ */
+export function changesShapeConfig(repositoryId: number): ShapeConfig {
+  return {
+    url: `${ELECTRIC_URL}/v1/shape`,
+    params: {
+      table: 'changes',
+      where: `repository_id = '${repositoryId}'`,
+    },
+  };
+}
+
+/**
+ * Create a shape config for syncing bookmarks for a specific repository.
+ */
+export function bookmarksShapeConfig(repositoryId: number): ShapeConfig {
+  return {
+    url: `${ELECTRIC_URL}/v1/shape`,
+    params: {
+      table: 'bookmarks',
+      where: `repository_id = '${repositoryId}'`,
+    },
+  };
+}
+
+/**
+ * Create a shape config for syncing jj operations for a specific repository.
+ */
+export function jjOperationsShapeConfig(repositoryId: number): ShapeConfig {
+  return {
+    url: `${ELECTRIC_URL}/v1/shape`,
+    params: {
+      table: 'jj_operations',
+      where: `repository_id = '${repositoryId}'`,
+    },
+  };
+}
+
+/**
+ * Create a shape config for syncing conflicts for a specific repository.
+ */
+export function conflictsShapeConfig(repositoryId: number): ShapeConfig {
+  return {
+    url: `${ELECTRIC_URL}/v1/shape`,
+    params: {
+      table: 'conflicts',
+      where: `repository_id = '${repositoryId}'`,
+    },
+  };
+}
+
+/**
  * Helper to build a complete Electric shape URL from a config.
  */
 export function buildShapeUrl(config: ShapeConfig): string {
