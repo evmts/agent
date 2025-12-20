@@ -5,6 +5,7 @@ const siwe = @import("lib/siwe.zig");
 const db = @import("lib/db.zig");
 const jwt = @import("lib/jwt.zig");
 const pty_routes = @import("routes/pty.zig");
+const auth_routes = @import("routes/auth.zig");
 const ssh_keys = @import("routes/ssh_keys.zig");
 const tokens = @import("routes/tokens.zig");
 const users = @import("routes/users.zig");
@@ -36,6 +37,7 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/auth/siwe/register", register, .{});
     router.post("/api/auth/logout", logout, .{});
     router.get("/api/auth/me", me, .{});
+    router.post("/api/auth/refresh", auth_routes.refresh, .{});
 
     // API routes - users
     router.get("/api/users/search", users.search, .{});
@@ -81,11 +83,14 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
 
     // API routes - issues
     router.get("/api/:user/:repo/issues", issues.listIssues, .{});
+    router.get("/api/:user/:repo/issues/counts", issues.getIssueCounts, .{});
     router.get("/api/:user/:repo/issues/:number", issues.getIssue, .{});
+    router.get("/api/:user/:repo/issues/:number/history", issues.getIssueHistory, .{});
     router.post("/api/:user/:repo/issues", issues.createIssue, .{});
     router.patch("/api/:user/:repo/issues/:number", issues.updateIssue, .{});
     router.post("/api/:user/:repo/issues/:number/close", issues.closeIssue, .{});
     router.post("/api/:user/:repo/issues/:number/reopen", issues.reopenIssue, .{});
+    router.delete("/api/:user/:repo/issues/:number", issues.deleteIssue, .{});
 
     // API routes - issue comments
     router.get("/api/:user/:repo/issues/:number/comments", issues.getComments, .{});
@@ -96,6 +101,8 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     // API routes - labels
     router.get("/api/:user/:repo/labels", issues.getLabels, .{});
     router.post("/api/:user/:repo/labels", issues.createLabel, .{});
+    router.patch("/api/:user/:repo/labels/:name", issues.updateLabel, .{});
+    router.delete("/api/:user/:repo/labels/:name", issues.deleteLabel, .{});
     router.post("/api/:user/:repo/issues/:number/labels", issues.addLabelsToIssue, .{});
     router.delete("/api/:user/:repo/issues/:number/labels/:labelId", issues.removeLabelFromIssue, .{});
 
@@ -119,6 +126,11 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     // API routes - dependencies
     router.post("/api/:user/:repo/issues/:number/dependencies", issues.addDependencyToIssue, .{});
     router.delete("/api/:user/:repo/issues/:number/dependencies/:blockedNumber", issues.removeDependencyFromIssue, .{});
+
+    // API routes - due dates
+    router.get("/api/:user/:repo/issues/:number/due-date", issues.getDueDate, .{});
+    router.put("/api/:user/:repo/issues/:number/due-date", issues.setDueDate, .{});
+    router.delete("/api/:user/:repo/issues/:number/due-date", issues.removeDueDate, .{});
 
     // API routes - milestones
     router.get("/api/:user/:repo/milestones", milestones.listMilestones, .{});

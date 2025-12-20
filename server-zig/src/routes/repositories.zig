@@ -733,6 +733,78 @@ pub fn deleteBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     try res.writer().writeAll("{\"success\":true}");
 }
 
+/// POST /:user/:repo/bookmarks/:name/set-default - Set bookmark as default
+pub fn setDefaultBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    const user = ctx.user orelse {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Unauthorized\"}");
+        return;
+    };
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing user parameter\"}");
+        return;
+    };
+
+    const reponame = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const name = req.param("name") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing name parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    } orelse {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    };
+
+    // Verify ownership
+    if (user.id != repo.user_id) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Forbidden\"}");
+        return;
+    }
+
+    // Check that bookmark exists
+    const bookmark = db.getBookmarkByName(ctx.pool, repo.id, name) catch |err| {
+        log.err("Failed to check bookmark: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    } orelse {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Bookmark not found\"}");
+        return;
+    };
+    _ = bookmark;
+
+    // Set as default
+    db.setDefaultBookmark(ctx.pool, repo.id, name) catch |err| {
+        log.err("Failed to set default bookmark: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to set default bookmark\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
 // =============================================================================
 // Changes Routes (jj changes)
 // =============================================================================

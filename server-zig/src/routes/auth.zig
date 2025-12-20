@@ -263,3 +263,40 @@ pub fn me(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
         try res.writer().writeAll("{\"user\":null}");
     }
 }
+
+/// POST /auth/refresh
+/// Explicitly refresh session token
+/// Requires valid session, extends expiration and issues new session key
+pub fn refresh(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Must be authenticated
+    if (ctx.user == null or ctx.session_key == null) {
+        res.status = .unauthorized;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const user = ctx.user.?;
+    const old_session_key = ctx.session_key.?;
+
+    // Delete old session
+    try db.deleteSession(ctx.pool, old_session_key);
+
+    // Create new session with fresh expiration
+    const new_session_key = try db.createSession(ctx.pool, ctx.allocator, user.id, user.username, user.is_admin);
+    defer ctx.allocator.free(new_session_key);
+
+    // Generate new JWT
+    const token = try jwt.create(ctx.allocator, user.id, user.username, user.is_admin, ctx.config.jwt_secret);
+    defer ctx.allocator.free(token);
+
+    // Set new cookies
+    try auth_middleware.setSessionCookie(res, new_session_key, ctx.config.is_production);
+
+    // Return success with new session info
+    var writer = res.writer();
+    try writer.print(
+        \\{{"message":"Session refreshed","expiresAt":{d}}}
+    , .{std.time.milliTimestamp() + (30 * 24 * 60 * 60 * 1000)});
+}
