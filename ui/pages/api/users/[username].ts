@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByUsername } from '../../../../db/auth';
+import { getUserByUsername } from '../../../lib/auth-db';
 
 export const GET: APIRoute = async ({ params }) => {
   try {

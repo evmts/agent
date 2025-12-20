@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getUserBySession, clearSessionCookie } from '../../../../lib/auth-helpers';
-import { getUserById, updateUserPassword, deleteAllUserSessions } from '../../../../../db/auth';
+import { getUserById, updateUserPassword, deleteAllUserSessions } from '../../../../lib/auth-db';
 import { hash, verify } from '@node-rs/argon2';
 
 export const PUT: APIRoute = async ({ request }) => {
