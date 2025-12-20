@@ -1,0 +1,59 @@
+---
+interface Props {
+  onSelect?: string;
+}
+
+const { onSelect = "handleEmojiSelect" } = Astro.props;
+
+const emojis = ["👍", "👎", "😄", "🎉", "😕", "❤️", "🚀", "👀"];
+---
+
+<div class="emoji-picker">
+  {emojis.map((emoji) => (
+    <button
+      type="button"
+      class="emoji-btn"
+      data-emoji={emoji}
+    >
+      {emoji}
+    </button>
+  ))}
+</div>
+
+<style>
+  .emoji-picker {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    padding: 8px;
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-width: 160px;
+  }
+
+  .emoji-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--gray-950);
+    font-size: 18px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    padding: 0;
+  }
+
+  .emoji-btn:hover {
+    background: var(--gray-800);
+    border-color: var(--border-hover);
+    transform: scale(1.1);
+  }
+
+  .emoji-btn:active {
+    transform: scale(0.95);
+  }
+</style>
