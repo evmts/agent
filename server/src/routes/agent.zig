@@ -8,20 +8,20 @@ const Context = @import("../main.zig").Context;
 /// Run agent on session with streaming SSE response
 pub fn runAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const session_id = req.param("sessionId") orelse {
-        res.status = .bad_request;
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing sessionId\"}");
         return;
     };
 
     // Parse request body
     const body = req.body() orelse {
-        res.status = .bad_request;
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing request body\"}");
         return;
     };
 
     const parsed = std.json.parseFromSlice(RunAgentRequest, ctx.allocator, body, .{}) catch {
-        res.status = .bad_request;
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
         return;
     };
@@ -30,17 +30,17 @@ pub fn runAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     const request = parsed.value;
 
     // Get session from database
-    const session = db.getAgentSessionById(ctx.pool, ctx.allocator, session_id) catch {
-        res.status = .not_found;
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch {
+        res.status = 404;
         try res.writer().writeAll("{\"error\":\"Session not found\"}");
         return;
     };
 
     // Set up SSE headers
-    res.content_type = .@"text/event-stream";
-    try res.headers.append("Cache-Control", "no-cache");
-    try res.headers.append("Connection", "keep-alive");
-    try res.headers.append("X-Accel-Buffering", "no");
+    res.content_type = .EVENTS;
+    res.headers.add("Cache-Control", "no-cache");
+    res.headers.add("Connection", "keep-alive");
+    res.headers.add("X-Accel-Buffering", "no");
 
     // Create tool context
     var file_tracker = ai_mod.FileTimeTracker.init(ctx.allocator);
@@ -134,7 +134,7 @@ pub fn listAgentsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !
         \\}
     ;
 
-    res.content_type = .@"application/json";
+    res.content_type = .JSON;
     try res.writer().writeAll(response);
 }
 
@@ -142,7 +142,7 @@ pub fn listAgentsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !
 /// Get agent configuration
 pub fn getAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const name = req.param("name") orelse {
-        res.status = .bad_request;
+        res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing agent name\"}");
         return;
     };
@@ -150,43 +150,43 @@ pub fn getAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     const config = ai_mod.getAgentConfig(name);
 
     // Build JSON response
-    var json = std.ArrayList(u8).init(ctx.allocator);
-    defer json.deinit();
+    var json = std.ArrayList(u8){};
+    defer json.deinit(ctx.allocator);
 
-    try json.appendSlice("{\"name\":\"");
-    try json.appendSlice(config.name);
-    try json.appendSlice("\",\"description\":\"");
-    try json.appendSlice(config.description);
-    try json.appendSlice("\",\"mode\":\"");
-    try json.appendSlice(if (config.mode == .primary) "primary" else "subagent");
-    try json.appendSlice("\",\"temperature\":");
-    try json.writer().print("{d}", .{config.temperature});
-    try json.appendSlice(",\"top_p\":");
-    try json.writer().print("{d}", .{config.top_p});
-    try json.appendSlice(",\"tools_enabled\":{");
-    try json.appendSlice("\"grep\":");
-    try json.appendSlice(if (config.tools_enabled.grep) "true" else "false");
-    try json.appendSlice(",\"read_file\":");
-    try json.appendSlice(if (config.tools_enabled.read_file) "true" else "false");
-    try json.appendSlice(",\"write_file\":");
-    try json.appendSlice(if (config.tools_enabled.write_file) "true" else "false");
-    try json.appendSlice(",\"multiedit\":");
-    try json.appendSlice(if (config.tools_enabled.multiedit) "true" else "false");
-    try json.appendSlice(",\"web_fetch\":");
-    try json.appendSlice(if (config.tools_enabled.web_fetch) "true" else "false");
-    try json.appendSlice(",\"github\":");
-    try json.appendSlice(if (config.tools_enabled.github) "true" else "false");
-    try json.appendSlice(",\"unified_exec\":");
-    try json.appendSlice(if (config.tools_enabled.unified_exec) "true" else "false");
-    try json.appendSlice(",\"write_stdin\":");
-    try json.appendSlice(if (config.tools_enabled.write_stdin) "true" else "false");
-    try json.appendSlice(",\"close_pty_session\":");
-    try json.appendSlice(if (config.tools_enabled.close_pty_session) "true" else "false");
-    try json.appendSlice(",\"list_pty_sessions\":");
-    try json.appendSlice(if (config.tools_enabled.list_pty_sessions) "true" else "false");
-    try json.appendSlice("}}");
+    try json.appendSlice(ctx.allocator, "{\"name\":\"");
+    try json.appendSlice(ctx.allocator, config.name);
+    try json.appendSlice(ctx.allocator, "\",\"description\":\"");
+    try json.appendSlice(ctx.allocator, config.description);
+    try json.appendSlice(ctx.allocator, "\",\"mode\":\"");
+    try json.appendSlice(ctx.allocator, if (config.mode == .primary) "primary" else "subagent");
+    try json.appendSlice(ctx.allocator, "\",\"temperature\":");
+    try json.writer(ctx.allocator).print("{d}", .{config.temperature});
+    try json.appendSlice(ctx.allocator, ",\"top_p\":");
+    try json.writer(ctx.allocator).print("{d}", .{config.top_p});
+    try json.appendSlice(ctx.allocator, ",\"tools_enabled\":{");
+    try json.appendSlice(ctx.allocator, "\"grep\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.grep) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"read_file\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.read_file) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"write_file\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.write_file) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"multiedit\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.multiedit) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"web_fetch\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.web_fetch) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"github\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.github) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"unified_exec\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.unified_exec) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"write_stdin\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.write_stdin) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"close_pty_session\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.close_pty_session) "true" else "false");
+    try json.appendSlice(ctx.allocator, ",\"list_pty_sessions\":");
+    try json.appendSlice(ctx.allocator, if (config.tools_enabled.list_pty_sessions) "true" else "false");
+    try json.appendSlice(ctx.allocator, "}}");
 
-    res.content_type = .@"application/json";
+    res.content_type = .JSON;
     try res.writer().writeAll(json.items);
 }
 
@@ -210,6 +210,6 @@ pub fn listToolsHandler(_: *Context, _: *httpz.Request, res: *httpz.Response) !v
         \\}
     ;
 
-    res.content_type = .@"application/json";
+    res.content_type = .JSON;
     try res.writer().writeAll(response);
 }

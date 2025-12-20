@@ -122,13 +122,14 @@ pub fn listRuns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
 
     for (runs, 0..) |run, i| {
         if (i > 0) try writer.writeAll(",");
+        const status = (WorkflowStatus.fromString(run.status) orelse .unknown).toString();
         try writer.print(
             \\{{"id":{d},"runNumber":{d},"title":"{s}","status":"{s}","triggerEvent":"{s}","createdAt":"{s}"}}
         , .{
             run.id,
             run.run_number,
             run.title,
-            WorkflowStatus.fromString(run.status) orelse .unknown,
+            status,
             run.trigger_event,
             run.created_at,
         });
