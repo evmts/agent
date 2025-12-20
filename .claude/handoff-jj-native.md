@@ -386,9 +386,9 @@ The transformation is complete when:
 2. ✅ Change history shows stable change IDs
 3. ✅ Landing queue replaces pull requests with conflict awareness
 4. ✅ Operation log enables undo/redo of all actions
-5. ⬜ Agent sessions expose jj concepts (changes, conflicts, operations)
-6. ⬜ Old git-centric code is removed
-7. ⬜ All navigation uses bookmarks/changes instead of branches/commits
+5. ✅ Agent sessions expose jj concepts (changes, conflicts, operations)
+6. ✅ Old git-centric code is removed
+7. ✅ All navigation uses bookmarks/changes instead of branches/commits
 
 ---
 
