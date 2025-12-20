@@ -54,3 +54,8 @@ reports/
 # Local data directories
 repos/
 runner/
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.cache/
