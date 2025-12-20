@@ -40,10 +40,16 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Zig
-ARG ZIG_VERSION=0.14.0
-RUN curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt \
-    && ln -s /opt/zig-linux-x86_64-${ZIG_VERSION}/zig /usr/local/bin/zig
+# Install Zig (detect architecture)
+ARG ZIG_VERSION=0.15.1
+ARG TARGETARCH
+RUN ZIG_ARCH=$(case "${TARGETARCH}" in \
+        "amd64") echo "x86_64" ;; \
+        "arm64") echo "aarch64" ;; \
+        *) echo "x86_64" ;; \
+    esac) && \
+    curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /opt && \
+    ln -s /opt/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}/zig /usr/local/bin/zig
 
 # Install Rust (for jj-ffi)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -74,14 +80,17 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Create expected path for jj_ffi library (binary has absolute rpath)
+RUN mkdir -p /app/server/jj-ffi/target/release
+
 # Copy the built binary and required libraries
-COPY --from=api-build /app/server/zig-out/bin/server-zig ./server
-COPY --from=api-build /app/server/jj-ffi/target/release/libjj_ffi.so /usr/local/lib/
+COPY --from=api-build /app/server/zig-out/bin/server-zig ./server-bin
+COPY --from=api-build /app/server/jj-ffi/target/release/libjj_ffi.so /app/server/jj-ffi/target/release/
 RUN ldconfig
 
 EXPOSE 4000
 
-CMD ["./server"]
+CMD ["./server-bin"]
 
 # =============================================================================
 # Web Frontend (Astro SSR)
