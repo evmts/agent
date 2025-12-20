@@ -64,18 +64,20 @@ const [authors, assignees, availableLabels] = await Promise.all([
   getLabels(username, reponame),
 ]);
 
-// Transform to match expected shape
+// Transform to match expected shape (Issue type)
 const issues = gitIssues.map(issue => ({
-  ...issue,
   id: issue.number, // Use issue number as id for now
-  issue_number: issue.number,
-  author_username: issue.author.username,
-  author_id: issue.author.id,
   repository_id: repo.id,
+  author_id: issue.author.id,
+  issue_number: issue.number,
+  title: issue.title,
+  body: issue.body,
+  state: issue.state,
   milestone_id: null, // Git-based issues don't have milestone_id yet
   created_at: new Date(issue.created_at),
   updated_at: new Date(issue.updated_at),
   closed_at: issue.closed_at ? new Date(issue.closed_at) : null,
+  author_username: issue.author.username,
 }));
 
 // Count pending landing requests
