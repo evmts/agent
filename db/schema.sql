@@ -125,8 +125,22 @@ CREATE TABLE IF NOT EXISTS comments (
   issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
   author_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   body TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  edited BOOLEAN NOT NULL DEFAULT false
 );
+
+-- Issue assignees (many-to-many relationship)
+CREATE TABLE IF NOT EXISTS issue_assignees (
+  id SERIAL PRIMARY KEY,
+  issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(issue_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_assignees_issue ON issue_assignees(issue_id);
+CREATE INDEX IF NOT EXISTS idx_issue_assignees_user ON issue_assignees(user_id);
 
 -- =============================================================================
 -- Branch Management Tables

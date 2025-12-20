@@ -634,8 +634,172 @@ export async function getIssueCounts(
 export async function getLabels(
   user: string,
   repo: string
-): Promise<Array<{ name: string; color: string }>> {
+): Promise<Array<{ name: string; color: string; description?: string }>> {
   await ensureIssuesRepo(user, repo);
   const config = await getConfig(user, repo);
   return config.labels;
+}
+
+/**
+ * Create a new label
+ */
+export async function createLabel(
+  user: string,
+  repo: string,
+  label: { name: string; color: string; description?: string }
+): Promise<void> {
+  await ensureIssuesRepo(user, repo);
+  const issuesPath = getIssuesPath(user, repo);
+  const config = await getConfig(user, repo);
+
+  // Check if label already exists
+  if (config.labels.some((l) => l.name === label.name)) {
+    throw new Error(`Label "${label.name}" already exists`);
+  }
+
+  // Add label to config
+  config.labels.push(label);
+  await saveConfig(user, repo, config);
+
+  // Commit
+  await atomicCommit(
+    issuesPath,
+    ["config.yaml"],
+    `Add label: ${label.name}`
+  );
+}
+
+/**
+ * Update a label
+ */
+export async function updateLabel(
+  user: string,
+  repo: string,
+  oldName: string,
+  newLabel: { name: string; color: string; description?: string }
+): Promise<void> {
+  await ensureIssuesRepo(user, repo);
+  const issuesPath = getIssuesPath(user, repo);
+  const config = await getConfig(user, repo);
+
+  const labelIndex = config.labels.findIndex((l) => l.name === oldName);
+  if (labelIndex === -1) {
+    throw new Error(`Label "${oldName}" not found`);
+  }
+
+  // Update label
+  config.labels[labelIndex] = newLabel;
+  await saveConfig(user, repo, config);
+
+  // If name changed, update all issues that use this label
+  if (oldName !== newLabel.name) {
+    const issues = await listIssues(user, repo, "all");
+    for (const issue of issues) {
+      if (issue.labels.includes(oldName)) {
+        const updatedLabels = issue.labels.map((l) =>
+          l === oldName ? newLabel.name : l
+        );
+        await updateIssue(user, repo, issue.number, { labels: updatedLabels });
+      }
+    }
+  }
+
+  // Commit
+  await atomicCommit(
+    issuesPath,
+    ["config.yaml"],
+    `Update label: ${oldName} -> ${newLabel.name}`
+  );
+}
+
+/**
+ * Delete a label
+ */
+export async function deleteLabel(
+  user: string,
+  repo: string,
+  name: string
+): Promise<void> {
+  await ensureIssuesRepo(user, repo);
+  const issuesPath = getIssuesPath(user, repo);
+  const config = await getConfig(user, repo);
+
+  const labelIndex = config.labels.findIndex((l) => l.name === name);
+  if (labelIndex === -1) {
+    throw new Error(`Label "${name}" not found`);
+  }
+
+  // Remove label from config
+  config.labels.splice(labelIndex, 1);
+  await saveConfig(user, repo, config);
+
+  // Remove label from all issues
+  const issues = await listIssues(user, repo, "all");
+  for (const issue of issues) {
+    if (issue.labels.includes(name)) {
+      const updatedLabels = issue.labels.filter((l) => l !== name);
+      await updateIssue(user, repo, issue.number, { labels: updatedLabels });
+    }
+  }
+
+  // Commit
+  await atomicCommit(
+    issuesPath,
+    ["config.yaml"],
+    `Delete label: ${name}`
+  );
+}
+
+/**
+ * Add labels to an issue
+ */
+export async function addLabelsToIssue(
+  user: string,
+  repo: string,
+  issueNumber: number,
+  labels: string[]
+): Promise<GitIssue> {
+  const issue = await getIssue(user, repo, issueNumber);
+  if (!issue) {
+    throw new IssueNotFoundError(user, repo, issueNumber);
+  }
+
+  // Get valid labels from config
+  const config = await getConfig(user, repo);
+  const validLabels = config.labels.map((l) => l.name);
+
+  // Filter to only valid labels that aren't already on the issue
+  const newLabels = labels.filter(
+    (l) => validLabels.includes(l) && !issue.labels.includes(l)
+  );
+
+  if (newLabels.length === 0) {
+    return issue;
+  }
+
+  // Add new labels
+  const updatedLabels = [...issue.labels, ...newLabels];
+  return await updateIssue(user, repo, issueNumber, { labels: updatedLabels });
+}
+
+/**
+ * Remove a label from an issue
+ */
+export async function removeLabelFromIssue(
+  user: string,
+  repo: string,
+  issueNumber: number,
+  label: string
+): Promise<GitIssue> {
+  const issue = await getIssue(user, repo, issueNumber);
+  if (!issue) {
+    throw new IssueNotFoundError(user, repo, issueNumber);
+  }
+
+  if (!issue.labels.includes(label)) {
+    return issue;
+  }
+
+  const updatedLabels = issue.labels.filter((l) => l !== label);
+  return await updateIssue(user, repo, issueNumber, { labels: updatedLabels });
 }

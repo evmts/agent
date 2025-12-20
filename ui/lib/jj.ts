@@ -22,6 +22,7 @@ import type {
   Operation,
   TreeEntry,
   FileDiff,
+  DiffHunk,
   ChangeComparison,
 } from "./jj-types";
 import { initIssuesRepo } from "./git-issues";
@@ -809,9 +810,46 @@ function parseGitDiff(output: string): FileDiff[] {
 
     let additions = 0;
     let deletions = 0;
-    for (const line of lines) {
-      if (line.startsWith('+') && !line.startsWith('+++')) additions++;
-      if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+    const hunks: DiffHunk[] = [];
+
+    if (!isBinary) {
+      let currentHunk: DiffHunk | null = null;
+      let hunkContent: string[] = [];
+
+      for (const line of lines) {
+        // Parse hunk header: @@ -oldStart,oldLines +newStart,newLines @@
+        const hunkHeaderMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+        if (hunkHeaderMatch) {
+          // Save previous hunk if exists
+          if (currentHunk) {
+            currentHunk.content = hunkContent.join('\n');
+            hunks.push(currentHunk);
+          }
+
+          // Start new hunk
+          currentHunk = {
+            oldStart: parseInt(hunkHeaderMatch[1] || '0', 10),
+            oldLines: parseInt(hunkHeaderMatch[2] || '1', 10),
+            newStart: parseInt(hunkHeaderMatch[3] || '0', 10),
+            newLines: parseInt(hunkHeaderMatch[4] || '1', 10),
+            content: '',
+          };
+          hunkContent = [line];
+          continue;
+        }
+
+        if (currentHunk) {
+          hunkContent.push(line);
+          if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+          if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+        }
+      }
+
+      // Save last hunk
+      if (currentHunk) {
+        currentHunk.content = hunkContent.join('\n');
+        hunks.push(currentHunk);
+      }
     }
 
     files.push({
@@ -821,7 +859,7 @@ function parseGitDiff(output: string): FileDiff[] {
       additions,
       deletions,
       isBinary,
-      hunks: [], // Would need more parsing for hunks
+      hunks,
       hasConflict: false,
     });
   }

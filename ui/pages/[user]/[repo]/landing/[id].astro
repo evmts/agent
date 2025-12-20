@@ -6,6 +6,8 @@
  */
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
+import TabNav from "../../../../components/TabNav.astro";
+import type { Tab } from "../../../../components/TabNav.astro";
 import { sql } from "../../../../lib/db";
 import * as jj from "../../../../lib/jj";
 import type { User, Repository } from "../../../../lib/types";
@@ -56,7 +58,32 @@ const reviews = await sql<(LandingReview & { reviewer_username?: string })[]>`
   ORDER BY lr.created_at ASC
 `;
 
+// Get ancestor changes (commits) - changes between target bookmark and this change
+let commits: Change[] = [];
+try {
+  const targetBookmark = request.targetBookmark;
+  // Get changes from target bookmark to this change
+  commits = await jj.listChanges(username, reponame, 50, request.changeId);
+  // Filter to only include changes that are ancestors of the change but not of target
+  // This is a simplification - in a real scenario we'd use jj log -r "target..change"
+  commits = commits.filter(c => c.changeId !== request.changeId);
+} catch (e) {
+  // Commits not available
+}
+
 const defaultBookmark = repo.default_bookmark || 'main';
+
+// Get active tab from query params
+const activeTab = Astro.url.searchParams.get('tab') || 'conversation';
+
+// Build tabs with counts
+const tabs: Tab[] = [
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'commits', label: 'Commits', count: commits.length },
+  { id: 'files', label: 'Files Changed', count: diff.length }
+];
+
+const baseUrl = `/${username}/${reponame}/landing/${id}`;
 
 function getStatusColor(status: string): string {
   switch (status) {

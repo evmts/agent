@@ -23,6 +23,7 @@ export interface Repository {
   description: string | null;
   is_public: boolean;
   default_branch: string;
+  topics: string[];
   created_at: Date;
   updated_at: Date;
   // Joined fields
