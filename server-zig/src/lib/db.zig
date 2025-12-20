@@ -429,9 +429,9 @@ pub const AgentSessionRecord = struct {
 
 /// Get all agent sessions ordered by most recently updated
 pub fn getAllAgentSessions(pool: *Pool, allocator: std.mem.Allocator) !std.ArrayList(AgentSessionRecord) {
-    var sessions = std.ArrayList(AgentSessionRecord).init(allocator);
+    var sessions = try std.ArrayList(AgentSessionRecord).initCapacity(allocator, 0);
 
-    const result = try pool.query(
+    var result = try pool.query(
         \\SELECT id, project_id, directory, title, version, time_created, time_updated,
         \\       time_archived, parent_id, fork_point, summary::text, revert::text,
         \\       compaction::text, token_count, bypass_mode, model, reasoning_effort,
@@ -441,9 +441,8 @@ pub fn getAllAgentSessions(pool: *Pool, allocator: std.mem.Allocator) !std.Array
     , .{});
     defer result.deinit();
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try sessions.append(AgentSessionRecord{
+    while (try result.next()) |row| {
+        try sessions.append(allocator, AgentSessionRecord{
             .id = row.get([]const u8, 0),
             .project_id = row.get([]const u8, 1),
             .directory = row.get([]const u8, 2),
@@ -594,9 +593,9 @@ pub const MessageRecord = struct {
 
 /// Get messages for a session
 pub fn getAgentSessionMessages(pool: *Pool, allocator: std.mem.Allocator, session_id: []const u8) !std.ArrayList(MessageRecord) {
-    var messages = std.ArrayList(MessageRecord).init(allocator);
+    var messages = try std.ArrayList(MessageRecord).initCapacity(allocator, 0);
 
-    const result = try pool.query(
+    var result = try pool.query(
         \\SELECT id, session_id, role, time_created, time_completed, status,
         \\       thinking_text, error_message
         \\FROM messages
@@ -605,9 +604,8 @@ pub fn getAgentSessionMessages(pool: *Pool, allocator: std.mem.Allocator, sessio
     , .{session_id});
     defer result.deinit();
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try messages.append(MessageRecord{
+    while (try result.next()) |row| {
+        try messages.append(allocator, MessageRecord{
             .id = row.get([]const u8, 0),
             .session_id = row.get([]const u8, 1),
             .role = row.get([]const u8, 2),
@@ -620,6 +618,239 @@ pub fn getAgentSessionMessages(pool: *Pool, allocator: std.mem.Allocator, sessio
     }
 
     return messages;
+}
+
+/// Get a message by ID
+pub fn getMessageById(pool: *Pool, message_id: []const u8) !?MessageRecord {
+    const row = try pool.row(
+        \\SELECT id, session_id, role, time_created, time_completed, status,
+        \\       thinking_text, error_message
+        \\FROM messages
+        \\WHERE id = $1
+    , .{message_id});
+
+    if (row) |r| {
+        return MessageRecord{
+            .id = r.get([]const u8, 0),
+            .session_id = r.get([]const u8, 1),
+            .role = r.get([]const u8, 2),
+            .time_created = r.get(i64, 3),
+            .time_completed = r.get(?i64, 4),
+            .status = r.get([]const u8, 5),
+            .thinking_text = r.get(?[]const u8, 6),
+            .error_message = r.get(?[]const u8, 7),
+        };
+    }
+    return null;
+}
+
+/// Create a new message
+pub fn createMessage(
+    pool: *Pool,
+    id: []const u8,
+    session_id: []const u8,
+    role: []const u8,
+    status: []const u8,
+    thinking_text: ?[]const u8,
+    error_message: ?[]const u8,
+) !void {
+    const now = std.time.milliTimestamp();
+
+    _ = try pool.exec(
+        \\INSERT INTO messages (
+        \\  id, session_id, role, time_created, status, thinking_text, error_message
+        \\) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    , .{ id, session_id, role, now, status, thinking_text, error_message });
+}
+
+/// Update a message
+pub fn updateMessage(
+    pool: *Pool,
+    message_id: []const u8,
+    status: ?[]const u8,
+    thinking_text: ?[]const u8,
+    error_message: ?[]const u8,
+    time_completed: ?i64,
+) !void {
+    if (status) |s| {
+        _ = try pool.exec(
+            \\UPDATE messages SET status = $1 WHERE id = $2
+        , .{ s, message_id });
+    }
+
+    if (thinking_text) |tt| {
+        _ = try pool.exec(
+            \\UPDATE messages SET thinking_text = $1 WHERE id = $2
+        , .{ tt, message_id });
+    }
+
+    if (error_message) |em| {
+        _ = try pool.exec(
+            \\UPDATE messages SET error_message = $1 WHERE id = $2
+        , .{ em, message_id });
+    }
+
+    if (time_completed) |tc| {
+        _ = try pool.exec(
+            \\UPDATE messages SET time_completed = $1 WHERE id = $2
+        , .{ tc, message_id });
+    }
+}
+
+/// Delete a message
+pub fn deleteMessage(pool: *Pool, message_id: []const u8) !void {
+    _ = try pool.exec(
+        \\DELETE FROM messages WHERE id = $1
+    , .{message_id});
+}
+
+// ============================================================================
+// Part operations
+// ============================================================================
+
+pub const PartRecord = struct {
+    id: []const u8,
+    session_id: []const u8,
+    message_id: []const u8,
+    type_: []const u8,
+    text: ?[]const u8,
+    tool_name: ?[]const u8,
+    tool_state: ?[]const u8,
+    mime: ?[]const u8,
+    url: ?[]const u8,
+    filename: ?[]const u8,
+    time_start: ?i64,
+    time_end: ?i64,
+    sort_order: i32,
+};
+
+/// Get parts for a message
+pub fn getMessageParts(pool: *Pool, allocator: std.mem.Allocator, message_id: []const u8) !std.ArrayList(PartRecord) {
+    var parts = try std.ArrayList(PartRecord).initCapacity(allocator, 0);
+
+    var result = try pool.query(
+        \\SELECT id, session_id, message_id, type, text, tool_name,
+        \\       tool_state::text, mime, url, filename, time_start, time_end, sort_order
+        \\FROM parts
+        \\WHERE message_id = $1
+        \\ORDER BY sort_order ASC
+    , .{message_id});
+    defer result.deinit();
+
+    while (try result.next()) |row| {
+        try parts.append(allocator, PartRecord{
+            .id = row.get([]const u8, 0),
+            .session_id = row.get([]const u8, 1),
+            .message_id = row.get([]const u8, 2),
+            .type_ = row.get([]const u8, 3),
+            .text = row.get(?[]const u8, 4),
+            .tool_name = row.get(?[]const u8, 5),
+            .tool_state = row.get(?[]const u8, 6),
+            .mime = row.get(?[]const u8, 7),
+            .url = row.get(?[]const u8, 8),
+            .filename = row.get(?[]const u8, 9),
+            .time_start = row.get(?i64, 10),
+            .time_end = row.get(?i64, 11),
+            .sort_order = row.get(i32, 12),
+        });
+    }
+
+    return parts;
+}
+
+/// Get a part by ID
+pub fn getPartById(pool: *Pool, part_id: []const u8) !?PartRecord {
+    const row = try pool.row(
+        \\SELECT id, session_id, message_id, type, text, tool_name,
+        \\       tool_state::text, mime, url, filename, time_start, time_end, sort_order
+        \\FROM parts
+        \\WHERE id = $1
+    , .{part_id});
+
+    if (row) |r| {
+        return PartRecord{
+            .id = r.get([]const u8, 0),
+            .session_id = r.get([]const u8, 1),
+            .message_id = r.get([]const u8, 2),
+            .type_ = r.get([]const u8, 3),
+            .text = r.get(?[]const u8, 4),
+            .tool_name = r.get(?[]const u8, 5),
+            .tool_state = r.get(?[]const u8, 6),
+            .mime = r.get(?[]const u8, 7),
+            .url = r.get(?[]const u8, 8),
+            .filename = r.get(?[]const u8, 9),
+            .time_start = r.get(?i64, 10),
+            .time_end = r.get(?i64, 11),
+            .sort_order = r.get(i32, 12),
+        };
+    }
+    return null;
+}
+
+/// Create a new part
+pub fn createPart(
+    pool: *Pool,
+    id: []const u8,
+    session_id: []const u8,
+    message_id: []const u8,
+    type_: []const u8,
+    text: ?[]const u8,
+    tool_name: ?[]const u8,
+    tool_state: ?[]const u8,
+    mime: ?[]const u8,
+    url: ?[]const u8,
+    filename: ?[]const u8,
+    sort_order: i32,
+    time_start: ?i64,
+    time_end: ?i64,
+) !void {
+    _ = try pool.exec(
+        \\INSERT INTO parts (
+        \\  id, session_id, message_id, type, text, tool_name, tool_state,
+        \\  mime, url, filename, sort_order, time_start, time_end
+        \\) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13)
+    , .{ id, session_id, message_id, type_, text, tool_name, tool_state, mime, url, filename, sort_order, time_start, time_end });
+}
+
+/// Update a part
+pub fn updatePart(
+    pool: *Pool,
+    part_id: []const u8,
+    text: ?[]const u8,
+    tool_state: ?[]const u8,
+    time_start: ?i64,
+    time_end: ?i64,
+) !void {
+    if (text) |t| {
+        _ = try pool.exec(
+            \\UPDATE parts SET text = $1 WHERE id = $2
+        , .{ t, part_id });
+    }
+
+    if (tool_state) |ts| {
+        _ = try pool.exec(
+            \\UPDATE parts SET tool_state = $1::jsonb WHERE id = $2
+        , .{ ts, part_id });
+    }
+
+    if (time_start) |ts| {
+        _ = try pool.exec(
+            \\UPDATE parts SET time_start = $1 WHERE id = $2
+        , .{ ts, part_id });
+    }
+
+    if (time_end) |te| {
+        _ = try pool.exec(
+            \\UPDATE parts SET time_end = $1 WHERE id = $2
+        , .{ te, part_id });
+    }
+}
+
+/// Delete a part
+pub fn deletePart(pool: *Pool, part_id: []const u8) !void {
+    _ = try pool.exec(
+        \\DELETE FROM parts WHERE id = $1
+    , .{part_id});
 }
 
 // ============================================================================
@@ -686,12 +917,11 @@ pub fn getStargazers(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![
     , .{repo_id});
     defer result.deinit();
 
-    var stargazers = std.ArrayList(Stargazer).init(allocator);
-    errdefer stargazers.deinit();
+    var stargazers = try std.ArrayList(Stargazer).initCapacity(allocator, 0);
+    errdefer stargazers.deinit(allocator);
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try stargazers.append(Stargazer{
+    while (try result.next()) |row| {
+        try stargazers.append(allocator, Stargazer{
             .id = row.get(i64, 0),
             .username = row.get([]const u8, 1),
             .display_name = row.get(?[]const u8, 2),
@@ -772,12 +1002,11 @@ pub fn listBookmarks(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![
     , .{repo_id});
     defer result.deinit();
 
-    var bookmarks = std.ArrayList(Bookmark).init(allocator);
-    errdefer bookmarks.deinit();
+    var bookmarks = try std.ArrayList(Bookmark).initCapacity(allocator, 0);
+    errdefer bookmarks.deinit(allocator);
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try bookmarks.append(Bookmark{
+    while (try result.next()) |row| {
+        try bookmarks.append(allocator, Bookmark{
             .id = row.get(i64, 0),
             .name = row.get([]const u8, 1),
             .target_change_id = row.get([]const u8, 2),
@@ -853,12 +1082,11 @@ pub fn listChanges(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![]C
     , .{repo_id});
     defer result.deinit();
 
-    var changes = std.ArrayList(Change).init(allocator);
-    errdefer changes.deinit();
+    var changes = try std.ArrayList(Change).initCapacity(allocator, 0);
+    errdefer changes.deinit(allocator);
 
-    var iter = result.iterator();
-    while (try iter.next()) |row| {
-        try changes.append(Change{
+    while (try result.next()) |row| {
+        try changes.append(allocator, Change{
             .change_id = row.get([]const u8, 0),
             .commit_id = row.get([]const u8, 1),
             .description = row.get([]const u8, 2),
@@ -975,11 +1203,11 @@ pub fn listWorkflowRuns(
     var result = try conn.query(query, .{ repository_id, limit, offset });
     defer result.deinit();
 
-    var runs = std.ArrayList(WorkflowRun).init(allocator);
-    defer runs.deinit();
+    var runs = try std.ArrayList(WorkflowRun).initCapacity(allocator, 0);
+    defer runs.deinit(allocator);
 
     while (try result.next()) |row| {
-        try runs.append(.{
+        try runs.append(allocator, .{
             .id = row.get(i64, 0),
             .run_number = row.get(i32, 1),
             .title = try allocator.dupe(u8, row.get([]const u8, 2)),
@@ -1025,11 +1253,11 @@ pub fn getWorkflowJobs(pool: *Pool, allocator: std.mem.Allocator, run_id: i64) !
     , .{run_id});
     defer result.deinit();
 
-    var jobs = std.ArrayList(WorkflowJob).init(allocator);
-    defer jobs.deinit();
+    var jobs = try std.ArrayList(WorkflowJob).initCapacity(allocator, 0);
+    defer jobs.deinit(allocator);
 
     while (try result.next()) |row| {
-        try jobs.append(.{
+        try jobs.append(allocator, .{
             .id = row.get(i64, 0),
             .name = try allocator.dupe(u8, row.get([]const u8, 1)),
             .job_id = try allocator.dupe(u8, row.get([]const u8, 2)),
@@ -1109,11 +1337,11 @@ pub fn getWorkflowLogs(
         , .{run_id});
     defer result.deinit();
 
-    var logs = std.ArrayList(WorkflowLog).init(allocator);
-    defer logs.deinit();
+    var logs = try std.ArrayList(WorkflowLog).initCapacity(allocator, 0);
+    defer logs.deinit(allocator);
 
     while (try result.next()) |row| {
-        try logs.append(.{
+        try logs.append(allocator, .{
             .content = try allocator.dupe(u8, row.get([]const u8, 0)),
         });
     }
@@ -1284,4 +1512,493 @@ pub fn appendWorkflowLogs(pool: *Pool, task_id: i64, step_index: i32, lines: []c
             \\VALUES ($1, $2, $3, $4, NOW())
         , .{ task_id, step_index, line_number, line });
     }
+}
+
+// ============================================================================
+// Landing Queue operations
+// ============================================================================
+
+pub const LandingRequest = struct {
+    id: i64,
+    repository_id: i64,
+    change_id: []const u8,
+    target_bookmark: []const u8,
+    title: ?[]const u8,
+    description: ?[]const u8,
+    author_id: i64,
+    status: []const u8,
+    has_conflicts: bool,
+    conflicted_files: ?[][]const u8,
+    created_at: i64,
+    updated_at: i64,
+    landed_at: ?i64,
+    landed_by: ?i64,
+    landed_change_id: ?[]const u8,
+};
+
+pub const LandingReview = struct {
+    id: i64,
+    landing_id: i64,
+    reviewer_id: i64,
+    review_type: []const u8,
+    content: ?[]const u8,
+    change_id: []const u8,
+    created_at: i64,
+};
+
+pub const LineComment = struct {
+    id: i64,
+    landing_id: i64,
+    author_id: i64,
+    file_path: []const u8,
+    line_number: i32,
+    side: []const u8,
+    body: []const u8,
+    resolved: bool,
+    created_at: i64,
+    updated_at: i64,
+};
+
+pub fn listLandingRequests(
+    pool: *Pool,
+    allocator: std.mem.Allocator,
+    repository_id: i64,
+    status_filter: ?[]const u8,
+    limit: i32,
+    offset: i32,
+) ![]LandingRequest {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    const result = if (status_filter) |status|
+        try conn.query(
+            \\SELECT id, repository_id, change_id, target_bookmark, title, description,
+            \\       author_id, status, has_conflicts, conflicted_files,
+            \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+            \\       EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at,
+            \\       EXTRACT(EPOCH FROM landed_at)::bigint * 1000 as landed_at,
+            \\       landed_by, landed_change_id
+            \\FROM landing_queue
+            \\WHERE repository_id = $1 AND status = $2
+            \\ORDER BY created_at DESC
+            \\LIMIT $3 OFFSET $4
+        , .{ repository_id, status, limit, offset })
+    else
+        try conn.query(
+            \\SELECT id, repository_id, change_id, target_bookmark, title, description,
+            \\       author_id, status, has_conflicts, conflicted_files,
+            \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+            \\       EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at,
+            \\       EXTRACT(EPOCH FROM landed_at)::bigint * 1000 as landed_at,
+            \\       landed_by, landed_change_id
+            \\FROM landing_queue
+            \\WHERE repository_id = $1
+            \\ORDER BY CASE WHEN status IN ('pending', 'checking', 'ready') THEN 0 ELSE 1 END,
+            \\         created_at DESC
+            \\LIMIT $2 OFFSET $3
+        , .{ repository_id, limit, offset });
+    defer result.deinit();
+
+    var requests = std.ArrayList(LandingRequest).init(allocator);
+    errdefer requests.deinit();
+
+    var iter = result.iterator();
+    while (try iter.next()) |row| {
+        try requests.append(LandingRequest{
+            .id = row.get(i64, 0),
+            .repository_id = row.get(i64, 1),
+            .change_id = row.get([]const u8, 2),
+            .target_bookmark = row.get([]const u8, 3),
+            .title = row.get(?[]const u8, 4),
+            .description = row.get(?[]const u8, 5),
+            .author_id = row.get(i64, 6),
+            .status = row.get([]const u8, 7),
+            .has_conflicts = row.get(bool, 8),
+            .conflicted_files = row.get(?[][]const u8, 9),
+            .created_at = row.get(i64, 10),
+            .updated_at = row.get(i64, 11),
+            .landed_at = row.get(?i64, 12),
+            .landed_by = row.get(?i64, 13),
+            .landed_change_id = row.get(?[]const u8, 14),
+        });
+    }
+
+    return requests.toOwnedSlice();
+}
+
+pub fn countLandingRequests(pool: *Pool, repository_id: i64, status_filter: ?[]const u8) !i64 {
+    const row = if (status_filter) |status|
+        try pool.row(
+            \\SELECT COUNT(*) FROM landing_queue WHERE repository_id = $1 AND status = $2
+        , .{ repository_id, status })
+    else
+        try pool.row(
+            \\SELECT COUNT(*) FROM landing_queue WHERE repository_id = $1
+        , .{repository_id});
+
+    if (row) |r| {
+        return r.get(i64, 0);
+    }
+    return 0;
+}
+
+pub fn getLandingRequestById(pool: *Pool, repository_id: i64, landing_id: i64) !?LandingRequest {
+    const row = try pool.row(
+        \\SELECT id, repository_id, change_id, target_bookmark, title, description,
+        \\       author_id, status, has_conflicts, conflicted_files,
+        \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+        \\       EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at,
+        \\       EXTRACT(EPOCH FROM landed_at)::bigint * 1000 as landed_at,
+        \\       landed_by, landed_change_id
+        \\FROM landing_queue
+        \\WHERE repository_id = $1 AND id = $2
+    , .{ repository_id, landing_id });
+
+    if (row) |r| {
+        return LandingRequest{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .change_id = r.get([]const u8, 2),
+            .target_bookmark = r.get([]const u8, 3),
+            .title = r.get(?[]const u8, 4),
+            .description = r.get(?[]const u8, 5),
+            .author_id = r.get(i64, 6),
+            .status = r.get([]const u8, 7),
+            .has_conflicts = r.get(bool, 8),
+            .conflicted_files = r.get(?[][]const u8, 9),
+            .created_at = r.get(i64, 10),
+            .updated_at = r.get(i64, 11),
+            .landed_at = r.get(?i64, 12),
+            .landed_by = r.get(?i64, 13),
+            .landed_change_id = r.get(?[]const u8, 14),
+        };
+    }
+    return null;
+}
+
+pub fn findLandingRequestByChangeId(pool: *Pool, repository_id: i64, change_id: []const u8) !?LandingRequest {
+    const row = try pool.row(
+        \\SELECT id, repository_id, change_id, target_bookmark, title, description,
+        \\       author_id, status, has_conflicts, conflicted_files,
+        \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+        \\       EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at,
+        \\       EXTRACT(EPOCH FROM landed_at)::bigint * 1000 as landed_at,
+        \\       landed_by, landed_change_id
+        \\FROM landing_queue
+        \\WHERE repository_id = $1 AND change_id = $2 AND status NOT IN ('landed', 'cancelled')
+    , .{ repository_id, change_id });
+
+    if (row) |r| {
+        return LandingRequest{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .change_id = r.get([]const u8, 2),
+            .target_bookmark = r.get([]const u8, 3),
+            .title = r.get(?[]const u8, 4),
+            .description = r.get(?[]const u8, 5),
+            .author_id = r.get(i64, 6),
+            .status = r.get([]const u8, 7),
+            .has_conflicts = r.get(bool, 8),
+            .conflicted_files = r.get(?[][]const u8, 9),
+            .created_at = r.get(i64, 10),
+            .updated_at = r.get(i64, 11),
+            .landed_at = r.get(?i64, 12),
+            .landed_by = r.get(?i64, 13),
+            .landed_change_id = r.get(?[]const u8, 14),
+        };
+    }
+    return null;
+}
+
+pub fn createLandingRequest(
+    pool: *Pool,
+    repository_id: i64,
+    change_id: []const u8,
+    target_bookmark: []const u8,
+    title: ?[]const u8,
+    description: ?[]const u8,
+    author_id: i64,
+) !LandingRequest {
+    const row = try pool.row(
+        \\INSERT INTO landing_queue (
+        \\  repository_id, change_id, target_bookmark, title, description,
+        \\  author_id, status, has_conflicts
+        \\) VALUES ($1, $2, $3, $4, $5, $6, 'pending', false)
+        \\RETURNING id, repository_id, change_id, target_bookmark, title, description,
+        \\          author_id, status, has_conflicts, conflicted_files,
+        \\          EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+        \\          EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at,
+        \\          EXTRACT(EPOCH FROM landed_at)::bigint * 1000 as landed_at,
+        \\          landed_by, landed_change_id
+    , .{ repository_id, change_id, target_bookmark, title, description, author_id });
+
+    if (row) |r| {
+        return LandingRequest{
+            .id = r.get(i64, 0),
+            .repository_id = r.get(i64, 1),
+            .change_id = r.get([]const u8, 2),
+            .target_bookmark = r.get([]const u8, 3),
+            .title = r.get(?[]const u8, 4),
+            .description = r.get(?[]const u8, 5),
+            .author_id = r.get(i64, 6),
+            .status = r.get([]const u8, 7),
+            .has_conflicts = r.get(bool, 8),
+            .conflicted_files = r.get(?[][]const u8, 9),
+            .created_at = r.get(i64, 10),
+            .updated_at = r.get(i64, 11),
+            .landed_at = r.get(?i64, 12),
+            .landed_by = r.get(?i64, 13),
+            .landed_change_id = r.get(?[]const u8, 14),
+        };
+    }
+    return error.InsertFailed;
+}
+
+pub fn updateLandingRequestStatus(pool: *Pool, landing_id: i64, status: []const u8) !void {
+    _ = try pool.exec(
+        \\UPDATE landing_queue SET status = $1, updated_at = NOW() WHERE id = $2
+    , .{ status, landing_id });
+}
+
+pub fn updateLandingRequestConflicts(
+    pool: *Pool,
+    landing_id: i64,
+    has_conflicts: bool,
+    conflicted_files: []const []const u8,
+) !void {
+    _ = try pool.exec(
+        \\UPDATE landing_queue
+        \\SET has_conflicts = $1, conflicted_files = $2, updated_at = NOW()
+        \\WHERE id = $3
+    , .{ has_conflicts, conflicted_files, landing_id });
+}
+
+pub fn markLandingRequestLanded(
+    pool: *Pool,
+    landing_id: i64,
+    landed_by: i64,
+    landed_change_id: []const u8,
+) !void {
+    _ = try pool.exec(
+        \\UPDATE landing_queue
+        \\SET status = 'landed', landed_at = NOW(), landed_by = $1,
+        \\    landed_change_id = $2, updated_at = NOW()
+        \\WHERE id = $3
+    , .{ landed_by, landed_change_id, landing_id });
+}
+
+pub fn getLandingReviews(pool: *Pool, allocator: std.mem.Allocator, landing_id: i64) ![]LandingReview {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT id, landing_id, reviewer_id, type, content, change_id,
+        \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at
+        \\FROM landing_reviews
+        \\WHERE landing_id = $1
+        \\ORDER BY created_at ASC
+    , .{landing_id});
+    defer result.deinit();
+
+    var reviews = std.ArrayList(LandingReview).init(allocator);
+    errdefer reviews.deinit();
+
+    var iter = result.iterator();
+    while (try iter.next()) |row| {
+        try reviews.append(LandingReview{
+            .id = row.get(i64, 0),
+            .landing_id = row.get(i64, 1),
+            .reviewer_id = row.get(i64, 2),
+            .review_type = row.get([]const u8, 3),
+            .content = row.get(?[]const u8, 4),
+            .change_id = row.get([]const u8, 5),
+            .created_at = row.get(i64, 6),
+        });
+    }
+
+    return reviews.toOwnedSlice();
+}
+
+pub fn createLandingReview(
+    pool: *Pool,
+    landing_id: i64,
+    reviewer_id: i64,
+    review_type: []const u8,
+    content: ?[]const u8,
+    change_id: []const u8,
+) !LandingReview {
+    const row = try pool.row(
+        \\INSERT INTO landing_reviews (landing_id, reviewer_id, type, content, change_id)
+        \\VALUES ($1, $2, $3, $4, $5)
+        \\RETURNING id, landing_id, reviewer_id, type, content, change_id,
+        \\          EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at
+    , .{ landing_id, reviewer_id, review_type, content, change_id });
+
+    if (row) |r| {
+        return LandingReview{
+            .id = r.get(i64, 0),
+            .landing_id = r.get(i64, 1),
+            .reviewer_id = r.get(i64, 2),
+            .review_type = r.get([]const u8, 3),
+            .content = r.get(?[]const u8, 4),
+            .change_id = r.get([]const u8, 5),
+            .created_at = r.get(i64, 6),
+        };
+    }
+    return error.InsertFailed;
+}
+
+pub fn getLineComments(pool: *Pool, allocator: std.mem.Allocator, landing_id: i64) ![]LineComment {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT id, landing_id, author_id, file_path, line_number, side, body, resolved,
+        \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+        \\       EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at
+        \\FROM line_comments
+        \\WHERE landing_id = $1
+        \\ORDER BY file_path, line_number, created_at ASC
+    , .{landing_id});
+    defer result.deinit();
+
+    var comments = std.ArrayList(LineComment).init(allocator);
+    errdefer comments.deinit();
+
+    var iter = result.iterator();
+    while (try iter.next()) |row| {
+        try comments.append(LineComment{
+            .id = row.get(i64, 0),
+            .landing_id = row.get(i64, 1),
+            .author_id = row.get(i64, 2),
+            .file_path = row.get([]const u8, 3),
+            .line_number = row.get(i32, 4),
+            .side = row.get([]const u8, 5),
+            .body = row.get([]const u8, 6),
+            .resolved = row.get(bool, 7),
+            .created_at = row.get(i64, 8),
+            .updated_at = row.get(i64, 9),
+        });
+    }
+
+    return comments.toOwnedSlice();
+}
+
+pub fn getLineCommentById(pool: *Pool, comment_id: i64) !?LineComment {
+    const row = try pool.row(
+        \\SELECT id, landing_id, author_id, file_path, line_number, side, body, resolved,
+        \\       EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+        \\       EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at
+        \\FROM line_comments
+        \\WHERE id = $1
+    , .{comment_id});
+
+    if (row) |r| {
+        return LineComment{
+            .id = r.get(i64, 0),
+            .landing_id = r.get(i64, 1),
+            .author_id = r.get(i64, 2),
+            .file_path = r.get([]const u8, 3),
+            .line_number = r.get(i32, 4),
+            .side = r.get([]const u8, 5),
+            .body = r.get([]const u8, 6),
+            .resolved = r.get(bool, 7),
+            .created_at = r.get(i64, 8),
+            .updated_at = r.get(i64, 9),
+        };
+    }
+    return null;
+}
+
+pub fn createLineComment(
+    pool: *Pool,
+    landing_id: i64,
+    author_id: i64,
+    file_path: []const u8,
+    line_number: i32,
+    side: []const u8,
+    body: []const u8,
+) !LineComment {
+    const row = try pool.row(
+        \\INSERT INTO line_comments (landing_id, author_id, file_path, line_number, side, body)
+        \\VALUES ($1, $2, $3, $4, $5, $6)
+        \\RETURNING id, landing_id, author_id, file_path, line_number, side, body, resolved,
+        \\          EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+        \\          EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at
+    , .{ landing_id, author_id, file_path, line_number, side, body });
+
+    if (row) |r| {
+        return LineComment{
+            .id = r.get(i64, 0),
+            .landing_id = r.get(i64, 1),
+            .author_id = r.get(i64, 2),
+            .file_path = r.get([]const u8, 3),
+            .line_number = r.get(i32, 4),
+            .side = r.get([]const u8, 5),
+            .body = r.get([]const u8, 6),
+            .resolved = r.get(bool, 7),
+            .created_at = r.get(i64, 8),
+            .updated_at = r.get(i64, 9),
+        };
+    }
+    return error.InsertFailed;
+}
+
+pub fn updateLineComment(
+    pool: *Pool,
+    comment_id: i64,
+    body: ?[]const u8,
+    resolved: ?bool,
+) !LineComment {
+    const row = if (body != null and resolved != null)
+        try pool.row(
+            \\UPDATE line_comments
+            \\SET body = $1, resolved = $2, updated_at = NOW()
+            \\WHERE id = $3
+            \\RETURNING id, landing_id, author_id, file_path, line_number, side, body, resolved,
+            \\          EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at
+        , .{ body.?, resolved.?, comment_id })
+    else if (body != null)
+        try pool.row(
+            \\UPDATE line_comments
+            \\SET body = $1, updated_at = NOW()
+            \\WHERE id = $2
+            \\RETURNING id, landing_id, author_id, file_path, line_number, side, body, resolved,
+            \\          EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at
+        , .{ body.?, comment_id })
+    else if (resolved != null)
+        try pool.row(
+            \\UPDATE line_comments
+            \\SET resolved = $1, updated_at = NOW()
+            \\WHERE id = $2
+            \\RETURNING id, landing_id, author_id, file_path, line_number, side, body, resolved,
+            \\          EXTRACT(EPOCH FROM created_at)::bigint * 1000 as created_at,
+            \\          EXTRACT(EPOCH FROM updated_at)::bigint * 1000 as updated_at
+        , .{ resolved.?, comment_id })
+    else
+        return error.NoUpdatesProvided;
+
+    if (row) |r| {
+        return LineComment{
+            .id = r.get(i64, 0),
+            .landing_id = r.get(i64, 1),
+            .author_id = r.get(i64, 2),
+            .file_path = r.get([]const u8, 3),
+            .line_number = r.get(i32, 4),
+            .side = r.get([]const u8, 5),
+            .body = r.get([]const u8, 6),
+            .resolved = r.get(bool, 7),
+            .created_at = r.get(i64, 8),
+            .updated_at = r.get(i64, 9),
+        };
+    }
+    return error.UpdateFailed;
+}
+
+pub fn deleteLineComment(pool: *Pool, comment_id: i64) !void {
+    _ = try pool.exec(
+        \\DELETE FROM line_comments WHERE id = $1
+    , .{comment_id});
 }

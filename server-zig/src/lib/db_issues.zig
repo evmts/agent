@@ -469,3 +469,265 @@ pub fn getLabelByName(pool: *Pool, repo_id: i64, name: []const u8) !?LabelRecord
     }
     return null;
 }
+
+// ============================================================================
+// Assignee operations
+// ============================================================================
+
+pub fn addAssignee(pool: *Pool, issue_id: i64, user_id: i64) !void {
+    _ = try pool.exec(
+        \\INSERT INTO issue_assignees (issue_id, user_id)
+        \\VALUES ($1, $2)
+        \\ON CONFLICT (issue_id, user_id) DO NOTHING
+    , .{ issue_id, user_id });
+}
+
+pub fn removeAssignee(pool: *Pool, issue_id: i64, user_id: i64) !void {
+    _ = try pool.exec(
+        \\DELETE FROM issue_assignees WHERE issue_id = $1 AND user_id = $2
+    , .{ issue_id, user_id });
+}
+
+pub fn getAssignees(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![]i64 {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT user_id FROM issue_assignees WHERE issue_id = $1 ORDER BY assigned_at ASC
+    , .{issue_id});
+    defer result.deinit();
+
+    var assignees: std.ArrayList(i64) = .init(allocator);
+    while (try result.next()) |row| {
+        try assignees.append(row.get(i64, 0));
+    }
+
+    return assignees.toOwnedSlice();
+}
+
+// ============================================================================
+// Reaction operations
+// ============================================================================
+
+pub const ReactionRecord = struct {
+    id: i64,
+    user_id: i64,
+    username: []const u8,
+    emoji: []const u8,
+    created_at: i64,
+};
+
+pub fn addReaction(pool: *Pool, user_id: i64, target_type: []const u8, target_id: i64, emoji: []const u8) !?ReactionRecord {
+    const row = try pool.row(
+        \\INSERT INTO reactions (user_id, target_type, target_id, emoji)
+        \\VALUES ($1, $2, $3, $4)
+        \\ON CONFLICT (user_id, target_type, target_id, emoji) DO NOTHING
+        \\RETURNING id, user_id, target_type, target_id, emoji, EXTRACT(EPOCH FROM created_at)::bigint
+    , .{ user_id, target_type, target_id, emoji });
+
+    if (row) |r| {
+        // Get username
+        const user_row = try pool.row(
+            \\SELECT username FROM users WHERE id = $1
+        , .{user_id});
+
+        if (user_row) |ur| {
+            return ReactionRecord{
+                .id = r.get(i64, 0),
+                .user_id = r.get(i64, 1),
+                .username = ur.get([]const u8, 0),
+                .emoji = r.get([]const u8, 4),
+                .created_at = r.get(i64, 5),
+            };
+        }
+    }
+    return null;
+}
+
+pub fn removeReaction(pool: *Pool, user_id: i64, target_type: []const u8, target_id: i64, emoji: []const u8) !void {
+    _ = try pool.exec(
+        \\DELETE FROM reactions
+        \\WHERE user_id = $1 AND target_type = $2 AND target_id = $3 AND emoji = $4
+    , .{ user_id, target_type, target_id, emoji });
+}
+
+pub fn getReactions(pool: *Pool, allocator: std.mem.Allocator, target_type: []const u8, target_id: i64) ![]ReactionRecord {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT r.id, r.user_id, u.username, r.emoji, EXTRACT(EPOCH FROM r.created_at)::bigint
+        \\FROM reactions r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE r.target_type = $1 AND r.target_id = $2
+        \\ORDER BY r.created_at ASC
+    , .{ target_type, target_id });
+    defer result.deinit();
+
+    var reactions: std.ArrayList(ReactionRecord) = .init(allocator);
+    while (try result.next()) |row| {
+        try reactions.append(ReactionRecord{
+            .id = row.get(i64, 0),
+            .user_id = row.get(i64, 1),
+            .username = row.get([]const u8, 2),
+            .emoji = row.get([]const u8, 3),
+            .created_at = row.get(i64, 4),
+        });
+    }
+
+    return reactions.toOwnedSlice();
+}
+
+// ============================================================================
+// Dependency operations
+// ============================================================================
+
+pub const DependencyRecord = struct {
+    id: i64,
+    blocker_issue_id: i64,
+    blocked_issue_id: i64,
+    blocker_number: i64,
+    blocked_number: i64,
+};
+
+pub fn addDependency(pool: *Pool, repo_id: i64, blocker_issue_id: i64, blocked_issue_id: i64) !void {
+    _ = try pool.exec(
+        \\INSERT INTO issue_dependencies (repository_id, blocker_issue_id, blocked_issue_id)
+        \\VALUES ($1, $2, $3)
+        \\ON CONFLICT (blocker_issue_id, blocked_issue_id) DO NOTHING
+    , .{ repo_id, blocker_issue_id, blocked_issue_id });
+}
+
+pub fn removeDependency(pool: *Pool, blocker_issue_id: i64, blocked_issue_id: i64) !void {
+    _ = try pool.exec(
+        \\DELETE FROM issue_dependencies
+        \\WHERE blocker_issue_id = $1 AND blocked_issue_id = $2
+    , .{ blocker_issue_id, blocked_issue_id });
+}
+
+pub fn getBlockingIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![]DependencyRecord {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT d.id, d.blocker_issue_id, d.blocked_issue_id,
+        \\       i1.issue_number as blocker_number, i2.issue_number as blocked_number
+        \\FROM issue_dependencies d
+        \\JOIN issues i1 ON d.blocker_issue_id = i1.id
+        \\JOIN issues i2 ON d.blocked_issue_id = i2.id
+        \\WHERE d.blocker_issue_id = $1
+    , .{issue_id});
+    defer result.deinit();
+
+    var deps: std.ArrayList(DependencyRecord) = .init(allocator);
+    while (try result.next()) |row| {
+        try deps.append(DependencyRecord{
+            .id = row.get(i64, 0),
+            .blocker_issue_id = row.get(i64, 1),
+            .blocked_issue_id = row.get(i64, 2),
+            .blocker_number = row.get(i64, 3),
+            .blocked_number = row.get(i64, 4),
+        });
+    }
+
+    return deps.toOwnedSlice();
+}
+
+pub fn getBlockedByIssues(pool: *Pool, allocator: std.mem.Allocator, issue_id: i64) ![]DependencyRecord {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT d.id, d.blocker_issue_id, d.blocked_issue_id,
+        \\       i1.issue_number as blocker_number, i2.issue_number as blocked_number
+        \\FROM issue_dependencies d
+        \\JOIN issues i1 ON d.blocker_issue_id = i1.id
+        \\JOIN issues i2 ON d.blocked_issue_id = i2.id
+        \\WHERE d.blocked_issue_id = $1
+    , .{issue_id});
+    defer result.deinit();
+
+    var deps: std.ArrayList(DependencyRecord) = .init(allocator);
+    while (try result.next()) |row| {
+        try deps.append(DependencyRecord{
+            .id = row.get(i64, 0),
+            .blocker_issue_id = row.get(i64, 1),
+            .blocked_issue_id = row.get(i64, 2),
+            .blocker_number = row.get(i64, 3),
+            .blocked_number = row.get(i64, 4),
+        });
+    }
+
+    return deps.toOwnedSlice();
+}
+
+// ============================================================================
+// Pinned issues operations
+// ============================================================================
+
+pub fn pinIssue(pool: *Pool, repo_id: i64, issue_id: i64, pinned_by_id: i64) !void {
+    // Check how many issues are already pinned
+    const count_row = try pool.row(
+        \\SELECT COUNT(*) FROM pinned_issues WHERE repository_id = $1
+    , .{repo_id});
+
+    const count = if (count_row) |r| r.get(i64, 0) else 0;
+
+    if (count >= 3) {
+        return error.MaxPinnedIssuesReached;
+    }
+
+    // Find the next available pin_order
+    const order_row = try pool.row(
+        \\SELECT COALESCE(MAX(pin_order), -1) + 1 FROM pinned_issues WHERE repository_id = $1
+    , .{repo_id});
+
+    const pin_order = if (order_row) |r| r.get(i64, 0) else 0;
+
+    _ = try pool.exec(
+        \\INSERT INTO pinned_issues (repository_id, issue_id, pin_order, pinned_by_id)
+        \\VALUES ($1, $2, $3, $4)
+        \\ON CONFLICT (repository_id, issue_id) DO NOTHING
+    , .{ repo_id, issue_id, pin_order, pinned_by_id });
+}
+
+pub fn unpinIssue(pool: *Pool, issue_id: i64) !void {
+    _ = try pool.exec(
+        \\DELETE FROM pinned_issues WHERE issue_id = $1
+    , .{issue_id});
+}
+
+pub fn getPinnedIssues(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64) ![]IssueRecord {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT i.id, i.repository_id, i.author_id, i.issue_number, i.title, i.body, i.state, i.milestone_id,
+        \\       EXTRACT(EPOCH FROM i.created_at)::bigint, EXTRACT(EPOCH FROM i.updated_at)::bigint,
+        \\       EXTRACT(EPOCH FROM i.closed_at)::bigint
+        \\FROM issues i
+        \\JOIN pinned_issues p ON i.id = p.issue_id
+        \\WHERE p.repository_id = $1
+        \\ORDER BY p.pin_order ASC
+    , .{repo_id});
+    defer result.deinit();
+
+    var issues: std.ArrayList(IssueRecord) = .init(allocator);
+    while (try result.next()) |row| {
+        try issues.append(IssueRecord{
+            .id = row.get(i64, 0),
+            .repository_id = row.get(i64, 1),
+            .author_id = row.get(i64, 2),
+            .issue_number = row.get(i64, 3),
+            .title = row.get([]const u8, 4),
+            .body = row.get(?[]const u8, 5),
+            .state = row.get([]const u8, 6),
+            .milestone_id = row.get(?i64, 7),
+            .created_at = row.get(i64, 8),
+            .updated_at = row.get(i64, 9),
+            .closed_at = row.get(?i64, 10),
+        });
+    }
+
+    return issues.toOwnedSlice();
+}
