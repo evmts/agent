@@ -33,6 +33,23 @@ export interface FileTimeTracker {
 }
 
 // =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Safely parse JSON with fallback value on error
+ */
+function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    console.error('Failed to parse JSON:', error);
+    return fallback;
+  }
+}
+
+// =============================================================================
 // Session Operations
 // =============================================================================
 
@@ -122,15 +139,15 @@ function rowToSession(row: Record<string, unknown>): Session {
     },
     parentID: row.parent_id as string | undefined,
     forkPoint: row.fork_point as string | undefined,
-    summary: row.summary ? JSON.parse(row.summary as string) as Session["summary"] : undefined,
-    revert: row.revert ? JSON.parse(row.revert as string) as Session["revert"] : undefined,
-    compaction: row.compaction ? JSON.parse(row.compaction as string) as Session["compaction"] : undefined,
+    summary: row.summary ? safeJsonParse(row.summary as string, undefined) as Session["summary"] : undefined,
+    revert: row.revert ? safeJsonParse(row.revert as string, undefined) as Session["revert"] : undefined,
+    compaction: row.compaction ? safeJsonParse(row.compaction as string, undefined) as Session["compaction"] : undefined,
     tokenCount: Number(row.token_count),
     bypassMode: row.bypass_mode as boolean,
     model: row.model as string | undefined,
     reasoningEffort: row.reasoning_effort as Session["reasoningEffort"],
-    ghostCommit: row.ghost_commit ? JSON.parse(row.ghost_commit as string) as Session["ghostCommit"] : undefined,
-    plugins: JSON.parse((row.plugins as string) ?? '[]') as string[],
+    ghostCommit: row.ghost_commit ? safeJsonParse(row.ghost_commit as string, undefined) as Session["ghostCommit"] : undefined,
+    plugins: safeJsonParse((row.plugins as string), []) as string[],
   };
 }
 
@@ -351,20 +368,8 @@ export async function setSessionMessages(
 
     // Insert all messages and their parts
     for (const msg of messages) {
-      // Insert message
-      const messageRow = messageToRow(msg, sessionId);
-      await tx`
-        INSERT INTO messages (
-          id, session_id, role, time_created, time_completed, status,
-          thinking_text, error_message, agent, tools, error
-        ) VALUES (
-          ${messageRow.id}, ${messageRow.session_id}, ${messageRow.role},
-          ${messageRow.time_created}, ${messageRow.time_completed}, ${messageRow.status},
-          ${messageRow.thinking_text}, ${messageRow.error_message}, ${messageRow.agent},
-          ${messageRow.tools ? JSON.stringify(messageRow.tools) : null},
-          ${messageRow.error ? JSON.stringify(messageRow.error) : null}
-        )
-      `;
+      // Insert message using the existing saveMessage function which handles both user and assistant types
+      await saveMessage(msg.info);
 
       // Insert parts
       for (let i = 0; i < msg.parts.length; i++) {
@@ -387,6 +392,126 @@ export async function setSessionMessages(
   });
 }
 
+function messageToRow(
+  msg: MessageWithParts,
+  sessionId: string
+): Record<string, unknown> {
+  const message = msg.info;
+  const base = {
+    id: message.id,
+    session_id: sessionId,
+    role: message.role,
+    time_created: message.time.created,
+    time_completed: message.time.completed ?? null,
+    status: message.status,
+    thinking_text: message.thinkingText ?? null,
+    error_message: message.errorMessage ?? null,
+  };
+
+  if (message.role === "user") {
+    const userMsg = message as UserMessage;
+    return {
+      ...base,
+      agent: userMsg.agent,
+      model_provider_id: userMsg.model.providerID,
+      model_model_id: userMsg.model.modelID,
+      system_prompt: userMsg.system ?? null,
+      tools: userMsg.tools ?? null,
+    };
+  } else {
+    const assistantMsg = message as AssistantMessage;
+    return {
+      ...base,
+      parent_id: assistantMsg.parentID,
+      mode: assistantMsg.mode,
+      path_cwd: assistantMsg.path.cwd,
+      path_root: assistantMsg.path.root,
+      cost: assistantMsg.cost,
+      tokens_input: assistantMsg.tokens.input,
+      tokens_output: assistantMsg.tokens.output,
+      tokens_reasoning: assistantMsg.tokens.reasoning,
+      tokens_cache_read: assistantMsg.tokens.cache?.read ?? null,
+      tokens_cache_write: assistantMsg.tokens.cache?.write ?? null,
+      finish: assistantMsg.finish ?? null,
+      is_summary: assistantMsg.summary ?? null,
+      error: assistantMsg.error ?? null,
+      model_provider_id: assistantMsg.providerID,
+      model_model_id: assistantMsg.modelID,
+    };
+  }
+}
+
+function partToRow(
+  part: Part,
+  sessionId: string,
+  messageId: string,
+  sortOrder: number
+): Record<string, unknown> {
+  const base = {
+    id: part.id,
+    session_id: sessionId,
+    message_id: messageId,
+    type: part.type,
+    sort_order: sortOrder,
+  };
+
+  switch (part.type) {
+    case "text": {
+      const textPart = part as TextPart;
+      return {
+        ...base,
+        text: textPart.text,
+        time_start: textPart.time?.start ?? null,
+        time_end: textPart.time?.end ?? null,
+        tool_name: null,
+        tool_state: null,
+      };
+    }
+
+    case "reasoning": {
+      const reasoningPart = part as ReasoningPart;
+      return {
+        ...base,
+        text: reasoningPart.text,
+        time_start: reasoningPart.time.start,
+        time_end: reasoningPart.time.end ?? null,
+        tool_name: null,
+        tool_state: null,
+      };
+    }
+
+    case "tool": {
+      const toolPart = part as ToolPart;
+      return {
+        ...base,
+        text: null,
+        tool_name: toolPart.tool,
+        tool_state: toolPart.state,
+        time_start: null,
+        time_end: null,
+      };
+    }
+
+    case "file": {
+      const filePart = part as FilePart;
+      return {
+        ...base,
+        text: null,
+        tool_name: null,
+        tool_state: null,
+        time_start: null,
+        time_end: null,
+        mime: filePart.mime,
+        url: filePart.url,
+        filename: filePart.filename ?? null,
+      };
+    }
+
+    default:
+      throw new Error(`Unknown part type: ${(part as Part).type}`);
+  }
+}
+
 function rowToMessage(row: Record<string, unknown>): Message {
   if (row.role === "user") {
     return {
@@ -406,7 +531,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
         modelID: row.model_model_id as string,
       },
       system: row.system_prompt as string | undefined,
-      tools: row.tools ? JSON.parse(row.tools as string) as Record<string, boolean> : undefined,
+      tools: row.tools ? safeJsonParse(row.tools as string, undefined) as Record<string, boolean> : undefined,
     } as UserMessage;
   } else {
     return {
@@ -443,7 +568,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
       },
       finish: row.finish as string | undefined,
       summary: row.is_summary as boolean | undefined,
-      error: row.error ? JSON.parse(row.error as string) as Record<string, unknown> : undefined,
+      error: row.error ? safeJsonParse(row.error as string, undefined) as Record<string, unknown> : undefined,
     } as AssistantMessage;
   }
 }
@@ -486,7 +611,7 @@ function rowToPart(row: Record<string, unknown>): Part {
         ...base,
         type: "tool",
         tool: row.tool_name as string,
-        state: JSON.parse((row.tool_state as string) ?? '{}') as ToolPart["state"],
+        state: safeJsonParse((row.tool_state as string), {}) as ToolPart["state"],
       } as ToolPart;
 
     case "file":
@@ -537,17 +662,13 @@ export async function appendSnapshotHistory(
   sessionId: string,
   changeId: string
 ): Promise<void> {
-  const rows = await sql`
-    SELECT COALESCE(MAX(sort_order), -1) as max_order
-    FROM snapshot_history
-    WHERE session_id = ${sessionId}
-  `;
-  const row = rows[0];
-  const nextOrder = row ? Number(row.max_order) + 1 : 0;
-
   await sql`
     INSERT INTO snapshot_history (session_id, change_id, sort_order)
-    VALUES (${sessionId}, ${changeId}, ${nextOrder})
+    VALUES (
+      ${sessionId},
+      ${changeId},
+      (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM snapshot_history WHERE session_id = ${sessionId})
+    )
   `;
 }
 
