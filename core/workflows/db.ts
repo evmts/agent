@@ -793,3 +793,141 @@ function rowToLog(row: Record<string, unknown>): WorkflowLog {
     timestamp: rowToDate(row.timestamp)!,
   };
 }
+
+// =============================================================================
+// Commit Status Operations
+// =============================================================================
+
+export interface CommitStatus {
+  id: number;
+  repositoryId: number;
+  commitSha: string;
+  context: string;
+  state: 'pending' | 'success' | 'failure' | 'error';
+  description: string | undefined;
+  targetUrl: string | undefined;
+  workflowRunId: number | undefined;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateCommitStatusOptions {
+  repositoryId: number;
+  commitSha: string;
+  context: string;
+  state: 'pending' | 'success' | 'failure' | 'error';
+  description?: string;
+  targetUrl?: string;
+  workflowRunId?: number;
+}
+
+export async function createOrUpdateCommitStatus(
+  options: CreateCommitStatusOptions
+): Promise<CommitStatus> {
+  const rows = await sql`
+    INSERT INTO commit_statuses (
+      repository_id, commit_sha, context, state,
+      description, target_url, workflow_run_id
+    ) VALUES (
+      ${options.repositoryId},
+      ${options.commitSha},
+      ${options.context},
+      ${options.state},
+      ${options.description ?? null},
+      ${options.targetUrl ?? null},
+      ${options.workflowRunId ?? null}
+    )
+    ON CONFLICT (repository_id, commit_sha, context)
+    DO UPDATE SET
+      state = EXCLUDED.state,
+      description = EXCLUDED.description,
+      target_url = EXCLUDED.target_url,
+      workflow_run_id = EXCLUDED.workflow_run_id,
+      updated_at = NOW()
+    RETURNING *
+  `;
+  return rowToCommitStatus(rows[0]);
+}
+
+export async function getCommitStatuses(
+  repositoryId: number,
+  commitSha: string
+): Promise<CommitStatus[]> {
+  const rows = await sql`
+    SELECT * FROM commit_statuses
+    WHERE repository_id = ${repositoryId} AND commit_sha = ${commitSha}
+    ORDER BY context
+  `;
+  return rows.map(rowToCommitStatus);
+}
+
+export async function getCommitStatusByContext(
+  repositoryId: number,
+  commitSha: string,
+  context: string
+): Promise<CommitStatus | null> {
+  const rows = await sql`
+    SELECT * FROM commit_statuses
+    WHERE repository_id = ${repositoryId}
+      AND commit_sha = ${commitSha}
+      AND context = ${context}
+  `;
+  if (rows.length === 0) return null;
+  return rowToCommitStatus(rows[0]);
+}
+
+/**
+ * Update commit status when a workflow run completes.
+ */
+export async function updateCommitStatusFromRun(
+  run: WorkflowRun
+): Promise<void> {
+  if (!run.commitSha) return;
+
+  const workflowDef = run.workflowDefinitionId
+    ? await getWorkflowDefinition(run.workflowDefinitionId)
+    : null;
+
+  const context = workflowDef?.name ?? `workflow-${run.id}`;
+
+  let state: 'pending' | 'success' | 'failure' | 'error';
+  let description: string;
+
+  if (run.status === WorkflowStatus.Success) {
+    state = 'success';
+    description = 'All checks passed';
+  } else if (run.status === WorkflowStatus.Failure) {
+    state = 'failure';
+    description = 'Some checks failed';
+  } else if (run.status === WorkflowStatus.Running || run.status === WorkflowStatus.Waiting) {
+    state = 'pending';
+    description = 'Checks in progress';
+  } else {
+    state = 'error';
+    description = 'Checks encountered an error';
+  }
+
+  await createOrUpdateCommitStatus({
+    repositoryId: run.repositoryId,
+    commitSha: run.commitSha,
+    context,
+    state,
+    description,
+    workflowRunId: run.id,
+  });
+}
+
+function rowToCommitStatus(row: Record<string, unknown>): CommitStatus {
+  return {
+    id: row.id as number,
+    repositoryId: row.repository_id as number,
+    commitSha: row.commit_sha as string,
+    context: row.context as string,
+    state: row.state as 'pending' | 'success' | 'failure' | 'error',
+    description: row.description as string | undefined,
+    targetUrl: row.target_url as string | undefined,
+    workflowRunId: row.workflow_run_id as number | undefined,
+    createdAt: rowToDate(row.created_at)!,
+    updatedAt: rowToDate(row.updated_at)!,
+  };
+}

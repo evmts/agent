@@ -87,3 +87,30 @@ export interface IssueHistoryEntry {
   timestamp: Date;
   action: string;
 }
+
+export interface Milestone {
+  id: number;
+  repository_id: number;
+  title: string;
+  description: string | null;
+  due_date: string | null;
+  state: "open" | "closed";
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  open_issues?: number;
+  closed_issues?: number;
+}
+
+export interface CreateMilestoneInput {
+  title: string;
+  description?: string;
+  due_date?: string;
+}
+
+export interface UpdateMilestoneInput {
+  title?: string;
+  description?: string;
+  due_date?: string | null;
+  state?: "open" | "closed";
+}

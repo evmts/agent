@@ -839,6 +839,46 @@ export async function getLabels(
 }
 
 /**
+ * Get unique authors from all issues
+ */
+export async function getUniqueAuthors(
+  user: string,
+  repo: string
+): Promise<Array<{ username: string }>> {
+  const issues = await listIssues(user, repo, "all");
+  const authorsMap = new Map<string, { username: string }>();
+
+  for (const issue of issues) {
+    authorsMap.set(issue.author.username, { username: issue.author.username });
+  }
+
+  return Array.from(authorsMap.values()).sort((a, b) =>
+    a.username.localeCompare(b.username)
+  );
+}
+
+/**
+ * Get unique assignees from all issues
+ */
+export async function getUniqueAssignees(
+  user: string,
+  repo: string
+): Promise<Array<{ username: string }>> {
+  const issues = await listIssues(user, repo, "all");
+  const assigneesSet = new Set<string>();
+
+  for (const issue of issues) {
+    for (const assignee of issue.assignees) {
+      assigneesSet.add(assignee);
+    }
+  }
+
+  return Array.from(assigneesSet)
+    .map(username => ({ username }))
+    .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/**
  * Create a new label
  */
 export async function createLabel(
