@@ -1,6 +1,6 @@
 //! Repository routes - REST API for repository features
 //!
-//! Implements stars, watches, topics, bookmarks, and changes endpoints
+//! Implements repository CRUD, stars, watches, topics, bookmarks, and changes endpoints
 //! matching the Bun implementation at /server/routes/
 
 const std = @import("std");
@@ -9,6 +9,103 @@ const Context = @import("../main.zig").Context;
 const db = @import("../lib/db.zig");
 
 const log = std.log.scoped(.repo_routes);
+
+// =============================================================================
+// Repository CRUD Routes
+// =============================================================================
+
+/// POST /api/repos - Create a new repository
+/// Requires authentication
+pub fn createRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    const user = ctx.user orelse {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required to create a repository\"}");
+        return;
+    };
+
+    // Parse request body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Extract fields from JSON
+    const name = extractJsonString(body, "name") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing required field: name\"}");
+        return;
+    };
+
+    // Validate repository name
+    if (name.len == 0 or name.len > 100) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Repository name must be 1-100 characters\"}");
+        return;
+    }
+
+    // Check for valid characters (alphanumeric, dash, underscore)
+    for (name) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_' and c != '.') {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Repository name can only contain alphanumeric characters, dashes, underscores, and dots\"}");
+            return;
+        }
+    }
+
+    // Reserved names
+    const reserved_names = [_][]const u8{ "new", "settings", "admin", "api", "help", "explore" };
+    for (reserved_names) |reserved| {
+        if (std.ascii.eqlIgnoreCase(name, reserved)) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"This repository name is reserved\"}");
+            return;
+        }
+    }
+
+    const description = extractJsonString(body, "description");
+    const is_public = extractJsonBool(body, "is_public") orelse true;
+
+    // Check if repository already exists
+    const exists = db.repositoryExists(ctx.pool, user.id, name) catch |err| {
+        log.err("Failed to check repository existence: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    };
+
+    if (exists) {
+        res.status = 409;
+        try res.writer().writeAll("{\"error\":\"A repository with this name already exists\"}");
+        return;
+    }
+
+    // Create the repository
+    const repo_id = db.createRepository(ctx.pool, user.id, name, description, is_public) catch |err| {
+        log.err("Failed to create repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create repository\"}");
+        return;
+    };
+
+    // TODO: Initialize the repository on disk with jj
+    // For now, we just create the database record
+
+    log.info("Repository created: {s}/{s} (id={d})", .{ user.username, name, repo_id });
+
+    var writer = res.writer();
+    res.status = 201;
+    try writer.print("{{\"repository\":{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":{s},\"isPublic\":{s}}}}}", .{
+        repo_id,
+        name,
+        user.username,
+        if (description) |d| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{d}) else "null",
+        if (is_public) "true" else "false",
+    });
+}
 
 // =============================================================================
 // Stars/Watches Routes
@@ -971,6 +1068,28 @@ pub fn extractJsonString(json: []const u8, key: []const u8) ?[]const u8 {
     const value_end = std.mem.indexOfPos(u8, json, value_start, "\"") orelse return null;
 
     return json[value_start..value_end];
+}
+
+/// Extract boolean value from simple JSON
+pub fn extractJsonBool(json: []const u8, key: []const u8) ?bool {
+    var pattern_buf: [256]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\":", .{key}) catch return null;
+
+    const start_idx = std.mem.indexOf(u8, json, pattern) orelse return null;
+    const value_start = start_idx + pattern.len;
+
+    // Skip whitespace
+    var pos = value_start;
+    while (pos < json.len and (json[pos] == ' ' or json[pos] == '\t')) : (pos += 1) {}
+
+    if (pos + 4 <= json.len and std.mem.eql(u8, json[pos .. pos + 4], "true")) {
+        return true;
+    }
+    if (pos + 5 <= json.len and std.mem.eql(u8, json[pos .. pos + 5], "false")) {
+        return false;
+    }
+
+    return null;
 }
 
 /// Parse topics array from JSON

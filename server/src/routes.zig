@@ -53,6 +53,9 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/user/tokens", tokens.create, .{});
     router.delete("/api/user/tokens/:id", tokens.delete, .{});
 
+    // API routes - repositories
+    router.post("/api/repos", repo_routes.createRepository, .{}); // Create repository (requires auth)
+
     // API routes - repositories (stars, watches, topics)
     router.get("/api/:user/:repo/stargazers", repo_routes.getStargazers, .{});
     router.post("/api/:user/:repo/star", repo_routes.starRepository, .{});
