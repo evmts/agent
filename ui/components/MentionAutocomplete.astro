@@ -1,0 +1,217 @@
+---
+/**
+ * Mention autocomplete dropdown for @username completion.
+ * Used by MarkdownEditor for autocomplete functionality.
+ */
+---
+
+<div class="mention-autocomplete" data-mention-autocomplete hidden>
+  <div class="mention-list"></div>
+</div>
+
+<style>
+  .mention-autocomplete {
+    position: absolute;
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 3px);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    min-width: 200px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+
+  .mention-autocomplete[hidden] {
+    display: none;
+  }
+
+  .mention-list {
+    padding: 0.25rem 0;
+  }
+
+  :global(.mention-item) {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    color: var(--fg);
+    font-family: "Geist Mono", "SF Mono", monospace;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: background 0.1s ease;
+  }
+
+  :global(.mention-item:hover),
+  :global(.mention-item.selected) {
+    background: var(--hover);
+  }
+
+  :global(.mention-item .username) {
+    color: var(--success);
+    font-weight: 500;
+  }
+
+  :global(.mention-item .display-name) {
+    color: var(--gray-300);
+    font-size: 12px;
+  }
+</style>
+
+<script>
+  export interface User {
+    username: string;
+    display_name?: string | null;
+  }
+
+  interface MentionAutocompleteState {
+    visible: boolean;
+    users: User[];
+    selectedIndex: number;
+    query: string;
+    position: { x: number; y: number };
+    onSelect?: (username: string) => void;
+  }
+
+  class MentionAutocomplete {
+    private element: HTMLElement;
+    private listElement: HTMLElement;
+    private state: MentionAutocompleteState = {
+      visible: false,
+      users: [],
+      selectedIndex: 0,
+      query: "",
+      position: { x: 0, y: 0 },
+    };
+
+    constructor(element: HTMLElement) {
+      this.element = element;
+      this.listElement = element.querySelector(".mention-list")!;
+      this.setupEventListeners();
+    }
+
+    private setupEventListeners() {
+      // Click on mention items
+      this.listElement.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        const item = target.closest(".mention-item") as HTMLElement;
+        if (item) {
+          const username = item.dataset.username;
+          if (username) {
+            this.selectUser(username);
+          }
+        }
+      });
+
+      // Close on outside click
+      document.addEventListener("click", (e) => {
+        if (this.state.visible && !this.element.contains(e.target as Node)) {
+          this.hide();
+        }
+      });
+    }
+
+    async show(query: string, position: { x: number; y: number }, onSelect: (username: string) => void) {
+      this.state.query = query;
+      this.state.position = position;
+      this.state.onSelect = onSelect;
+      this.state.selectedIndex = 0;
+
+      // Fetch users
+      await this.fetchUsers(query);
+
+      if (this.state.users.length === 0) {
+        this.hide();
+        return;
+      }
+
+      // Position the dropdown
+      this.element.style.left = `${position.x}px`;
+      this.element.style.top = `${position.y}px`;
+
+      // Show dropdown
+      this.element.hidden = false;
+      this.state.visible = true;
+
+      this.render();
+    }
+
+    hide() {
+      this.element.hidden = true;
+      this.state.visible = false;
+      this.state.users = [];
+      this.state.selectedIndex = 0;
+    }
+
+    private async fetchUsers(query: string) {
+      try {
+        const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+        if (!response.ok) {
+          this.state.users = [];
+          return;
+        }
+        const data = await response.json();
+        this.state.users = data.users || [];
+      } catch (error) {
+        console.error("Failed to fetch users:", error);
+        this.state.users = [];
+      }
+    }
+
+    private render() {
+      this.listElement.innerHTML = this.state.users
+        .map((user, index) => {
+          const selected = index === this.state.selectedIndex ? "selected" : "";
+          const displayName = user.display_name ? `<span class="display-name">${escapeHtml(user.display_name)}</span>` : "";
+          return `
+            <div class="mention-item ${selected}" data-username="${escapeHtml(user.username)}">
+              <span class="username">@${escapeHtml(user.username)}</span>
+              ${displayName}
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    selectPrevious() {
+      if (this.state.selectedIndex > 0) {
+        this.state.selectedIndex--;
+        this.render();
+      }
+    }
+
+    selectNext() {
+      if (this.state.selectedIndex < this.state.users.length - 1) {
+        this.state.selectedIndex++;
+        this.render();
+      }
+    }
+
+    selectCurrent() {
+      const user = this.state.users[this.state.selectedIndex];
+      if (user) {
+        this.selectUser(user.username);
+      }
+    }
+
+    private selectUser(username: string) {
+      if (this.state.onSelect) {
+        this.state.onSelect(username);
+      }
+      this.hide();
+    }
+
+    isVisible(): boolean {
+      return this.state.visible;
+    }
+  }
+
+  function escapeHtml(text: string): string {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Export for use in MarkdownEditor
+  (window as any).MentionAutocomplete = MentionAutocomplete;
+</script>

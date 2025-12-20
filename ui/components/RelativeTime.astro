@@ -1,0 +1,32 @@
+---
+/**
+ * RelativeTime component
+ * Displays relative time (e.g., "2 hours ago") with full date on hover
+ */
+
+import { formatRelativeTime, formatFullDateTime } from '../lib/time';
+
+interface Props {
+  date: Date | string;
+}
+
+const { date } = Astro.props;
+
+const relativeTime = formatRelativeTime(date);
+const fullDateTime = formatFullDateTime(date);
+---
+
+<time datetime={typeof date === 'string' ? date : date.toISOString()} title={fullDateTime}>
+  {relativeTime}
+</time>
+
+<style>
+  time {
+    cursor: help;
+    transition: color var(--transition-fast);
+  }
+
+  time:hover {
+    color: var(--fg);
+  }
+</style>

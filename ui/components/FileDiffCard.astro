@@ -1,0 +1,294 @@
+---
+/**
+ * FileDiffCard - Display a single file's diff with expand/collapse
+ * Shows the filename, stats, and diff hunks with line numbers
+ */
+import type { FileDiff } from "../lib/jj-types";
+
+interface Props {
+  file: FileDiff;
+  defaultExpanded?: boolean;
+}
+
+const { file, defaultExpanded = false } = Astro.props;
+
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case 'added': return 'A';
+    case 'deleted': return 'D';
+    case 'modified': return 'M';
+    case 'renamed': return 'R';
+    default: return 'M';
+  }
+}
+
+function getStatusClass(status: string): string {
+  return `status-${status}`;
+}
+
+// Parse diff lines with proper line numbers
+function parseDiffLines(content: string, oldStart: number, newStart: number) {
+  const lines = content.split('\n');
+  const result: Array<{
+    oldLineNum: number | null;
+    newLineNum: number | null;
+    type: 'add' | 'delete' | 'context' | 'header';
+    content: string;
+  }> = [];
+
+  let oldLine = oldStart;
+  let newLine = newStart;
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      result.push({ oldLineNum: null, newLineNum: null, type: 'header', content: line });
+    } else if (line.startsWith('+')) {
+      result.push({ oldLineNum: null, newLineNum: newLine++, type: 'add', content: line });
+    } else if (line.startsWith('-')) {
+      result.push({ oldLineNum: oldLine++, newLineNum: null, type: 'delete', content: line });
+    } else {
+      result.push({ oldLineNum: oldLine++, newLineNum: newLine++, type: 'context', content: line });
+    }
+  }
+
+  return result;
+}
+---
+
+<details class="file-diff-card" open={defaultExpanded}>
+  <summary class="file-header">
+    <div class="file-info">
+      <span class={`file-status ${getStatusClass(file.status)}`}>
+        {getStatusLabel(file.status)}
+      </span>
+      <span class="file-path">{file.path}</span>
+      {file.oldPath && file.oldPath !== file.path && (
+        <span class="old-path">← {file.oldPath}</span>
+      )}
+    </div>
+    <div class="file-stats">
+      {file.additions > 0 && (
+        <span class="additions">+{file.additions}</span>
+      )}
+      {file.deletions > 0 && (
+        <span class="deletions">-{file.deletions}</span>
+      )}
+    </div>
+  </summary>
+
+  <div class="diff-content">
+    {file.isBinary ? (
+      <div class="binary-notice">Binary file changed</div>
+    ) : file.hunks.length === 0 ? (
+      <div class="empty-notice">No changes to display</div>
+    ) : (
+      file.hunks.map(hunk => {
+        const lines = parseDiffLines(hunk.content, hunk.oldStart, hunk.newStart);
+        return (
+          <div class="diff-hunk">
+            {lines.map(line => (
+              <div class={`diff-line diff-line-${line.type}`}>
+                <span class="line-num old-line-num">
+                  {line.oldLineNum !== null ? line.oldLineNum : ''}
+                </span>
+                <span class="line-num new-line-num">
+                  {line.newLineNum !== null ? line.newLineNum : ''}
+                </span>
+                <span class="line-content">{line.content}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })
+    )}
+  </div>
+</details>
+
+<style>
+  .file-diff-card {
+    border: 1px solid var(--border);
+    margin-bottom: 1rem;
+  }
+
+  .file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: #f9fafb;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .file-header:hover {
+    background: #f3f4f6;
+  }
+
+  .file-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+  }
+
+  .file-status {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: bold;
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .status-added { color: #16a34a; }
+  .status-deleted { color: #dc2626; }
+  .status-modified { color: #ca8a04; }
+  .status-renamed { color: #7c3aed; }
+
+  .file-path {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .old-path {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .file-stats {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .additions {
+    color: #16a34a;
+    font-weight: 500;
+  }
+
+  .deletions {
+    color: #dc2626;
+    font-weight: 500;
+  }
+
+  .diff-content {
+    background: #ffffff;
+  }
+
+  .binary-notice,
+  .empty-notice {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .diff-hunk {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .diff-line {
+    display: grid;
+    grid-template-columns: 50px 50px 1fr;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .diff-line:hover {
+    background: #f9fafb;
+  }
+
+  .diff-line-add {
+    background: #f0fdf4;
+  }
+
+  .diff-line-add:hover {
+    background: #dcfce7;
+  }
+
+  .diff-line-delete {
+    background: #fef2f2;
+  }
+
+  .diff-line-delete:hover {
+    background: #fee2e2;
+  }
+
+  .diff-line-header {
+    background: #f3f4f6;
+    font-weight: 500;
+  }
+
+  .line-num {
+    padding: 0.25rem 0.5rem;
+    text-align: right;
+    color: #9ca3af;
+    border-right: 1px solid #e5e7eb;
+    user-select: none;
+    min-width: 50px;
+  }
+
+  .old-line-num {
+    background: #fafafa;
+  }
+
+  .new-line-num {
+    background: #fafafa;
+  }
+
+  .diff-line-add .new-line-num {
+    background: #f0fdf4;
+    color: #16a34a;
+  }
+
+  .diff-line-delete .old-line-num {
+    background: #fef2f2;
+    color: #dc2626;
+  }
+
+  .line-content {
+    padding: 0.25rem 0.75rem;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .diff-line-add .line-content {
+    color: #15803d;
+  }
+
+  .diff-line-delete .line-content {
+    color: #b91c1c;
+  }
+
+  .diff-line-header .line-content {
+    color: #6b7280;
+  }
+
+  /* Hide the default marker */
+  details > summary {
+    list-style: none;
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  /* Add custom expand/collapse indicator */
+  .file-header::before {
+    content: '▶';
+    display: inline-block;
+    width: 1rem;
+    margin-right: 0.5rem;
+    transition: transform 0.2s;
+    font-size: 10px;
+  }
+
+  details[open] > .file-header::before {
+    transform: rotate(90deg);
+  }
+</style>
