@@ -3,7 +3,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import FileTree from "../../../../components/FileTree.astro";
 import { sql } from "../../../../lib/db";
-import { getTree } from "../../../../lib/git";
+import { getTree } from "../../../../lib/jj";
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame, path: pathParam } = Astro.params;
@@ -58,7 +58,8 @@ const breadcrumbParts = filePath ? filePath.split("/") : [];
   <nav class="repo-nav">
     <a href={`/${username}/${reponame}`} class="active">Code</a>
     <a href={`/${username}/${reponame}/issues`}>Issues</a>
-    <a href={`/${username}/${reponame}/commits/${branch}`}>Commits</a>
+    <a href={`/${username}/${reponame}/changes/${branch}`}>Changes</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
   </nav>
 
   <div class="container">

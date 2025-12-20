@@ -4,7 +4,7 @@ import Header from "../../../components/Header.astro";
 import FileTree from "../../../components/FileTree.astro";
 import Markdown from "../../../components/Markdown.astro";
 import { sql } from "../../../lib/db";
-import { getTree, getFileContent, getCloneUrl } from "../../../lib/git";
+import { getTree, getFileContent, getCloneUrl, getDefaultBookmark } from "../../../lib/jj";
 import type { User, Repository } from "../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
@@ -23,8 +23,8 @@ const [repo] = await sql<Repository[]>`
 
 if (!repo) return Astro.redirect("/404");
 
-const defaultBranch = repo.default_branch || "main";
-const tree = await getTree(username, reponame, defaultBranch);
+const defaultBookmark = await getDefaultBookmark(username, reponame);
+const tree = await getTree(username, reponame, defaultBookmark);
 
 // Try to get README
 let readme = "";
@@ -32,7 +32,7 @@ const readmeFile = tree.find(
   (f) => f.name.toLowerCase().startsWith("readme") && f.type === "blob"
 );
 if (readmeFile) {
-  readme = (await getFileContent(username, reponame, defaultBranch, readmeFile.name)) || "";
+  readme = (await getFileContent(username, reponame, defaultBookmark, readmeFile.name)) || "";
 }
 
 const cloneUrl = getCloneUrl(username, reponame);
@@ -41,12 +41,18 @@ const [{ count: issueCount }] = await sql`
   SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
 `;
 
-const [{ count: prCount }] = await sql`
-  SELECT COUNT(*) as count 
-  FROM pull_requests pr
-  JOIN issues i ON pr.issue_id = i.id 
-  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
-`;
+// Count pending landing requests
+let landingCount = 0;
+try {
+  const [result] = await sql`
+    SELECT COUNT(*) as count
+    FROM landing_queue
+    WHERE repository_id = ${repo.id} AND status = 'pending'
+  `;
+  landingCount = result?.count || 0;
+} catch {
+  // landing_queue table may not exist yet
+}
 ---
 
 <Layout title={`${username}/${reponame} · plue`}>
@@ -64,12 +70,13 @@ const [{ count: prCount }] = await sql`
       Issues
       {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
     </a>
-    <a href={`/${username}/${reponame}/pulls`}>
-      Pull Requests
-      {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
-    <a href={`/${username}/${reponame}/branches`}>Branches</a>
-    <a href={`/${username}/${reponame}/commits/${defaultBranch}`}>Commits</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/operations`}>Operations</a>
   </nav>
 
   <div class="container">
@@ -82,7 +89,7 @@ const [{ count: prCount }] = await sql`
       </button>
     </div>
 
-    <FileTree tree={tree} user={username} repo={reponame} branch={defaultBranch} />
+    <FileTree tree={tree} user={username} repo={reponame} branch={defaultBookmark} />
 
     {readme && (
       <div class="mt-3">

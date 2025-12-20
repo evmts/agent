@@ -26,12 +26,18 @@ const [{ count: issueCount }] = await sql`
   SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
 `;
 
-const [{ count: prCount }] = await sql`
-  SELECT COUNT(*) as count 
-  FROM pull_requests pr
-  JOIN issues i ON pr.issue_id = i.id 
-  WHERE pr.base_repo_id = ${repo.id} AND i.state = 'open' AND pr.has_merged = false
-`;
+// Count pending landing requests
+let landingCount = 0;
+try {
+  const [result] = await sql`
+    SELECT COUNT(*) as count
+    FROM landing_queue
+    WHERE repository_id = ${repo.id} AND status = 'pending'
+  `;
+  landingCount = result?.count || 0;
+} catch {
+  // landing_queue table may not exist yet
+}
 
 let error = "";
 
@@ -82,11 +88,12 @@ if (Astro.request.method === "POST") {
       Issues
       {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
     </a>
-    <a href={`/${username}/${reponame}/pulls`}>
-      Pull Requests
-      {Number(prCount) > 0 && <span class="badge">{prCount}</span>}
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
-    <a href={`/${username}/${reponame}/commits/${repo.default_branch}`}>Commits</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
   </nav>
 
   <div class="container">

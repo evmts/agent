@@ -8,7 +8,7 @@ export * from './client-auth';
 export * from './auth-helpers';
 export * from './types';
 export * from './db';
-export * from './git';
+export * from './jj';
 export * from './markdown';
 
 // Note: electric.ts is not exported here as it contains client-side only code

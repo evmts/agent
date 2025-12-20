@@ -2,7 +2,7 @@
 import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import { sql } from "../lib/db";
-import { initRepo } from "../lib/git";
+import { initRepo } from "../lib/jj";
 import type { User, Repository } from "../lib/types";
 
 const users = await sql`SELECT * FROM users ORDER BY username` as User[];
