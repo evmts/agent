@@ -333,6 +333,26 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
           </div>
         )}
 
+        <!-- Status Checks (CI/Workflows) -->
+        {commitStatuses.length > 0 && (
+          <div class="checks-section">
+            <h4>Status Checks</h4>
+            <StatusChecks
+              checks={commitStatuses.map(status => ({
+                id: status.id,
+                context: status.context,
+                state: status.state as 'pending' | 'success' | 'failure' | 'error',
+                description: status.description ?? undefined,
+                targetUrl: status.workflow_run_id
+                  ? `/${username}/${reponame}/workflows/runs/${status.workflow_run_id}`
+                  : status.target_url ?? undefined,
+              }))}
+              compact={true}
+              showSummary={true}
+            />
+          </div>
+        )}
+
         <!-- Review Actions -->
         {!isClosed && (
           <div class="action-section">

@@ -1,0 +1,234 @@
+---
+import EmojiPicker from "./EmojiPicker.astro";
+import type { ReactionGroup } from "../lib/types";
+
+interface Props {
+  targetType: "issue" | "comment";
+  targetId: number;
+  user: string;
+  repo: string;
+  issueNumber: number;
+  currentUserId?: number;
+  reactions?: ReactionGroup[];
+}
+
+const {
+  targetType,
+  targetId,
+  user,
+  repo,
+  issueNumber,
+  currentUserId,
+  reactions = [],
+} = Astro.props;
+
+// API endpoint for reactions
+const baseUrl =
+  targetType === "issue"
+    ? `/api/${user}/${repo}/issues/${issueNumber}/reactions`
+    : `/api/${user}/${repo}/issues/${issueNumber}/comments/${targetId}/reactions`;
+---
+
+<div class="reactions" data-reactions-container data-target-type={targetType} data-target-id={targetId} data-base-url={baseUrl} data-user-id={currentUserId}>
+  <div class="reaction-list">
+    {reactions.map((reaction) => (
+      <button
+        type="button"
+        class:list={["reaction-badge", { active: reaction.has_reacted }]}
+        data-emoji={reaction.emoji}
+        title={reaction.users.map((u) => u.username).join(", ")}
+      >
+        <span class="emoji">{reaction.emoji}</span>
+        <span class="count">{reaction.count}</span>
+      </button>
+    ))}
+  </div>
+
+  <div class="reaction-picker-wrapper">
+    <button type="button" class="add-reaction-btn" data-picker-toggle>
+      <span>+</span>
+    </button>
+    <div class="reaction-picker-popup" data-picker-popup style="display: none;">
+      <EmojiPicker />
+    </div>
+  </div>
+</div>
+
+<script>
+  // Handle reaction interactions
+  document.addEventListener("DOMContentLoaded", () => {
+    const containers = document.querySelectorAll<HTMLElement>("[data-reactions-container]");
+
+    containers.forEach((container) => {
+      const baseUrl = container.dataset.baseUrl;
+      const userId = container.dataset.userId;
+      const targetType = container.dataset.targetType;
+      const targetId = container.dataset.targetId;
+
+      if (!userId) return; // User must be logged in to react
+
+      // Toggle emoji picker
+      const pickerToggle = container.querySelector<HTMLButtonElement>("[data-picker-toggle]");
+      const pickerPopup = container.querySelector<HTMLElement>("[data-picker-popup]");
+
+      if (pickerToggle && pickerPopup) {
+        pickerToggle.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const isVisible = pickerPopup.style.display !== "none";
+          pickerPopup.style.display = isVisible ? "none" : "block";
+        });
+
+        // Close picker when clicking outside
+        document.addEventListener("click", (e) => {
+          if (!container.contains(e.target as Node)) {
+            pickerPopup.style.display = "none";
+          }
+        });
+      }
+
+      // Handle emoji selection from picker
+      const emojiButtons = container.querySelectorAll<HTMLButtonElement>(".emoji-btn");
+      emojiButtons.forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const emoji = btn.dataset.emoji;
+          if (!emoji) return;
+
+          try {
+            await fetch(baseUrl!, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ user_id: userId, emoji }),
+            });
+
+            // Reload the page to show updated reactions
+            window.location.reload();
+          } catch (error) {
+            console.error("Failed to add reaction:", error);
+          }
+        });
+      });
+
+      // Handle clicking existing reactions (toggle)
+      const reactionBadges = container.querySelectorAll<HTMLButtonElement>(".reaction-badge");
+      reactionBadges.forEach((badge) => {
+        badge.addEventListener("click", async () => {
+          const emoji = badge.dataset.emoji;
+          if (!emoji) return;
+
+          const isActive = badge.classList.contains("active");
+
+          try {
+            if (isActive) {
+              // Remove reaction
+              await fetch(`${baseUrl}/${encodeURIComponent(emoji)}?user_id=${userId}`, {
+                method: "DELETE",
+              });
+            } else {
+              // Add reaction
+              await fetch(baseUrl!, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: userId, emoji }),
+              });
+            }
+
+            // Reload the page to show updated reactions
+            window.location.reload();
+          } catch (error) {
+            console.error("Failed to toggle reaction:", error);
+          }
+        });
+      });
+    });
+  });
+</script>
+
+<style>
+  .reactions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .reaction-list {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .reaction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--gray-950);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+  }
+
+  .reaction-badge:hover {
+    background: var(--gray-800);
+    border-color: var(--border-hover);
+  }
+
+  .reaction-badge.active {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--fg);
+  }
+
+  .reaction-badge .emoji {
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .reaction-badge .count {
+    color: var(--gray-300);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .reaction-badge.active .count {
+    color: var(--fg);
+  }
+
+  .reaction-picker-wrapper {
+    position: relative;
+  }
+
+  .add-reaction-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--gray-950);
+    color: var(--gray-400);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+  }
+
+  .add-reaction-btn:hover {
+    background: var(--gray-800);
+    border-color: var(--border-hover);
+    color: var(--fg);
+  }
+
+  .reaction-picker-popup {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    z-index: 100;
+    box-shadow: var(--shadow);
+  }
+</style>

@@ -5,18 +5,26 @@ import TopicBadge from "./TopicBadge.astro";
 interface Props {
   repo: Repository;
   showUser?: boolean;
+  starCount?: number;
 }
 
-const { repo, showUser = true } = Astro.props;
+const { repo, showUser = true, starCount } = Astro.props;
 const repoUrl = `/${repo.username}/${repo.name}`;
 ---
 
 <li class="repo-item">
   <a href={repoUrl}>
-    <h3>
-      {showUser && <span class="owner">{repo.username} / </span>}
-      {repo.name}
-    </h3>
+    <div class="repo-header">
+      <h3>
+        {showUser && <span class="owner">{repo.username} / </span>}
+        {repo.name}
+      </h3>
+      {starCount !== undefined && starCount > 0 && (
+        <span class="star-count">
+          ★ {starCount}
+        </span>
+      )}
+    </div>
     {repo.description && <p class="description">{repo.description}</p>}
     {repo.topics && repo.topics.length > 0 && (
       <div class="topics">

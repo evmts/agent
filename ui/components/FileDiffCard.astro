@@ -368,4 +368,225 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
   details[open] > .file-header::before {
     transform: rotate(90deg);
   }
+
+  /* Comment support styles */
+  .line-num.commentable {
+    position: relative;
+  }
+
+  .line-num.commentable:hover .add-comment-btn {
+    opacity: 1;
+  }
+
+  .add-comment-btn {
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.2s;
+    padding: 0;
+  }
+
+  .add-comment-btn:hover {
+    background: #2563eb;
+  }
+
+  .comment-row {
+    background: #fefce8;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .comments-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .comment-form {
+    background: white;
+    border: 1px solid var(--border);
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+  }
+
+  .comment-form textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+  }
+
+  .comment-form-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-small {
+    padding: 0.25rem 0.5rem;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    background: white;
+    cursor: pointer;
+  }
+
+  .btn-small:hover {
+    background: #f3f4f6;
+  }
 </style>
+
+<script>
+  // Handle add comment button clicks
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+
+    if (target.getAttribute('data-action') === 'add-comment') {
+      const cell = target.closest('.line-num');
+      if (!cell) return;
+
+      const lineNum = cell.getAttribute('data-line-num');
+      const side = cell.getAttribute('data-side');
+      const filePath = cell.getAttribute('data-file-path');
+      const landingId = cell.getAttribute('data-landing-id');
+
+      if (!lineNum || !side || !filePath || !landingId) return;
+
+      // Clone and show comment form
+      const template = document.getElementById('comment-form-template');
+      if (!template) return;
+
+      const form = template.cloneNode(true) as HTMLElement;
+      form.style.display = 'block';
+      form.removeAttribute('id');
+
+      // Store context on form
+      form.setAttribute('data-line-num', lineNum);
+      form.setAttribute('data-side', side);
+      form.setAttribute('data-file-path', filePath);
+      form.setAttribute('data-landing-id', landingId);
+
+      // Insert form after the current line
+      const diffLine = cell.closest('.diff-line');
+      if (!diffLine) return;
+
+      const commentRow = document.createElement('div');
+      commentRow.className = 'comment-row';
+      commentRow.appendChild(form);
+
+      diffLine.after(commentRow);
+
+      // Focus textarea
+      const textarea = form.querySelector('textarea');
+      if (textarea) (textarea as HTMLTextAreaElement).focus();
+    }
+
+    if (target.getAttribute('data-action') === 'submit-comment') {
+      const form = target.closest('.comment-form');
+      if (!form) return;
+
+      const textarea = form.querySelector('textarea') as HTMLTextAreaElement;
+      if (!textarea || !textarea.value.trim()) return;
+
+      const lineNum = form.getAttribute('data-line-num');
+      const side = form.getAttribute('data-side');
+      const filePath = form.getAttribute('data-file-path');
+      const landingId = form.getAttribute('data-landing-id');
+
+      const pathParts = window.location.pathname.split('/');
+      const username = pathParts[1];
+      const reponame = pathParts[2];
+
+      fetch(`/api/${username}/${reponame}/landing/${landingId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_path: filePath,
+          line_number: parseInt(lineNum!),
+          side: side,
+          body: textarea.value
+        })
+      }).then(response => {
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          response.json().then(data => {
+            alert(data.error || 'Failed to add comment');
+          });
+        }
+      });
+    }
+
+    if (target.getAttribute('data-action') === 'cancel-comment') {
+      const form = target.closest('.comment-form');
+      if (form) {
+        const row = form.closest('.comment-row');
+        if (row) row.remove();
+      }
+    }
+
+    if (target.getAttribute('data-action') === 'resolve' || target.getAttribute('data-action') === 'unresolve') {
+      const commentDiv = target.closest('.line-comment');
+      if (!commentDiv) return;
+
+      const commentId = commentDiv.getAttribute('data-comment-id');
+      const resolved = target.getAttribute('data-action') === 'resolve';
+
+      const pathParts = window.location.pathname.split('/');
+      const username = pathParts[1];
+      const reponame = pathParts[2];
+      const landingId = pathParts[4];
+
+      fetch(`/api/${username}/${reponame}/landing/${landingId}/comments/${commentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolved })
+      }).then(response => {
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          response.json().then(data => {
+            alert(data.error || 'Failed to update comment');
+          });
+        }
+      });
+    }
+
+    if (target.getAttribute('data-action') === 'delete') {
+      if (!confirm('Delete this comment?')) return;
+
+      const commentDiv = target.closest('.line-comment');
+      if (!commentDiv) return;
+
+      const commentId = commentDiv.getAttribute('data-comment-id');
+      const pathParts = window.location.pathname.split('/');
+      const username = pathParts[1];
+      const reponame = pathParts[2];
+      const landingId = pathParts[4];
+
+      fetch(`/api/${username}/${reponame}/landing/${landingId}/comments/${commentId}`, {
+        method: 'DELETE'
+      }).then(response => {
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          response.json().then(data => {
+            alert(data.error || 'Failed to delete comment');
+          });
+        }
+      });
+    }
+  });
+</script>

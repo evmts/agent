@@ -7,6 +7,8 @@
  */
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
+import Avatar from "../../../../components/Avatar.astro";
+import RelativeTime from "../../../../components/RelativeTime.astro";
 import { sql } from "../../../../lib/db";
 import type { User, Repository } from "../../../../lib/types";
 import type { LandingRequest } from "../../../../lib/jj-types";
@@ -137,6 +139,8 @@ function getStatusLabel(status: string): string {
               ></span>
             </div>
 
+            <Avatar user={{ username: request.author_username || 'unknown' }} size="sm" />
+
             <div class="request-info">
               <div class="request-title">
                 {request.title || `Land ${request.changeId.substring(0, 8)}`}
@@ -148,7 +152,7 @@ function getStatusLabel(status: string): string {
                 <span class="sep">·</span>
                 <span>opened by {request.author_username || 'unknown'}</span>
                 <span class="sep">·</span>
-                <span>{new Date(request.createdAt).toLocaleDateString()}</span>
+                <RelativeTime date={new Date(request.createdAt)} />
               </div>
             </div>
 
@@ -192,6 +196,8 @@ function getStatusLabel(status: string): string {
               ></span>
             </div>
 
+            <Avatar user={{ username: request.author_username || 'unknown' }} size="sm" />
+
             <div class="request-info">
               <div class="request-title">
                 {request.title || `Land ${request.changeId.substring(0, 8)}`}
@@ -202,8 +208,7 @@ function getStatusLabel(status: string): string {
                 <span class="bookmark">{request.targetBookmark}</span>
                 <span class="sep">·</span>
                 <span>
-                  {request.status === 'landed' ? 'landed' : 'cancelled'}
-                  {' '}on {new Date(request.landedAt || request.updatedAt).toLocaleDateString()}
+                  {request.status === 'landed' ? 'landed' : 'cancelled'} <RelativeTime date={new Date(request.landedAt || request.updatedAt)} />
                 </span>
               </div>
             </div>

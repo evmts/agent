@@ -289,10 +289,10 @@ const { runId, username, reponame, autoScroll = false } = Astro.props;
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         } else {
-          alert('Failed to download logs');
+          window.toast.error('Failed to download logs');
         }
       } catch (e) {
-        alert('Error downloading logs');
+        window.toast.error('Error downloading logs');
         console.error('Error downloading logs:', e);
       }
     });

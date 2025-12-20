@@ -1,0 +1,272 @@
+---
+/**
+ * File Blame Page
+ *
+ * Shows line-by-line attribution for a file.
+ * Displays who last modified each line.
+ */
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import { getBlame, getDefaultBookmark } from "../../../../lib/jj";
+import type { User, Repository } from "../../../../lib/types";
+import type { BlameLine } from "../../../../lib/jj-types";
+
+const { user: username, repo: reponame, path: pathParam } = Astro.params;
+
+if (!username || !reponame || !pathParam) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Parse path: first part is the bookmark/change, rest is file path
+const pathParts = pathParam.split("/");
+const branch = pathParts[0] || repo.default_bookmark || "main";
+const filePath = pathParts.slice(1).join("/");
+
+if (!filePath) {
+  return Astro.redirect(`/${username}/${reponame}`);
+}
+
+const defaultBookmark = await getDefaultBookmark(username, reponame);
+
+// Get blame information
+let blameLines: BlameLine[] = [];
+let error: string | null = null;
+
+try {
+  blameLines = await getBlame(username, reponame, branch, filePath);
+} catch (e) {
+  error = e instanceof Error ? e.message : "Failed to load blame information";
+}
+
+// Build breadcrumb parts
+const breadcrumbParts = filePath.split("/");
+const filename = breadcrumbParts[breadcrumbParts.length - 1] || "";
+
+// Get file extension for syntax highlighting hint
+const extension = filename.split(".").pop() || "";
+---
+
+<Layout title={`Blame: ${filename} · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}/tree/${branch}`}>{branch}</a>
+    {breadcrumbParts.map((part, i) => {
+      const partPath = breadcrumbParts.slice(0, i + 1).join("/");
+      const isLast = i === breadcrumbParts.length - 1;
+      return (
+        <>
+          <span class="sep">/</span>
+          {isLast ? (
+            <span class="current">{part}</span>
+          ) : (
+            <a href={`/${username}/${reponame}/tree/${branch}/${partPath}`}>{part}</a>
+          )}
+        </>
+      );
+    })}
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`} class="active">Code</a>
+    <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+  </nav>
+
+  <div class="container">
+    <div class="file-header">
+      <div class="file-info">
+        <h2>Blame: <span class="filename">{filename}</span></h2>
+        <div class="file-path">{filePath}</div>
+      </div>
+      <div class="file-actions">
+        <a href={`/${username}/${reponame}/blob/${branch}/${filePath}`} class="btn-secondary">
+          View File
+        </a>
+        <a href={`/${username}/${reponame}/commits/${branch}/${filePath}`} class="btn-secondary">
+          History
+        </a>
+      </div>
+    </div>
+
+    {error ? (
+      <div class="error">
+        <strong>Error:</strong> {error}
+      </div>
+    ) : (
+      <div class="blame-viewer">
+        <div class="blame-info">
+          Line-by-line attribution. Note: This is a simplified blame view showing the most recent change.
+        </div>
+        <div class="blame-content">
+          {blameLines.map((line) => (
+            <div class="blame-line">
+              <div class="blame-meta">
+                <a
+                  href={`/${username}/${reponame}/changes/${branch}/${line.changeId}`}
+                  class="blame-change-id"
+                  title={line.description}
+                >
+                  {line.changeId.substring(0, 8)}
+                </a>
+                <span class="blame-author" title={line.author.email}>
+                  {line.author.name}
+                </span>
+                <span class="blame-date">
+                  {new Date(line.timestamp).toLocaleDateString()}
+                </span>
+              </div>
+              <div class="blame-line-number">{line.lineNumber}</div>
+              <pre class="blame-code"><code class={`lang-${extension}`}>{line.content}</code></pre>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .file-info h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.25rem;
+  }
+
+  .filename {
+    font-family: var(--font-mono);
+    color: var(--primary);
+  }
+
+  .file-path {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .file-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .blame-info {
+    background: var(--background-alt, #f5f5f5);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .blame-viewer {
+    border: 2px solid var(--border);
+  }
+
+  .blame-content {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .blame-line {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  .blame-line:last-child {
+    border-bottom: none;
+  }
+
+  .blame-line:hover {
+    background: var(--background-alt, #f5f5f5);
+  }
+
+  .blame-meta {
+    display: flex;
+    flex-direction: column;
+    padding: 0.5rem;
+    min-width: 200px;
+    background: var(--background-alt, #f5f5f5);
+    border-right: 2px solid var(--border);
+    font-size: 11px;
+    gap: 0.125rem;
+  }
+
+  .blame-change-id {
+    font-family: var(--font-mono);
+    color: #7c3aed;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .blame-change-id:hover {
+    text-decoration: underline;
+  }
+
+  .blame-author {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .blame-date {
+    color: var(--text-muted);
+  }
+
+  .blame-line-number {
+    padding: 0.5rem;
+    min-width: 60px;
+    text-align: right;
+    color: var(--text-muted);
+    background: var(--background-alt, #f5f5f5);
+    border-right: 1px solid var(--border);
+    user-select: none;
+  }
+
+  .blame-code {
+    flex: 1;
+    padding: 0.5rem;
+    margin: 0;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .blame-code code {
+    background: none;
+    padding: 0;
+  }
+
+  .error {
+    background: #fef2f2;
+    border: 2px solid #dc2626;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>

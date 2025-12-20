@@ -926,4 +926,321 @@ app.delete("/:user/:repo/issues/:number/comments/:commentId/reactions/:emoji", a
   }
 });
 
+// =============================================================================
+// Milestone Routes
+// =============================================================================
+
+// List milestones for a repository
+app.get("/:user/:repo/milestones", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const state = (c.req.query("state") || "open") as "open" | "closed" | "all";
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    // Build query based on state
+    let milestones;
+    if (state === "all") {
+      milestones = await sql`
+        SELECT m.*,
+          (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+          (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues
+        FROM milestones m
+        WHERE m.repository_id = ${repoResult.id}
+        ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+      `;
+    } else {
+      milestones = await sql`
+        SELECT m.*,
+          (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+          (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues
+        FROM milestones m
+        WHERE m.repository_id = ${repoResult.id} AND m.state = ${state}
+        ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
+      `;
+    }
+
+    return c.json({ milestones });
+  } catch (error) {
+    console.error("Error fetching milestones:", error);
+    return c.json({ error: "Failed to fetch milestones" }, 500);
+  }
+});
+
+// Create a milestone
+app.post("/:user/:repo/milestones", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const body = await c.req.json();
+
+  if (!body.title) {
+    return c.json({ error: "Title is required" }, 400);
+  }
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [milestone] = await sql`
+      INSERT INTO milestones (repository_id, title, description, due_date)
+      VALUES (${repoResult.id}, ${body.title}, ${body.description || null}, ${body.due_date || null})
+      RETURNING *
+    `;
+
+    return c.json(milestone, 201);
+  } catch (error) {
+    console.error("Error creating milestone:", error);
+    return c.json({ error: "Failed to create milestone" }, 500);
+  }
+});
+
+// Get a single milestone
+app.get("/:user/:repo/milestones/:id", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const id = parseInt(c.req.param("id"), 10);
+
+  if (isNaN(id)) {
+    return c.json({ error: "Invalid milestone ID" }, 400);
+  }
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [milestone] = await sql`
+      SELECT m.*,
+        (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
+        (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues
+      FROM milestones m
+      WHERE m.id = ${id} AND m.repository_id = ${repoResult.id}
+    `;
+
+    if (!milestone) {
+      return c.json({ error: "Milestone not found" }, 404);
+    }
+
+    return c.json(milestone);
+  } catch (error) {
+    console.error("Error fetching milestone:", error);
+    return c.json({ error: "Failed to fetch milestone" }, 500);
+  }
+});
+
+// Update a milestone
+app.patch("/:user/:repo/milestones/:id", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(id)) {
+    return c.json({ error: "Invalid milestone ID" }, 400);
+  }
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    // Build update fields
+    const updates: any = { updated_at: sql`NOW()` };
+
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.due_date !== undefined) updates.due_date = body.due_date;
+    if (body.state !== undefined) {
+      updates.state = body.state;
+      if (body.state === 'closed') {
+        updates.closed_at = sql`NOW()`;
+      } else if (body.state === 'open') {
+        updates.closed_at = null;
+      }
+    }
+
+    const [milestone] = await sql`
+      UPDATE milestones
+      SET ${sql(updates)}
+      WHERE id = ${id} AND repository_id = ${repoResult.id}
+      RETURNING *
+    `;
+
+    if (!milestone) {
+      return c.json({ error: "Milestone not found" }, 404);
+    }
+
+    return c.json(milestone);
+  } catch (error) {
+    console.error("Error updating milestone:", error);
+    return c.json({ error: "Failed to update milestone" }, 500);
+  }
+});
+
+// Delete a milestone
+app.delete("/:user/:repo/milestones/:id", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const id = parseInt(c.req.param("id"), 10);
+
+  if (isNaN(id)) {
+    return c.json({ error: "Invalid milestone ID" }, 400);
+  }
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const result = await sql`
+      DELETE FROM milestones
+      WHERE id = ${id} AND repository_id = ${repoResult.id}
+      RETURNING id
+    `;
+
+    if (result.length === 0) {
+      return c.json({ error: "Milestone not found" }, 404);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting milestone:", error);
+    return c.json({ error: "Failed to delete milestone" }, 500);
+  }
+});
+
+// Set milestone for an issue
+app.post("/:user/:repo/issues/:number/milestone", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!body.milestone_id) {
+    return c.json({ error: "Milestone ID is required" }, 400);
+  }
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    // Verify milestone exists and belongs to this repository
+    const [milestone] = await sql`
+      SELECT id FROM milestones
+      WHERE id = ${body.milestone_id} AND repository_id = ${repoResult.id}
+    `;
+
+    if (!milestone) {
+      return c.json({ error: "Milestone not found" }, 404);
+    }
+
+    const [issue] = await sql`
+      UPDATE issues
+      SET milestone_id = ${body.milestone_id}, updated_at = NOW()
+      WHERE issue_number = ${number} AND repository_id = ${repoResult.id}
+      RETURNING *
+    `;
+
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    return c.json(issue);
+  } catch (error) {
+    console.error("Error setting milestone:", error);
+    return c.json({ error: "Failed to set milestone" }, 500);
+  }
+});
+
+// Remove milestone from an issue
+app.delete("/:user/:repo/issues/:number/milestone", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    // Get repository
+    const [repoResult] = await sql`
+      SELECT r.id FROM repositories r
+      JOIN users u ON r.user_id = u.id
+      WHERE u.username = ${user} AND r.name = ${repo}
+    `;
+
+    if (!repoResult) {
+      return c.json({ error: "Repository not found" }, 404);
+    }
+
+    const [issue] = await sql`
+      UPDATE issues
+      SET milestone_id = NULL, updated_at = NOW()
+      WHERE issue_number = ${number} AND repository_id = ${repoResult.id}
+      RETURNING *
+    `;
+
+    if (!issue) {
+      return c.json({ error: "Issue not found" }, 404);
+    }
+
+    return c.json(issue);
+  } catch (error) {
+    console.error("Error removing milestone:", error);
+    return c.json({ error: "Failed to remove milestone" }, 500);
+  }
+});
+
 export default app;
