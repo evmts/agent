@@ -15,6 +15,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Voltaire dependency (Ethereum primitives with SIWE, secp256k1, keccak)
+    const voltaire_dep = b.dependency("voltaire", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Main executable
     const exe = b.addExecutable(.{
         .name = "server-zig",
@@ -25,6 +31,8 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "httpz", .module = httpz_dep.module("httpz") },
                 .{ .name = "pg", .module = pg_dep.module("pg") },
+                .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
+                .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
             },
         }),
     });
@@ -51,6 +59,8 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "httpz", .module = httpz_dep.module("httpz") },
                 .{ .name = "pg", .module = pg_dep.module("pg") },
+                .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
+                .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
             },
         }),
     });

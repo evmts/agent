@@ -1,6 +1,9 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("main.zig").Context;
+const siwe = @import("lib/siwe.zig");
+const db = @import("lib/db.zig");
+const jwt = @import("lib/jwt.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -57,10 +60,82 @@ fn getNonce(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     try writer.writeAll("\"}");
 }
 
-fn verify(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
+fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
-    res.status = 501; // Not Implemented
-    try res.writer().writeAll("{\"error\":\"SIWE verify not yet implemented\"}");
+    const allocator = ctx.allocator;
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    // Simple JSON parsing - extract message and signature fields
+    const message = extractJsonString(body, "message") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing message field\"}");
+        return;
+    };
+    const signature = extractJsonString(body, "signature") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing signature field\"}");
+        return;
+    };
+
+    // Verify SIWE signature using voltaire
+    const result = siwe.verifySiweSignature(allocator, ctx.pool, message, signature) catch |err| {
+        log.warn("SIWE verification failed: {}", .{err});
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Signature verification failed\"}");
+        return;
+    };
+
+    // Get address as hex
+    const addr_hex = siwe.addressToHex(allocator, result.address) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal error\"}");
+        return;
+    };
+    defer allocator.free(addr_hex);
+
+    // Check if user exists or needs to register
+    const user = db.getUserByAddress(ctx.pool, addr_hex) catch null;
+
+    if (user) |u| {
+        // Create session token
+        const token = jwt.sign(allocator, .{
+            .user_id = u.id,
+            .address = addr_hex,
+        }, ctx.config.jwt_secret) catch {
+            res.status = 500;
+            try res.writer().writeAll("{\"error\":\"Failed to create session\"}");
+            return;
+        };
+        defer allocator.free(token);
+
+        var writer = res.writer();
+        try writer.print("{{\"authenticated\":true,\"user\":{{\"id\":{d},\"username\":\"{s}\"}},\"token\":\"{s}\"}}", .{ u.id, u.username, token });
+    } else {
+        // User needs to register
+        var writer = res.writer();
+        try writer.print("{{\"authenticated\":true,\"needsRegistration\":true,\"address\":\"{s}\"}}", .{addr_hex});
+    }
+}
+
+// Simple JSON string extractor (avoids need for full JSON parser)
+fn extractJsonString(json: []const u8, key: []const u8) ?[]const u8 {
+    // Find "key":"
+    var pattern_buf: [256]u8 = undefined;
+    const pattern = std.fmt.bufPrint(&pattern_buf, "\"{s}\":\"", .{key}) catch return null;
+
+    const start_idx = std.mem.indexOf(u8, json, pattern) orelse return null;
+    const value_start = start_idx + pattern.len;
+
+    // Find closing quote
+    const value_end = std.mem.indexOfPos(u8, json, value_start, "\"") orelse return null;
+
+    return json[value_start..value_end];
 }
 
 fn register(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {

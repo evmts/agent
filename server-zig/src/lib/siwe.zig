@@ -1,37 +1,29 @@
 //! SIWE (Sign In With Ethereum) implementation
 //!
-//! Implements EIP-4361: Sign-In with Ethereum
+//! Wraps voltaire's SIWE module (EIP-4361)
 //! https://eips.ethereum.org/EIPS/eip-4361
 
 const std = @import("std");
-const secp256k1 = @import("../crypto/secp256k1.zig");
+const primitives = @import("primitives");
+const crypto_pkg = @import("crypto");
 const db = @import("db.zig");
 
 const log = std.log.scoped(.siwe);
 
-pub const SiweError = error{
+// Re-export voltaire's SIWE types
+pub const SiweMessage = primitives.Siwe.SiweMessage;
+pub const SiweError = primitives.Siwe.SiweError;
+const Address = primitives.Address.Address;
+const Signature = crypto_pkg.Crypto.Signature;
+
+pub const AuthError = error{
     InvalidMessage,
     InvalidNonce,
     ExpiredNonce,
     InvalidSignature,
     SignatureVerificationFailed,
-    RecoveryNotImplemented,
-};
-
-/// Parsed SIWE message
-pub const SiweMessage = struct {
-    domain: []const u8,
-    address: []const u8,
-    statement: ?[]const u8,
-    uri: []const u8,
-    version: []const u8,
-    chain_id: u64,
-    nonce: []const u8,
-    issued_at: []const u8,
-    expiration_time: ?[]const u8,
-    not_before: ?[]const u8,
-    request_id: ?[]const u8,
-    resources: ?[]const []const u8,
+    DatabaseError,
+    OutOfMemory,
 };
 
 /// Generate a cryptographically secure nonce
@@ -50,124 +42,83 @@ pub fn generateNonce(allocator: std.mem.Allocator) ![]const u8 {
     return nonce;
 }
 
-/// Parse a SIWE message string into structured data
-/// Format defined in EIP-4361
+/// Parse a SIWE message string
 pub fn parseMessage(allocator: std.mem.Allocator, message: []const u8) !SiweMessage {
-    var result = SiweMessage{
-        .domain = "",
-        .address = "",
-        .statement = null,
-        .uri = "",
-        .version = "1",
-        .chain_id = 1,
-        .nonce = "",
-        .issued_at = "",
-        .expiration_time = null,
-        .not_before = null,
-        .request_id = null,
-        .resources = null,
-    };
-
-    var lines = std.mem.splitScalar(u8, message, '\n');
-    var line_num: usize = 0;
-
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, &[_]u8{ ' ', '\r' });
-
-        if (line_num == 0) {
-            // First line: "{domain} wants you to sign in with your Ethereum account:"
-            if (std.mem.indexOf(u8, trimmed, " wants you to sign in with your Ethereum account:")) |idx| {
-                result.domain = try allocator.dupe(u8, trimmed[0..idx]);
-            }
-        } else if (line_num == 1) {
-            // Second line: Ethereum address
-            if (std.mem.startsWith(u8, trimmed, "0x") and trimmed.len == 42) {
-                result.address = try allocator.dupe(u8, trimmed);
-            }
-        } else if (std.mem.startsWith(u8, trimmed, "URI: ")) {
-            result.uri = try allocator.dupe(u8, trimmed[5..]);
-        } else if (std.mem.startsWith(u8, trimmed, "Version: ")) {
-            result.version = try allocator.dupe(u8, trimmed[9..]);
-        } else if (std.mem.startsWith(u8, trimmed, "Chain ID: ")) {
-            result.chain_id = std.fmt.parseInt(u64, trimmed[10..], 10) catch 1;
-        } else if (std.mem.startsWith(u8, trimmed, "Nonce: ")) {
-            result.nonce = try allocator.dupe(u8, trimmed[7..]);
-        } else if (std.mem.startsWith(u8, trimmed, "Issued At: ")) {
-            result.issued_at = try allocator.dupe(u8, trimmed[11..]);
-        } else if (std.mem.startsWith(u8, trimmed, "Expiration Time: ")) {
-            result.expiration_time = try allocator.dupe(u8, trimmed[17..]);
-        } else if (std.mem.startsWith(u8, trimmed, "Not Before: ")) {
-            result.not_before = try allocator.dupe(u8, trimmed[12..]);
-        } else if (std.mem.startsWith(u8, trimmed, "Request ID: ")) {
-            result.request_id = try allocator.dupe(u8, trimmed[12..]);
-        } else if (trimmed.len > 0 and !std.mem.startsWith(u8, trimmed, "Resources:") and
-            line_num > 2 and result.statement == null)
-        {
-            // Statement is the text between address and URI line
-            if (!std.mem.startsWith(u8, trimmed, "URI:")) {
-                result.statement = try allocator.dupe(u8, trimmed);
-            }
-        }
-
-        line_num += 1;
-    }
-
-    // Validate required fields
-    if (result.domain.len == 0 or result.address.len == 0 or result.nonce.len == 0) {
-        return SiweError.InvalidMessage;
-    }
-
-    return result;
+    return primitives.Siwe.parseSiweMessage(allocator, message);
 }
 
-/// Verify a SIWE signature
+/// Verify a SIWE signature using voltaire's crypto
 /// Returns the verified address or an error
 pub fn verifySiweSignature(
     allocator: std.mem.Allocator,
     pool: *db.Pool,
-    message: []const u8,
+    message_text: []const u8,
     signature_hex: []const u8,
-) !struct { address: []const u8, parsed: SiweMessage } {
-    // Parse the message
-    const parsed = try parseMessage(allocator, message);
+) !struct { address: Address, parsed: SiweMessage } {
+    // Parse the message using voltaire
+    const parsed = try primitives.Siwe.parseSiweMessage(allocator, message_text);
+    errdefer {
+        allocator.free(parsed.domain);
+        if (parsed.statement) |s| allocator.free(s);
+        allocator.free(parsed.uri);
+        allocator.free(parsed.version);
+        allocator.free(parsed.nonce);
+        allocator.free(parsed.issued_at);
+    }
 
     // Validate nonce exists and is not expired/used
-    const nonce_valid = try db.validateNonce(pool, parsed.nonce);
+    const nonce_valid = db.validateNonce(pool, parsed.nonce) catch {
+        return AuthError.DatabaseError;
+    };
     if (!nonce_valid) {
-        return SiweError.InvalidNonce;
+        return AuthError.InvalidNonce;
     }
 
-    // Parse signature
-    const signature = try secp256k1.EthSignature.fromHex(signature_hex);
+    // Parse signature from hex (remove 0x prefix if present)
+    const sig_data = if (std.mem.startsWith(u8, signature_hex, "0x"))
+        signature_hex[2..]
+    else
+        signature_hex;
 
-    // Parse expected address from message
-    const expected_address = try secp256k1.parseAddress(parsed.address);
+    if (sig_data.len != 130) {
+        return AuthError.InvalidSignature;
+    }
 
-    // Verify signature matches address
-    // NOTE: This will fail until we implement secp256k1 recovery
-    const valid = secp256k1.verifySignature(message, signature, expected_address) catch |err| {
-        if (err == error.RecoveryNotImplemented) {
-            // FALLBACK: In development, trust the address from the message
-            // In production, this MUST be properly implemented
-            log.warn("SIWE signature verification not implemented - trusting message address", .{});
-
-            // Mark nonce as used
-            try db.markNonceUsed(pool, parsed.nonce, parsed.address);
-
-            return .{
-                .address = parsed.address,
-                .parsed = parsed,
-            };
-        }
-        return err;
+    // Decode hex to bytes
+    var sig_bytes: [65]u8 = undefined;
+    _ = std.fmt.hexToBytes(&sig_bytes, sig_data) catch {
+        return AuthError.InvalidSignature;
     };
 
-    if (!valid) {
-        return SiweError.SignatureVerificationFailed;
+    // Convert r and s to u256 (big-endian)
+    const r: u256 = std.mem.readInt(u256, sig_bytes[0..32], .big);
+    const s: u256 = std.mem.readInt(u256, sig_bytes[32..64], .big);
+
+    // Create Signature struct
+    const signature = Signature{
+        .r = r,
+        .s = s,
+        .v = sig_bytes[64],
+    };
+
+    // Verify using voltaire's verifySiweMessage
+    const verified = primitives.Siwe.verifySiweMessage(allocator, &parsed, signature) catch |err| {
+        log.warn("SIWE verification failed: {}", .{err});
+        return AuthError.SignatureVerificationFailed;
+    };
+
+    if (!verified) {
+        return AuthError.SignatureVerificationFailed;
     }
 
+    // Convert address to hex for DB
+    const addr_hex = try primitives.Hex.toHex(allocator, &parsed.address);
+    defer allocator.free(addr_hex);
+
     // Mark nonce as used
-    try db.markNonceUsed(pool, parsed.nonce, parsed.address);
+    db.markNonceUsed(pool, parsed.nonce, addr_hex) catch {
+        return AuthError.DatabaseError;
+    };
 
     return .{
         .address = parsed.address,
@@ -178,41 +129,16 @@ pub fn verifySiweSignature(
 /// Create and store a new nonce
 pub fn createNonce(allocator: std.mem.Allocator, pool: *db.Pool) ![]const u8 {
     const nonce = try generateNonce(allocator);
-    try db.createNonce(pool, nonce);
+    db.createNonce(pool, nonce) catch {
+        allocator.free(nonce);
+        return AuthError.DatabaseError;
+    };
     return nonce;
 }
 
-test "parse siwe message" {
-    const allocator = std.testing.allocator;
-
-    const message =
-        \\example.com wants you to sign in with your Ethereum account:
-        \\0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
-        \\
-        \\Sign in to Example
-        \\
-        \\URI: https://example.com
-        \\Version: 1
-        \\Chain ID: 1
-        \\Nonce: 32891756
-        \\Issued At: 2021-09-30T16:25:24Z
-    ;
-
-    const parsed = try parseMessage(allocator, message);
-
-    try std.testing.expectEqualStrings("example.com", parsed.domain);
-    try std.testing.expectEqualStrings("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", parsed.address);
-    try std.testing.expectEqualStrings("32891756", parsed.nonce);
-    try std.testing.expectEqual(@as(u64, 1), parsed.chain_id);
-
-    // Free allocated strings
-    allocator.free(parsed.domain);
-    allocator.free(parsed.address);
-    allocator.free(parsed.nonce);
-    allocator.free(parsed.uri);
-    allocator.free(parsed.version);
-    allocator.free(parsed.issued_at);
-    if (parsed.statement) |s| allocator.free(s);
+/// Get address as hex string
+pub fn addressToHex(allocator: std.mem.Allocator, addr: Address) ![]const u8 {
+    return primitives.Hex.toHex(allocator, &addr);
 }
 
 test "generate nonce" {
