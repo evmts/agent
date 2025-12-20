@@ -1340,7 +1340,7 @@ dependencies = [
 [[package]]
 name = "jj-lib"
 version = "0.36.0"
-source = "git+https://github.com/jj-vcs/jj#5dd63d691edb1331746440ed28e89115fd5b72a4"
+source = "git+https://github.com/jj-vcs/jj?tag=v0.36.0#70fd8f7697fbc20a9329a6e2f790ef86a8e284d1"
 dependencies = [
  "async-trait",
  "blake2",
@@ -1387,7 +1387,7 @@ dependencies = [
 [[package]]
 name = "jj-lib-proc-macros"
 version = "0.36.0"
-source = "git+https://github.com/jj-vcs/jj#5dd63d691edb1331746440ed28e89115fd5b72a4"
+source = "git+https://github.com/jj-vcs/jj?tag=v0.36.0#70fd8f7697fbc20a9329a6e2f790ef86a8e284d1"
 dependencies = [
  "proc-macro2",
  "quote",
