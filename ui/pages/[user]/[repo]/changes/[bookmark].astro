@@ -1,0 +1,464 @@
+---
+/**
+ * Changes History Page - JJ-Native
+ *
+ * Shows the change history for a bookmark (replaces commits/[branch].astro).
+ * Displays stable change IDs instead of commit SHAs.
+ */
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import * as jj from "../../../../lib/jj";
+import type { User, Repository } from "../../../../lib/types";
+import type { Change } from "../../../../lib/jj-types";
+
+const { user: username, repo: reponame, bookmark } = Astro.params;
+
+if (!username || !reponame || !bookmark) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get changes from jj
+let changes: Change[] = [];
+let error: string | null = null;
+
+try {
+  changes = await jj.listChanges(username, reponame, 50, bookmark);
+} catch (e) {
+  error = e instanceof Error ? e.message : "Failed to load changes";
+}
+
+const defaultBookmark = repo.default_bookmark || 'main';
+
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues
+  WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+const [{ count: landingCount }] = await sql`
+  SELECT COUNT(*) as count FROM landing_queue
+  WHERE repository_id = ${repo.id} AND status NOT IN ('landed', 'cancelled')
+`;
+---
+
+<Layout title={`Changes · ${bookmark} · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">changes / {bookmark}</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`} class="active">Changes</a>
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+    </a>
+  </nav>
+
+  <div class="container">
+    <div class="header-row">
+      <h2>
+        Changes on
+        <span class="bookmark-name">{bookmark}</span>
+      </h2>
+      <div class="header-actions">
+        <a href={`/${username}/${reponame}/operations`} class="btn-secondary">
+          Operation Log
+        </a>
+      </div>
+    </div>
+
+    <div class="jj-info">
+      <span class="jj-badge">jj</span>
+      Change IDs are stable identifiers that survive rebases. Click a change to see details.
+    </div>
+
+    {error ? (
+      <div class="error">
+        <strong>Error:</strong> {error}
+      </div>
+    ) : (
+      <div class="change-list">
+        {changes.map((change, index) => (
+          <div class={`change-item ${change.hasConflicts ? 'has-conflicts' : ''}`}>
+            <div class="change-marker">
+              <div class="marker-dot"></div>
+              {index < changes.length - 1 && <div class="marker-line"></div>}
+            </div>
+
+            <div class="change-content">
+              <div class="change-header">
+                <a
+                  href={`/${username}/${reponame}/changes/${bookmark}/${change.changeId}`}
+                  class="change-id"
+                  title={`Full ID: ${change.changeId}`}
+                >
+                  {change.changeId.substring(0, 8)}
+                </a>
+
+                {change.hasConflicts && (
+                  <span class="conflict-badge" title="This change has unresolved conflicts">
+                    conflicts
+                  </span>
+                )}
+
+                {change.isEmpty && (
+                  <span class="empty-badge" title="This change has no file modifications">
+                    empty
+                  </span>
+                )}
+              </div>
+
+              <div class="change-description">
+                {change.description || "(no description)"}
+              </div>
+
+              <div class="change-meta">
+                <span class="author">{change.author.name}</span>
+                <span class="sep">·</span>
+                <span class="date">
+                  {new Date(change.timestamp).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div class="change-actions">
+              <a
+                href={`/${username}/${reponame}/tree/${change.changeId}`}
+                class="btn-sm"
+              >
+                Browse
+              </a>
+              <button
+                class="btn-sm"
+                data-action="land"
+                data-change={change.changeId}
+                data-description={change.description}
+              >
+                Land
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {changes.length === 0 && (
+          <div class="empty-state">
+            No changes found on this bookmark.
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+
+  <!-- Land Change Modal -->
+  <dialog id="land-modal">
+    <form id="land-form">
+      <h3>Land Change</h3>
+
+      <input type="hidden" name="change_id" />
+
+      <div class="change-preview">
+        <span class="label">Change:</span>
+        <span class="change-id-preview"></span>
+      </div>
+
+      <label>
+        Target bookmark
+        <select name="target_bookmark">
+          <option value={defaultBookmark}>{defaultBookmark}</option>
+        </select>
+      </label>
+
+      <label>
+        Title (optional)
+        <input type="text" name="title" placeholder="Leave empty to use change description" />
+      </label>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn">Create Landing Request</button>
+        <button type="button" class="btn-secondary" data-action="close-modal">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </dialog>
+</Layout>
+
+<style>
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .bookmark-name {
+    font-family: var(--font-mono);
+    background: #e5e7eb;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .jj-info {
+    background: var(--background-alt, #f5f5f5);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .jj-badge {
+    background: #7c3aed;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 0.5rem;
+  }
+
+  .error {
+    background: #fef2f2;
+    border: 2px solid #dc2626;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .change-list {
+    border: 2px solid var(--border);
+  }
+
+  .change-item {
+    display: flex;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+
+  .change-item:last-child {
+    border-bottom: none;
+  }
+
+  .change-item.has-conflicts {
+    background: #fef2f2;
+  }
+
+  .change-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 20px;
+  }
+
+  .marker-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #7c3aed;
+    border: 2px solid var(--background);
+    box-shadow: 0 0 0 2px #7c3aed;
+  }
+
+  .marker-line {
+    flex: 1;
+    width: 2px;
+    background: #d1d5db;
+    margin-top: 4px;
+  }
+
+  .change-content {
+    flex: 1;
+  }
+
+  .change-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .change-id {
+    font-family: var(--font-mono);
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    color: #7c3aed;
+    font-weight: 600;
+    text-decoration: none;
+    font-size: 14px;
+  }
+
+  .change-id:hover {
+    background: #d1d5db;
+  }
+
+  .conflict-badge {
+    background: #dc2626;
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .empty-badge {
+    background: #9ca3af;
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .change-description {
+    font-size: 15px;
+    margin-bottom: 0.25rem;
+    color: var(--text);
+  }
+
+  .change-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .change-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  dialog {
+    border: 2px solid var(--border);
+    padding: 2rem;
+    max-width: 500px;
+    background: var(--background);
+  }
+
+  dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .change-preview {
+    background: var(--background-alt, #f5f5f5);
+    padding: 0.75rem;
+    border-radius: 0.25rem;
+  }
+
+  .change-preview .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-right: 0.5rem;
+  }
+
+  .change-id-preview {
+    font-family: var(--font-mono);
+    color: #7c3aed;
+    font-weight: 600;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+
+  .badge {
+    background: var(--primary);
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    margin-left: 0.5rem;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>
+
+<script>
+  const username = window.location.pathname.split('/')[1];
+  const reponame = window.location.pathname.split('/')[2];
+
+  // Close modal
+  document.querySelectorAll('[data-action="close-modal"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      (e.target as HTMLElement).closest('dialog')?.close();
+    });
+  });
+
+  // Land change
+  document.querySelectorAll('[data-action="land"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const changeId = target.dataset.change!;
+      const description = target.dataset.description || '';
+
+      const modal = document.getElementById('land-modal') as HTMLDialogElement;
+      const form = modal.querySelector('form') as HTMLFormElement;
+
+      (form.elements.namedItem('change_id') as HTMLInputElement).value = changeId;
+      (form.elements.namedItem('title') as HTMLInputElement).value = description;
+      modal.querySelector('.change-id-preview')!.textContent = changeId.substring(0, 8);
+
+      modal.showModal();
+    });
+  });
+
+  document.getElementById('land-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+
+    const response = await fetch(`/api/${username}/${reponame}/landing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        change_id: formData.get('change_id'),
+        target_bookmark: formData.get('target_bookmark'),
+        title: formData.get('title') || undefined
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      window.location.href = `/${username}/${reponame}/landing/${data.request.id}`;
+    } else {
+      const data = await response.json();
+      alert(data.error || 'Failed to create landing request');
+    }
+  });
+</script>

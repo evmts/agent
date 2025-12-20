@@ -1,0 +1,443 @@
+---
+/**
+ * Landing Queue Page - JJ-Native
+ *
+ * Lists all landing requests (replaces pull requests).
+ * Changes are landed onto bookmarks with conflict detection.
+ */
+import Layout from "../../../../layouts/Layout.astro";
+import Header from "../../../../components/Header.astro";
+import { sql } from "../../../../lib/db";
+import type { User, Repository } from "../../../../lib/types";
+import type { LandingRequest } from "../../../../lib/jj-types";
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+// Get landing requests
+const requests = await sql<(LandingRequest & { author_username?: string })[]>`
+  SELECT lq.*, u.username as author_username
+  FROM landing_queue lq
+  LEFT JOIN users u ON lq.author_id = u.id
+  WHERE lq.repository_id = ${repo.id}
+  ORDER BY
+    CASE
+      WHEN lq.status = 'ready' THEN 0
+      WHEN lq.status = 'conflicted' THEN 1
+      WHEN lq.status = 'checking' THEN 2
+      WHEN lq.status = 'pending' THEN 3
+      ELSE 4
+    END,
+    lq.created_at DESC
+`;
+
+const openRequests = requests.filter(r => !['landed', 'cancelled'].includes(r.status));
+const closedRequests = requests.filter(r => ['landed', 'cancelled'].includes(r.status));
+
+const defaultBookmark = repo.default_bookmark || 'main';
+
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues
+  WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'ready': return '#16a34a';
+    case 'conflicted': return '#dc2626';
+    case 'checking': return '#ca8a04';
+    case 'pending': return '#6b7280';
+    case 'landed': return '#7c3aed';
+    case 'cancelled': return '#9ca3af';
+    default: return '#6b7280';
+  }
+}
+
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case 'ready': return 'Ready to land';
+    case 'conflicted': return 'Has conflicts';
+    case 'checking': return 'Checking...';
+    case 'pending': return 'Pending';
+    case 'landed': return 'Landed';
+    case 'cancelled': return 'Cancelled';
+    default: return status;
+  }
+}
+---
+
+<Layout title={`Landing Queue · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">landing</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/landing`} class="active">
+      Landing
+      {openRequests.length > 0 && <span class="badge">{openRequests.length}</span>}
+    </a>
+  </nav>
+
+  <div class="container">
+    <div class="header-row">
+      <h2>Landing Queue</h2>
+    </div>
+
+    <div class="jj-info">
+      <span class="jj-badge">jj</span>
+      Changes are landed onto bookmarks. Unlike git merges, conflicts are detected and can be resolved before landing.
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="open">
+        Open
+        <span class="count">{openRequests.length}</span>
+      </button>
+      <button class="tab" data-tab="closed">
+        Closed
+        <span class="count">{closedRequests.length}</span>
+      </button>
+    </div>
+
+    <div class="tab-content" data-content="open">
+      <div class="request-list">
+        {openRequests.map((request) => (
+          <a href={`/${username}/${reponame}/landing/${request.id}`} class="request-item">
+            <div class="request-status">
+              <span
+                class="status-dot"
+                style={`background: ${getStatusColor(request.status)}`}
+                title={getStatusLabel(request.status)}
+              ></span>
+            </div>
+
+            <div class="request-info">
+              <div class="request-title">
+                {request.title || `Land ${request.changeId.substring(0, 8)}`}
+              </div>
+              <div class="request-meta">
+                <span class="change-id">{request.changeId.substring(0, 8)}</span>
+                <span class="arrow">→</span>
+                <span class="bookmark">{request.targetBookmark}</span>
+                <span class="sep">·</span>
+                <span>opened by {request.author_username || 'unknown'}</span>
+                <span class="sep">·</span>
+                <span>{new Date(request.createdAt).toLocaleDateString()}</span>
+              </div>
+            </div>
+
+            <div class="request-badges">
+              {request.hasConflicts && (
+                <span class="conflict-badge">
+                  {request.conflictedFiles?.length || 0} conflicts
+                </span>
+              )}
+              <span
+                class="status-badge"
+                style={`background: ${getStatusColor(request.status)}`}
+              >
+                {getStatusLabel(request.status)}
+              </span>
+            </div>
+          </a>
+        ))}
+
+        {openRequests.length === 0 && (
+          <div class="empty-state">
+            No open landing requests.
+            <br />
+            <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>
+              Browse changes to create one.
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div class="tab-content hidden" data-content="closed">
+      <div class="request-list">
+        {closedRequests.map((request) => (
+          <a href={`/${username}/${reponame}/landing/${request.id}`} class="request-item closed">
+            <div class="request-status">
+              <span
+                class="status-dot"
+                style={`background: ${getStatusColor(request.status)}`}
+                title={getStatusLabel(request.status)}
+              ></span>
+            </div>
+
+            <div class="request-info">
+              <div class="request-title">
+                {request.title || `Land ${request.changeId.substring(0, 8)}`}
+              </div>
+              <div class="request-meta">
+                <span class="change-id">{request.changeId.substring(0, 8)}</span>
+                <span class="arrow">→</span>
+                <span class="bookmark">{request.targetBookmark}</span>
+                <span class="sep">·</span>
+                <span>
+                  {request.status === 'landed' ? 'landed' : 'cancelled'}
+                  {' '}on {new Date(request.landedAt || request.updatedAt).toLocaleDateString()}
+                </span>
+              </div>
+            </div>
+
+            <div class="request-badges">
+              <span
+                class="status-badge"
+                style={`background: ${getStatusColor(request.status)}`}
+              >
+                {getStatusLabel(request.status)}
+              </span>
+            </div>
+          </a>
+        ))}
+
+        {closedRequests.length === 0 && (
+          <div class="empty-state">
+            No closed landing requests yet.
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .jj-info {
+    background: var(--background-alt, #f5f5f5);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .jj-badge {
+    background: #7c3aed;
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 0.5rem;
+  }
+
+  .tabs {
+    display: flex;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 0;
+  }
+
+  .tab {
+    padding: 0.75rem 1.5rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+  }
+
+  .tab.active {
+    color: var(--text);
+    border-bottom-color: #7c3aed;
+  }
+
+  .tab .count {
+    background: #e5e7eb;
+    padding: 0.125rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 12px;
+    margin-left: 0.5rem;
+  }
+
+  .tab.active .count {
+    background: #7c3aed;
+    color: white;
+  }
+
+  .tab-content {
+    border: 2px solid var(--border);
+    border-top: none;
+  }
+
+  .tab-content.hidden {
+    display: none;
+  }
+
+  .request-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .request-item {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+    gap: 1rem;
+  }
+
+  .request-item:last-child {
+    border-bottom: none;
+  }
+
+  .request-item:hover {
+    background: var(--background-alt, #f9fafb);
+  }
+
+  .request-item.closed {
+    opacity: 0.7;
+  }
+
+  .request-status {
+    width: 20px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+
+  .request-info {
+    flex: 1;
+  }
+
+  .request-title {
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+  }
+
+  .request-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .change-id {
+    font-family: var(--font-mono);
+    background: #e5e7eb;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    color: #7c3aed;
+    font-weight: 500;
+  }
+
+  .bookmark {
+    font-family: var(--font-mono);
+  }
+
+  .arrow {
+    color: var(--text-muted);
+  }
+
+  .request-badges {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .conflict-badge {
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid #fecaca;
+  }
+
+  .status-badge {
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .empty-state {
+    padding: 3rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .empty-state a {
+    color: #7c3aed;
+  }
+
+  .badge {
+    background: var(--primary);
+    color: white;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 12px;
+    margin-left: 0.5rem;
+  }
+
+  .sep {
+    color: var(--text-muted);
+  }
+</style>
+
+<script>
+  // Tab switching
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabName = (tab as HTMLElement).dataset.tab;
+
+      // Update active tab
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      // Update content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        if ((content as HTMLElement).dataset.content === tabName) {
+          content.classList.remove('hidden');
+        } else {
+          content.classList.add('hidden');
+        }
+      });
+    });
+  });
+</script>
