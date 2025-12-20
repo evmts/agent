@@ -3,10 +3,45 @@ import { renderMarkdown } from "../lib/markdown";
 
 interface Props {
   content: string;
+  owner?: string;
+  repo?: string;
 }
 
-const { content } = Astro.props;
-const html = renderMarkdown(content);
+const { content, owner, repo } = Astro.props;
+const html = renderMarkdown(content, owner, repo);
 ---
 
 <Fragment set:html={html} />
+
+<style is:global>
+  .mention {
+    color: var(--success);
+    text-decoration: none;
+    font-weight: 500;
+    background: var(--success-dim);
+    padding: 0.125rem 0.25rem;
+    border-radius: 2px;
+    transition: background 0.15s ease;
+  }
+
+  .mention:hover {
+    background: rgba(0, 210, 106, 0.25);
+    text-decoration: underline;
+  }
+
+  .issue-link {
+    color: #58a6ff;
+    text-decoration: none;
+    font-weight: 500;
+    transition: text-decoration 0.15s ease;
+  }
+
+  .issue-link:hover {
+    text-decoration: underline;
+  }
+
+  .issue-link.closed {
+    color: #8b949e;
+    text-decoration: line-through;
+  }
+</style>

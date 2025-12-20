@@ -4,6 +4,7 @@ import Header from "../../../../components/Header.astro";
 import Markdown from "../../../../components/Markdown.astro";
 import CommentCard from "../../../../components/CommentCard.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
+import IssueSidebar from "../../../../components/IssueSidebar.astro";
 import { sql } from "../../../../lib/db";
 import {
   getIssue,
@@ -175,68 +176,76 @@ function formatDate(date: string | Date): string {
       </p>
     </div>
 
-    {issue.body && (
-      <div class="comment">
-        <div class="comment-header">
-          <strong>{issue.author_username}</strong>
-          <span class="time">· opened this issue</span>
-        </div>
-        <div class="comment-body">
-          <Markdown content={issue.body} />
+    <div class="issue-layout">
+      <div class="issue-main">
+        {issue.body && (
+          <div class="comment">
+            <div class="comment-header">
+              <strong>{issue.author_username}</strong>
+              <span class="time">· opened this issue</span>
+            </div>
+            <div class="comment-body">
+              <Markdown content={issue.body} />
+            </div>
+          </div>
+        )}
+
+        {comments.map((comment) => (
+          <CommentCard comment={comment} />
+        ))}
+
+        <div class="add-comment mt-3">
+          <h2 class="mb-2">Add a comment</h2>
+
+          {error && (
+            <div class="error-banner mb-2">
+              {error}
+            </div>
+          )}
+
+          <form method="POST">
+            <input type="hidden" name="action" value="comment" />
+
+            <div class="form-group">
+              <label for="author_id">Comment as</label>
+              <select name="author_id" id="author_id" required>
+                {users.map((u) => (
+                  <option value={u.id}>{u.username}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="body">Comment</label>
+              <MarkdownEditor
+                name="body"
+                id="body"
+                required
+                placeholder="Leave a comment..."
+                height="200px"
+              />
+            </div>
+
+            <div class="flex gap-1">
+              <button type="submit" class="btn btn-primary">Comment</button>
+
+              {issue.state === "open" ? (
+                <button type="submit" name="action" value="close" class="btn btn-danger">
+                  Close issue
+                </button>
+              ) : (
+                <button type="submit" name="action" value="reopen" class="btn">
+                  Reopen issue
+                </button>
+              )}
+            </div>
+          </form>
         </div>
       </div>
-    )}
 
-    {comments.map((comment) => (
-      <CommentCard comment={comment} />
-    ))}
-
-    <div class="add-comment mt-3">
-      <h2 class="mb-2">Add a comment</h2>
-
-      {error && (
-        <div class="error-banner mb-2">
-          {error}
-        </div>
-      )}
-
-      <form method="POST">
-        <input type="hidden" name="action" value="comment" />
-
-        <div class="form-group">
-          <label for="author_id">Comment as</label>
-          <select name="author_id" id="author_id" required>
-            {users.map((u) => (
-              <option value={u.id}>{u.username}</option>
-            ))}
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="body">Comment</label>
-          <MarkdownEditor
-            name="body"
-            id="body"
-            required
-            placeholder="Leave a comment..."
-            height="200px"
-          />
-        </div>
-
-        <div class="flex gap-1">
-          <button type="submit" class="btn btn-primary">Comment</button>
-
-          {issue.state === "open" ? (
-            <button type="submit" name="action" value="close" class="btn btn-danger">
-              Close issue
-            </button>
-          ) : (
-            <button type="submit" name="action" value="reopen" class="btn">
-              Reopen issue
-            </button>
-          )}
-        </div>
-      </form>
+      <div class="issue-sidebar-wrapper">
+        <IssueSidebar issue={issue} users={users} />
+      </div>
     </div>
   </div>
 </Layout>

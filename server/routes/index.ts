@@ -9,6 +9,7 @@ import pty from './pty';
 import issues from './issues';
 import runners from './runners';
 import workflows from './workflows';
+import repositories from './repositories';
 
 const app = new Hono();
 
@@ -22,6 +23,9 @@ app.route('/sessions', sessions);
 app.route('/session', messages);
 app.route('/pty', pty);
 app.route('/repos', issues);
+
+// Repository routes
+app.route('/', repositories);
 
 // Workflow system routes
 app.route('/runners', runners);

@@ -12,6 +12,10 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
 
+  /* Global setup seeds the database before all tests */
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+
   use: {
     baseURL: 'http://localhost:4321',
     trace: 'on-first-retry',

@@ -28,15 +28,38 @@ if (!repo) return Astro.redirect("/404");
 
 // Get query params
 const statusParam = Astro.url.searchParams.get('status');
+const workflowParam = Astro.url.searchParams.get('workflow');
 const page = parseInt(Astro.url.searchParams.get('page') || '1');
 const perPage = 20;
 const offset = (page - 1) * perPage;
 
-// Get workflow runs
+// Get workflow definitions
+let workflowDefinitions: any[] = [];
+try {
+  workflowDefinitions = await sql`
+    SELECT * FROM workflow_definitions
+    WHERE repository_id = ${repo.id}
+    ORDER BY name
+  `;
+} catch (e) {
+  console.error('Error fetching workflow definitions:', e);
+}
+
+// Get workflow runs with error counts
 let runs: any[] = [];
 let totalCount = 0;
+let workflowErrorCounts: Record<number, number> = {};
 
 try {
+  // Calculate error counts for each workflow
+  for (const def of workflowDefinitions) {
+    const [result] = await sql`
+      SELECT COUNT(*) as count FROM workflow_runs
+      WHERE workflow_definition_id = ${def.id} AND status = 2
+    `;
+    workflowErrorCounts[def.id] = result?.count || 0;
+  }
+
   // Status filter mapping
   const statusMap: Record<string, number> = {
     'success': 1,
@@ -46,32 +69,34 @@ try {
     'running': 6,
   };
 
+  // Build query based on filters
+  let queryConditions = `repository_id = ${repo.id}`;
   if (statusParam && statusMap[statusParam] !== undefined) {
-    const status = statusMap[statusParam];
-    runs = await sql`
-      SELECT * FROM workflow_runs
-      WHERE repository_id = ${repo.id} AND status = ${status}
-      ORDER BY created_at DESC
-      LIMIT ${perPage} OFFSET ${offset}
-    `;
-    const [countResult] = await sql`
-      SELECT COUNT(*) as count FROM workflow_runs
-      WHERE repository_id = ${repo.id} AND status = ${status}
-    `;
-    totalCount = countResult?.count || 0;
-  } else {
-    runs = await sql`
-      SELECT * FROM workflow_runs
-      WHERE repository_id = ${repo.id}
-      ORDER BY created_at DESC
-      LIMIT ${perPage} OFFSET ${offset}
-    `;
-    const [countResult] = await sql`
-      SELECT COUNT(*) as count FROM workflow_runs
-      WHERE repository_id = ${repo.id}
-    `;
-    totalCount = countResult?.count || 0;
+    queryConditions += ` AND status = ${statusMap[statusParam]}`;
   }
+  if (workflowParam) {
+    const workflowDefId = parseInt(workflowParam);
+    if (!isNaN(workflowDefId)) {
+      queryConditions += ` AND workflow_definition_id = ${workflowDefId}`;
+    }
+  }
+
+  runs = await sql`
+    SELECT * FROM workflow_runs
+    WHERE repository_id = ${repo.id}
+    ${statusParam && statusMap[statusParam] !== undefined ? sql`AND status = ${statusMap[statusParam]}` : sql``}
+    ${workflowParam && !isNaN(parseInt(workflowParam)) ? sql`AND workflow_definition_id = ${parseInt(workflowParam)}` : sql``}
+    ORDER BY created_at DESC
+    LIMIT ${perPage} OFFSET ${offset}
+  `;
+
+  const [countResult] = await sql`
+    SELECT COUNT(*) as count FROM workflow_runs
+    WHERE repository_id = ${repo.id}
+    ${statusParam && statusMap[statusParam] !== undefined ? sql`AND status = ${statusMap[statusParam]}` : sql``}
+    ${workflowParam && !isNaN(parseInt(workflowParam)) ? sql`AND workflow_definition_id = ${parseInt(workflowParam)}` : sql``}
+  `;
+  totalCount = countResult?.count || 0;
 } catch (e) {
   // Table may not exist yet
   console.error('Error fetching workflow runs:', e);
@@ -120,37 +145,64 @@ const totalPages = Math.ceil(totalCount / perPage);
     </button>
   </div>
 
-  <div class="status-tabs">
-    <a href={`/${username}/${reponame}/workflows`} class:list={[{ active: !statusParam }]}>
-      All
-    </a>
-    <a href={`/${username}/${reponame}/workflows?status=running`} class:list={[{ active: statusParam === 'running' }]}>
-      Running
-    </a>
-    <a href={`/${username}/${reponame}/workflows?status=success`} class:list={[{ active: statusParam === 'success' }]}>
-      Success
-    </a>
-    <a href={`/${username}/${reponame}/workflows?status=failure`} class:list={[{ active: statusParam === 'failure' }]}>
-      Failure
-    </a>
-    <a href={`/${username}/${reponame}/workflows?status=waiting`} class:list={[{ active: statusParam === 'waiting' }]}>
-      Waiting
-    </a>
-  </div>
-
-  <div class="runs-list">
-    {formattedRuns.length === 0 ? (
-      <div class="empty-state">
-        <p>No workflow runs yet.</p>
-        <p class="hint">
-          Create a workflow file in <code>.plue/workflows/</code> to get started.
-        </p>
+  <div class="workflows-layout">
+    <aside class="workflow-sidebar">
+      <h2>Workflows</h2>
+      <div class="workflow-list">
+        <a
+          href={`/${username}/${reponame}/workflows${statusParam ? `?status=${statusParam}` : ''}`}
+          class:list={[{ active: !workflowParam }]}
+        >
+          All workflows
+        </a>
+        {workflowDefinitions.map((def: any) => (
+          <a
+            href={`/${username}/${reponame}/workflows?workflow=${def.id}${statusParam ? `&status=${statusParam}` : ''}`}
+            class:list={[{ active: workflowParam === String(def.id) }]}
+          >
+            {def.name}
+            {workflowErrorCounts[def.id] > 0 && (
+              <span class="error-badge">{workflowErrorCounts[def.id]}</span>
+            )}
+          </a>
+        ))}
       </div>
-    ) : (
-      formattedRuns.map((run) => (
-        <WorkflowRunCard run={run} user={username} repo={reponame} />
-      ))
-    )}
+    </aside>
+
+    <div class="workflow-content">
+      <div class="status-tabs">
+        <a href={`/${username}/${reponame}/workflows${workflowParam ? `?workflow=${workflowParam}` : ''}`} class:list={[{ active: !statusParam }]}>
+          All
+        </a>
+        <a href={`/${username}/${reponame}/workflows?status=running${workflowParam ? `&workflow=${workflowParam}` : ''}`} class:list={[{ active: statusParam === 'running' }]}>
+          Running
+        </a>
+        <a href={`/${username}/${reponame}/workflows?status=success${workflowParam ? `&workflow=${workflowParam}` : ''}`} class:list={[{ active: statusParam === 'success' }]}>
+          Success
+        </a>
+        <a href={`/${username}/${reponame}/workflows?status=failure${workflowParam ? `&workflow=${workflowParam}` : ''}`} class:list={[{ active: statusParam === 'failure' }]}>
+          Failure
+        </a>
+        <a href={`/${username}/${reponame}/workflows?status=waiting${workflowParam ? `&workflow=${workflowParam}` : ''}`} class:list={[{ active: statusParam === 'waiting' }]}>
+          Waiting
+        </a>
+      </div>
+
+      <div class="runs-list">
+        {formattedRuns.length === 0 ? (
+          <div class="empty-state">
+            <p>No workflow runs yet.</p>
+            <p class="hint">
+              Create a workflow file in <code>.plue/workflows/</code> to get started.
+            </p>
+          </div>
+        ) : (
+          formattedRuns.map((run) => (
+            <WorkflowRunCard run={run} user={username} repo={reponame} />
+          ))
+        )}
+      </div>
+    </div>
   </div>
 
   {totalPages > 1 && (

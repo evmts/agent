@@ -1,3 +1,5 @@
+import { replaceMentionsWithLinks } from "./mentions";
+
 // Simple but solid markdown to HTML converter
 export function renderMarkdown(content: string): string {
   // Normalize line endings
@@ -41,6 +43,9 @@ export function renderMarkdown(content: string): string {
 
   // Links
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // @mentions - replace with links to user profiles
+  text = replaceMentionsWithLinks(text);
 
   // Images
   text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');

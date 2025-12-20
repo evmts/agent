@@ -435,6 +435,36 @@ export async function getFileContent(
   return result.stdout;
 }
 
+/**
+ * Get file history - list of changes that modified a specific file
+ */
+export async function getFileHistory(
+  user: string,
+  name: string,
+  path: string,
+  bookmark?: string,
+  limit: number = 50
+): Promise<Change[]> {
+  const repoPath = getRepoPath(user, name);
+
+  // Template to extract change info
+  const template = 'change_id ++ "|" ++ commit_id ++ "|" ++ description.first_line() ++ "|" ++ author.name() ++ "|" ++ author.email() ++ "|" ++ committer.timestamp() ++ "|" ++ empty ++ "|" ++ conflict ++ "\\n"';
+
+  // Use revset with file path filter
+  const revset = bookmark ? `ancestors(${bookmark}) & file(${path})` : `all() & file(${path})`;
+
+  const result = await runJj(
+    ['log', '-r', revset, '--no-graph', '-n', limit.toString(), '-T', template],
+    repoPath
+  );
+
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    return [];
+  }
+
+  return parseChangesOutput(result.stdout);
+}
+
 // =============================================================================
 // Diff and Comparison Operations
 // =============================================================================

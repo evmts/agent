@@ -27,6 +27,8 @@ export interface CommentFrontmatter {
   id: number;
   author: IssueAuthor;
   created_at: string;
+  updated_at?: string;
+  edited?: boolean;
 }
 
 export interface GitIssue extends IssueFrontmatter {
@@ -41,6 +43,7 @@ export interface GitComment extends CommentFrontmatter {
 export interface IssueLabel {
   name: string;
   color: string;
+  description?: string;
 }
 
 export interface IssueConfig {
@@ -71,6 +74,10 @@ export interface UpdateIssueInput {
 export interface CreateCommentInput {
   body: string;
   author: IssueAuthor;
+}
+
+export interface UpdateCommentInput {
+  body: string;
 }
 
 export interface IssueHistoryEntry {
