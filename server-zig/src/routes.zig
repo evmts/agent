@@ -9,10 +9,13 @@ const ssh_keys = @import("routes/ssh_keys.zig");
 const tokens = @import("routes/tokens.zig");
 const users = @import("routes/users.zig");
 const sessions = @import("routes/sessions.zig");
+const messages = @import("routes/messages.zig");
 const repo_routes = @import("routes/repositories.zig");
 const workflows = @import("routes/workflows.zig");
 const runners = @import("routes/runners.zig");
 const issues = @import("routes/issues.zig");
+const landing_queue = @import("routes/landing_queue.zig");
+const watcher_routes = @import("routes/watcher.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -88,6 +91,36 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/:user/:repo/issues/:number/labels", issues.addLabelsToIssue, .{});
     router.delete("/api/:user/:repo/issues/:number/labels/:labelId", issues.removeLabelFromIssue, .{});
 
+    // API routes - pin/unpin issues
+    router.post("/api/:user/:repo/issues/:number/pin", issues.pinIssue, .{});
+    router.post("/api/:user/:repo/issues/:number/unpin", issues.unpinIssue, .{});
+
+    // API routes - reactions
+    router.post("/api/:user/:repo/issues/:number/reactions", issues.addReactionToIssue, .{});
+    router.delete("/api/:user/:repo/issues/:number/reactions/:emoji", issues.removeReactionFromIssue, .{});
+
+    // API routes - assignees
+    router.post("/api/:user/:repo/issues/:number/assignees", issues.addAssigneeToIssue, .{});
+    router.delete("/api/:user/:repo/issues/:number/assignees/:userId", issues.removeAssigneeFromIssue, .{});
+
+    // API routes - dependencies
+    router.post("/api/:user/:repo/issues/:number/dependencies", issues.addDependencyToIssue, .{});
+    router.delete("/api/:user/:repo/issues/:number/dependencies/:blockedNumber", issues.removeDependencyFromIssue, .{});
+
+    // API routes - landing queue (jj-native PR replacement)
+    router.get("/api/:user/:repo/landing", landing_queue.listLandingRequests, .{});
+    router.get("/api/:user/:repo/landing/:id", landing_queue.getLandingRequest, .{});
+    router.post("/api/:user/:repo/landing", landing_queue.createLandingRequest, .{});
+    router.post("/api/:user/:repo/landing/:id/check", landing_queue.checkLandingStatus, .{});
+    router.post("/api/:user/:repo/landing/:id/land", landing_queue.executeLanding, .{});
+    router.delete("/api/:user/:repo/landing/:id", landing_queue.cancelLandingRequest, .{});
+    router.post("/api/:user/:repo/landing/:id/reviews", landing_queue.addReview, .{});
+    router.get("/api/:user/:repo/landing/:id/files", landing_queue.getLandingFiles, .{});
+    router.get("/api/:user/:repo/landing/:id/comments", landing_queue.getLineComments, .{});
+    router.post("/api/:user/:repo/landing/:id/comments", landing_queue.createLineComment, .{});
+    router.patch("/api/:user/:repo/landing/:id/comments/:commentId", landing_queue.updateLineComment, .{});
+    router.delete("/api/:user/:repo/landing/:id/comments/:commentId", landing_queue.deleteLineComment, .{});
+
     // PTY routes
     router.post("/pty", pty_routes.create, .{});
     router.get("/pty", pty_routes.list, .{});
@@ -117,6 +150,17 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/sessions/:sessionId/unrevert", sessions.unrevertSession, .{});
     router.post("/api/sessions/:sessionId/undo", sessions.undoTurns, .{});
 
+    // API routes - messages (agent messages and parts)
+    router.get("/api/sessions/:sessionId/messages", messages.listMessages, .{});
+    router.post("/api/sessions/:sessionId/messages", messages.createMessage, .{});
+    router.get("/api/sessions/:sessionId/messages/:messageId", messages.getMessage, .{});
+    router.patch("/api/sessions/:sessionId/messages/:messageId", messages.updateMessage, .{});
+    router.delete("/api/sessions/:sessionId/messages/:messageId", messages.deleteMessage, .{});
+    router.get("/api/sessions/:sessionId/messages/:messageId/parts", messages.listParts, .{});
+    router.post("/api/sessions/:sessionId/messages/:messageId/parts", messages.createPart, .{});
+    router.patch("/api/sessions/:sessionId/messages/:messageId/parts/:partId", messages.updatePart, .{});
+    router.delete("/api/sessions/:sessionId/messages/:messageId/parts/:partId", messages.deletePart, .{});
+
     // API routes - workflows
     router.get("/api/:user/:repo/workflows/runs", workflows.listRuns, .{});
     router.get("/api/:user/:repo/workflows/runs/:runId", workflows.getRun, .{});
@@ -132,6 +176,13 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/runners/tasks/fetch", runners.fetchTask, .{});
     router.post("/api/runners/tasks/:taskId/status", runners.updateTaskStatus, .{});
     router.post("/api/runners/tasks/:taskId/logs", runners.appendLogs, .{});
+
+    // API routes - repository watcher
+    router.get("/api/watcher/status", watcher_routes.getWatcherStatus, .{});
+    router.get("/api/watcher/repos", watcher_routes.listWatchedRepos, .{});
+    router.post("/api/watcher/watch/:user/:repo", watcher_routes.watchRepository, .{});
+    router.delete("/api/watcher/watch/:user/:repo", watcher_routes.unwatchRepository, .{});
+    router.post("/api/watcher/sync/:user/:repo", watcher_routes.syncRepository, .{});
 
     log.info("Routes configured", .{});
 }

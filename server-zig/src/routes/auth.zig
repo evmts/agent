@@ -2,8 +2,8 @@
 //!
 //! Handles SIWE (Sign In With Ethereum) authentication flow:
 //! - GET /auth/siwe/nonce - Generate nonce for signing
-//! - POST /auth/siwe/verify - Verify signature and login
-//! - POST /auth/siwe/register - Register new account
+//! - POST /auth/siwe/verify - Verify signature and login (auto-creates account if needed)
+//! - POST /auth/siwe/register - Register new account with custom username
 //! - POST /auth/logout - Destroy session
 //! - GET /auth/me - Get current user
 
@@ -17,6 +17,21 @@ const auth_middleware = @import("../middleware/auth.zig");
 
 const log = std.log.scoped(.auth_routes);
 
+/// Generate a username from wallet address.
+/// Format: first 6 + last 4 chars of address (e.g., "0x1234abcd")
+fn generateUsernameFromWallet(allocator: std.mem.Allocator, wallet_address: []const u8) ![]const u8 {
+    if (wallet_address.len < 10) {
+        // Fallback for short addresses
+        return try allocator.dupe(u8, wallet_address);
+    }
+
+    // Take first 6 characters (0x1234) and last 4 characters (abcd)
+    const first_part = wallet_address[0..6];
+    const last_part = wallet_address[wallet_address.len - 4 ..];
+
+    return try std.fmt.allocPrint(allocator, "{s}{s}", .{ first_part, last_part });
+}
+
 /// GET /auth/siwe/nonce
 /// Generate a nonce for SIWE authentication
 pub fn getNonce(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
@@ -29,7 +44,8 @@ pub fn getNonce(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
 }
 
 /// POST /auth/siwe/verify
-/// Verify SIWE signature and authenticate existing user
+/// Verify SIWE signature and authenticate user.
+/// Auto-creates account if wallet is not registered.
 pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
@@ -64,13 +80,37 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const wallet_address = std.ascii.lowerString(ctx.allocator.alloc(u8, result.address.len) catch unreachable, result.address) catch result.address;
     defer if (wallet_address.ptr != result.address.ptr) ctx.allocator.free(wallet_address);
 
-    // Check if user exists
-    const user = try db.getUserByWallet(ctx.pool, wallet_address);
+    // Check if user exists, auto-create if not
+    var user = try db.getUserByWallet(ctx.pool, wallet_address);
+    var created_username: ?[]const u8 = null;
+    defer if (created_username) |un| ctx.allocator.free(un);
+
     if (user == null) {
-        res.status = .@"Not Found";
-        var writer = res.writer();
-        try writer.print("{{\"error\":\"Wallet not registered\",\"code\":\"WALLET_NOT_REGISTERED\",\"address\":\"{s}\"}}", .{wallet_address});
-        return;
+        // Auto-create user with generated username
+        var username = try generateUsernameFromWallet(ctx.allocator, wallet_address);
+        created_username = username;
+
+        // Handle potential username collision by appending a number
+        var attempt: u32 = 0;
+        var user_id: i64 = 0;
+        while (attempt < 100) : (attempt += 1) {
+            user_id = db.createUser(ctx.pool, username, username, wallet_address) catch |err| {
+                if (attempt < 99) {
+                    // If username is taken, try with a suffix
+                    ctx.allocator.free(username);
+                    const base_username = try generateUsernameFromWallet(ctx.allocator, wallet_address);
+                    defer ctx.allocator.free(base_username);
+                    username = try std.fmt.allocPrint(ctx.allocator, "{s}{d}", .{ base_username, attempt + 1 });
+                    created_username = username;
+                    continue;
+                }
+                return err;
+            };
+            break;
+        }
+
+        // Re-fetch the user from database to get consistent data
+        user = try db.getUserById(ctx.pool, user_id);
     }
 
     const u = user.?;

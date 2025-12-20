@@ -15,6 +15,14 @@
 //! 12. POST /:user/:repo/labels - Create label
 //! 13. POST /:user/:repo/issues/:number/labels - Add labels to issue
 //! 14. DELETE /:user/:repo/issues/:number/labels/:labelId - Remove label from issue
+//! 15. POST /:user/:repo/issues/:number/pin - Pin issue
+//! 16. POST /:user/:repo/issues/:number/unpin - Unpin issue
+//! 17. POST /:user/:repo/issues/:number/reactions - Add reaction to issue
+//! 18. DELETE /:user/:repo/issues/:number/reactions/:emoji - Remove reaction from issue
+//! 19. POST /:user/:repo/issues/:number/assignees - Add assignee to issue
+//! 20. DELETE /:user/:repo/issues/:number/assignees/:userId - Remove assignee from issue
+//! 21. POST /:user/:repo/issues/:number/dependencies - Add dependency (blocker)
+//! 22. DELETE /:user/:repo/issues/:number/dependencies/:blockedNumber - Remove dependency
 
 const std = @import("std");
 const httpz = @import("httpz");
@@ -1187,6 +1195,754 @@ pub fn removeLabelFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
         log.err("Failed to remove label from issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove label\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+// ============================================================================
+// Pin/Unpin Routes
+// ============================================================================
+
+/// POST /:user/:repo/issues/:number/pin
+/// Pin an issue
+pub fn pinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Pin the issue
+    db_issues.pinIssue(ctx.pool, repo.?.id, issue.?.id, ctx.user.?.id) catch |err| {
+        if (err == error.MaxPinnedIssuesReached) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Maximum of 3 pinned issues reached\"}");
+            return;
+        }
+        log.err("Failed to pin issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to pin issue\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// POST /:user/:repo/issues/:number/unpin
+/// Unpin an issue
+pub fn unpinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Unpin the issue
+    db_issues.unpinIssue(ctx.pool, issue.?.id) catch |err| {
+        log.err("Failed to unpin issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to unpin issue\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+// ============================================================================
+// Reaction Routes
+// ============================================================================
+
+/// POST /:user/:repo/issues/:number/reactions
+/// Add a reaction to an issue
+pub fn addReactionToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        emoji: []const u8,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    if (v.emoji.len == 0) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Emoji is required\"}");
+        return;
+    }
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Add reaction (use issue_number as target_id for compatibility with TS)
+    const reaction = db_issues.addReaction(ctx.pool, ctx.user.?.id, "issue", issue_number, v.emoji) catch |err| {
+        log.err("Failed to add reaction: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to add reaction\"}");
+        return;
+    };
+
+    if (reaction) |r| {
+        res.status = 201;
+        var writer = res.writer();
+        try writer.print(
+            \\{{"id":{d},"userId":{d},"emoji":"{s}","createdAt":{d}}}
+        , .{ r.id, r.user_id, r.emoji, r.created_at });
+    } else {
+        try res.writer().writeAll("{\"message\":\"Reaction already exists\"}");
+    }
+}
+
+/// DELETE /:user/:repo/issues/:number/reactions/:emoji
+/// Remove a reaction from an issue
+pub fn removeReactionFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    const emoji = req.param("emoji") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing emoji parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue to verify it exists
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Remove reaction (use issue_number as target_id for compatibility with TS)
+    db_issues.removeReaction(ctx.pool, ctx.user.?.id, "issue", issue_number, emoji) catch |err| {
+        log.err("Failed to remove reaction: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to remove reaction\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+// ============================================================================
+// Assignee Routes
+// ============================================================================
+
+/// POST /:user/:repo/issues/:number/assignees
+/// Add an assignee to an issue
+pub fn addAssigneeToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        user_id: i64,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Add assignee
+    db_issues.addAssignee(ctx.pool, issue.?.id, v.user_id) catch |err| {
+        log.err("Failed to add assignee: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to add assignee\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// DELETE /:user/:repo/issues/:number/assignees/:userId
+/// Remove an assignee from an issue
+pub fn removeAssigneeFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    const user_id_str = req.param("userId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing user ID parameter\"}");
+        return;
+    };
+
+    const user_id = std.fmt.parseInt(i64, user_id_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid user ID\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get issue
+    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Remove assignee
+    db_issues.removeAssignee(ctx.pool, issue.?.id, user_id) catch |err| {
+        log.err("Failed to remove assignee: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to remove assignee\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+// ============================================================================
+// Dependency Routes
+// ============================================================================
+
+/// POST /:user/:repo/issues/:number/dependencies
+/// Add a dependency (this issue blocks another)
+pub fn addDependencyToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        blocks: i64,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get blocker issue (this issue)
+    const blocker_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get blocker issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (blocker_issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Get blocked issue
+    const blocked_issue = db_issues.getIssue(ctx.pool, repo.?.id, v.blocks) catch |err| {
+        log.err("Failed to get blocked issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (blocked_issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Blocked issue not found\"}");
+        return;
+    }
+
+    // Add dependency
+    db_issues.addDependency(ctx.pool, repo.?.id, blocker_issue.?.id, blocked_issue.?.id) catch |err| {
+        log.err("Failed to add dependency: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to add dependency\"}");
+        return;
+    };
+
+    res.status = 201;
+    try res.writer().writeAll("{\"success\":true}");
+}
+
+/// DELETE /:user/:repo/issues/:number/dependencies/:blockedNumber
+/// Remove a dependency (this issue no longer blocks another)
+pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Require authentication
+    if (ctx.user == null) {
+        res.status = 401;
+        try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+        return;
+    }
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const number_str = req.param("number") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing issue number parameter\"}");
+        return;
+    };
+
+    const issue_number = std.fmt.parseInt(i64, number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid issue number\"}");
+        return;
+    };
+
+    const blocked_number_str = req.param("blockedNumber") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing blocked issue number parameter\"}");
+        return;
+    };
+
+    const blocked_number = std.fmt.parseInt(i64, blocked_number_str, 10) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid blocked issue number\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (repo == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    // Get blocker issue
+    const blocker_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+        log.err("Failed to get blocker issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (blocker_issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Issue not found\"}");
+        return;
+    }
+
+    // Get blocked issue
+    const blocked_issue = db_issues.getIssue(ctx.pool, repo.?.id, blocked_number) catch |err| {
+        log.err("Failed to get blocked issue: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Database error\"}");
+        return;
+    };
+
+    if (blocked_issue == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Blocked issue not found\"}");
+        return;
+    }
+
+    // Remove dependency
+    db_issues.removeDependency(ctx.pool, blocker_issue.?.id, blocked_issue.?.id) catch |err| {
+        log.err("Failed to remove dependency: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to remove dependency\"}");
         return;
     };
 
