@@ -13,7 +13,10 @@
     "lint:check": "eslint . --max-warnings 0",
     "type-check": "astro check --minimumFailingSeverity error && tsc --noEmit",
     "db:migrate": "node -e \"console.log('Database migration placeholder')\"",
-    "postinstall": "astro sync"
+    "postinstall": "astro sync",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",
@@ -36,6 +39,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@astrojs/check": "^0.9.6",
     "@types/bun": "^1.3.5",
     "@types/node": "^20.0.0",
