@@ -77,7 +77,7 @@ pub const SessionCleanup = struct {
 
         while (self.running.load(.acquire)) {
             // Sleep for cleanup interval
-            std.time.sleep(self.config.cleanup_interval_ms * std.time.ns_per_ms);
+            std.Thread.sleep(self.config.cleanup_interval_ms * std.time.ns_per_ms);
 
             // Perform cleanup
             self.cleanupOnce() catch |err| {
@@ -116,6 +116,54 @@ test "SessionCleanup init/deinit" {
 
     var cleanup = SessionCleanup.init(allocator, &mock_pool, .{});
     defer cleanup.deinit();
+
+    try std.testing.expect(!cleanup.running.load(.acquire));
+}
+
+test "Config default values" {
+    const config = Config{};
+
+    // Default cleanup interval is 5 minutes (300,000 ms)
+    try std.testing.expectEqual(@as(u64, 5 * 60 * 1000), config.cleanup_interval_ms);
+}
+
+test "Config custom interval" {
+    const config = Config{
+        .cleanup_interval_ms = 60 * 1000, // 1 minute
+    };
+
+    try std.testing.expectEqual(@as(u64, 60 * 1000), config.cleanup_interval_ms);
+}
+
+test "SessionCleanup initial state" {
+    const allocator = std.testing.allocator;
+
+    var mock_pool: db.Pool = undefined;
+
+    var cleanup = SessionCleanup.init(allocator, &mock_pool, .{
+        .cleanup_interval_ms = 1000,
+    });
+    defer cleanup.deinit();
+
+    // Should not be running initially
+    try std.testing.expect(!cleanup.running.load(.acquire));
+
+    // Thread should be null initially
+    try std.testing.expect(cleanup.thread == null);
+
+    // Config should be set correctly
+    try std.testing.expectEqual(@as(u64, 1000), cleanup.config.cleanup_interval_ms);
+}
+
+test "SessionCleanup stop when not running" {
+    const allocator = std.testing.allocator;
+
+    var mock_pool: db.Pool = undefined;
+
+    var cleanup = SessionCleanup.init(allocator, &mock_pool, .{});
+
+    // Stopping when not running should not cause issues
+    cleanup.stop();
 
     try std.testing.expect(!cleanup.running.load(.acquire));
 }

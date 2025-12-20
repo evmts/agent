@@ -180,3 +180,85 @@ test "rate limiter basic" {
     // Different key should work
     try std.testing.expect(limiter.check("other"));
 }
+
+test "rate limiter remaining count" {
+    const allocator = std.testing.allocator;
+
+    var limiter = RateLimiter.init(allocator, .{
+        .max_requests = 5,
+        .window_ms = 10000,
+    });
+    defer limiter.deinit();
+
+    // Initially should have full capacity
+    try std.testing.expectEqual(@as(u32, 5), limiter.remaining("testkey"));
+
+    // After one request
+    _ = limiter.check("testkey");
+    try std.testing.expectEqual(@as(u32, 4), limiter.remaining("testkey"));
+
+    // After more requests
+    _ = limiter.check("testkey");
+    _ = limiter.check("testkey");
+    try std.testing.expectEqual(@as(u32, 2), limiter.remaining("testkey"));
+}
+
+test "rate limiter multiple keys" {
+    const allocator = std.testing.allocator;
+
+    var limiter = RateLimiter.init(allocator, .{
+        .max_requests = 2,
+        .window_ms = 10000,
+    });
+    defer limiter.deinit();
+
+    // Use up quota for key1
+    try std.testing.expect(limiter.check("key1"));
+    try std.testing.expect(limiter.check("key1"));
+    try std.testing.expect(!limiter.check("key1"));
+
+    // key2 should still have quota
+    try std.testing.expect(limiter.check("key2"));
+    try std.testing.expect(limiter.check("key2"));
+    try std.testing.expect(!limiter.check("key2"));
+
+    // key3 is untouched
+    try std.testing.expectEqual(@as(u32, 2), limiter.remaining("key3"));
+}
+
+test "rate limiter zero remaining" {
+    const allocator = std.testing.allocator;
+
+    var limiter = RateLimiter.init(allocator, .{
+        .max_requests = 1,
+        .window_ms = 10000,
+    });
+    defer limiter.deinit();
+
+    _ = limiter.check("test");
+    try std.testing.expectEqual(@as(u32, 0), limiter.remaining("test"));
+}
+
+test "rate limiter presets" {
+    // Test auth preset values
+    try std.testing.expectEqual(@as(u32, 5), presets.auth.max_requests);
+    try std.testing.expectEqual(@as(u64, 15 * 60 * 1000), presets.auth.window_ms);
+    try std.testing.expect(presets.auth.skip_on_success);
+
+    // Test API preset values
+    try std.testing.expectEqual(@as(u32, 100), presets.api.max_requests);
+    try std.testing.expectEqual(@as(u64, 15 * 60 * 1000), presets.api.window_ms);
+
+    // Test email preset values
+    try std.testing.expectEqual(@as(u32, 3), presets.email.max_requests);
+    try std.testing.expectEqual(@as(u64, 60 * 60 * 1000), presets.email.window_ms);
+}
+
+test "RateLimitConfig default values" {
+    const config = RateLimitConfig{
+        .max_requests = 10,
+        .window_ms = 1000,
+    };
+
+    try std.testing.expectEqual(false, config.skip_on_success);
+}

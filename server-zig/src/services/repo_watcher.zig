@@ -229,7 +229,7 @@ pub const RepoWatcher = struct {
         const jj_path = try std.fmt.allocPrint(self.allocator, "{s}/.jj", .{repo_path});
         defer self.allocator.free(jj_path);
 
-        const jj_dir = std.fs.cwd().openDir(jj_path, .{}) catch |err| {
+        var jj_dir = std.fs.cwd().openDir(jj_path, .{}) catch |err| {
             if (err == error.FileNotFound) {
                 // Repository not initialized yet
                 return;

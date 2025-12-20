@@ -82,14 +82,13 @@ pub fn authMiddleware(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         return true;
     }
 
-    // Check if session is near expiry (less than 7 days remaining)
+    // Check if session is near expiry (within refresh threshold)
     const now = std.time.milliTimestamp();
     const expires_at_ms = session_data.?.expires_at * 1000; // Convert to milliseconds
     const time_remaining = expires_at_ms - now;
-    const seven_days_ms = 7 * 24 * 60 * 60 * 1000;
 
     // Auto-refresh if near expiry
-    if (time_remaining < seven_days_ms and time_remaining > 0) {
+    if (time_remaining < db.SESSION_REFRESH_THRESHOLD_MS and time_remaining > 0) {
         try db.refreshSession(ctx.pool, session_key);
     }
 
@@ -211,4 +210,96 @@ test "parse session cookie missing" {
     const cookie = "other=value; another=test";
     const session = getSessionFromCookie(cookie);
     try std.testing.expect(session == null);
+}
+
+test "parse session cookie null header" {
+    const session = getSessionFromCookie(null);
+    try std.testing.expect(session == null);
+}
+
+test "parse session cookie first" {
+    const cookie = "plue_session=firstvalue; other=value";
+    const session = getSessionFromCookie(cookie);
+    try std.testing.expectEqualStrings("firstvalue", session.?);
+}
+
+test "parse session cookie only" {
+    const cookie = "plue_session=onlyvalue";
+    const session = getSessionFromCookie(cookie);
+    try std.testing.expectEqualStrings("onlyvalue", session.?);
+}
+
+test "parse session cookie complex value" {
+    const cookie = "plue_session=abc-123_XYZ; other=value";
+    const session = getSessionFromCookie(cookie);
+    try std.testing.expectEqualStrings("abc-123_XYZ", session.?);
+}
+
+test "hashToken produces consistent output" {
+    const allocator = std.testing.allocator;
+
+    const hash1 = try hashToken(allocator, "test_token");
+    defer allocator.free(hash1);
+
+    const hash2 = try hashToken(allocator, "test_token");
+    defer allocator.free(hash2);
+
+    try std.testing.expectEqualStrings(hash1, hash2);
+}
+
+test "hashToken different inputs produce different hashes" {
+    const allocator = std.testing.allocator;
+
+    const hash1 = try hashToken(allocator, "token1");
+    defer allocator.free(hash1);
+
+    const hash2 = try hashToken(allocator, "token2");
+    defer allocator.free(hash2);
+
+    try std.testing.expect(!std.mem.eql(u8, hash1, hash2));
+}
+
+test "hashToken output format" {
+    const allocator = std.testing.allocator;
+
+    const hash = try hashToken(allocator, "any_token");
+    defer allocator.free(hash);
+
+    // SHA256 produces 32 bytes = 64 hex characters
+    try std.testing.expectEqual(@as(usize, 64), hash.len);
+
+    // All characters should be valid hex
+    for (hash) |c| {
+        const is_hex = (c >= '0' and c <= '9') or (c >= 'a' and c <= 'f');
+        try std.testing.expect(is_hex);
+    }
+}
+
+test "getBearerToken valid" {
+    const token = getBearerToken("Bearer abc123token");
+    try std.testing.expectEqualStrings("abc123token", token.?);
+}
+
+test "getBearerToken missing Bearer prefix" {
+    const token = getBearerToken("Basic abc123");
+    try std.testing.expect(token == null);
+}
+
+test "getBearerToken null header" {
+    const token = getBearerToken(null);
+    try std.testing.expect(token == null);
+}
+
+test "getBearerToken empty token" {
+    const token = getBearerToken("Bearer ");
+    try std.testing.expectEqualStrings("", token.?);
+}
+
+test "getBearerToken case sensitive" {
+    // Bearer must be exactly "Bearer "
+    const token1 = getBearerToken("bearer abc123");
+    try std.testing.expect(token1 == null);
+
+    const token2 = getBearerToken("BEARER abc123");
+    try std.testing.expect(token2 == null);
 }
