@@ -1,0 +1,7 @@
+[test]
+# Exclude e2e and gitea-ref from bun test
+root = "."
+
+[install]
+# Force resolve modules from node_modules
+cache = true
