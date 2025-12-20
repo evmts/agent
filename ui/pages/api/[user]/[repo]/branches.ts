@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { sql } from '../../../../lib/db';
 import * as git from '../../../../lib/git';
-import type { Branch, ProtectedBranch } from '../../../../lib/types';
+import type { Branch } from '../../../../lib/types';
 
 export const GET: APIRoute = async ({ params, url }) => {
   const { user, repo } = params;

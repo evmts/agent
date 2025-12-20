@@ -98,7 +98,7 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
 
     // Create review
-    const [review] = await sql<Review[]>`
+    const [_review] = await sql<Review[]>`
       INSERT INTO reviews (
         pull_request_id, reviewer_id, type, content, commit_id
       ) VALUES (

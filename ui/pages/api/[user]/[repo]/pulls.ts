@@ -113,7 +113,7 @@ export const POST: APIRoute = async ({ params, request }) => {
     const conflictedFilesArray = conflictedFiles.length > 0 ? conflictedFiles : null;
 
     // Create pull request
-    const [pr] = await sql<PullRequest[]>`
+    const [_pr] = await sql<PullRequest[]>`
       INSERT INTO pull_requests (
         issue_id,
         head_repo_id, head_branch, head_commit_id,
