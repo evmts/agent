@@ -60,3 +60,19 @@ export class TimeoutError extends CoreError {
     this.timeoutMs = timeoutMs;
   }
 }
+
+export class SnapshotUnavailableError extends CoreError {
+  operation: string;
+  reason?: string;
+
+  constructor(operation: string, reason?: string) {
+    super(
+      reason
+        ? `Snapshot system unavailable for ${operation}: ${reason}`
+        : `Snapshot system unavailable for ${operation}. The native jj module is not loaded.`
+    );
+    this.name = 'SnapshotUnavailableError';
+    this.operation = operation;
+    this.reason = reason;
+  }
+}

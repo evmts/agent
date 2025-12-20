@@ -10,7 +10,7 @@ import {
   appendSnapshotHistory as appendSnapshotHistoryToDB,
   setSnapshotHistory,
 } from './state';
-import { NotFoundError } from './exceptions';
+import { NotFoundError, SnapshotUnavailableError } from './exceptions';
 
 // Types (defined locally to avoid native dependency)
 export interface FileDiff {
@@ -79,10 +79,7 @@ export async function initSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    console.warn('[snapshots] Session manager not available, using placeholder');
-    const changeId = `placeholder_${sessionId}_${Date.now()}`;
-    await setSnapshotHistory(sessionId, [changeId]);
-    return changeId;
+    throw new SnapshotUnavailableError('initSnapshot');
   }
 
   try {
@@ -90,10 +87,8 @@ export async function initSnapshot(
     await setSnapshotHistory(sessionId, [changeId]);
     return changeId;
   } catch (error) {
-    console.warn('[snapshots] Failed to init session, using placeholder:', error);
-    const changeId = `placeholder_${sessionId}_${Date.now()}`;
-    await setSnapshotHistory(sessionId, [changeId]);
-    return changeId;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('initSnapshot', reason);
   }
 }
 
@@ -112,9 +107,7 @@ export async function trackSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    const changeId = `placeholder_${sessionId}_${Date.now()}`;
-    await appendSnapshotHistoryToDB(sessionId, changeId);
-    return changeId;
+    throw new SnapshotUnavailableError('trackSnapshot');
   }
 
   try {
@@ -126,10 +119,11 @@ export async function trackSnapshot(
     await appendSnapshotHistoryToDB(sessionId, changeId);
     return changeId;
   } catch (error) {
-    console.warn('[snapshots] Failed to track snapshot, using placeholder:', error);
-    const changeId = `placeholder_${sessionId}_${Date.now()}`;
-    await appendSnapshotHistoryToDB(sessionId, changeId);
-    return changeId;
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('trackSnapshot', reason);
   }
 }
 
@@ -149,14 +143,17 @@ export async function computeDiff(
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('computeDiff');
   }
 
   try {
     return await sessionManager.computeDiff(sessionId, fromChangeId, toChangeId);
   } catch (error) {
-    console.warn('[snapshots] Failed to compute diff:', error);
-    return [];
+    if (error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('computeDiff', reason);
   }
 }
 
@@ -176,7 +173,7 @@ export async function getChangedFiles(
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('getChangedFiles');
   }
 
   try {
@@ -187,8 +184,11 @@ export async function getChangedFiles(
 
     return await snapshot.patch(fromChangeId, toChangeId);
   } catch (error) {
-    console.warn('[snapshots] Failed to get changed files:', error);
-    return [];
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getChangedFiles', reason);
   }
 }
 
@@ -206,8 +206,7 @@ export async function restoreSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    console.warn('[snapshots] Cannot restore snapshot: session manager not available');
-    return;
+    throw new SnapshotUnavailableError('restoreSnapshot');
   }
 
   try {
@@ -216,7 +215,11 @@ export async function restoreSnapshot(
     if (error instanceof Error && error.message.includes('not found')) {
       throw new NotFoundError('session snapshot', sessionId);
     }
-    console.warn('[snapshots] Failed to restore snapshot:', error);
+    if (error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('restoreSnapshot', reason);
   }
 }
 
@@ -230,14 +233,17 @@ export async function getSnapshotHistory(sessionId: string): Promise<string[]> {
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('getSnapshotHistory');
   }
 
   try {
     return sessionManager.getHistory(sessionId);
   } catch (error) {
-    console.warn('[snapshots] Failed to get snapshot history:', error);
-    return [];
+    if (error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSnapshotHistory', reason);
   }
 }
 
@@ -311,8 +317,7 @@ export async function revertFiles(
   await initializeNative();
 
   if (!sessionManager) {
-    console.warn('[snapshots] Cannot revert files: session manager not available');
-    return;
+    throw new SnapshotUnavailableError('revertFiles');
   }
 
   try {
@@ -323,7 +328,11 @@ export async function revertFiles(
 
     await snapshot.revert(changeId, files);
   } catch (error) {
-    console.warn('[snapshots] Failed to revert files:', error);
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('revertFiles', reason);
   }
 }
 
@@ -344,7 +353,7 @@ export async function getFileAtSnapshot(
   await initializeNative();
 
   if (!sessionManager) {
-    return null;
+    throw new SnapshotUnavailableError('getFileAtSnapshot');
   }
 
   try {
@@ -355,8 +364,11 @@ export async function getFileAtSnapshot(
 
     return snapshot.getFileAt(changeId, filePath);
   } catch (error) {
-    console.warn('[snapshots] Failed to get file at snapshot:', error);
-    return null;
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getFileAtSnapshot', reason);
   }
 }
 
@@ -369,8 +381,7 @@ export async function undoLastOperation(sessionId: string): Promise<void> {
   await initializeNative();
 
   if (!sessionManager) {
-    console.warn('[snapshots] Cannot undo: session manager not available');
-    return;
+    throw new SnapshotUnavailableError('undoLastOperation');
   }
 
   try {
@@ -381,7 +392,11 @@ export async function undoLastOperation(sessionId: string): Promise<void> {
 
     await snapshot.undo();
   } catch (error) {
-    console.warn('[snapshots] Failed to undo operation:', error);
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('undoLastOperation', reason);
   }
 }
 
@@ -422,7 +437,7 @@ export async function getSessionOperations(
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('getSessionOperations');
   }
 
   try {
@@ -433,8 +448,11 @@ export async function getSessionOperations(
 
     return await snapshot.getOperationLog(limit);
   } catch (error) {
-    console.warn('[snapshots] Failed to get operations:', error);
-    return [];
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSessionOperations', reason);
   }
 }
 
@@ -451,8 +469,7 @@ export async function restoreSessionOperation(
   await initializeNative();
 
   if (!sessionManager) {
-    console.warn('[snapshots] Cannot restore operation: session manager not available');
-    return;
+    throw new SnapshotUnavailableError('restoreSessionOperation');
   }
 
   try {
@@ -463,8 +480,11 @@ export async function restoreSessionOperation(
 
     await snapshot.restoreOperation(operationId);
   } catch (error) {
-    console.warn('[snapshots] Failed to restore operation:', error);
-    throw error;
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('restoreSessionOperation', reason);
   }
 }
 
@@ -482,7 +502,7 @@ export async function getSessionChanges(
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('getSessionChanges');
   }
 
   try {
@@ -493,8 +513,11 @@ export async function getSessionChanges(
 
     return await snapshot.listSnapshots(limit);
   } catch (error) {
-    console.warn('[snapshots] Failed to get changes:', error);
-    return [];
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSessionChanges', reason);
   }
 }
 
@@ -508,7 +531,7 @@ export async function getSessionCurrentChange(sessionId: string): Promise<string
   await initializeNative();
 
   if (!sessionManager) {
-    return null;
+    throw new SnapshotUnavailableError('getSessionCurrentChange');
   }
 
   try {
@@ -519,8 +542,11 @@ export async function getSessionCurrentChange(sessionId: string): Promise<string
 
     return await snapshot.current();
   } catch (error) {
-    console.warn('[snapshots] Failed to get current change:', error);
-    return null;
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSessionCurrentChange', reason);
   }
 }
 
@@ -538,7 +564,7 @@ export async function getSessionConflicts(
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('getSessionConflicts');
   }
 
   try {
@@ -553,14 +579,17 @@ export async function getSessionConflicts(
     // Check for conflict markers in the working copy
     // jj stores conflicts as first-class citizens, we need to run jj resolve --list
     // This is done through the snapshot's execJj method
-    const files = await snapshot.listFilesAt(targetChangeId);
+    const _files = await snapshot.listFilesAt(targetChangeId);
 
     // For now, return empty - conflicts are surfaced via hasConflicts in SnapshotInfo
     // The model handles conflicts directly in jj
     return [];
   } catch (error) {
-    console.warn('[snapshots] Failed to get conflicts:', error);
-    return [];
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSessionConflicts', reason);
   }
 }
 
@@ -606,7 +635,7 @@ export async function getSessionFileAtChange(
   await initializeNative();
 
   if (!sessionManager) {
-    return null;
+    throw new SnapshotUnavailableError('getSessionFileAtChange');
   }
 
   try {
@@ -617,8 +646,11 @@ export async function getSessionFileAtChange(
 
     return await snapshot.getFileAt(changeId, filePath);
   } catch (error) {
-    console.warn('[snapshots] Failed to get file at change:', error);
-    return null;
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSessionFileAtChange', reason);
   }
 }
 
@@ -636,7 +668,7 @@ export async function getSessionFilesAtChange(
   await initializeNative();
 
   if (!sessionManager) {
-    return [];
+    throw new SnapshotUnavailableError('getSessionFilesAtChange');
   }
 
   try {
@@ -647,7 +679,10 @@ export async function getSessionFilesAtChange(
 
     return await snapshot.listFilesAt(changeId);
   } catch (error) {
-    console.warn('[snapshots] Failed to list files at change:', error);
-    return [];
+    if (error instanceof NotFoundError || error instanceof SnapshotUnavailableError) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SnapshotUnavailableError('getSessionFilesAtChange', reason);
   }
 }
