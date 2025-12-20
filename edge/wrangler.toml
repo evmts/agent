@@ -17,6 +17,8 @@ new_sqlite_classes = ["DataSyncDO"]
 [vars]
 ORIGIN_HOST = "origin.internal"
 ELECTRIC_URL = "http://origin-electric.internal:3000"
+PUSH_SECRET = "test-secret"
+ENABLE_PUSH_INVALIDATION = "true"
 
 # Development overrides
 [env.dev]
@@ -24,6 +26,8 @@ name = "plue-edge-dev"
 [env.dev.vars]
 ORIGIN_HOST = "localhost:5173"
 ELECTRIC_URL = "http://localhost:3000"
+PUSH_SECRET = "dev-secret-change-me"
+ENABLE_PUSH_INVALIDATION = "true"
 
 # Production
 [env.production]

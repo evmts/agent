@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ShapeStream, isChangeMessage, isControlMessage } from '@electric-sql/client';
-import type { Env, User, Repository, Issue, Comment, PullRequest, Review } from '../types';
+import type { Env, User, Repository, Issue, Comment, PullRequest, Review, InvalidationMessage } from '../types';
 
 type ChangeMessage = {
   headers: { operation: 'insert' | 'update' | 'delete' };
@@ -9,13 +9,47 @@ type ChangeMessage = {
   offset: string;
 };
 
+/**
+ * Durable Object providing edge-cached data synchronization with push-based invalidation.
+ *
+ * This DO maintains a SQLite-backed cache of:
+ * - PostgreSQL data synced via Electric SQL shapes (users, repos, issues, PRs)
+ * - Git repository data (trees, file contents) validated by merkle roots
+ *
+ * Cache Invalidation Strategy:
+ * - Push mode (ENABLE_PUSH_INVALIDATION=true): K8s sends invalidation messages via
+ *   /invalidate endpoint when data changes. Cached data is trusted until invalidated.
+ * - TTL mode (default): 5-second cache TTL with polling Electric SQL for updates.
+ *
+ * Git Cache Validation:
+ * - Each repo/ref has a merkle root hash stored in the DO
+ * - Cached trees and files include the merkle root they were fetched under
+ * - On cache hit, merkle root is compared; mismatch triggers refetch from origin
+ * - K8s pushes new merkle roots when commits are pushed to the repository
+ *
+ * @see InvalidationMessage for the invalidation message format
+ */
 export class DataSyncDO extends DurableObject<Env> {
   private sql: SqlStorage;
   private syncPromises: Map<string, Promise<void>> = new Map();
 
+  /**
+   * Feature flag controlling cache invalidation mode.
+   * When true, uses push-based invalidation from K8s.
+   * When false, uses 5-second TTL polling.
+   */
+  private enablePushInvalidation: boolean;
+
+  /**
+   * Maximum total size of file content cache in bytes (50MB).
+   * Uses LRU eviction when this limit is exceeded.
+   */
+  private readonly MAX_FILE_CACHE_SIZE = 50 * 1024 * 1024; // 50MB
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
+    this.enablePushInvalidation = this.env.ENABLE_PUSH_INVALIDATION === 'true';
     this.initTables();
   }
 
@@ -106,10 +140,59 @@ export class DataSyncDO extends DurableObject<Env> {
         shape_handle TEXT,
         last_synced_at TEXT
       );
+
+      -- Git tree cache with merkle validation
+      CREATE TABLE IF NOT EXISTS git_trees (
+        cache_key TEXT PRIMARY KEY,
+        merkle_root TEXT NOT NULL,
+        tree_data TEXT NOT NULL,
+        cached_at TEXT NOT NULL
+      );
+
+      -- LRU file content cache
+      CREATE TABLE IF NOT EXISTS git_files (
+        cache_key TEXT PRIMARY KEY,
+        merkle_root TEXT NOT NULL,
+        content TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        accessed_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_git_files_accessed ON git_files(accessed_at);
+
+      -- Current merkle roots per repo/ref
+      CREATE TABLE IF NOT EXISTS merkle_roots (
+        repo_ref TEXT PRIMARY KEY,
+        root_hash TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
   }
 
-  // Start syncing a shape in the background
+  /**
+   * Ensures an Electric SQL shape is synced to the local cache.
+   *
+   * In push invalidation mode (ENABLE_PUSH_INVALIDATION=true):
+   * - If cached data exists, returns immediately (trusts cache until invalidated)
+   * - Only syncs if no cache exists or shape metadata was deleted by invalidation
+   *
+   * In TTL mode (default):
+   * - Uses 5-second TTL on cached data
+   * - Syncs if cache is older than 5 seconds or doesn't exist
+   *
+   * Multiple concurrent calls for the same shape will wait on a single sync promise.
+   *
+   * @param shapeName - Electric SQL table name (e.g., 'users', 'repositories')
+   * @param where - Optional WHERE clause to filter the shape (e.g., 'is_public = true')
+   * @returns Promise that resolves when shape is synced
+   *
+   * @example
+   * // Sync all public repositories
+   * await ensureSync('repositories', 'is_public = true');
+   *
+   * @example
+   * // Sync all users (no filter)
+   * await ensureSync('users');
+   */
   async ensureSync(shapeName: string, where?: string): Promise<void> {
     const key = where ? `${shapeName}:${where}` : shapeName;
 
@@ -118,7 +201,7 @@ export class DataSyncDO extends DurableObject<Env> {
       return this.syncPromises.get(key);
     }
 
-    // Check if we have recent data (within last 5 seconds)
+    // Check if we have cached data
     const meta = this.sql
       .exec(
         `SELECT shape_offset, shape_handle, last_synced_at
@@ -127,16 +210,23 @@ export class DataSyncDO extends DurableObject<Env> {
       )
       .toArray()[0] as { shape_offset: string; shape_handle: string; last_synced_at: string } | undefined;
 
-    if (meta?.last_synced_at) {
-      const lastSync = new Date(meta.last_synced_at);
-      const now = new Date();
-      if (now.getTime() - lastSync.getTime() < 5000) {
-        // Data is fresh enough
+    if (meta?.shape_offset) {
+      // If push invalidation is enabled, trust cached data
+      if (this.enablePushInvalidation) {
         return;
+      }
+
+      // Fallback: 5-second TTL for backward compatibility
+      if (meta.last_synced_at) {
+        const lastSync = new Date(meta.last_synced_at);
+        const now = new Date();
+        if (now.getTime() - lastSync.getTime() < 5000) {
+          return;
+        }
       }
     }
 
-    // Start sync
+    // No cached data or stale - start sync
     const promise = this.syncShape(key, shapeName, where, meta?.shape_offset, meta?.shape_handle);
     this.syncPromises.set(key, promise);
 
@@ -495,14 +585,370 @@ export class DataSyncDO extends DurableObject<Env> {
     return { open: open?.count || 0, merged: merged?.count || 0 };
   }
 
-  // Fetch handler for the DO
+  // Git cache methods with merkle root validation
+
+  /**
+   * Handles git cache invalidation by updating the merkle root.
+   *
+   * When K8s detects a repository change (push, commit), it sends an invalidation
+   * message with the new merkle root hash. This method updates the stored merkle
+   * root, which automatically invalidates all cached tree and file data associated
+   * with the old root.
+   *
+   * Cached entries are not deleted immediately; they fail merkle validation on next
+   * access and are refreshed lazily from origin.
+   *
+   * @param msg - Invalidation message containing repoKey and merkleRoot
+   * @returns Promise that resolves when merkle root is updated
+   *
+   * @example
+   * // Called via /invalidate endpoint after git push
+   * await handleGitInvalidation({
+   *   type: 'git',
+   *   repoKey: 'torvalds/linux',
+   *   merkleRoot: 'a1b2c3d4e5f6...',
+   *   timestamp: Date.now()
+   * });
+   */
+  async handleGitInvalidation(msg: InvalidationMessage): Promise<void> {
+    if (!msg.repoKey || !msg.merkleRoot) {
+      console.warn('Git invalidation missing repoKey or merkleRoot');
+      return;
+    }
+
+    // Default to 'main' ref for now, can be extended to support specific refs
+    const repoRef = `${msg.repoKey}:main`;
+
+    // Update merkle root - this automatically invalidates old cached data
+    // since cache lookups compare against current merkle root
+    this.sql.exec(
+      `INSERT OR REPLACE INTO merkle_roots (repo_ref, root_hash, updated_at)
+       VALUES (?, ?, ?)`,
+      repoRef, msg.merkleRoot, new Date().toISOString()
+    );
+
+    console.log(`Updated merkle root for ${repoRef}: ${msg.merkleRoot.substring(0, 8)}...`);
+  }
+
+  /**
+   * Retrieves cached git tree data with merkle root validation.
+   *
+   * Returns cached directory listing if:
+   * 1. A merkle root exists for this repo/ref
+   * 2. Cached data exists for this path
+   * 3. The cached data's merkle root matches the current merkle root
+   *
+   * Returns null if any validation fails, triggering a refetch from origin.
+   *
+   * @param owner - Repository owner username
+   * @param repo - Repository name
+   * @param ref - Git ref (branch, tag, or commit SHA)
+   * @param path - Directory path within the repository
+   * @returns Cached tree data array or null if cache miss/stale
+   *
+   * @example
+   * const tree = await getTreeData('torvalds', 'linux', 'main', 'drivers/usb');
+   * if (!tree) {
+   *   // Cache miss - fetch from origin
+   * }
+   */
+  async getTreeData(owner: string, repo: string, ref: string, path: string): Promise<unknown[] | null> {
+    const repoRef = `${owner}/${repo}:${ref}`;
+    const cacheKey = `${repoRef}:${path}`;
+
+    // Get current merkle root
+    const rootRow = this.sql.exec(
+      'SELECT root_hash FROM merkle_roots WHERE repo_ref = ?',
+      repoRef
+    ).toArray()[0] as { root_hash: string } | undefined;
+
+    if (!rootRow) {
+      // No merkle root known - can't validate cache, return null
+      return null;
+    }
+
+    // Check cache
+    const cached = this.sql.exec(
+      'SELECT tree_data, merkle_root FROM git_trees WHERE cache_key = ?',
+      cacheKey
+    ).toArray()[0] as { tree_data: string; merkle_root: string } | undefined;
+
+    if (cached && cached.merkle_root === rootRow.root_hash) {
+      // Cache hit - merkle root matches
+      return JSON.parse(cached.tree_data);
+    }
+
+    // Cache miss or stale
+    return null;
+  }
+
+  /**
+   * Caches git tree data with the current merkle root.
+   *
+   * Stores directory listing data tagged with the current merkle root hash.
+   * Will not cache if no merkle root exists for the repo/ref (safety check).
+   *
+   * Cached data will be validated against the merkle root on future reads via
+   * getTreeData(). If the merkle root changes, cached data becomes stale.
+   *
+   * @param owner - Repository owner username
+   * @param repo - Repository name
+   * @param ref - Git ref (branch, tag, or commit SHA)
+   * @param path - Directory path within the repository
+   * @param data - Tree data array to cache (typically from origin)
+   * @returns Promise that resolves when data is cached
+   *
+   * @example
+   * // After fetching from origin
+   * const treeData = await fetchTreeFromOrigin(owner, repo, ref, path);
+   * await cacheTreeData(owner, repo, ref, path, treeData);
+   */
+  async cacheTreeData(owner: string, repo: string, ref: string, path: string, data: unknown[]): Promise<void> {
+    const repoRef = `${owner}/${repo}:${ref}`;
+    const cacheKey = `${repoRef}:${path}`;
+
+    // Get current merkle root
+    const rootRow = this.sql.exec(
+      'SELECT root_hash FROM merkle_roots WHERE repo_ref = ?',
+      repoRef
+    ).toArray()[0] as { root_hash: string } | undefined;
+
+    if (!rootRow) {
+      // No merkle root - don't cache without validation reference
+      return;
+    }
+
+    this.sql.exec(
+      `INSERT OR REPLACE INTO git_trees (cache_key, merkle_root, tree_data, cached_at)
+       VALUES (?, ?, ?, ?)`,
+      cacheKey, rootRow.root_hash, JSON.stringify(data), new Date().toISOString()
+    );
+  }
+
+  /**
+   * Retrieves cached file content with merkle root validation and LRU tracking.
+   *
+   * Returns cached file content if:
+   * 1. A merkle root exists for this repo/ref
+   * 2. Cached content exists for this file path
+   * 3. The cached content's merkle root matches the current merkle root
+   *
+   * On cache hit, updates the accessed_at timestamp for LRU eviction.
+   * Returns null if any validation fails, triggering a refetch from origin.
+   *
+   * @param owner - Repository owner username
+   * @param repo - Repository name
+   * @param ref - Git ref (branch, tag, or commit SHA)
+   * @param path - File path within the repository
+   * @returns Cached file content or null if cache miss/stale
+   *
+   * @example
+   * const content = await getFileContent('torvalds', 'linux', 'main', 'README.md');
+   * if (!content) {
+   *   // Cache miss - fetch from origin
+   * }
+   */
+  async getFileContent(owner: string, repo: string, ref: string, path: string): Promise<string | null> {
+    const repoRef = `${owner}/${repo}:${ref}`;
+    const cacheKey = `${repoRef}:${path}`;
+
+    // Get current merkle root
+    const rootRow = this.sql.exec(
+      'SELECT root_hash FROM merkle_roots WHERE repo_ref = ?',
+      repoRef
+    ).toArray()[0] as { root_hash: string } | undefined;
+
+    if (!rootRow) {
+      return null;
+    }
+
+    // Check cache
+    const cached = this.sql.exec(
+      'SELECT content, merkle_root FROM git_files WHERE cache_key = ?',
+      cacheKey
+    ).toArray()[0] as { content: string; merkle_root: string } | undefined;
+
+    if (cached && cached.merkle_root === rootRow.root_hash) {
+      // Update accessed_at for LRU
+      this.sql.exec(
+        'UPDATE git_files SET accessed_at = ? WHERE cache_key = ?',
+        new Date().toISOString(), cacheKey
+      );
+      return cached.content;
+    }
+
+    return null;
+  }
+
+  /**
+   * Caches file content with the current merkle root, enforcing LRU size limits.
+   *
+   * Stores file content tagged with the current merkle root hash. Before caching,
+   * checks if the total cache size would exceed MAX_FILE_CACHE_SIZE (50MB) and
+   * evicts least-recently-accessed files if needed.
+   *
+   * Will not cache if no merkle root exists for the repo/ref (safety check).
+   *
+   * @param owner - Repository owner username
+   * @param repo - Repository name
+   * @param ref - Git ref (branch, tag, or commit SHA)
+   * @param path - File path within the repository
+   * @param content - File content string to cache (typically from origin)
+   * @returns Promise that resolves when content is cached
+   *
+   * @example
+   * // After fetching from origin
+   * const fileContent = await fetchFileFromOrigin(owner, repo, ref, path);
+   * await cacheFileContent(owner, repo, ref, path, fileContent);
+   */
+  async cacheFileContent(owner: string, repo: string, ref: string, path: string, content: string): Promise<void> {
+    const repoRef = `${owner}/${repo}:${ref}`;
+    const cacheKey = `${repoRef}:${path}`;
+    const size = new TextEncoder().encode(content).length;
+
+    // Get current merkle root
+    const rootRow = this.sql.exec(
+      'SELECT root_hash FROM merkle_roots WHERE repo_ref = ?',
+      repoRef
+    ).toArray()[0] as { root_hash: string } | undefined;
+
+    if (!rootRow) {
+      return;
+    }
+
+    // Evict old entries if needed
+    await this.evictFileCacheIfNeeded(size);
+
+    this.sql.exec(
+      `INSERT OR REPLACE INTO git_files (cache_key, merkle_root, content, size, accessed_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      cacheKey, rootRow.root_hash, content, size, new Date().toISOString()
+    );
+  }
+
+  /**
+   * Evicts least-recently-accessed files from cache to free up space.
+   *
+   * Uses LRU (Least Recently Used) eviction strategy based on accessed_at timestamps.
+   * Deletes files in batches of 100 until there is enough space for neededSize.
+   *
+   * Safety Features:
+   * - Checks current size before each iteration
+   * - Breaks if no files were deleted (prevents infinite loop)
+   * - Batch deletion reduces transaction overhead
+   *
+   * @param neededSize - Bytes needed for the new cache entry
+   * @returns Promise that resolves when enough space is freed
+   *
+   * @example
+   * // Before caching a 10MB file
+   * await evictFileCacheIfNeeded(10 * 1024 * 1024);
+   */
+  private async evictFileCacheIfNeeded(neededSize: number): Promise<void> {
+    const total = this.sql.exec('SELECT COALESCE(SUM(size), 0) as total FROM git_files').toArray()[0] as { total: number };
+
+    if (total.total + neededSize <= this.MAX_FILE_CACHE_SIZE) {
+      return;
+    }
+
+    // Delete oldest accessed files until we have space
+    // Delete in batches of 100 to avoid long transactions
+    while (true) {
+      const currentTotal = this.sql.exec('SELECT COALESCE(SUM(size), 0) as total FROM git_files').toArray()[0] as { total: number };
+
+      if (currentTotal.total + neededSize <= this.MAX_FILE_CACHE_SIZE) {
+        break;
+      }
+
+      this.sql.exec(`
+        DELETE FROM git_files WHERE cache_key IN (
+          SELECT cache_key FROM git_files ORDER BY accessed_at ASC LIMIT 100
+        )
+      `);
+
+      // Safety: if nothing was deleted but we still need space, break to prevent infinite loop
+      const changes = this.sql.exec('SELECT changes() as c').toArray()[0] as { c: number } | undefined;
+      if (!changes || changes.c === 0) {
+        break;
+      }
+    }
+  }
+
+  /**
+   * HTTP request handler for the Durable Object.
+   *
+   * Endpoints:
+   * - GET /health - Health check endpoint (returns "OK")
+   * - POST /invalidate - Receives cache invalidation messages from K8s
+   *
+   * /invalidate Endpoint:
+   * - Requires Authorization: Bearer <PUSH_SECRET> header
+   * - Accepts InvalidationMessage JSON payload
+   * - SQL invalidations: Deletes shape sync metadata to force resync
+   * - Git invalidations: Updates merkle root to invalidate cached trees/files
+   *
+   * @param request - Incoming HTTP request
+   * @returns HTTP response
+   *
+   * @example
+   * // K8s sends git invalidation
+   * POST /invalidate
+   * Authorization: Bearer <PUSH_SECRET>
+   * {
+   *   "type": "git",
+   *   "repoKey": "torvalds/linux",
+   *   "merkleRoot": "abc123...",
+   *   "timestamp": 1234567890
+   * }
+   *
+   * @example
+   * // K8s sends SQL invalidation
+   * POST /invalidate
+   * Authorization: Bearer <PUSH_SECRET>
+   * {
+   *   "type": "sql",
+   *   "table": "issues",
+   *   "timestamp": 1234567890
+   * }
+   */
   async fetch(request: Request): Promise<Response> {
-    // This DO is primarily used via RPC methods, not HTTP
-    // But we can expose a health endpoint
     const url = new URL(request.url);
+
     if (url.pathname === '/health') {
       return new Response('OK');
     }
+
+    if (url.pathname === '/invalidate' && request.method === 'POST') {
+      // Verify shared secret
+      const auth = request.headers.get('Authorization');
+      if (auth !== `Bearer ${this.env.PUSH_SECRET}`) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+
+      try {
+        const msg: InvalidationMessage = await request.json();
+
+        if (msg.type === 'sql') {
+          // Clear shape metadata to force resync
+          this.sql.exec(
+            'DELETE FROM shape_sync_metadata WHERE shape_name LIKE ?',
+            `${msg.table}%`
+          );
+        } else if (msg.type === 'git') {
+          await this.handleGitInvalidation(msg);
+        }
+
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: 'Invalid request' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     return new Response('Not found', { status: 404 });
   }
 }
