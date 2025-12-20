@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS repositories (
   description TEXT,
   is_public BOOLEAN DEFAULT true,
   default_branch VARCHAR(255) DEFAULT 'main',
+  topics TEXT[] DEFAULT '{}',
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(user_id, name)
