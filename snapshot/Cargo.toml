@@ -11,8 +11,8 @@ crate-type = ["cdylib"]
 napi = { version = "2", features = ["napi9", "async", "serde-json"] }
 napi-derive = "2"
 
-# jj-lib core library
-jj-lib = { git = "https://github.com/jj-vcs/jj", features = ["git"] }
+# jj-lib core library - pinned to v0.36.0 for API stability
+jj-lib = { git = "https://github.com/jj-vcs/jj", tag = "v0.36.0", features = ["git"] }
 
 # Supporting dependencies
 tokio = { version = "1", features = ["rt-multi-thread"] }
