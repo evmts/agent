@@ -1,0 +1,306 @@
+---
+/**
+ * BlameView - Display file with blame/annotate information
+ * Shows each line with the change/author that last modified it
+ * Groups consecutive lines from the same change
+ */
+import type { BlameLine } from "../lib/jj-types";
+
+interface Props {
+  lines: BlameLine[];
+  filename: string;
+  repoUrl: string;
+}
+
+const { lines, filename, repoUrl } = Astro.props;
+
+// Group consecutive lines from the same change
+interface BlameGroup {
+  changeId: string;
+  author: { name: string; email: string };
+  timestamp: number;
+  description: string;
+  startLine: number;
+  endLine: number;
+  lines: BlameLine[];
+}
+
+const groups: BlameGroup[] = [];
+let currentGroup: BlameGroup | null = null;
+
+for (const line of lines) {
+  if (!currentGroup || currentGroup.changeId !== line.changeId) {
+    // Start a new group
+    if (currentGroup) {
+      groups.push(currentGroup);
+    }
+    currentGroup = {
+      changeId: line.changeId,
+      author: line.author,
+      timestamp: line.timestamp,
+      description: line.description,
+      startLine: line.lineNumber,
+      endLine: line.lineNumber,
+      lines: [line],
+    };
+  } else {
+    // Add to current group
+    currentGroup.endLine = line.lineNumber;
+    currentGroup.lines.push(line);
+  }
+}
+
+if (currentGroup) {
+  groups.push(currentGroup);
+}
+
+// Format relative time
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const months = Math.floor(days / 30);
+  const years = Math.floor(days / 365);
+
+  if (years > 0) return `${years}y ago`;
+  if (months > 0) return `${months}mo ago`;
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'just now';
+}
+
+const extension = filename.split(".").pop() || "";
+---
+
+<div class="blame-view">
+  <div class="blame-header">
+    <span class="filename">{filename}</span>
+    <span class="meta">{lines.length} lines · {groups.length} changes</span>
+  </div>
+
+  <div class="blame-content">
+    {groups.map((group) => (
+      <div class="blame-group">
+        {group.lines.map((line, index) => (
+          <div class="blame-line" data-line={line.lineNumber}>
+            {index === 0 ? (
+              <div class="blame-info">
+                <a href={`${repoUrl}/changes/${group.changeId}`} class="blame-change">
+                  <span class="change-id" title={group.changeId}>{group.changeId.slice(0, 8)}</span>
+                </a>
+                <div class="blame-meta">
+                  <span class="author" title={group.author.email}>{group.author.name}</span>
+                  <span class="time" title={new Date(group.timestamp).toLocaleString()}>
+                    {formatRelativeTime(group.timestamp)}
+                  </span>
+                </div>
+                <div class="blame-desc" title={group.description}>
+                  {group.description}
+                </div>
+              </div>
+            ) : (
+              <div class="blame-info blame-info-empty">
+                <div class="blame-spacer"></div>
+              </div>
+            )}
+            <div class="line-number">{line.lineNumber}</div>
+            <div class="line-content">
+              <code class={`lang-${extension}`}>{line.content}</code>
+            </div>
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+</div>
+
+<style>
+  .blame-view {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .blame-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--gray-950);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+
+  .blame-header .filename {
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  .blame-header .meta {
+    color: var(--gray-500);
+    font-size: 12px;
+  }
+
+  .blame-content {
+    background: var(--bg);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .blame-group {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .blame-group:last-child {
+    border-bottom: none;
+  }
+
+  .blame-line {
+    display: flex;
+    align-items: stretch;
+    min-height: 24px;
+    transition: background var(--transition-fast);
+  }
+
+  .blame-line:hover {
+    background: var(--hover);
+  }
+
+  .blame-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    width: 360px;
+    padding: 6px 12px;
+    background: var(--gray-950);
+    border-right: 1px solid var(--border);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .blame-info-empty {
+    background: transparent;
+    border-right: 1px solid var(--border);
+  }
+
+  .blame-spacer {
+    width: 100%;
+    height: 100%;
+  }
+
+  .blame-change {
+    margin-bottom: 4px;
+  }
+
+  .change-id {
+    font-family: inherit;
+    color: var(--gray-400);
+    background: var(--gray-800);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    display: inline-block;
+    transition: all var(--transition-fast);
+  }
+
+  .blame-change:hover .change-id {
+    color: var(--fg);
+    background: var(--gray-700);
+  }
+
+  .blame-meta {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+    color: var(--gray-400);
+  }
+
+  .author {
+    font-weight: 500;
+    color: var(--gray-300);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .time {
+    color: var(--gray-500);
+  }
+
+  .blame-desc {
+    color: var(--gray-400);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .line-number {
+    width: 56px;
+    padding: 6px 12px;
+    text-align: right;
+    color: var(--gray-500);
+    background: var(--gray-950);
+    border-right: 1px solid var(--border);
+    user-select: none;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .line-content {
+    flex: 1;
+    padding: 6px 12px;
+    overflow-x: auto;
+    white-space: pre;
+    min-width: 0;
+  }
+
+  .line-content code {
+    background: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--fg);
+  }
+
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .blame-info {
+      width: 240px;
+    }
+
+    .author {
+      max-width: 80px;
+    }
+
+    .blame-desc {
+      display: none;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .blame-info {
+      width: 180px;
+      font-size: 11px;
+    }
+
+    .blame-meta {
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .line-number {
+      width: 40px;
+      padding: 6px 8px;
+    }
+
+    .line-content {
+      padding: 6px 8px;
+    }
+  }
+</style>

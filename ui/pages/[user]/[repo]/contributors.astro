@@ -1,0 +1,359 @@
+---
+/**
+ * Contributors Page
+ *
+ * Shows all contributors to a repository with commit counts and avatars.
+ */
+import Layout from "../../../layouts/Layout.astro";
+import Header from "../../../components/Header.astro";
+import Avatar from "../../../components/Avatar.astro";
+import { sql } from "../../../lib/db";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import type { User, Repository } from "../../../lib/types";
+
+const execAsync = promisify(exec);
+
+const { user: username, repo: reponame } = Astro.params;
+
+if (!username || !reponame) {
+  return Astro.redirect('/404');
+}
+
+const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+if (!user) return Astro.redirect("/404");
+
+const [repo] = await sql<Repository[]>`
+  SELECT * FROM repositories
+  WHERE user_id = ${user.id} AND name = ${reponame}
+`;
+
+if (!repo) return Astro.redirect("/404");
+
+interface Contributor {
+  name: string;
+  email: string;
+  commitCount: number;
+  firstCommit?: Date;
+  lastCommit?: Date;
+  user?: User;
+}
+
+// Get contributors from jj log
+const repoPath = `${process.cwd()}/repos/${username}/${reponame}`;
+let contributors: Contributor[] = [];
+let error: string | null = null;
+
+try {
+  // Use jj log to get all contributors with their commit info
+  const template = 'author.name() ++ "|" ++ author.email() ++ "|" ++ committer.timestamp() ++ "\\n"';
+  const { stdout } = await execAsync(`jj log --no-graph -T '${template}'`, {
+    cwd: repoPath,
+    maxBuffer: 10 * 1024 * 1024
+  });
+
+  // Parse and aggregate by author
+  const contributorMap = new Map<string, Contributor>();
+
+  const lines = stdout.trim().split('\n').filter(Boolean);
+
+  for (const line of lines) {
+    const parts = line.split('|');
+    if (parts.length < 3) continue;
+
+    const name = parts[0]?.trim() || '';
+    const email = parts[1]?.trim() || '';
+    const timestamp = parseInt(parts[2]?.trim() || '0', 10) * 1000;
+
+    if (!name || !email) continue;
+
+    const key = `${name}|${email}`;
+
+    if (contributorMap.has(key)) {
+      const contrib = contributorMap.get(key)!;
+      contrib.commitCount++;
+
+      // Update first/last commit dates
+      if (!contrib.firstCommit || timestamp < contrib.firstCommit.getTime()) {
+        contrib.firstCommit = new Date(timestamp);
+      }
+      if (!contrib.lastCommit || timestamp > contrib.lastCommit.getTime()) {
+        contrib.lastCommit = new Date(timestamp);
+      }
+    } else {
+      contributorMap.set(key, {
+        name,
+        email,
+        commitCount: 1,
+        firstCommit: new Date(timestamp),
+        lastCommit: new Date(timestamp),
+      });
+    }
+  }
+
+  // Convert to array and sort by commit count
+  contributors = Array.from(contributorMap.values()).sort((a, b) => b.commitCount - a.commitCount);
+
+  // Try to match contributors with registered users
+  for (const contrib of contributors) {
+    const [matchedUser] = await sql<User[]>`
+      SELECT * FROM users WHERE email = ${contrib.email} LIMIT 1
+    `;
+    if (matchedUser) {
+      contrib.user = matchedUser;
+    }
+  }
+} catch (e) {
+  error = e instanceof Error ? e.message : "Failed to load contributors";
+}
+
+const [{ count: issueCount }] = await sql`
+  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
+`;
+
+let landingCount = 0;
+try {
+  const [result] = await sql`
+    SELECT COUNT(*) as count
+    FROM landing_queue
+    WHERE repository_id = ${repo.id} AND status = 'pending'
+  `;
+  landingCount = result?.count || 0;
+} catch {
+  // landing_queue table may not exist yet
+}
+
+const defaultBookmark = repo.default_branch || 'main';
+---
+
+<Layout title={`Contributors · ${username}/${reponame}`}>
+  <Header />
+
+  <div class="breadcrumb">
+    <a href={`/${username}`}>{username}</a>
+    <span class="sep">/</span>
+    <a href={`/${username}/${reponame}`}>{reponame}</a>
+    <span class="sep">/</span>
+    <span class="current">contributors</span>
+  </div>
+
+  <nav class="repo-nav">
+    <a href={`/${username}/${reponame}`}>Code</a>
+    <a href={`/${username}/${reponame}/issues`}>
+      Issues
+      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/landing`}>
+      Landing
+      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+    </a>
+    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
+    <a href={`/${username}/${reponame}/contributors`} class="active">Contributors</a>
+  </nav>
+
+  <div class="container">
+    <div class="header-row">
+      <h1>Contributors</h1>
+      <div class="contributor-count">
+        {contributors.length} {contributors.length === 1 ? 'contributor' : 'contributors'}
+      </div>
+    </div>
+
+    {error ? (
+      <div class="error-state">
+        <p>Failed to load contributors: {error}</p>
+      </div>
+    ) : contributors.length === 0 ? (
+      <div class="empty-state">
+        <p>No contributors found.</p>
+      </div>
+    ) : (
+      <div class="contributors-grid">
+        {contributors.map((contributor) => (
+          <div class="contributor-card">
+            <div class="contributor-avatar">
+              {contributor.user ? (
+                <a href={`/${contributor.user.username}`}>
+                  <Avatar user={contributor.user} size="lg" />
+                </a>
+              ) : (
+                <Avatar user={{ username: contributor.name, avatar_url: null }} size="lg" />
+              )}
+            </div>
+
+            <div class="contributor-info">
+              <div class="contributor-name">
+                {contributor.user ? (
+                  <a href={`/${contributor.user.username}`} class="link">
+                    {contributor.user.display_name || contributor.user.username}
+                  </a>
+                ) : (
+                  <span>{contributor.name}</span>
+                )}
+              </div>
+
+              <div class="contributor-email text-muted text-sm">
+                {contributor.email}
+              </div>
+
+              <div class="contributor-stats">
+                <div class="stat">
+                  <span class="stat-value">{contributor.commitCount}</span>
+                  <span class="stat-label">{contributor.commitCount === 1 ? 'commit' : 'commits'}</span>
+                </div>
+              </div>
+
+              {contributor.firstCommit && contributor.lastCommit && (
+                <div class="contributor-dates text-xs text-muted">
+                  <div>
+                    <strong>First:</strong> {contributor.firstCommit.toLocaleDateString()}
+                  </div>
+                  <div>
+                    <strong>Last:</strong> {contributor.lastCommit.toLocaleDateString()}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+
+  .contributor-count {
+    font-size: 14px;
+    color: var(--gray-400);
+  }
+
+  .error-state {
+    padding: 48px 24px;
+    text-align: center;
+    border: 1px solid var(--error);
+    border-radius: var(--radius);
+    background: var(--error-dim);
+    color: var(--error);
+  }
+
+  .contributors-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+
+  .contributor-card {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    transition: all var(--transition-fast);
+  }
+
+  .contributor-card:hover {
+    border-color: var(--border-hover);
+    background: var(--hover);
+    transform: translateY(-2px);
+  }
+
+  .contributor-avatar {
+    flex-shrink: 0;
+  }
+
+  .contributor-avatar a {
+    display: block;
+    transition: opacity var(--transition-fast);
+  }
+
+  .contributor-avatar a:hover {
+    opacity: 0.8;
+  }
+
+  .contributor-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .contributor-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .contributor-name .link {
+    color: var(--fg);
+    text-decoration: none;
+  }
+
+  .contributor-name .link:hover {
+    color: var(--gray-200);
+  }
+
+  .contributor-email {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .contributor-stats {
+    display: flex;
+    gap: 16px;
+    margin-top: 4px;
+  }
+
+  .stat {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--gray-400);
+  }
+
+  .contributor-dates {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .contributor-dates strong {
+    font-weight: 500;
+  }
+
+  @media (max-width: 640px) {
+    .contributors-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .contributor-card {
+      padding: 16px;
+    }
+  }
+</style>

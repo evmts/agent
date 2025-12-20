@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { parseFrontmatter, stringifyFrontmatter } from "./frontmatter";
+import { sql } from "./db";
 import type {
   GitIssue,
   GitComment,
@@ -20,6 +21,8 @@ import type {
   UpdateIssueInput,
   CreateCommentInput,
   IssueHistoryEntry,
+  IssueEvent,
+  IssueEventType,
 } from "./git-issue-types";
 
 const execAsync = promisify(exec);
@@ -239,6 +242,11 @@ export async function createIssue(
     labels: data.labels || [],
     assignees: data.assignees || [],
     milestone: data.milestone || null,
+    due_date: data.due_date || null,
+    blocks: [],
+    blocked_by: [],
+    is_pinned: false,
+    pin_order: 0,
   };
 
   const issueContent = stringifyFrontmatter(
@@ -286,6 +294,8 @@ export async function getIssue(
   return {
     number,
     ...data,
+    blocks: data.blocks || [],
+    blocked_by: data.blocked_by || [],
     body,
   };
 }
@@ -404,6 +414,24 @@ export async function listIssues(
       break;
   }
 
+  // Sort pinned issues to the top, ordered by pin_order
+  issues.sort((a, b) => {
+    const aIsPinned = a.is_pinned ?? false;
+    const bIsPinned = b.is_pinned ?? false;
+
+    // If both are pinned or both are not pinned, maintain current order
+    if (aIsPinned === bIsPinned) {
+      if (aIsPinned) {
+        // Both pinned: sort by pin_order
+        return (a.pin_order ?? 0) - (b.pin_order ?? 0);
+      }
+      return 0; // Both unpinned: maintain current sort order
+    }
+
+    // One is pinned, one is not: pinned comes first
+    return aIsPinned ? -1 : 1;
+  });
+
   return issues;
 }
 
@@ -414,7 +442,8 @@ export async function updateIssue(
   user: string,
   repo: string,
   number: number,
-  data: UpdateIssueInput
+  data: UpdateIssueInput,
+  actorId?: number
 ): Promise<GitIssue> {
   const issuesPath = getIssuesPath(user, repo);
   const issue = await getIssue(user, repo, number);
@@ -433,14 +462,71 @@ export async function updateIssue(
     labels: data.labels ?? issue.labels,
     assignees: data.assignees ?? issue.assignees,
     milestone: data.milestone !== undefined ? data.milestone : issue.milestone,
+    due_date: data.due_date !== undefined ? data.due_date : issue.due_date ?? null,
+    blocks: data.blocks ?? issue.blocks ?? [],
+    blocked_by: data.blocked_by ?? issue.blocked_by ?? [],
+    is_pinned: data.is_pinned ?? issue.is_pinned ?? false,
+    pin_order: data.pin_order ?? issue.pin_order ?? 0,
     updated_at: now,
   };
 
-  // Handle state change
+  // Handle state change and record events
   if (data.state === "closed" && issue.state === "open") {
     updatedIssue.closed_at = now;
+    await recordIssueEvent(user, repo, number, "closed", actorId || null);
   } else if (data.state === "open" && issue.state === "closed") {
     updatedIssue.closed_at = null;
+    await recordIssueEvent(user, repo, number, "reopened", actorId || null);
+  }
+
+  // Track label changes
+  if (data.labels) {
+    const addedLabels = data.labels.filter((l) => !issue.labels.includes(l));
+    const removedLabels = issue.labels.filter((l) => !data.labels!.includes(l));
+
+    for (const label of addedLabels) {
+      await recordIssueEvent(user, repo, number, "label_added", actorId || null, { label });
+    }
+
+    for (const label of removedLabels) {
+      await recordIssueEvent(user, repo, number, "label_removed", actorId || null, { label });
+    }
+  }
+
+  // Track assignee changes
+  if (data.assignees) {
+    const addedAssignees = data.assignees.filter((a) => !issue.assignees.includes(a));
+    const removedAssignees = issue.assignees.filter((a) => !data.assignees!.includes(a));
+
+    for (const assignee of addedAssignees) {
+      await recordIssueEvent(user, repo, number, "assignee_added", actorId || null, { assignee });
+    }
+
+    for (const assignee of removedAssignees) {
+      await recordIssueEvent(user, repo, number, "assignee_removed", actorId || null, { assignee });
+    }
+  }
+
+  // Track milestone changes
+  if (data.milestone !== undefined && data.milestone !== issue.milestone) {
+    if (issue.milestone === null && data.milestone !== null) {
+      await recordIssueEvent(user, repo, number, "milestone_added", actorId || null, { milestone: data.milestone });
+    } else if (issue.milestone !== null && data.milestone === null) {
+      await recordIssueEvent(user, repo, number, "milestone_removed", actorId || null, { milestone: issue.milestone });
+    } else if (issue.milestone !== null && data.milestone !== null) {
+      await recordIssueEvent(user, repo, number, "milestone_changed", actorId || null, {
+        old_milestone: issue.milestone,
+        new_milestone: data.milestone,
+      });
+    }
+  }
+
+  // Track title changes
+  if (data.title && data.title !== issue.title) {
+    await recordIssueEvent(user, repo, number, "title_changed", actorId || null, {
+      old_title: issue.title,
+      new_title: data.title,
+    });
   }
 
   // Build frontmatter
@@ -455,6 +541,11 @@ export async function updateIssue(
     labels: updatedIssue.labels,
     assignees: updatedIssue.assignees,
     milestone: updatedIssue.milestone,
+    due_date: updatedIssue.due_date,
+    blocks: updatedIssue.blocks,
+    blocked_by: updatedIssue.blocked_by,
+    is_pinned: updatedIssue.is_pinned,
+    pin_order: updatedIssue.pin_order,
   };
 
   const content = stringifyFrontmatter(
@@ -486,9 +577,10 @@ export async function updateIssue(
 export async function closeIssue(
   user: string,
   repo: string,
-  number: number
+  number: number,
+  actorId?: number
 ): Promise<void> {
-  await updateIssue(user, repo, number, { state: "closed" });
+  await updateIssue(user, repo, number, { state: "closed" }, actorId);
 }
 
 /**
@@ -497,9 +589,52 @@ export async function closeIssue(
 export async function reopenIssue(
   user: string,
   repo: string,
-  number: number
+  number: number,
+  actorId?: number
 ): Promise<void> {
-  await updateIssue(user, repo, number, { state: "open" });
+  await updateIssue(user, repo, number, { state: "open" }, actorId);
+}
+
+/**
+ * Pin an issue to the top of the issue list
+ */
+export async function pinIssue(
+  user: string,
+  repo: string,
+  number: number
+): Promise<GitIssue> {
+  // Get all issues to determine the next pin order
+  const allIssues = await listIssues(user, repo, "all");
+  const pinnedIssues = allIssues.filter(i => i.is_pinned);
+
+  // Limit to 3 pinned issues
+  if (pinnedIssues.length >= 3 && !pinnedIssues.find(i => i.number === number)) {
+    throw new Error("Maximum of 3 issues can be pinned. Unpin an issue first.");
+  }
+
+  // Calculate next pin order
+  const maxPinOrder = pinnedIssues.reduce((max, issue) =>
+    Math.max(max, issue.pin_order ?? 0), 0
+  );
+
+  return await updateIssue(user, repo, number, {
+    is_pinned: true,
+    pin_order: maxPinOrder + 1,
+  });
+}
+
+/**
+ * Unpin an issue
+ */
+export async function unpinIssue(
+  user: string,
+  repo: string,
+  number: number
+): Promise<GitIssue> {
+  return await updateIssue(user, repo, number, {
+    is_pinned: false,
+    pin_order: 0,
+  });
 }
 
 /**
@@ -591,6 +726,11 @@ export async function addComment(
     labels: issue.labels,
     assignees: issue.assignees,
     milestone: issue.milestone,
+    due_date: issue.due_date ?? null,
+    blocks: issue.blocks ?? [],
+    blocked_by: issue.blocked_by ?? [],
+    is_pinned: issue.is_pinned ?? false,
+    pin_order: issue.pin_order ?? 0,
   };
   const issueContent = stringifyFrontmatter(
     frontmatter as unknown as Record<string, unknown>,
@@ -699,6 +839,11 @@ export async function updateComment(
     labels: issue.labels,
     assignees: issue.assignees,
     milestone: issue.milestone,
+    due_date: issue.due_date ?? null,
+    blocks: issue.blocks ?? [],
+    blocked_by: issue.blocked_by ?? [],
+    is_pinned: issue.is_pinned ?? false,
+    pin_order: issue.pin_order ?? 0,
   };
   const issueContent = stringifyFrontmatter(
     frontmatter as unknown as Record<string, unknown>,
@@ -757,6 +902,11 @@ export async function deleteComment(
     labels: issue.labels,
     assignees: issue.assignees,
     milestone: issue.milestone,
+    due_date: issue.due_date ?? null,
+    blocks: issue.blocks ?? [],
+    blocked_by: issue.blocked_by ?? [],
+    is_pinned: issue.is_pinned ?? false,
+    pin_order: issue.pin_order ?? 0,
   };
   const issueContent = stringifyFrontmatter(
     frontmatter as unknown as Record<string, unknown>,
@@ -1051,4 +1201,84 @@ export async function removeLabelFromIssue(
 
   const updatedLabels = issue.labels.filter((l) => l !== label);
   return await updateIssue(user, repo, issueNumber, { labels: updatedLabels });
+}
+
+// =============================================================================
+// Activity Timeline Functions
+// =============================================================================
+
+/**
+ * Helper to get repository_id from user/repo
+ */
+async function getRepositoryId(user: string, repo: string): Promise<number> {
+  const [repository] = await sql<Array<{ id: number }>>`
+    SELECT r.id
+    FROM repositories r
+    JOIN users u ON r.user_id = u.id
+    WHERE u.username = ${user} AND r.name = ${repo}
+  `;
+
+  if (!repository) {
+    throw new Error(`Repository ${user}/${repo} not found`);
+  }
+
+  return repository.id;
+}
+
+/**
+ * Record an issue event in the activity timeline
+ */
+export async function recordIssueEvent(
+  user: string,
+  repo: string,
+  issueNumber: number,
+  eventType: IssueEventType,
+  actorId: number | null,
+  metadata: Record<string, unknown> = {}
+): Promise<void> {
+  try {
+    const repositoryId = await getRepositoryId(user, repo);
+
+    await sql`
+      INSERT INTO issue_events (repository_id, issue_number, actor_id, event_type, metadata)
+      VALUES (${repositoryId}, ${issueNumber}, ${actorId}, ${eventType}, ${JSON.stringify(metadata)})
+    `;
+  } catch (error) {
+    // Don't fail the whole operation if activity recording fails
+    console.error("Failed to record issue event:", error);
+  }
+}
+
+/**
+ * Get all events for an issue
+ */
+export async function getIssueEvents(
+  user: string,
+  repo: string,
+  issueNumber: number
+): Promise<IssueEvent[]> {
+  try {
+    const repositoryId = await getRepositoryId(user, repo);
+
+    const events = await sql<IssueEvent[]>`
+      SELECT
+        e.id,
+        e.repository_id,
+        e.issue_number,
+        e.actor_id,
+        u.username as actor_username,
+        e.event_type,
+        e.metadata,
+        e.created_at
+      FROM issue_events e
+      LEFT JOIN users u ON e.actor_id = u.id
+      WHERE e.repository_id = ${repositoryId} AND e.issue_number = ${issueNumber}
+      ORDER BY e.created_at ASC
+    `;
+
+    return events;
+  } catch (error) {
+    console.error("Failed to fetch issue events:", error);
+    return [];
+  }
 }

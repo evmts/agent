@@ -130,8 +130,45 @@ function calculateProgress(open: number, closed: number): number {
   return Math.round((closed / total) * 100);
 }
 
+function getRelativeDueDate(dueDate: Date | null): { text: string; isOverdue: boolean; daysUntil: number } | null {
+  if (!dueDate) return null;
+
+  const now = new Date();
+  const due = new Date(dueDate);
+  const diffMs = due.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  const isOverdue = diffDays < 0;
+  const absDays = Math.abs(diffDays);
+
+  let text: string;
+  if (diffDays === 0) {
+    text = "Due today";
+  } else if (diffDays === 1) {
+    text = "Due tomorrow";
+  } else if (diffDays === -1) {
+    text = "1 day overdue";
+  } else if (isOverdue) {
+    text = `${absDays} days overdue`;
+  } else {
+    text = `Due in ${diffDays} days`;
+  }
+
+  return { text, isOverdue, daysUntil: diffDays };
+}
+
+const total = (milestone.open_issues || 0) + (milestone.closed_issues || 0);
 const progress = calculateProgress(milestone.open_issues || 0, milestone.closed_issues || 0);
-const isOverdue = milestone.due_date && new Date(milestone.due_date) < new Date() && milestone.state === 'open';
+const relativeDue = getRelativeDueDate(milestone.due_date);
+const isOverdue = relativeDue?.isOverdue && milestone.state === 'open';
+
+// Determine progress bar color based on overdue status
+let progressColor = "var(--success)"; // Green for on track
+if (isOverdue) {
+  progressColor = "var(--error)"; // Red for overdue
+} else if (relativeDue && relativeDue.daysUntil <= 7 && relativeDue.daysUntil > 0 && milestone.state === 'open' && progress < 100) {
+  progressColor = "var(--warning)"; // Orange/yellow for due soon
+}
 ---
 
 <Layout title={`${milestone.title} · Milestone · plue`}>
@@ -163,9 +200,14 @@ const isOverdue = milestone.due_date && new Date(milestone.due_date) < new Date(
           <div class="milestone-meta">
             <span class:list={["milestone-state", milestone.state]}>{milestone.state}</span>
             {milestone.due_date && (
-              <span class:list={["milestone-due", { overdue: isOverdue }]}>
-                Due {formatDate(milestone.due_date)}
-              </span>
+              <div class="milestone-due-info">
+                <span class:list={["milestone-due", { overdue: isOverdue }]}>
+                  {relativeDue?.text}
+                </span>
+                <span class="milestone-due-date">
+                  ({formatDate(milestone.due_date)})
+                </span>
+              </div>
             )}
           </div>
         </div>
@@ -182,14 +224,21 @@ const isOverdue = milestone.due_date && new Date(milestone.due_date) < new Date(
       )}
 
       <div class="milestone-progress mb-3">
-        <div class="progress-bar">
-          <div class="progress-fill" style={`width: ${progress}%`}></div>
-        </div>
-        <div class="progress-text">
-          <span>{progress}% complete</span>
-          <span class="text-muted">
-            {milestone.closed_issues || 0} closed, {milestone.open_issues || 0} open
+        <div class="progress-header">
+          <span class="progress-percentage">{progress}% complete</span>
+          <span class="progress-counts">
+            {milestone.closed_issues || 0} of {total} {total === 1 ? 'issue' : 'issues'}
           </span>
+        </div>
+        <div class="progress-bar">
+          <div
+            class="progress-fill"
+            style={`width: ${progress}%; background: ${progressColor};`}
+          ></div>
+        </div>
+        <div class="progress-details">
+          <span class="text-muted">{milestone.closed_issues || 0} closed</span>
+          <span class="text-muted">{milestone.open_issues || 0} open</span>
         </div>
       </div>
 
@@ -316,35 +365,51 @@ const isOverdue = milestone.due_date && new Date(milestone.due_date) < new Date(
 
   .milestone-state {
     padding: 4px 8px;
-    font-size: 12px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
     border: 1px solid var(--border);
+    letter-spacing: 0.03em;
   }
 
   .milestone-state.open {
     color: var(--success);
     border-color: var(--success);
+    background: rgba(0, 210, 106, 0.08);
   }
 
   .milestone-state.closed {
-    color: var(--muted);
+    color: var(--gray-400);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .milestone-due-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .milestone-due {
     font-size: 13px;
-    color: var(--muted);
+    font-weight: 500;
+    color: var(--gray-300);
   }
 
   .milestone-due.overdue {
     color: var(--error);
-    font-weight: 500;
+    font-weight: 600;
+  }
+
+  .milestone-due-date {
+    font-size: 12px;
+    color: var(--gray-500);
   }
 
   .milestone-description {
     margin: 16px 0;
-    color: var(--muted);
+    color: var(--gray-400);
     font-size: 14px;
+    line-height: 1.5;
   }
 
   .milestone-progress {
@@ -353,24 +418,66 @@ const isOverdue = milestone.due_date && new Date(milestone.due_date) < new Date(
     gap: 8px;
   }
 
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+  }
+
+  .progress-percentage {
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .progress-counts {
+    color: var(--gray-400);
+  }
+
   .progress-bar {
     width: 100%;
-    height: 8px;
-    background: rgba(0, 0, 0, 0.1);
+    height: 10px;
+    background: var(--gray-900);
     border: 1px solid var(--border);
     overflow: hidden;
+    position: relative;
   }
 
   .progress-fill {
     height: 100%;
-    background: var(--success);
-    transition: width 0.3s ease;
+    transition: width 0.3s ease, background 0.2s ease;
+    position: relative;
   }
 
-  .progress-text {
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.1) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .progress-details {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
+    font-size: 12px;
+    gap: 16px;
+  }
+
+  .text-muted {
+    color: var(--gray-500);
   }
 
   .milestone-actions {

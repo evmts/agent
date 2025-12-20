@@ -161,13 +161,22 @@ const isAuthor = currentUserId && currentUserId === comment.author_id;
         const commentId = comment.getAttribute("data-comment-id");
         if (!commentId) return;
 
-        // Submit delete form
+        // Submit delete form using safe DOM methods
         const form = document.createElement("form");
         form.method = "POST";
-        form.innerHTML = `
-          <input type="hidden" name="action" value="delete_comment" />
-          <input type="hidden" name="comment_id" value="${commentId}" />
-        `;
+
+        const actionInput = document.createElement("input");
+        actionInput.type = "hidden";
+        actionInput.name = "action";
+        actionInput.value = "delete_comment";
+        form.appendChild(actionInput);
+
+        const commentIdInput = document.createElement("input");
+        commentIdInput.type = "hidden";
+        commentIdInput.name = "comment_id";
+        commentIdInput.value = commentId;
+        form.appendChild(commentIdInput);
+
         document.body.appendChild(form);
         form.submit();
       });

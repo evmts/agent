@@ -2,12 +2,15 @@
 import type { Issue } from "../lib/types";
 import Avatar from "./Avatar.astro";
 import RelativeTime from "./RelativeTime.astro";
+import { getDueDateStatus } from "../lib/date-utils";
 
 interface Props {
   issue: Issue & {
     assignees?: string[];
     labels?: string[];
+    due_date?: string | null;
     reactions?: Array<{ emoji: string; count: number }>;
+    is_pinned?: boolean;
   };
   user: string;
   repo: string;
@@ -23,6 +26,10 @@ const labels = (issue.labels || [])
   .filter(Boolean) as Array<{ name: string; color: string }>;
 
 const hasReactions = issue.reactions && issue.reactions.length > 0;
+
+// Get due date status
+const dueDate = issue.due_date || null;
+const dueDateStatus = getDueDateStatus(dueDate);
 ---
 
 <a href={issueUrl} class="issue-item">
@@ -30,6 +37,7 @@ const hasReactions = issue.reactions && issue.reactions.length > 0;
   <span class:list={["issue-state", issue.state]}>{issue.state}</span>
   <div class="issue-content">
     <div class="issue-title-row">
+      {issue.is_pinned && <span class="pin-icon" title="Pinned">📌</span>}
       <span class="issue-title">{issue.title}</span>
       {labels.length > 0 && (
         <div class="issue-labels">
@@ -43,6 +51,11 @@ const hasReactions = issue.reactions && issue.reactions.length > 0;
     </div>
     <div class="issue-meta">
       #{issue.issue_number} · {issue.author_username} · <RelativeTime date={issue.created_at} />
+      {dueDateStatus && (
+        <span class:list={["issue-due-date", dueDateStatus.colorClass]}>
+          · 📅 {dueDateStatus.relativeText}
+        </span>
+      )}
       {issue.assignees && issue.assignees.length > 0 && (
         <span class="issue-assignees">
           · assigned to {issue.assignees.slice(0, 3).join(", ")}
@@ -51,7 +64,7 @@ const hasReactions = issue.reactions && issue.reactions.length > 0;
       )}
       {hasReactions && (
         <span class="issue-reactions">
-          {issue.reactions.map((r) => (
+          {issue.reactions!.map((r) => (
             <span class="reaction-summary">
               {r.emoji} {r.count}
             </span>
@@ -78,6 +91,12 @@ const hasReactions = issue.reactions && issue.reactions.length > 0;
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
+  }
+
+  .pin-icon {
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.7;
   }
 
   .issue-labels {
@@ -125,5 +144,23 @@ const hasReactions = issue.reactions && issue.reactions.length > 0;
     gap: 2px;
     font-size: 12px;
     color: var(--gray-400);
+  }
+
+  /* Due Date */
+  .issue-due-date {
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .issue-due-date.due-future {
+    color: var(--gray-400);
+  }
+
+  .issue-due-date.due-soon {
+    color: #f59e0b;
+  }
+
+  .issue-due-date.due-overdue {
+    color: #ef4444;
   }
 </style>

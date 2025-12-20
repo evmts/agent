@@ -21,6 +21,11 @@ export interface IssueFrontmatter {
   labels: string[];
   assignees: string[];
   milestone: string | null;
+  due_date: string | null;
+  blocks: number[];
+  blocked_by: number[];
+  is_pinned?: boolean;
+  pin_order?: number;
 }
 
 export interface CommentFrontmatter {
@@ -60,6 +65,7 @@ export interface CreateIssueInput {
   labels?: string[];
   assignees?: string[];
   milestone?: string;
+  due_date?: string;
 }
 
 export interface UpdateIssueInput {
@@ -69,6 +75,11 @@ export interface UpdateIssueInput {
   labels?: string[];
   assignees?: string[];
   milestone?: string | null;
+  due_date?: string | null;
+  blocks?: number[];
+  blocked_by?: number[];
+  is_pinned?: boolean;
+  pin_order?: number;
 }
 
 export interface CreateCommentInput {
@@ -113,4 +124,28 @@ export interface UpdateMilestoneInput {
   description?: string;
   due_date?: string | null;
   state?: "open" | "closed";
+}
+
+export type IssueEventType =
+  | "closed"
+  | "reopened"
+  | "label_added"
+  | "label_removed"
+  | "assignee_added"
+  | "assignee_removed"
+  | "milestone_added"
+  | "milestone_removed"
+  | "milestone_changed"
+  | "title_changed"
+  | "renamed";
+
+export interface IssueEvent {
+  id: number;
+  repository_id: number;
+  issue_number: number;
+  actor_id: number | null;
+  actor_username: string | null;
+  event_type: IssueEventType;
+  metadata: Record<string, unknown>;
+  created_at: Date;
 }

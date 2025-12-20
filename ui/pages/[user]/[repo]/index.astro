@@ -87,29 +87,52 @@ try {
 
   <div class="breadcrumb">
     <a href={`/${username}`}>{username}</a>
-    <span class="sep">/</span>
+    <span class="sep">›</span>
+    <span class="repo-icon">▪</span>
     <span class="current">{reponame}</span>
   </div>
 
   <nav class="repo-nav">
-    <a href={`/${username}/${reponame}`} class="active">Code</a>
+    <a href={`/${username}/${reponame}`} class="active">
+      <span class="nav-icon">&lt;/&gt;</span>
+      Code
+    </a>
     <a href={`/${username}/${reponame}/issues`}>
+      <span class="nav-icon">○</span>
       Issues
       {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/landing`}>
+      <span class="nav-icon">↑</span>
       Landing
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/workflows`}>
+      <span class="nav-icon">▶</span>
       Workflows
       {workflowStatus.running > 0 && <span class="badge badge-running">{workflowStatus.running}</span>}
       {workflowStatus.failing > 0 && <span class="badge badge-error">{workflowStatus.failing}</span>}
     </a>
-    <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
-    <a href={`/${username}/${reponame}/operations`}>Operations</a>
-    <a href={`/${username}/${reponame}/settings`}>Settings</a>
+    <a href={`/${username}/${reponame}/bookmarks`}>
+      <span class="nav-icon">◇</span>
+      Bookmarks
+    </a>
+    <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>
+      <span class="nav-icon">Δ</span>
+      Changes
+    </a>
+    <a href={`/${username}/${reponame}/contributors`}>
+      <span class="nav-icon">◈</span>
+      Contributors
+    </a>
+    <a href={`/${username}/${reponame}/operations`}>
+      <span class="nav-icon">≡</span>
+      Operations
+    </a>
+    <a href={`/${username}/${reponame}/settings`}>
+      <span class="nav-icon">⚙</span>
+      Settings
+    </a>
   </nav>
 
   <div class="container">
@@ -147,11 +170,33 @@ try {
       </div>
     </div>
 
-    <div class="clone-url mb-3">
-      <code>{cloneUrl}</code>
-      <button class="btn btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent)">
-        Copy
-      </button>
+    <div class="clone-url-wrapper mb-3">
+      <div class="clone-url-container">
+        <input
+          type="text"
+          class="clone-url-input"
+          value={cloneUrl}
+          readonly
+          onclick="this.select()"
+        />
+        <button
+          class="clone-url-btn"
+          id="clone-copy-btn"
+          onclick="
+            navigator.clipboard.writeText(this.previousElementSibling.value);
+            const btn = this;
+            const originalText = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => {
+              btn.textContent = originalText;
+              btn.classList.remove('copied');
+            }, 2000);
+          "
+        >
+          Copy
+        </button>
+      </div>
       <a href="/settings/ssh-keys" class="ssh-key-link">Add SSH key</a>
     </div>
 
@@ -172,14 +217,100 @@ try {
   .topics {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-2);
   }
-  .ssh-key-link {
-    margin-left: 0.5rem;
+
+  /* Clone URL Styling */
+  .clone-url-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .clone-url-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color var(--transition-fast);
+    overflow: hidden;
+  }
+
+  .clone-url-container:hover {
+    border-color: var(--border-hover);
+  }
+
+  .clone-url-container:focus-within {
+    border-color: var(--gray-400);
+  }
+
+  .clone-url-input {
+    flex: 1;
+    padding: var(--space-3) var(--space-3);
+    background: transparent;
+    border: none;
+    color: var(--gray-300);
+    font-family: inherit;
     font-size: 12px;
-    color: var(--link);
+    outline: none;
+    cursor: text;
+    user-select: all;
   }
+
+  .clone-url-input:hover {
+    border: none;
+  }
+
+  .clone-url-input:focus {
+    background: transparent;
+    border: none;
+  }
+
+  .clone-url-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: var(--space-3) var(--space-4);
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border);
+    color: var(--gray-300);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    min-width: 70px;
+  }
+
+  .clone-url-btn:hover {
+    background: var(--hover);
+    color: var(--fg);
+  }
+
+  .clone-url-btn:active {
+    background: var(--active);
+  }
+
+  .clone-url-btn.copied {
+    color: var(--success);
+  }
+
+  .ssh-key-link {
+    font-size: 12px;
+    color: var(--gray-400);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+    align-self: flex-start;
+  }
+
   .ssh-key-link:hover {
+    color: var(--fg);
     text-decoration: underline;
   }
 
@@ -187,8 +318,8 @@ try {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 1rem;
-    padding-bottom: 1rem;
+    gap: var(--space-4);
+    padding-bottom: var(--space-4);
     border-bottom: 1px solid var(--border);
   }
 
@@ -198,22 +329,20 @@ try {
 
   .repo-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-2);
     align-items: center;
   }
 
   .repo-actions .btn {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-2);
   }
 
-  .repo-actions .badge {
-    background: var(--bg-secondary);
-    padding: 0.125rem 0.375rem;
-    border-radius: 2px;
-    font-size: 11px;
-    font-weight: normal;
+  .repo-actions .btn #star-icon,
+  .repo-actions .btn #watch-icon {
+    font-size: 13px;
+    line-height: 1;
   }
 
   .watch-dropdown {
@@ -225,7 +354,7 @@ try {
     position: absolute;
     top: 100%;
     right: 0;
-    margin-top: 0.25rem;
+    margin-top: var(--space-1);
     background: var(--bg);
     border: 1px solid var(--border);
     min-width: 200px;

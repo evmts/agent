@@ -50,8 +50,12 @@ const starredRepos = await sql<StarredRepo[]>`
     <h2 class="mb-2">Starred Repositories ({starredRepos.length})</h2>
 
     {starredRepos.length === 0 ? (
-      <div class="empty-state">
-        <p>{user.username} hasn't starred any repositories yet</p>
+      <div class="empty-state compact">
+        <div class="empty-state-icon">★</div>
+        <div class="empty-state-title">No starred repositories</div>
+        <div class="empty-state-description">
+          {user.username} hasn't starred any repositories yet.
+        </div>
       </div>
     ) : (
       <ul class="repo-list">

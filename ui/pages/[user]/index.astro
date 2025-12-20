@@ -43,8 +43,12 @@ const repos = await sql<Repository[]>`
     <h2 class="mb-2">Repositories ({repos.length})</h2>
 
     {repos.length === 0 ? (
-      <div class="empty-state">
-        <p>No repositories yet</p>
+      <div class="empty-state compact">
+        <div class="empty-state-icon">□</div>
+        <div class="empty-state-title">No repositories yet</div>
+        <div class="empty-state-description">
+          {username} hasn't created any repositories yet.
+        </div>
       </div>
     ) : (
       <ul class="repo-list">

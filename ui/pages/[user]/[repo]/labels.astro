@@ -24,69 +24,8 @@ if (!repo) return Astro.redirect("/404");
 // Ensure issues repo exists
 await ensureIssuesRepo(username, reponame);
 
-// Get labels
+// Get all labels
 const labels = await getLabels(username, reponame);
-
-let error = "";
-let success = "";
-
-if (Astro.request.method === "POST") {
-  const formData = await Astro.request.formData();
-  const action = formData.get("action") as string;
-
-  if (action === "create") {
-    const name = (formData.get("name") as string)?.trim();
-    const color = (formData.get("color") as string)?.trim();
-    const description = (formData.get("description") as string)?.trim();
-
-    if (!name || !color) {
-      error = "Name and color are required";
-    } else if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
-      error = "Color must be a valid hex color (e.g., #ff0000)";
-    } else {
-      try {
-        const response = await fetch(`http://localhost:5173/api/${username}/${reponame}/labels`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, color, description }),
-        });
-
-        if (response.ok) {
-          success = `Label "${name}" created successfully`;
-          return Astro.redirect(Astro.url.pathname);
-        } else {
-          const data = await response.json();
-          error = data.error || "Failed to create label";
-        }
-      } catch (e) {
-        error = (e as Error).message;
-      }
-    }
-  } else if (action === "delete") {
-    const name = formData.get("label_name") as string;
-
-    if (!name) {
-      error = "Label name is required";
-    } else {
-      try {
-        const response = await fetch(
-          `http://localhost:5173/api/${username}/${reponame}/labels/${encodeURIComponent(name)}`,
-          { method: "DELETE" }
-        );
-
-        if (response.ok) {
-          success = `Label "${name}" deleted successfully`;
-          return Astro.redirect(Astro.url.pathname);
-        } else {
-          const data = await response.json();
-          error = data.error || "Failed to delete label";
-        }
-      } catch (e) {
-        error = (e as Error).message;
-      }
-    }
-  }
-}
 
 // Count pending landing requests
 let landingCount = 0;
@@ -100,6 +39,22 @@ try {
 } catch {
   // landing_queue table may not exist yet
 }
+
+// Predefined color palette
+const colorPalette = [
+  "#d73a4a", // red
+  "#ff4444", // bright red
+  "#f5a623", // orange
+  "#ffd700", // gold
+  "#00d26a", // green
+  "#008672", // teal
+  "#0075ca", // blue
+  "#3b82f6", // bright blue
+  "#7057ff", // purple
+  "#a2eeef", // cyan
+  "#f1a6ff", // pink
+  "#888888", // gray
+];
 ---
 
 <Layout title={`Labels · ${username}/${reponame} · plue`}>
@@ -116,239 +71,261 @@ try {
   <nav class="repo-nav">
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`}>Issues</a>
+    <a href={`/${username}/${reponame}/labels`} class="active">Labels</a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
-      {landingCount > 0 && <span class="badge">{landingCount}</span>}
+      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
-    <a href={`/${username}/${reponame}/labels`} class="active">Labels</a>
   </nav>
 
   <div class="container">
-    <h1 class="page-title mb-3">Labels</h1>
+    <div class="labels-header">
+      <h1 class="page-title">Labels</h1>
+      <button class="btn btn-primary" id="new-label-btn">New label</button>
+    </div>
 
-    {error && (
-      <div class="error-banner mb-2">
-        {error}
-      </div>
-    )}
-
-    {success && (
-      <div class="success-banner mb-2">
-        {success}
-      </div>
-    )}
-
-    <div class="two-col-layout">
-      <div class="labels-list">
-        <h2 class="mb-2">{labels.length} labels</h2>
-
-        {labels.length === 0 ? (
-          <div class="empty-state">
-            <p>No labels yet</p>
-          </div>
-        ) : (
-          <div class="label-items">
-            {labels.map((label) => (
-              <div class="label-item">
-                <div class="label-info">
-                  <span class="label-badge" style={`background-color: ${label.color};`}>
-                    {label.name}
-                  </span>
-                  {label.description && (
-                    <span class="label-description">{label.description}</span>
-                  )}
-                </div>
-                <div class="label-actions">
-                  <button
-                    class="btn-link"
-                    onclick={`if(confirm('Edit ${label.name}?')) document.getElementById('edit-${label.name}').style.display='block'`}
-                  >
-                    Edit
-                  </button>
-                  <form method="POST" style="display: inline;">
-                    <input type="hidden" name="action" value="delete" />
-                    <input type="hidden" name="label_name" value={label.name} />
-                    <button
-                      type="submit"
-                      class="btn-link text-error"
-                      onclick={`return confirm('Delete ${label.name}?')`}
-                    >
-                      Delete
-                    </button>
-                  </form>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div class="label-form-section">
-        <h2 class="mb-2">Create label</h2>
-        <form method="POST" class="label-form">
-          <input type="hidden" name="action" value="create" />
-
+    <div class="new-label-form-container" id="new-label-form-container" style="display: none;">
+      <form class="label-form" id="new-label-form">
+        <div class="form-row">
           <div class="form-group">
-            <label for="name">Label name</label>
+            <label for="new-label-name">Label name</label>
             <input
               type="text"
+              id="new-label-name"
               name="name"
-              id="name"
-              required
               placeholder="e.g., bug"
+              required
+              maxlength="50"
             />
           </div>
-
           <div class="form-group">
-            <label for="description">Description (optional)</label>
+            <label for="new-label-description">Description (optional)</label>
             <input
               type="text"
+              id="new-label-description"
               name="description"
-              id="description"
-              placeholder="e.g., Something isn't working"
+              placeholder="Short description"
+              maxlength="100"
             />
           </div>
-
-          <div class="form-group">
-            <label for="color">Color</label>
+          <div class="form-group color-group">
+            <label for="new-label-color">Color</label>
             <div class="color-input-group">
               <input
-                type="color"
-                name="color"
-                id="color"
-                value="#d73a4a"
-                required
-              />
-              <input
                 type="text"
-                id="color-hex"
-                value="#d73a4a"
-                pattern="^#[0-9A-Fa-f]{6}$"
+                id="new-label-color"
+                name="color"
                 placeholder="#d73a4a"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                required
+                maxlength="7"
+                value="#d73a4a"
               />
+              <div class="color-preview" id="new-color-preview" style="background-color: #d73a4a;"></div>
+            </div>
+            <div class="color-palette">
+              {colorPalette.map(color => (
+                <button
+                  type="button"
+                  class="color-swatch"
+                  style={`background-color: ${color}`}
+                  data-color={color}
+                  data-target="new"
+                  title={color}
+                />
+              ))}
             </div>
           </div>
-
-          <button type="submit" class="btn btn-primary">Create label</button>
-        </form>
-      </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-sm" id="cancel-new-label">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Create label</button>
+        </div>
+      </form>
     </div>
+
+    {labels.length === 0 ? (
+      <div class="empty-state">
+        <p>No labels yet</p>
+        <button class="btn mt-2" onclick="document.getElementById('new-label-btn').click()">
+          Create a label
+        </button>
+      </div>
+    ) : (
+      <div class="labels-list">
+        {labels.map((label) => (
+          <div class="label-item" data-label-name={label.name}>
+            <div class="label-view">
+              <span class="label-tag" style={`background-color: ${label.color};`}>
+                {label.name}
+              </span>
+              <span class="label-description">{label.description || ''}</span>
+              <div class="label-actions">
+                <button class="btn btn-sm btn-ghost edit-label-btn" data-label-name={label.name}>
+                  Edit
+                </button>
+                <button class="btn btn-sm btn-ghost btn-danger delete-label-btn" data-label-name={label.name}>
+                  Delete
+                </button>
+              </div>
+            </div>
+            <form class="label-form label-edit-form" style="display: none;" data-label-name={label.name}>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Label name</label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={label.name}
+                    required
+                    maxlength="50"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Description (optional)</label>
+                  <input
+                    type="text"
+                    name="description"
+                    value={label.description || ''}
+                    maxlength="100"
+                  />
+                </div>
+                <div class="form-group color-group">
+                  <label>Color</label>
+                  <div class="color-input-group">
+                    <input
+                      type="text"
+                      name="color"
+                      value={label.color}
+                      pattern="^#[0-9A-Fa-f]{6}$"
+                      required
+                      maxlength="7"
+                      class="edit-color-input"
+                    />
+                    <div class="color-preview" style={`background-color: ${label.color};`}></div>
+                  </div>
+                  <div class="color-palette">
+                    {colorPalette.map(color => (
+                      <button
+                        type="button"
+                        class="color-swatch"
+                        style={`background-color: ${color}`}
+                        data-color={color}
+                        data-target="edit"
+                        title={color}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="btn btn-sm cancel-edit-btn" data-label-name={label.name}>
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-sm btn-primary">Save changes</button>
+              </div>
+            </form>
+          </div>
+        ))}
+      </div>
+    )}
   </div>
 </Layout>
 
-<script>
-  // Sync color picker and text input
-  const colorPicker = document.getElementById("color") as HTMLInputElement;
-  const colorHex = document.getElementById("color-hex") as HTMLInputElement;
-
-  if (colorPicker && colorHex) {
-    colorPicker.addEventListener("input", (e) => {
-      colorHex.value = (e.target as HTMLInputElement).value;
-    });
-
-    colorHex.addEventListener("input", (e) => {
-      const value = (e.target as HTMLInputElement).value;
-      if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
-        colorPicker.value = value;
-      }
-    });
-  }
-</script>
-
 <style>
-  .two-col-layout {
-    display: grid;
-    grid-template-columns: 1fr 400px;
-    gap: 24px;
-    align-items: start;
+  .labels-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 16px 0;
   }
 
-  @media (max-width: 768px) {
-    .two-col-layout {
-      grid-template-columns: 1fr;
-    }
+  .new-label-form-container {
+    margin-bottom: 20px;
   }
 
   .labels-list {
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px;
-  }
-
-  .label-items {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    overflow: hidden;
   }
 
   .label-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background var(--transition-fast);
   }
 
-  .label-info {
+  .label-item:last-child {
+    border-bottom: none;
+  }
+
+  .label-item:hover {
+    background: var(--hover);
+  }
+
+  .label-view {
     display: flex;
     align-items: center;
     gap: 12px;
-    flex: 1;
   }
 
-  .label-badge {
-    display: inline-block;
+  .label-tag {
+    display: inline-flex;
+    align-items: center;
     padding: 4px 12px;
     border-radius: 12px;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 600;
     color: #fff;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    min-width: 100px;
+    justify-content: center;
   }
 
   .label-description {
+    flex: 1;
     font-size: 13px;
     color: var(--gray-300);
   }
 
   .label-actions {
     display: flex;
-    gap: 12px;
-  }
-
-  .btn-link {
-    background: none;
-    border: none;
-    color: var(--fg);
-    cursor: pointer;
-    font-size: 13px;
-    text-decoration: underline;
-    padding: 0;
-  }
-
-  .btn-link:hover {
-    opacity: 0.8;
-  }
-
-  .text-error {
-    color: var(--error);
-  }
-
-  .label-form-section {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    position: sticky;
-    top: 16px;
+    gap: 8px;
+    margin-left: auto;
   }
 
   .label-form {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    background: var(--gray-950);
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  @media (max-width: 768px) {
+    .form-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .form-group {
+    margin-bottom: 0;
+  }
+
+  .color-group {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 8px;
   }
 
   .color-input-group {
@@ -357,35 +334,254 @@ try {
     align-items: center;
   }
 
-  .color-input-group input[type="color"] {
-    width: 60px;
-    height: 40px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    background: transparent;
-  }
-
-  .color-input-group input[type="text"] {
+  .color-input-group input {
     flex: 1;
-    font-family: 'Berkeley Mono', monospace;
   }
 
-  .error-banner {
-    padding: 12px 16px;
-    background: rgba(255, 68, 68, 0.1);
-    border: 1px solid rgba(255, 68, 68, 0.3);
+  .color-preview {
+    width: 32px;
+    height: 32px;
     border-radius: var(--radius);
-    color: var(--error);
-    font-size: 13px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
   }
 
-  .success-banner {
-    padding: 12px 16px;
-    background: rgba(0, 210, 106, 0.1);
-    border: 1px solid rgba(0, 210, 106, 0.3);
-    border-radius: var(--radius);
-    color: var(--success);
-    font-size: 13px;
+  .color-palette {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+    gap: 6px;
+  }
+
+  .color-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    padding: 0;
+  }
+
+  .color-swatch:hover {
+    transform: scale(1.1);
+    border-color: var(--fg);
+  }
+
+  .color-swatch:active {
+    transform: scale(0.95);
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .label-edit-form {
+    margin-top: 12px;
   }
 </style>
+
+<script>
+  const username = window.location.pathname.split('/')[1];
+  const reponame = window.location.pathname.split('/')[2];
+  const apiBase = `/repos/${username}/${reponame}`;
+
+  // Show/hide new label form
+  const newLabelBtn = document.getElementById('new-label-btn');
+  const newLabelFormContainer = document.getElementById('new-label-form-container');
+  const cancelNewLabelBtn = document.getElementById('cancel-new-label');
+  const newLabelForm = document.getElementById('new-label-form') as HTMLFormElement;
+
+  newLabelBtn?.addEventListener('click', () => {
+    newLabelFormContainer!.style.display = 'block';
+    newLabelBtn.style.display = 'none';
+    (document.getElementById('new-label-name') as HTMLInputElement)?.focus();
+  });
+
+  cancelNewLabelBtn?.addEventListener('click', () => {
+    newLabelFormContainer!.style.display = 'none';
+    newLabelBtn!.style.display = 'inline-flex';
+    newLabelForm?.reset();
+    const newColorPreview = document.getElementById('new-color-preview');
+    if (newColorPreview) {
+      newColorPreview.style.backgroundColor = '#d73a4a';
+    }
+  });
+
+  // Color preview for new label
+  const newColorInput = document.getElementById('new-label-color') as HTMLInputElement;
+  const newColorPreview = document.getElementById('new-color-preview');
+
+  newColorInput?.addEventListener('input', (e) => {
+    const color = (e.target as HTMLInputElement).value;
+    if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      newColorPreview!.style.backgroundColor = color;
+    }
+  });
+
+  // Color swatches
+  document.addEventListener('click', (e) => {
+    const swatch = (e.target as HTMLElement).closest('.color-swatch') as HTMLButtonElement;
+    if (swatch) {
+      const color = swatch.dataset.color;
+      const target = swatch.dataset.target;
+
+      if (target === 'new') {
+        newColorInput!.value = color!;
+        newColorPreview!.style.backgroundColor = color!;
+      } else if (target === 'edit') {
+        const form = swatch.closest('.label-edit-form') as HTMLFormElement;
+        const colorInput = form?.querySelector('.edit-color-input') as HTMLInputElement;
+        const preview = form?.querySelector('.color-preview') as HTMLDivElement;
+        if (colorInput && preview) {
+          colorInput.value = color!;
+          preview.style.backgroundColor = color!;
+        }
+      }
+    }
+  });
+
+  // Color preview for edit forms
+  document.addEventListener('input', (e) => {
+    const input = e.target as HTMLInputElement;
+    if (input.classList.contains('edit-color-input')) {
+      const form = input.closest('.label-edit-form');
+      const preview = form?.querySelector('.color-preview') as HTMLDivElement;
+      const color = input.value;
+      if (/^#[0-9A-Fa-f]{6}$/.test(color) && preview) {
+        preview.style.backgroundColor = color;
+      }
+    }
+  });
+
+  // Create new label
+  newLabelForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(newLabelForm);
+    const data = {
+      name: formData.get('name') as string,
+      color: formData.get('color') as string,
+      description: formData.get('description') as string,
+    };
+
+    try {
+      const response = await fetch(`${apiBase}/labels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to create label');
+      }
+    } catch (error) {
+      console.error('Error creating label:', error);
+      alert('Failed to create label');
+    }
+  });
+
+  // Edit label
+  document.addEventListener('click', (e) => {
+    const editBtn = (e.target as HTMLElement).closest('.edit-label-btn') as HTMLButtonElement;
+    if (editBtn) {
+      const labelName = editBtn.dataset.labelName;
+      // Use safe DOM traversal instead of querySelector with user data
+      const labelItem = editBtn.closest('.label-item');
+      const labelView = labelItem?.querySelector('.label-view') as HTMLDivElement;
+      const editForm = labelItem?.querySelector('.label-edit-form') as HTMLFormElement;
+
+      if (labelView && editForm) {
+        labelView.style.display = 'none';
+        editForm.style.display = 'block';
+      }
+    }
+  });
+
+  // Cancel edit
+  document.addEventListener('click', (e) => {
+    const cancelBtn = (e.target as HTMLElement).closest('.cancel-edit-btn') as HTMLButtonElement;
+    if (cancelBtn) {
+      // Use safe DOM traversal instead of querySelector with user data
+      const labelItem = cancelBtn.closest('.label-item');
+      const labelView = labelItem?.querySelector('.label-view') as HTMLDivElement;
+      const editForm = labelItem?.querySelector('.label-edit-form') as HTMLFormElement;
+
+      if (labelView && editForm) {
+        labelView.style.display = 'flex';
+        editForm.style.display = 'none';
+      }
+    }
+  });
+
+  // Save edited label
+  document.addEventListener('submit', async (e) => {
+    const form = e.target as HTMLFormElement;
+    if (form.classList.contains('label-edit-form')) {
+      e.preventDefault();
+      const oldLabelName = form.dataset.labelName;
+      const formData = new FormData(form);
+      const data = {
+        name: formData.get('name') as string,
+        color: formData.get('color') as string,
+        description: formData.get('description') as string,
+      };
+
+      try {
+        const response = await fetch(`${apiBase}/labels/${encodeURIComponent(oldLabelName!)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          const error = await response.json();
+          alert(error.error || 'Failed to update label');
+        }
+      } catch (error) {
+        console.error('Error updating label:', error);
+        alert('Failed to update label');
+      }
+    }
+  });
+
+  // Delete label
+  document.addEventListener('click', async (e) => {
+    const deleteBtn = (e.target as HTMLElement).closest('.delete-label-btn') as HTMLButtonElement;
+    if (deleteBtn) {
+      const labelName = deleteBtn.dataset.labelName;
+      if (!labelName) return;
+
+      // Sanitize label name for display in confirm dialog
+      const safeDisplayName = labelName.replace(/[<>"'&]/g, (c) => {
+        const entities: Record<string, string> = { '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '&': '&amp;' };
+        return entities[c] || c;
+      });
+
+      if (!confirm(`Are you sure you want to delete the label "${safeDisplayName}"?\n\nThis will remove it from all issues that currently use this label.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${apiBase}/labels/${encodeURIComponent(labelName!)}`, {
+          method: 'DELETE',
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          const error = await response.json();
+          alert(error.error || 'Failed to delete label');
+        }
+      } catch (error) {
+        console.error('Error deleting label:', error);
+        alert('Failed to delete label');
+      }
+    }
+  });
+</script>

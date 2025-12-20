@@ -26,20 +26,72 @@ function getUrl(entry: TreeEntry) {
 }
 
 function getIcon(entry: TreeEntry) {
-  return entry.type === "tree" ? "▸" : "·";
+  if (entry.type === "tree") {
+    return "▶";
+  }
+
+  // File type icons based on extension
+  const ext = entry.name.split('.').pop()?.toLowerCase();
+
+  // Programming languages
+  if (['ts', 'tsx', 'js', 'jsx'].includes(ext || '')) return "□";
+  if (['json', 'yaml', 'yml', 'toml'].includes(ext || '')) return "{}";
+  if (['md', 'mdx', 'txt'].includes(ext || '')) return "≡";
+  if (['css', 'scss', 'sass', 'less'].includes(ext || '')) return "◐";
+  if (['html', 'htm', 'astro', 'vue', 'svelte'].includes(ext || '')) return "◈";
+  if (['py', 'rb', 'go', 'rs', 'c', 'cpp', 'h'].includes(ext || '')) return "⌘";
+  if (['sql', 'db', 'sqlite'].includes(ext || '')) return "◎";
+  if (['sh', 'bash', 'zsh'].includes(ext || '')) return ">";
+
+  // Config and system files
+  if (['env', 'gitignore', 'dockerignore', 'eslintrc'].includes(ext || '')) return "⚙";
+  if (entry.name.startsWith('.')) return "⚙";
+  if (['lock'].includes(ext || '')) return "🔒";
+
+  // Assets
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext || '')) return "◉";
+  if (['mp4', 'webm', 'mov'].includes(ext || '')) return "▶";
+  if (['mp3', 'wav', 'ogg'].includes(ext || '')) return "♪";
+  if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext || '')) return "📦";
+
+  return "·";
+}
+
+function getFileTypeClass(entry: TreeEntry) {
+  if (entry.type === "tree") return "file-type-dir";
+
+  const ext = entry.name.split('.').pop()?.toLowerCase();
+
+  if (['ts', 'tsx', 'js', 'jsx'].includes(ext || '')) return "file-type-code";
+  if (['json', 'yaml', 'yml', 'toml'].includes(ext || '')) return "file-type-config";
+  if (['md', 'mdx', 'txt'].includes(ext || '')) return "file-type-doc";
+  if (['css', 'scss', 'sass', 'less'].includes(ext || '')) return "file-type-style";
+  if (['html', 'htm', 'astro', 'vue', 'svelte'].includes(ext || '')) return "file-type-markup";
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext || '')) return "file-type-image";
+  if (entry.name.startsWith('.') || ['env', 'gitignore', 'lock'].includes(ext || '')) return "file-type-config";
+
+  return "file-type-default";
 }
 ---
 
 <div class="file-tree">
   {sorted.length === 0 ? (
-    <div class="empty-state">
-      <p>No files in this directory</p>
+    <div class="empty-state compact">
+      <div class="empty-state-icon">∅</div>
+      <div class="empty-state-title">No files in this directory</div>
+      <div class="empty-state-description">
+        This directory is empty. Files will appear here once they're added.
+      </div>
     </div>
   ) : (
     sorted.map((entry) => (
       <a
         href={getUrl(entry)}
-        class:list={["file-tree-item", { directory: entry.type === "tree" }]}
+        class:list={[
+          "file-tree-item",
+          { directory: entry.type === "tree" },
+          getFileTypeClass(entry)
+        ]}
       >
         <span class="icon">{getIcon(entry)}</span>
         <span class="name">{entry.name}</span>

@@ -144,30 +144,52 @@ export async function isJjRepo(user: string, name: string): Promise<boolean> {
 export async function listBookmarks(user: string, name: string): Promise<Bookmark[]> {
   const repoPath = getRepoPath(user, name);
 
+  // Try jj first
   const result = await runJj(
     ['bookmark', 'list', '--template', 'name ++ "|" ++ normal_target.change_id() ++ "\\n"'],
     repoPath
   );
 
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
+  if (result.exitCode === 0 && result.stdout.trim()) {
+    const lines = result.stdout.trim().split('\n').filter(Boolean);
+
+    return lines.map((line, index) => {
+      const [bookmarkName, changeId] = line.split('|');
+      return {
+        id: index + 1,
+        repositoryId: 0, // Will be filled by caller
+        name: bookmarkName?.trim() || '',
+        targetChangeId: changeId?.trim() || '',
+        pusherId: null,
+        isDefault: bookmarkName?.trim() === 'main',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    });
+  }
+
+  // Fall back to git branches when jj isn't available
+  const gitResult = await run(`git branch -a --format='%(refname:short)|%(objectname:short)'`, repoPath);
+  if (!gitResult.trim()) {
     return [];
   }
 
-  const lines = result.stdout.trim().split('\n').filter(Boolean);
+  const lines = gitResult.trim().split('\n').filter(Boolean);
 
   return lines.map((line, index) => {
-    const [bookmarkName, changeId] = line.split('|');
+    const [branchName, commitId] = line.split('|');
+    const name = branchName?.trim().replace(/^origin\//, '') || '';
     return {
       id: index + 1,
-      repositoryId: 0, // Will be filled by caller
-      name: bookmarkName?.trim() || '',
-      targetChangeId: changeId?.trim() || '',
+      repositoryId: 0,
+      name,
+      targetChangeId: commitId?.trim() || '',
       pusherId: null,
-      isDefault: bookmarkName?.trim() === 'main',
+      isDefault: name === 'main' || name === 'master',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-  });
+  }).filter((b, i, arr) => arr.findIndex(x => x.name === b.name) === i); // Deduplicate
 }
 
 /**
@@ -281,11 +303,20 @@ export async function listChanges(
     repoPath
   );
 
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
+  if (result.exitCode === 0 && result.stdout.trim()) {
+    return parseChangesOutput(result.stdout);
+  }
+
+  // Fall back to git log when jj isn't available
+  const gitRef = bookmark || 'HEAD';
+  const gitFormat = '%H|%H|%s|%an|%ae|%ct|false|false';
+  const gitResult = await run(`git log ${gitRef} -n ${limit} --format='${gitFormat}'`, repoPath);
+
+  if (!gitResult.trim()) {
     return [];
   }
 
-  return parseChangesOutput(result.stdout);
+  return parseChangesOutput(gitResult);
 }
 
 /**
@@ -371,14 +402,27 @@ export async function getTree(
 ): Promise<TreeEntry[]> {
   const repoPath = getRepoPath(user, name);
 
-  // jj file list gives us all files, we need to filter for directory listing
+  // Try jj first, fall back to git if jj fails or isn't available
+  let allFiles: string[] = [];
+
+  // Try jj file list
   const result = await runJj(['file', 'list', '-r', changeId], repoPath);
 
-  if (result.exitCode !== 0 || !result.stdout.trim()) {
-    return [];
+  if (result.exitCode === 0 && result.stdout.trim()) {
+    allFiles = result.stdout.trim().split('\n').filter(Boolean);
+  } else {
+    // Fall back to git ls-tree for bare repos or when jj isn't available
+    const gitRef = changeId === 'main' || changeId.match(/^[a-z]{8,}$/) ? 'HEAD' : changeId;
+    const gitPath = path || '.';
+    const gitResult = await run(`git ls-tree -r --name-only ${gitRef} ${gitPath}`, repoPath);
+    if (gitResult.trim()) {
+      allFiles = gitResult.trim().split('\n').filter(Boolean);
+    }
   }
 
-  const allFiles = result.stdout.trim().split('\n').filter(Boolean);
+  if (allFiles.length === 0) {
+    return [];
+  }
 
   // Filter and build tree entries for the given path
   const prefix = path ? `${path}/` : '';
@@ -427,13 +471,17 @@ export async function getFileContent(
 ): Promise<string | null> {
   const repoPath = getRepoPath(user, name);
 
+  // Try jj first
   const result = await runJj(['file', 'show', '-r', changeId, path], repoPath);
 
-  if (result.exitCode !== 0) {
-    return null;
+  if (result.exitCode === 0 && result.stdout) {
+    return result.stdout;
   }
 
-  return result.stdout;
+  // Fall back to git show for bare repos or when jj isn't available
+  const gitRef = changeId === 'main' || changeId.match(/^[a-z]{8,}$/) ? 'HEAD' : changeId;
+  const gitResult = await run(`git show ${gitRef}:${path}`, repoPath);
+  return gitResult || null;
 }
 
 /**

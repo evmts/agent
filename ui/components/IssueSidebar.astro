@@ -1,4 +1,6 @@
 ---
+import { formatDateForInput, getDueDateStatus } from "../lib/date-utils";
+
 interface Props {
   issue: {
     id: number;
@@ -7,18 +9,26 @@ interface Props {
     assignees?: string[];
     labels?: string[];
     milestone?: string | null;
+    due_date?: string | null;
+    blocks?: number[];
+    blocked_by?: number[];
   };
   users: Array<{ id: number; username: string }>;
   availableLabels: Array<{ name: string; color: string; description?: string }>;
   milestones?: Array<{ id: number; title: string; due_date: string | null; state: string }>;
   currentMilestone?: { id: number; title: string; due_date: string | null; state: string } | null;
+  allIssues?: Array<{ number: number; title: string; state: 'open' | 'closed' }>;
 }
 
-const { issue, users, availableLabels, milestones = [], currentMilestone = null } = Astro.props;
+const { issue, users, availableLabels, milestones = [], currentMilestone = null, allIssues = [] } = Astro.props;
 
 // Get assignees and labels from issue
 const assignees = issue.assignees || [];
 const issueLabels = issue.labels || [];
+
+// Get dependencies
+const blocks = issue.blocks || [];
+const blockedBy = issue.blocked_by || [];
 
 // Get label details from available labels
 const labels = issueLabels.map(labelName =>
@@ -26,6 +36,10 @@ const labels = issueLabels.map(labelName =>
 ).filter(Boolean) as Array<{ name: string; color: string; description?: string }>;
 
 const isSubscribed = false;
+
+// Get due date status
+const dueDate = issue.due_date || null;
+const dueDateStatus = getDueDateStatus(dueDate);
 
 function formatDate(date: string | Date | null): string {
   if (!date) return "";
@@ -174,6 +188,55 @@ function formatDate(date: string | Date | null): string {
           )}
         </div>
       </details>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3 class="sidebar-heading">Due Date</h3>
+    <div class="sidebar-content">
+      <div id="due-date-container">
+        {!dueDate ? (
+          <p class="text-muted text-xs" id="no-due-date">No due date</p>
+        ) : (
+          <div class="due-date-info" id="current-due-date">
+            <div class="due-date-content">
+              <div class:list={["due-date-display", dueDateStatus?.colorClass]}>
+                <span class="due-date-icon">📅</span>
+                <div class="due-date-text">
+                  <div class="due-date-value">{formatDate(dueDate)}</div>
+                  <div class="due-date-relative">{dueDateStatus?.relativeText}</div>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="btn-remove remove-due-date"
+              aria-label="Remove due date"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
+      <div class="due-date-picker" style={dueDate ? 'display: none;' : ''}>
+        <form class="due-date-form" id="set-due-date-form">
+          <input
+            type="date"
+            name="due_date"
+            id="due-date-input"
+            class="date-input"
+            value={dueDate ? formatDateForInput(dueDate) : ''}
+          />
+          <button type="submit" class="btn-icon set-due-date">
+            {dueDate ? '✏️' : '➕'}
+          </button>
+        </form>
+      </div>
+      {dueDate && (
+        <button type="button" class="sidebar-link edit-due-date" id="edit-due-date-link">
+          Edit due date
+        </button>
+      )}
     </div>
   </div>
 
@@ -482,6 +545,108 @@ function formatDate(date: string | Date | null): string {
     color: var(--gray-600);
     cursor: default;
   }
+
+  /* Due Date */
+  .due-date-info {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .due-date-content {
+    flex: 1;
+  }
+
+  .due-date-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .due-date-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .due-date-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .due-date-value {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  .due-date-relative {
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* Due date color classes */
+  .due-future .due-date-relative {
+    color: var(--gray-400);
+  }
+
+  .due-soon .due-date-relative {
+    color: #f59e0b;
+  }
+
+  .due-overdue .due-date-relative {
+    color: #ef4444;
+  }
+
+  .due-date-picker {
+    margin-top: 8px;
+  }
+
+  .due-date-form {
+    display: flex;
+    gap: 4px;
+  }
+
+  .date-input {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--gray-950);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg);
+    font-size: 13px;
+    font-family: inherit;
+  }
+
+  .date-input:focus {
+    outline: none;
+    border-color: var(--border-hover);
+  }
+
+  .btn-icon {
+    padding: 6px 10px;
+    background: var(--gray-900);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--fg);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+  }
+
+  .btn-icon:hover {
+    background: var(--gray-800);
+    border-color: var(--border-hover);
+  }
+
+  .edit-due-date {
+    margin-top: 8px;
+  }
 </style>
 
 <script>
@@ -618,6 +783,64 @@ function formatDate(date: string | Date | null): string {
       } catch (error) {
         console.error('Failed to remove milestone:', error);
       }
+    });
+  }
+
+  // Handle set due date
+  const setDueDateForm = document.getElementById('set-due-date-form');
+  if (setDueDateForm) {
+    setDueDateForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target as HTMLFormElement;
+      const dueDateInput = form.querySelector('#due-date-input') as HTMLInputElement;
+      const dueDate = dueDateInput.value;
+
+      if (!dueDate) return;
+
+      try {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/due-date`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ due_date: new Date(dueDate).toISOString() })
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to set due date:', error);
+      }
+    });
+  }
+
+  // Handle remove due date
+  const removeDueDateBtn = document.querySelector('.remove-due-date');
+  if (removeDueDateBtn) {
+    removeDueDateBtn.addEventListener('click', async () => {
+      try {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/due-date`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to remove due date:', error);
+      }
+    });
+  }
+
+  // Handle edit due date
+  const editDueDateLink = document.getElementById('edit-due-date-link');
+  const dueDatePicker = document.querySelector('.due-date-picker') as HTMLElement;
+  const currentDueDate = document.getElementById('current-due-date') as HTMLElement;
+
+  if (editDueDateLink && dueDatePicker && currentDueDate) {
+    editDueDateLink.addEventListener('click', () => {
+      dueDatePicker.style.display = 'block';
+      currentDueDate.style.display = 'none';
+      editDueDateLink.style.display = 'none';
     });
   }
 </script>

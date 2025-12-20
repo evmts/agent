@@ -5,9 +5,11 @@ import Markdown from "../../../../components/Markdown.astro";
 import CommentCard from "../../../../components/CommentCard.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
 import IssueSidebar from "../../../../components/IssueSidebar.astro";
+import IssueDependencies from "../../../../components/IssueDependencies.astro";
 import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
 import Reactions from "../../../../components/Reactions.astro";
+import ActivityItem from "../../../../components/ActivityItem.astro";
 import { sql } from "../../../../lib/db";
 import {
   getIssue,
@@ -18,9 +20,13 @@ import {
   updateIssue,
   closeIssue,
   reopenIssue,
+  pinIssue,
+  unpinIssue,
   getIssueCounts,
   getLabels,
   ensureIssuesRepo,
+  getIssueEvents,
+  listIssues,
 } from "../../../../lib/git-issues";
 import { saveMentionsForComment } from "../../../../lib/mentions-db";
 import type { User, Repository, ReactionGroup } from "../../../../lib/types";
@@ -48,8 +54,9 @@ await ensureIssuesRepo(username, reponame);
 const gitIssue = await getIssue(username, reponame, parseInt(issueNumber));
 if (!gitIssue) return Astro.redirect("/404");
 
-// Get comments from git
+// Get comments and events from git
 const gitComments = await getComments(username, reponame, parseInt(issueNumber));
+const events = await getIssueEvents(username, reponame, parseInt(issueNumber));
 
 // Transform to match expected shapes
 const issue = {
@@ -71,12 +78,27 @@ const comments = gitComments.map(c => ({
   created_at: new Date(c.created_at),
 }));
 
+// Create a unified timeline of comments and events, sorted by date
+type TimelineItem = { type: 'comment'; data: typeof comments[0] } | { type: 'event'; data: typeof events[0] };
+
+const timeline: TimelineItem[] = [
+  ...comments.map(c => ({ type: 'comment' as const, data: c })),
+  ...events.map(e => ({ type: 'event' as const, data: e }))
+].sort((a, b) => {
+  const dateA = a.type === 'comment' ? a.data.created_at : a.data.created_at;
+  const dateB = b.type === 'comment' ? b.data.created_at : b.data.created_at;
+  return dateA.getTime() - dateB.getTime();
+});
+
 const users = await sql<User[]>`SELECT * FROM users ORDER BY username`;
 
 const counts = await getIssueCounts(username, reponame);
 
 // Get available labels
 const availableLabels = await getLabels(username, reponame);
+
+// Get all issues for dependency selection
+const allIssues = await listIssues(username, reponame, "all");
 
 // Get milestones for this repository
 const milestones = await sql<Array<{ id: number; title: string; due_date: string | null; state: string }>>`
@@ -208,15 +230,19 @@ if (Astro.request.method === "POST") {
       }
     }
   } else if (action === "close") {
+    const actorIdStr = formData.get("author_id") as string;
+    const actorId = actorIdStr ? parseInt(actorIdStr) : undefined;
     try {
-      await closeIssue(username, reponame, parseInt(issueNumber));
+      await closeIssue(username, reponame, parseInt(issueNumber), actorId);
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "reopen") {
+    const actorIdStr = formData.get("author_id") as string;
+    const actorId = actorIdStr ? parseInt(actorIdStr) : undefined;
     try {
-      await reopenIssue(username, reponame, parseInt(issueNumber));
+      await reopenIssue(username, reponame, parseInt(issueNumber), actorId);
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
@@ -261,6 +287,20 @@ if (Astro.request.method === "POST") {
       } catch (e) {
         error = (e as Error).message;
       }
+    }
+  } else if (action === "pin") {
+    try {
+      await pinIssue(username, reponame, parseInt(issueNumber));
+      return Astro.redirect(Astro.url.pathname);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  } else if (action === "unpin") {
+    try {
+      await unpinIssue(username, reponame, parseInt(issueNumber));
+      return Astro.redirect(Astro.url.pathname);
+    } catch (e) {
+      error = (e as Error).message;
     }
   }
 }
@@ -373,15 +413,19 @@ if (authCookie) {
           </div>
         )}
 
-        {comments.map((comment) => (
-          <CommentCard
-            comment={comment}
-            owner={username}
-            repo={reponame}
-            currentUserId={currentUserId}
-            issueNumber={parseInt(issueNumber)}
-            reactions={Object.values(commentReactions[comment.id] || {})}
-          />
+        {timeline.map((item) => (
+          item.type === 'comment' ? (
+            <CommentCard
+              comment={item.data}
+              owner={username}
+              repo={reponame}
+              currentUserId={currentUserId}
+              issueNumber={parseInt(issueNumber)}
+              reactions={Object.values(commentReactions[item.data.id] || {})}
+            />
+          ) : (
+            <ActivityItem event={item.data} />
+          )
         ))}
 
         <div class="add-comment mt-3">
@@ -428,13 +472,24 @@ if (authCookie) {
                   Reopen issue
                 </button>
               )}
+
+              {issue.is_pinned ? (
+                <button type="submit" name="action" value="unpin" class="btn">
+                  📌 Unpin
+                </button>
+              ) : (
+                <button type="submit" name="action" value="pin" class="btn">
+                  📌 Pin
+                </button>
+              )}
             </div>
           </form>
         </div>
       </div>
 
       <div class="issue-sidebar-wrapper">
-        <IssueSidebar issue={issue} users={users} availableLabels={availableLabels} milestones={milestones} currentMilestone={currentMilestone} />
+        <IssueSidebar issue={issue} users={users} availableLabels={availableLabels} milestones={milestones} currentMilestone={currentMilestone} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
+        <IssueDependencies issue={issue} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
       </div>
     </div>
   </div>

@@ -1,0 +1,146 @@
+---
+import Avatar from "./Avatar.astro";
+import RelativeTime from "./RelativeTime.astro";
+
+export interface IssueEvent {
+  id: number;
+  actor_username: string | null;
+  event_type: string;
+  metadata: Record<string, unknown>;
+  created_at: Date;
+}
+
+interface Props {
+  event: IssueEvent;
+}
+
+const { event } = Astro.props;
+
+function getEventIcon(eventType: string): string {
+  switch (eventType) {
+    case 'closed':
+      return '🔒';
+    case 'reopened':
+      return '🔓';
+    case 'label_added':
+      return '🏷️';
+    case 'label_removed':
+      return '🏷️';
+    case 'assignee_added':
+      return '👤';
+    case 'assignee_removed':
+      return '👤';
+    case 'milestone_added':
+      return '🎯';
+    case 'milestone_removed':
+      return '🎯';
+    case 'milestone_changed':
+      return '🎯';
+    case 'title_changed':
+    case 'renamed':
+      return '✏️';
+    default:
+      return '•';
+  }
+}
+
+function getEventText(event: IssueEvent): string {
+  const actor = event.actor_username || 'someone';
+  const meta = event.metadata || {};
+
+  switch (event.event_type) {
+    case 'closed':
+      return `${actor} closed this issue`;
+    case 'reopened':
+      return `${actor} reopened this issue`;
+    case 'label_added':
+      return `${actor} added the "${meta.label}" label`;
+    case 'label_removed':
+      return `${actor} removed the "${meta.label}" label`;
+    case 'assignee_added':
+      return `${actor} assigned this to ${meta.assignee}`;
+    case 'assignee_removed':
+      return `${actor} removed ${meta.assignee} from this issue`;
+    case 'milestone_added':
+      return `${actor} added this to the "${meta.milestone}" milestone`;
+    case 'milestone_removed':
+      return `${actor} removed this from the "${meta.milestone}" milestone`;
+    case 'milestone_changed':
+      return `${actor} changed milestone from "${meta.old_milestone}" to "${meta.new_milestone}"`;
+    case 'title_changed':
+    case 'renamed':
+      return `${actor} changed the title from "${meta.old_title}" to "${meta.new_title}"`;
+    default:
+      return `${actor} performed an action`;
+  }
+}
+
+const icon = getEventIcon(event.event_type);
+const text = getEventText(event);
+---
+
+<div class="activity-item">
+  <div class="activity-icon" title={event.event_type}>
+    {icon}
+  </div>
+  <div class="activity-content">
+    <div class="activity-text">
+      {event.actor_username && (
+        <Avatar user={{ username: event.actor_username }} size="xs" />
+      )}
+      <span class="activity-description">{text}</span>
+    </div>
+    <div class="activity-time">
+      <RelativeTime date={event.created_at} />
+    </div>
+  </div>
+</div>
+
+<style>
+  .activity-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .activity-item:last-child {
+    border-bottom: none;
+  }
+
+  .activity-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    border: 1px solid var(--border);
+  }
+
+  .activity-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .activity-text {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .activity-description {
+    color: var(--text-muted);
+  }
+
+  .activity-time {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+</style>

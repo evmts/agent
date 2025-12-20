@@ -107,8 +107,10 @@ const issues = gitIssues.map(issue => ({
   closed_at: issue.closed_at ? new Date(issue.closed_at) : null,
   author_username: issue.author.username,
   labels: issue.labels,
+  due_date: issue.due_date || null,
   reactions: issueReactionMap[issue.number] || [],
   assignees: issue.assignees,
+  is_pinned: issue.is_pinned,
 }));
 
 // Count pending landing requests
@@ -197,11 +199,17 @@ const baseUrl = `/${username}/${reponame}/issues`;
 
     {issues.length === 0 ? (
       <div class="empty-state">
-        <p>No {state} issues found</p>
+        <div class="empty-state-icon">◯</div>
+        <div class="empty-state-title">No {state} issues found</div>
+        <div class="empty-state-description">
+          {!author && !assignee && !search && labels.length === 0
+            ? `There are no ${state} issues in this repository yet.`
+            : "No issues match your current filters. Try adjusting your search criteria."}
+        </div>
         {!author && !assignee && !search && labels.length === 0 ? (
-          <a href={`/${username}/${reponame}/issues/new`} class="btn mt-2">Create an issue</a>
+          <a href={`/${username}/${reponame}/issues/new`} class="btn btn-primary">Create an issue</a>
         ) : (
-          <a href={`/${username}/${reponame}/issues?state=${state}`} class="btn mt-2">Clear filters</a>
+          <a href={`/${username}/${reponame}/issues?state=${state}`} class="btn">Clear filters</a>
         )}
       </div>
     ) : (

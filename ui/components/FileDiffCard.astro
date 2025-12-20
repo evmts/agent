@@ -4,21 +4,21 @@
  * Shows the filename, stats, and diff hunks with line numbers
  * Supports inline comments when landingId and comments are provided
  */
-import type { FileDiff, LineComment } from "../lib/jj-types";
-import LineComment from "./LineComment.astro";
+import type { FileDiff, LineComment as LineCommentType } from "../lib/jj-types";
+import LineCommentComponent from "./LineComment.astro";
 
 interface Props {
   file: FileDiff;
   defaultExpanded?: boolean;
   landingId?: number;
-  comments?: LineComment[];
+  comments?: LineCommentType[];
   canComment?: boolean;
 }
 
 const { file, defaultExpanded = false, landingId, comments = [], canComment = false } = Astro.props;
 
 // Group comments by line and side
-const commentsByLine = new Map<string, LineComment[]>();
+const commentsByLine = new Map<string, LineCommentType[]>();
 if (landingId) {
   comments.forEach(comment => {
     if (comment.filePath === file.path) {
@@ -143,7 +143,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
                     <div class="comment-row">
                       <div class="comments-container">
                         {oldComments.map(comment => (
-                          <LineComment comment={comment} canEdit={canComment} />
+                          <LineCommentComponent comment={comment} canEdit={canComment} />
                         ))}
                       </div>
                     </div>
@@ -153,7 +153,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
                     <div class="comment-row">
                       <div class="comments-container">
                         {newComments.map(comment => (
-                          <LineComment comment={comment} canEdit={canComment} />
+                          <LineCommentComponent comment={comment} canEdit={canComment} />
                         ))}
                       </div>
                     </div>

@@ -25,8 +25,12 @@ const repos = await sql`
 
     {repos.length === 0 ? (
       <div class="empty-state">
-        <p>No repositories yet</p>
-        <a href="/new" class="btn mt-2">Create your first repository</a>
+        <div class="empty-state-icon">□</div>
+        <div class="empty-state-title">No repositories yet</div>
+        <div class="empty-state-description">
+          Get started by creating your first repository to host your code.
+        </div>
+        <a href="/new" class="btn btn-primary">Create your first repository</a>
       </div>
     ) : (
       <ul class="repo-list">

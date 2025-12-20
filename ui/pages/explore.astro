@@ -138,14 +138,22 @@ const popularTopics = await sql`
 
     {repos.length === 0 ? (
       <div class="empty-state">
-        <p>
+        <div class="empty-state-icon">⌕</div>
+        <div class="empty-state-title">
           {topicFilter
-            ? `No repositories found with topic "${topicFilter}"`
+            ? "No repositories found"
             : searchQuery
-            ? `No repositories found matching "${searchQuery}"`
+            ? "No matches found"
             : "No public repositories yet"}
-        </p>
-        <a href="/" class="btn mt-2">Go home</a>
+        </div>
+        <div class="empty-state-description">
+          {topicFilter
+            ? `No repositories are tagged with "${topicFilter}". Try a different topic or browse all repositories.`
+            : searchQuery
+            ? `No repositories match "${searchQuery}". Try different search terms or browse all repositories.`
+            : "There are no public repositories available yet. Check back later or create your own."}
+        </div>
+        <a href="/" class="btn">Go home</a>
       </div>
     ) : (
       <ul class="repo-list">
