@@ -336,7 +336,7 @@ try {
           window.location.reload();
         }
       } catch (error) {
-        alert(error instanceof Error ? error.message : 'Failed to delete SSH key');
+        window.toast.error(error instanceof Error ? error.message : 'Failed to delete SSH key');
         target.disabled = false;
         target.textContent = 'Delete';
       }

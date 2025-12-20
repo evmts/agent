@@ -16,9 +16,16 @@ import {
   deleteIssue,
   getComments,
   addComment,
+  updateComment,
+  deleteComment,
   getIssueHistory,
   getIssueCounts,
   getLabels,
+  createLabel,
+  updateLabel,
+  deleteLabel,
+  addLabelsToIssue,
+  removeLabelFromIssue,
   ensureIssuesRepo,
   IssueNotFoundError,
   IssuesRepoNotInitializedError,
@@ -304,6 +311,24 @@ app.get("/:user/:repo/issues/:number/history", async (c) => {
   }
 });
 
+// Get issue counts
+app.get("/:user/:repo/issues/counts", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+
+  try {
+    await ensureIssuesRepo(user, repo);
+    const counts = await getIssueCounts(user, repo);
+    return c.json(counts);
+  } catch (error) {
+    throw error;
+  }
+});
+
+// =============================================================================
+// Label Routes
+// =============================================================================
+
 // Get available labels for a repository
 app.get("/:user/:repo/labels", async (c) => {
   const user = c.req.param("user");
@@ -318,16 +343,132 @@ app.get("/:user/:repo/labels", async (c) => {
   }
 });
 
-// Get issue counts
-app.get("/:user/:repo/issues/counts", async (c) => {
+// Create a new label
+app.post("/:user/:repo/labels", async (c) => {
   const user = c.req.param("user");
   const repo = c.req.param("repo");
+  const body = await c.req.json();
+
+  if (!body.name || !body.color) {
+    return c.json({ error: "Name and color are required" }, 400);
+  }
+
+  // Validate color format (hex)
+  if (!/^#[0-9A-Fa-f]{6}$/.test(body.color)) {
+    return c.json({ error: "Color must be a valid hex color (e.g., #ff0000)" }, 400);
+  }
 
   try {
-    await ensureIssuesRepo(user, repo);
-    const counts = await getIssueCounts(user, repo);
-    return c.json(counts);
+    await createLabel(user, repo, {
+      name: body.name,
+      color: body.color,
+      description: body.description,
+    });
+
+    const labels = await getLabels(user, repo);
+    return c.json({ labels }, 201);
   } catch (error) {
+    if (error instanceof Error && error.message.includes("already exists")) {
+      return c.json({ error: error.message }, 409);
+    }
+    throw error;
+  }
+});
+
+// Update a label
+app.patch("/:user/:repo/labels/:name", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const name = decodeURIComponent(c.req.param("name"));
+  const body = await c.req.json();
+
+  if (!body.name || !body.color) {
+    return c.json({ error: "Name and color are required" }, 400);
+  }
+
+  // Validate color format (hex)
+  if (!/^#[0-9A-Fa-f]{6}$/.test(body.color)) {
+    return c.json({ error: "Color must be a valid hex color (e.g., #ff0000)" }, 400);
+  }
+
+  try {
+    await updateLabel(user, repo, name, {
+      name: body.name,
+      color: body.color,
+      description: body.description,
+    });
+
+    const labels = await getLabels(user, repo);
+    return c.json({ labels });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("not found")) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Delete a label
+app.delete("/:user/:repo/labels/:name", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const name = decodeURIComponent(c.req.param("name"));
+
+  try {
+    await deleteLabel(user, repo, name);
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("not found")) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Add labels to an issue
+app.post("/:user/:repo/issues/:number/labels", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const body = await c.req.json();
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  if (!Array.isArray(body.labels) || body.labels.length === 0) {
+    return c.json({ error: "Labels array is required" }, 400);
+  }
+
+  try {
+    const issue = await addLabelsToIssue(user, repo, number, body.labels);
+    return c.json(issue);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
+    throw error;
+  }
+});
+
+// Remove a label from an issue
+app.delete("/:user/:repo/issues/:number/labels/:label", async (c) => {
+  const user = c.req.param("user");
+  const repo = c.req.param("repo");
+  const number = parseInt(c.req.param("number"), 10);
+  const label = decodeURIComponent(c.req.param("label"));
+
+  if (isNaN(number)) {
+    return c.json({ error: "Invalid issue number" }, 400);
+  }
+
+  try {
+    const issue = await removeLabelFromIssue(user, repo, number, label);
+    return c.json(issue);
+  } catch (error) {
+    if (error instanceof IssueNotFoundError) {
+      return c.json({ error: error.message }, 404);
+    }
     throw error;
   }
 });

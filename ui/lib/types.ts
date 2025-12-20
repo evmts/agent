@@ -55,6 +55,24 @@ export interface Comment {
   author_username?: string;
 }
 
+export interface Reaction {
+  id: number;
+  user_id: number;
+  target_type: 'issue' | 'comment';
+  target_id: number;
+  emoji: string;
+  created_at: Date;
+  // Joined fields
+  username?: string;
+}
+
+export interface ReactionGroup {
+  emoji: string;
+  count: number;
+  users: Array<{ id: number; username: string }>;
+  has_reacted: boolean;
+}
+
 export interface TreeEntry {
   mode: string;
   type: 'blob' | 'tree';

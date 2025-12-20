@@ -1,7 +1,7 @@
 import { replaceMentionsWithLinks } from "./mentions";
 
 // Simple but solid markdown to HTML converter
-export function renderMarkdown(content: string): string {
+export function renderMarkdown(content: string, owner?: string, repo?: string): string {
   // Normalize line endings
   let text = content.replace(/\r\n/g, "\n");
 
@@ -24,6 +24,26 @@ export function renderMarkdown(content: string): string {
 
   // Escape remaining HTML
   text = escapeHtml(text);
+
+  // Process issue references AFTER escaping HTML but BEFORE other markdown processing
+  if (owner && repo) {
+    // Full references: owner/repo#123
+    text = text.replace(
+      /([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)#(\d+)/g,
+      (match, refOwner, refRepo, number) => {
+        return `<a href="/${refOwner}/${refRepo}/issues/${number}" class="issue-link">${refOwner}/${refRepo}#${number}</a>`;
+      }
+    );
+
+    // Short references: #123 (only match if preceded by whitespace, start, or punctuation)
+    text = text.replace(
+      /(?:^|[\s([{])(#(\d+))(?=$|[\s)\]}.,;!?])/gm,
+      (match, ref, number) => {
+        const prefix = match.charAt(0) === '#' ? '' : match.charAt(0);
+        return `${prefix}<a href="/${owner}/${repo}/issues/${number}" class="issue-link">#${number}</a>`;
+      }
+    );
+  }
 
   // Headers (must be at start of line)
   text = text.replace(/^#### (.+)$/gm, "<h4>$1</h4>");

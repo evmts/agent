@@ -155,34 +155,48 @@ const shortSha = run.commit_sha?.slice(0, 7);
       ) : (
         <div class="jobs-list">
           {jobs.map((job) => (
-            <div class="job-card">
-              <div class="job-header">
-                <span class="job-name">{job.name}</span>
-                <WorkflowStatusBadge status={job.status} />
-                <span class="job-duration">
-                  {formatDuration(job.started_at, job.stopped_at)}
-                </span>
-              </div>
+            <details class="job-card" open>
+              <summary class="job-header">
+                <div class="job-header-content">
+                  <span class="expand-icon">▶</span>
+                  <span class="job-name">{job.name}</span>
+                  <WorkflowStatusBadge status={job.status} />
+                  <span class="job-duration">
+                    {formatDuration(job.started_at, job.stopped_at)}
+                  </span>
+                </div>
+              </summary>
 
               {steps[job.id] && steps[job.id].length > 0 && (
                 <div class="steps-list">
                   {steps[job.id].map((step: any) => (
-                    <div class="step-item">
+                    <div class="step-item" data-step-status={step.status}>
+                      <span class="step-icon">
+                        {step.status === 1 ? '✓' : step.status === 2 ? '✕' : step.status === 6 ? '⟳' : '○'}
+                      </span>
                       <span class="step-index">{step.step_index + 1}</span>
                       <span class="step-name">{step.name}</span>
                       <WorkflowStatusBadge status={step.status} size="small" />
+                      <span class="step-duration">
+                        {formatDuration(step.started_at, step.stopped_at)}
+                      </span>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
+            </details>
           ))}
         </div>
       )}
     </div>
 
     <div class="logs-section">
-      <h2>Logs</h2>
+      <div class="logs-header">
+        <h2>Logs</h2>
+        <button class="btn btn-sm" id="download-logs-btn">
+          Download Logs
+        </button>
+      </div>
       <pre class="logs-container" id="logs-container">Loading logs...</pre>
     </div>
   </div>
@@ -284,12 +298,34 @@ const shortSha = run.commit_sha?.slice(0, 7);
   }
 
   .job-header {
+    display: block;
+    padding: 0.75rem 1rem;
+    background: var(--gray-950);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+  }
+
+  .job-header::-webkit-details-marker {
+    display: none;
+  }
+
+  .job-header-content {
     display: flex;
     align-items: center;
     gap: 1rem;
-    padding: 0.75rem 1rem;
-    background: var(--muted-bg, #f9fafb);
-    border-bottom: 1px solid var(--border);
+  }
+
+  .expand-icon {
+    font-size: 0.625rem;
+    color: var(--gray-400);
+    transition: transform 0.2s;
+    display: inline-block;
+  }
+
+  details[open] .expand-icon {
+    transform: rotate(90deg);
   }
 
   .job-name {
@@ -300,7 +336,7 @@ const shortSha = run.commit_sha?.slice(0, 7);
   .job-duration {
     font-family: var(--font-mono);
     font-size: 0.75rem;
-    color: var(--muted);
+    color: var(--gray-400);
   }
 
   .steps-list {
@@ -311,24 +347,54 @@ const shortSha = run.commit_sha?.slice(0, 7);
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.375rem 1rem;
+    padding: 0.5rem 1rem 0.5rem 2.5rem;
+    transition: background var(--transition-fast);
   }
 
   .step-item:hover {
-    background: var(--hover-bg, #f9fafb);
+    background: var(--hover);
+  }
+
+  .step-icon {
+    font-size: 0.75rem;
+    width: 1rem;
+    text-align: center;
+  }
+
+  .step-item[data-step-status="1"] .step-icon {
+    color: var(--success);
+  }
+
+  .step-item[data-step-status="2"] .step-icon {
+    color: var(--error);
+  }
+
+  .step-item[data-step-status="6"] .step-icon {
+    color: var(--info, #3b82f6);
+    animation: spin 2s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .step-index {
     font-family: var(--font-mono);
     font-size: 0.75rem;
-    color: var(--muted);
+    color: var(--gray-500);
     width: 1.5rem;
-    text-align: center;
+    text-align: right;
   }
 
   .step-name {
     flex: 1;
     font-size: 0.875rem;
+  }
+
+  .step-duration {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--gray-500);
   }
 
   .logs-container {

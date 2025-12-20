@@ -458,7 +458,7 @@ const [{ count: landingCount }] = await sql`
       window.location.href = `/${username}/${reponame}/landing/${data.request.id}`;
     } else {
       const data = await response.json();
-      alert(data.error || 'Failed to create landing request');
+      window.toast.error(data.error || 'Failed to create landing request');
     }
   });
 </script>
