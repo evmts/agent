@@ -1,0 +1,56 @@
+# Plue SSH Server Configuration
+# This is a sample sshd_config for running Plue's Git SSH server
+#
+# To use:
+# 1. Copy this file to /etc/ssh/sshd_config.d/plue.conf
+# 2. Update paths to match your installation
+# 3. Restart sshd: sudo systemctl restart sshd
+#
+# Or run a standalone sshd instance:
+# sudo /usr/sbin/sshd -f /path/to/sshd_config.plue -D
+
+# Port for git operations (default: 2222)
+Port 2222
+
+# Listen on all interfaces
+ListenAddress 0.0.0.0
+
+# Protocol
+Protocol 2
+
+# Host keys
+HostKey /var/lib/plue/ssh_host_rsa_key
+HostKey /var/lib/plue/ssh_host_ed25519_key
+
+# Authentication
+PubkeyAuthentication yes
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+
+# Authorized keys command (queries Plue database)
+AuthorizedKeysCommand /opt/plue/scripts/authorized_keys_command.sh
+AuthorizedKeysCommandUser git
+
+# Force command for git operations
+ForceCommand /opt/plue/scripts/git-shell.sh
+
+# Only allow 'git' user
+AllowUsers git
+
+# Logging
+SyslogFacility AUTH
+LogLevel INFO
+
+# Security
+PermitRootLogin no
+PermitEmptyPasswords no
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+
+# Session
+PrintMotd no
+PrintLastLog no
+UseDNS no
