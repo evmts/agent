@@ -178,20 +178,50 @@ impl JjWorkspace {
     }
 
     /// List all bookmarks (formerly branches)
+    /// Also includes git branches for colocated repos where git refs haven't been imported
     #[napi]
     pub fn list_bookmarks(&self) -> Result<Vec<JjBranchInfo>> {
         let (_workspace, repo) = self.load_repo()?;
         let view = repo.view();
 
         let mut bookmarks = Vec::new();
+        let mut seen_names = std::collections::HashSet::new();
 
+        // First, get jj bookmarks
         for (name, target) in view.local_bookmarks() {
+            let name_str = name.as_str().to_string();
+            seen_names.insert(name_str.clone());
             bookmarks.push(JjBranchInfo {
-                name: name.as_str().to_string(),
+                name: name_str,
                 target_id: target.as_normal().map(|id| id.hex()),
                 is_local: true,
                 remote: None,
             });
+        }
+
+        // For colocated repos: also list git branches that aren't in jj bookmarks
+        let git_refs_dir = self.workspace_root.join(".git/refs/heads");
+        if git_refs_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&git_refs_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(name) = entry.file_name().into_string() {
+                        if !seen_names.contains(&name) {
+                            // Read the commit ID from the ref file
+                            let ref_path = entry.path();
+                            let target_id = std::fs::read_to_string(&ref_path)
+                                .ok()
+                                .map(|s| s.trim().to_string());
+
+                            bookmarks.push(JjBranchInfo {
+                                name,
+                                target_id,
+                                is_local: true,
+                                remote: None,
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         Ok(bookmarks)
@@ -344,13 +374,48 @@ impl JjWorkspace {
             }
         }
 
-        // Try as bookmark name first (more common case)
+        // Try as bookmark name (jj's equivalent of branches)
         let view = repo.view();
         for (name, target) in view.local_bookmarks() {
             if name.as_str() == revision {
                 if let Some(id) = target.as_normal() {
                     return repo.store().get_commit(id)
                         .map_err(|e| napi::Error::from_reason(format!("Failed to get commit: {}", e)));
+                }
+            }
+        }
+
+        // For colocated repos: try to read git refs directly from .git
+        // This handles the case where git branches weren't imported as jj bookmarks
+        let git_ref_path = self.workspace_root.join(".git/refs/heads").join(revision);
+        if git_ref_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&git_ref_path) {
+                let commit_hex = content.trim();
+                if let Some(id) = CommitId::try_from_hex(commit_hex) {
+                    if let Ok(commit) = repo.store().get_commit(&id) {
+                        return Ok(commit);
+                    }
+                }
+            }
+        }
+
+        // Also try packed-refs for git
+        let packed_refs_path = self.workspace_root.join(".git/packed-refs");
+        if packed_refs_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&packed_refs_path) {
+                let ref_name = format!("refs/heads/{}", revision);
+                for line in content.lines() {
+                    if line.starts_with('#') {
+                        continue;
+                    }
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 && parts[1] == ref_name {
+                        if let Some(id) = CommitId::try_from_hex(parts[0]) {
+                            if let Ok(commit) = repo.store().get_commit(&id) {
+                                return Ok(commit);
+                            }
+                        }
+                    }
                 }
             }
         }
