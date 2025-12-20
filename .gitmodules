@@ -1,3 +1,6 @@
 [submodule "server-zig/voltaire"]
 	path = server-zig/voltaire
 	url = git@github.com:evmts/voltaire.git
+[submodule "server-zig/ai"]
+	path = server-zig/ai
+	url = https://github.com/evmts/ai.git
