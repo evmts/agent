@@ -8,7 +8,20 @@ import type { Repository } from "../lib/types";
 
 // Pagination settings
 const PAGE_SIZE = 20;
-const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
+
+// Validate page number: handle negative, zero, NaN, and non-integer values
+const rawPageParam = Astro.url.searchParams.get('page');
+const pageParam = parseInt(rawPageParam || '1', 10);
+const validPage = Math.max(1, isNaN(pageParam) ? 1 : pageParam);
+
+// Redirect to normalized URL if page param is invalid
+if (rawPageParam !== null && (isNaN(pageParam) || pageParam < 1 || pageParam !== validPage)) {
+  const url = new URL(Astro.url);
+  url.searchParams.set('page', String(validPage));
+  return Astro.redirect(url.pathname + url.search);
+}
+
+const page = validPage;
 const offset = (page - 1) * PAGE_SIZE;
 
 // Get total count for pagination
