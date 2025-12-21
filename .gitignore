@@ -50,6 +50,7 @@ server/jj-ffi/target/
 *.bak
 
 # Zig build artifacts
+.zig-cache/
 tools/*/zig-out/
 tools/*/.zig-cache/
 tools/*/zig-cache/
@@ -65,6 +66,10 @@ gitea-ref/
 git-ssh-ref/
 electric-ai-chat/
 reports/
+
+# Nested repos
+libvaxis/
+codex/
 
 # Local data directories
 repos/

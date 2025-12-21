@@ -6,3 +6,6 @@
 	path = server/ai
 	url = https://github.com/evmts/ai.git
 	ignore = dirty
+[submodule "server/voltaire"]
+	path = server/voltaire
+	url = git@github.com:evmts/voltaire.git
