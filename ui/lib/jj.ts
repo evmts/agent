@@ -13,7 +13,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { JjWorkspace, isJjWorkspace } from "../../snapshot/index.mjs";
+import { JjWorkspace, isJjWorkspace } from "@plue/snapshot";
 import type {
   Change,
   ChangeDetail,
