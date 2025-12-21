@@ -281,17 +281,20 @@ test.describe('BUG: Session and Authentication Edge Cases', () => {
     expect(response?.status()).toBeLessThan(500);
   });
 
-  test('BUG-025: should handle very long session cookie', async ({ page, context }) => {
-    await context.addCookies([{
-      name: 'plue_session',
-      value: 'a'.repeat(10000),
-      domain: 'localhost',
-      path: '/',
-    }]);
+  test('BUG-025: should handle very long session cookie', async ({ request }) => {
+    // Use direct HTTP request to bypass browser cookie size limits
+    // Browsers limit cookies to ~4KB, but we need to test server handling of larger values
+    const longCookie = 'a'.repeat(10000);
 
-    const response = await page.goto('/settings');
+    const response = await request.get('http://localhost:4000/api/auth/me', {
+      headers: {
+        Cookie: `plue_session=${longCookie}`,
+      },
+    });
 
-    expect(response?.status()).toBeLessThan(500);
+    // Server should handle gracefully - not crash with 500
+    // Expected: 400 (bad request) or 401 (unauthorized) - not 500
+    expect(response.status()).toBeLessThan(500);
   });
 });
 
