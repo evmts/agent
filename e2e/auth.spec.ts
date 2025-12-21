@@ -422,7 +422,7 @@ test.describe('Authentication', () => {
               email: 'test@example.com',
               isActive: true,
               isAdmin: false,
-              walletAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+              walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
             }
           }),
         });
