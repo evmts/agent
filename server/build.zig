@@ -60,6 +60,11 @@ pub fn build(b: *std.Build) void {
         exe.linkSystemLibrary("resolv");
     }
 
+    // Link libgcc_s for unwinding symbols required by Rust std library (voltaire crypto)
+    if (target.result.os.tag == .linux) {
+        exe.linkSystemLibrary("gcc_s");
+    }
+
     b.installArtifact(exe);
 
     // Run command
@@ -143,4 +148,36 @@ pub fn build(b: *std.Build) void {
     const all_tests_step = b.step("test:all", "Run all tests (unit + integration)");
     all_tests_step.dependOn(&run_unit_tests.step);
     all_tests_step.dependOn(&run_integration_tests.step);
+
+    // Agent test (LLM integration test)
+    const agent_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "httpz", .module = httpz_dep.module("httpz") },
+                .{ .name = "pg", .module = pg_dep.module("pg") },
+                .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
+                .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+            },
+        }),
+    });
+
+    agent_tests.step.dependOn(&jj_ffi_build.step);
+    agent_tests.addIncludePath(b.path("jj-ffi"));
+    agent_tests.addLibraryPath(b.path("jj-ffi/target/release"));
+    agent_tests.linkSystemLibrary("jj_ffi");
+    agent_tests.linkLibC();
+
+    if (target.result.os.tag == .macos) {
+        agent_tests.linkFramework("Security");
+        agent_tests.linkFramework("CoreFoundation");
+        agent_tests.linkSystemLibrary("resolv");
+    }
+
+    agent_tests.filters = &.{"agent reads file"};
+    const run_agent_tests = b.addRunArtifact(agent_tests);
+    const agent_test_step = b.step("test:agent", "Run agent LLM integration test");
+    agent_test_step.dependOn(&run_agent_tests.step);
 }

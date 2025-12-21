@@ -13,6 +13,14 @@ export default defineConfig({
   vite: {
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
+    },
+    ssr: {
+      // Externalize native modules so Vite doesn't try to bundle them
+      noExternal: [],
+      external: ['@plue/snapshot']
+    },
+    optimizeDeps: {
+      exclude: ['@plue/snapshot']
     }
   }
 });

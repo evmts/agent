@@ -1,6 +1,7 @@
 .{
     .name = .core,
     .version = "0.1.0",
+    .fingerprint = 0x6b8d854f8ac2745b,
     .minimum_zig_version = "0.13.0",
     .paths = .{
         "build.zig",

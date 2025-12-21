@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     ca-certificates \
     git \
+    libgcc-s1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Zig (detect architecture)
@@ -57,10 +58,15 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
-# Copy server source
+# Copy server source (voltaire must be a real directory, not a symlink)
+# If using symlink locally, run: rm server/voltaire && git submodule update --init server/voltaire
 COPY server ./server
 COPY core ./core
 COPY db ./db
+
+# Build voltaire's Rust crypto wrappers (panic=abort avoids unwind dependency)
+WORKDIR /app/server/voltaire
+RUN RUSTFLAGS="-C panic=abort" cargo build --release
 
 # Build the Zig server (includes jj-ffi build via build.zig)
 WORKDIR /app/server
