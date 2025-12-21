@@ -66,13 +66,21 @@ fn validateCsrf(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !bool 
     return true;
 }
 
-/// Helper function to apply auth + CSRF middleware to a handler
+/// Helper function to apply input validation + auth + CSRF middleware to a handler
 /// Use this wrapper for all POST/PUT/PATCH/DELETE routes that require auth
+/// Input validation runs FIRST to reject malicious input before auth checks
 fn withAuthAndCsrf(
     comptime handler: fn (*Context, *httpz.Request, *httpz.Response) anyerror!void,
 ) fn (*Context, *httpz.Request, *httpz.Response) anyerror!void {
     return struct {
         fn wrapped(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+            // Apply input validation FIRST (before auth)
+            // This rejects null bytes and control characters with 400
+            const validation_handler = middleware.validationMiddleware(middleware.validation_default);
+            if (!try validation_handler(ctx, req, res)) {
+                return; // Validation middleware already set 400 response
+            }
+
             // Apply auth middleware
             if (!try middleware.authMiddleware(ctx, req, res)) {
                 return; // Auth middleware already set error response

@@ -346,7 +346,8 @@ test.describe('BUG: API Input Validation', () => {
   });
 
   test('BUG-032: should reject control characters in issue title', async ({ request }) => {
-    const response = await request.post('http://localhost:4000/api/repos/test/test/issues', {
+    // Note: Route is /api/:user/:repo/issues, not /api/repos/:user/:repo/issues
+    const response = await request.post('http://localhost:4000/api/test/test/issues', {
       data: {
         title: 'Test\x00\x01\x02Title',
         body: 'Body',
