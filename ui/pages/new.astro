@@ -75,10 +75,11 @@ if (Astro.request.method === "POST") {
           name="name"
           id="name"
           required
-          pattern="[a-zA-Z0-9-]+"
+          pattern="[a-z0-9-]+"
           placeholder="my-project"
           autocomplete="off"
           spellcheck="false"
+          title="Lowercase letters, numbers, and hyphens only"
         />
       </div>
 
