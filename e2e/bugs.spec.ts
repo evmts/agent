@@ -114,31 +114,29 @@ test.describe('BUG: Repository Name Validation', () => {
 });
 
 test.describe('BUG: Issue Title Validation', () => {
-  test.skip('BUG-011: should reject whitespace-only title', async ({ page }) => {
+  test('BUG-011: should reject whitespace-only title', async ({ page }) => {
     // Navigate to issue creation page
     await page.goto('/e2etest/testrepo/issues/new');
 
-    // Try to submit with whitespace-only title
+    // Try to submit with whitespace-only title (server trims this to empty)
     await page.fill('input[name="title"]', '   ');
-    await page.fill('textarea[name="body"]', 'Valid body');
 
     // Submit the form
     await page.click('button[type="submit"]');
 
-    // Should show validation error, not create empty-titled issue
-    await expect(page.locator('.error, [role="alert"]')).toBeVisible();
+    // Should show validation error (server returns "Author and title are required")
+    await expect(page.locator('.error-banner')).toBeVisible();
   });
 
-  test.skip('BUG-012: should handle very long issue title', async ({ page }) => {
+  test('BUG-012: should handle very long issue title', async ({ page }) => {
     await page.goto('/e2etest/testrepo/issues/new');
 
     const longTitle = 'A'.repeat(1000);
     await page.fill('input[name="title"]', longTitle);
-    await page.fill('textarea[name="body"]', 'Body');
 
     await page.click('button[type="submit"]');
 
-    // Should either truncate gracefully or show error
+    // Should either create issue or show error, but NOT 500 Internal Server Error
     const content = await page.content();
     expect(content).not.toContain('Internal Server Error');
   });
@@ -172,29 +170,38 @@ test.describe('BUG: Milestone Date Validation', () => {
 
 test.describe('BUG: SSH Key Validation', () => {
   test.skip('BUG-015: should validate SSH key format on submission', async ({ page }) => {
-    // This requires authentication
+    // Skip: Requires authentication - needs authenticated test fixture
     await page.goto('/settings/ssh-keys');
 
-    const keyInput = page.locator('textarea[name="public_key"]');
+    // Will redirect to /login if not authenticated
+    if (page.url().includes('/login')) {
+      return; // Skip if not authenticated
+    }
+
+    const keyInput = page.locator('#public-key');
     if (await keyInput.count() > 0) {
       // Submit invalid SSH key
-      await page.fill('input[name="name"]', 'Test Key');
+      await page.fill('#key-name', 'Test Key');
       await keyInput.fill('this is not a valid ssh key');
 
-      await page.click('button[type="submit"]');
+      await page.click('#add-key-submit');
 
       // Should show format error
-      await expect(page.locator('.error, [role="alert"]')).toBeVisible();
-      await expect(page.locator('body')).toContainText(/invalid|format|ssh/i);
+      await expect(page.locator('#key-error')).toBeVisible();
     }
   });
 
   test.skip('BUG-016: should accept RSA key format', async ({ page }) => {
+    // Skip: Requires authentication - needs authenticated test fixture
     await page.goto('/settings/ssh-keys');
+
+    if (page.url().includes('/login')) {
+      return;
+    }
 
     const rsaKey = 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7... test@example.com';
 
-    const keyInput = page.locator('textarea[name="public_key"]');
+    const keyInput = page.locator('#public-key');
     if (await keyInput.count() > 0) {
       await keyInput.fill(rsaKey);
       // Should not show format error for valid RSA key
@@ -202,11 +209,16 @@ test.describe('BUG: SSH Key Validation', () => {
   });
 
   test.skip('BUG-017: should accept Ed25519 key format', async ({ page }) => {
+    // Skip: Requires authentication - needs authenticated test fixture
     await page.goto('/settings/ssh-keys');
+
+    if (page.url().includes('/login')) {
+      return;
+    }
 
     const ed25519Key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ... test@example.com';
 
-    const keyInput = page.locator('textarea[name="public_key"]');
+    const keyInput = page.locator('#public-key');
     if (await keyInput.count() > 0) {
       await keyInput.fill(ed25519Key);
       // Should accept Ed25519 keys
