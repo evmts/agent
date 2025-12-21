@@ -506,11 +506,14 @@ test.describe('BUG: Data Display Edge Cases', () => {
   test('BUG-043: should escape HTML in repository names', async ({ page }) => {
     await page.goto('/explore');
 
-    // Check that no unescaped HTML tags appear
-    const content = await page.content();
+    // Only check user-generated content areas, not the full page
+    // (Astro legitimately uses <script> tags for hydration/ViewTransitions)
+    const repoList = page.locator('.repo-list');
+    await expect(repoList).toBeVisible();
+    const userContent = await repoList.innerHTML();
 
     // Repository names should not allow HTML execution
-    // Look for common XSS patterns
+    // Look for common XSS patterns in user content only
     const dangerousPatterns = [
       '<img src=x',
       'onerror=',
@@ -520,12 +523,11 @@ test.describe('BUG: Data Display Edge Cases', () => {
     ];
 
     for (const pattern of dangerousPatterns) {
-      // These should appear escaped or not at all
-      const unescapedMatches = (content.match(new RegExp(pattern, 'gi')) || []).length;
-      const escapedMatches = (content.match(new RegExp(`&lt;${pattern.slice(1)}`, 'gi')) || []).length;
+      // These should appear escaped or not at all in user content
+      const unescapedMatches = (userContent.match(new RegExp(pattern, 'gi')) || []).length;
 
       // All instances should be escaped
-      expect(unescapedMatches).toBe(0);
+      expect(unescapedMatches, `Found unescaped "${pattern}" in user content`).toBe(0);
     }
   });
 });
