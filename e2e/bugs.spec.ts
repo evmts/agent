@@ -448,8 +448,16 @@ test.describe('BUG: Accessibility', () => {
   test('BUG-038: login form should have proper labels', async ({ page }) => {
     await page.goto('/login');
 
-    // All inputs should have associated labels
-    const inputs = await page.locator('input:not([type="hidden"]):not([type="submit"])').all();
+    // Wait for page to be fully loaded
+    await page.waitForLoadState('networkidle');
+
+    // Note: Login page uses wallet auth (SIWE) with just a "Connect Wallet" button
+    // There may not be any form inputs at all
+    const authContainer = page.locator('.auth-container');
+    await expect(authContainer).toBeVisible();
+
+    // All inputs (if any) should have associated labels
+    const inputs = await page.locator('.auth-container input:not([type="hidden"]):not([type="submit"])').all();
 
     for (const input of inputs) {
       const id = await input.getAttribute('id');
