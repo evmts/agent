@@ -55,4 +55,5 @@ pub const VERSION = "0.1.0";
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("agent.test.zig");
 }

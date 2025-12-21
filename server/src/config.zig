@@ -44,7 +44,7 @@ pub fn load() Config {
             const port_str = std.posix.getenv("PORT") orelse "4000";
             break :blk std.fmt.parseInt(u16, port_str, 10) catch 4000;
         },
-        .database_url = std.posix.getenv("DATABASE_URL") orelse "postgres://localhost:5432/plue",
+        .database_url = std.posix.getenv("DATABASE_URL") orelse "postgresql://postgres:password@localhost:54321/electric",
         .jwt_secret = jwt_secret,
         .electric_url = std.posix.getenv("ELECTRIC_URL") orelse "http://localhost:3000",
         .cors_origins = &.{

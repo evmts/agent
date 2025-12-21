@@ -16,7 +16,6 @@ pub const CorsConfig = cors.CorsConfig;
 pub const SecurityConfig = security.SecurityConfig;
 pub const BodyLimitConfig = body_limit.BodyLimitConfig;
 pub const RateLimitConfig = rate_limit.RateLimitConfig;
-pub const RateLimiter = rate_limit.RateLimiter;
 pub const CsrfConfig = csrf.CsrfConfig;
 pub const CsrfStore = csrf.CsrfStore;
 pub const ValidationConfig = validation.ValidationConfig;
