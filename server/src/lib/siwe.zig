@@ -13,8 +13,8 @@ const log = std.log.scoped(.siwe);
 // Re-export voltaire's SIWE types
 pub const SiweMessage = primitives.Siwe.SiweMessage;
 pub const SiweError = primitives.Siwe.SiweError;
+pub const Signature = primitives.Siwe.Signature;
 const Address = primitives.Address.Address;
-const Signature = crypto_pkg.Crypto.Signature;
 
 pub const AuthError = error{
     InvalidMessage,
@@ -90,14 +90,10 @@ pub fn verifySiweSignature(
         return AuthError.InvalidSignature;
     };
 
-    // Convert r and s to u256 (big-endian)
-    const r: u256 = std.mem.readInt(u256, sig_bytes[0..32], .big);
-    const s: u256 = std.mem.readInt(u256, sig_bytes[32..64], .big);
-
-    // Create Signature struct
+    // Create Signature struct with byte arrays
     const signature = Signature{
-        .r = r,
-        .s = s,
+        .r = sig_bytes[0..32].*,
+        .s = sig_bytes[32..64].*,
         .v = sig_bytes[64],
     };
 
