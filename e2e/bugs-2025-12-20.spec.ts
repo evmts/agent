@@ -118,18 +118,24 @@ test.describe('BUG-SEC: Security Issues', () => {
   });
 
   test('BUG-SEC-006: No rate limiting on login attempts', async ({ request }) => {
-    const attempts = 50;
+    const attempts = 10;
     const results: number[] = [];
 
-    // Rapid-fire login attempts
+    // Rapid-fire login attempts to SIWE verify endpoint
+    // Rate limit is 5 per minute, so after 5 we should see 429s
     for (let i = 0; i < attempts; i++) {
-      const response = await request.post('http://localhost:4000/api/auth/login', {
-        data: { address: '0x' + 'a'.repeat(40) },
+      const response = await request.post('http://localhost:4000/api/auth/siwe/verify', {
+        headers: { 'Content-Type': 'application/json' },
+        data: JSON.stringify({
+          message: 'fake-siwe-message',
+          signature: '0x' + 'a'.repeat(130),
+        }),
       });
       results.push(response.status());
     }
 
-    // At least some should be rate limited (429)
+    // After 5 attempts, should get 429 (Too Many Requests)
+    // First 5 might be 400/401 (bad signature), but after limit we get 429
     const rateLimited = results.filter(s => s === 429).length;
     expect(rateLimited).toBeGreaterThan(0);
   });

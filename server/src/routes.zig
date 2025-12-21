@@ -2,6 +2,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("main.zig").Context;
 const middleware = @import("middleware/mod.zig");
+const rate_limit = @import("middleware/rate_limit.zig");
 const pty_routes = @import("routes/pty.zig");
 const auth_routes = @import("routes/auth.zig");
 const ssh_keys = @import("routes/ssh_keys.zig");
@@ -106,6 +107,27 @@ fn withAuth(
     }.wrapped;
 }
 
+/// Helper function to apply rate limiting to a handler
+/// Use this wrapper for auth endpoints to prevent brute force attacks
+fn withRateLimit(
+    comptime config: rate_limit.RateLimitConfig,
+    comptime key_prefix: []const u8,
+    comptime handler: fn (*Context, *httpz.Request, *httpz.Response) anyerror!void,
+) fn (*Context, *httpz.Request, *httpz.Response) anyerror!void {
+    return struct {
+        fn wrapped(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+            // Apply rate limiting middleware
+            const rate_limit_handler = rate_limit.rateLimitMiddleware(config, key_prefix);
+            if (!try rate_limit_handler(ctx, req, res)) {
+                return; // Rate limit middleware already set 429 response
+            }
+
+            // Call the actual handler
+            return handler(ctx, req, res);
+        }
+    }.wrapped;
+}
+
 pub fn configure(server: *httpz.Server(*Context)) !void {
     var router = try server.router(.{});
 
@@ -119,10 +141,11 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/shape", shapeProxy, .{});
 
     // API routes - auth (delegating to auth_routes module for consistency)
-    // Note: Auth routes use session-based CSRF protection
+    // Note: Login/register don't require auth (user isn't authenticated yet)
+    // but DO require rate limiting to prevent brute force attacks
     router.get("/api/auth/siwe/nonce", auth_routes.getNonce, .{});
-    router.post("/api/auth/siwe/verify", withAuthAndCsrf(auth_routes.verify), .{});
-    router.post("/api/auth/siwe/register", withAuthAndCsrf(auth_routes.register), .{});
+    router.post("/api/auth/siwe/verify", withRateLimit(rate_limit.presets.login, "login", auth_routes.verify), .{});
+    router.post("/api/auth/siwe/register", withRateLimit(rate_limit.presets.register, "register", auth_routes.register), .{});
     router.post("/api/auth/logout", withAuthAndCsrf(auth_routes.logout), .{});
     router.get("/api/auth/me", auth_routes.me, .{});
     router.post("/api/auth/refresh", withAuthAndCsrf(auth_routes.refresh), .{});

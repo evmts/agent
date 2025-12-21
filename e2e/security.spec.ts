@@ -323,7 +323,7 @@ test.describe('Security: Information Disclosure', () => {
   });
 
   test('should not expose database errors to users', async ({ request }) => {
-    const response = await request.get('http://localhost:3000/api/users/'; DROP TABLE users; --');
+    const response = await request.get("http://localhost:3000/api/users/'; DROP TABLE users; --");
 
     const body = await response.text();
 
