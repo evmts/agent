@@ -17,7 +17,21 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Parse and verify SIWE message
-    const siweMessage = new SiweMessage(message);
+    // SiweMessage can accept either a string (EIP-4361) or an object
+    let siweMessage: InstanceType<typeof SiweMessage>;
+    try {
+      siweMessage = new SiweMessage(message);
+    } catch (parseError) {
+      console.error('SIWE parse error:', parseError);
+      console.error('Raw message:', message);
+      return new Response(JSON.stringify({
+        error: 'Invalid SIWE message format',
+        details: parseError instanceof Error ? parseError.message : 'Unknown error'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
     // Validate nonce exists and is not expired/used
     const [nonceRecord] = await sql`

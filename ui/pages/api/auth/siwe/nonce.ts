@@ -4,8 +4,9 @@ import sql from '../../../../lib/db';
 
 export const GET: APIRoute = async () => {
   try {
-    // Generate a cryptographically secure nonce
-    const nonce = randomBytes(16).toString('base64url');
+    // Generate a cryptographically secure alphanumeric nonce
+    // SIWE requires alphanumeric characters only (no - or _)
+    const nonce = randomBytes(16).toString('hex');
 
     // Store nonce in database with 10 minute expiration
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
