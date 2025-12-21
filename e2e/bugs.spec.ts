@@ -234,7 +234,8 @@ test.describe('BUG: Unimplemented Operations Return Proper Errors', () => {
   });
 
   test('BUG-020: session restore should return 501 Not Implemented', async ({ request }) => {
-    const response = await request.post('http://localhost:4000/api/sessions/test-session/restore');
+    // Route is /api/sessions/:sessionId/operations/:operationId/restore
+    const response = await request.post('http://localhost:4000/api/sessions/test-session/operations/test-op/restore');
 
     expect([401, 501]).toContain(response.status());
   });

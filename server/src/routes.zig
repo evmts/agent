@@ -81,12 +81,21 @@ fn withAuthAndCsrf(
                 return; // Validation middleware already set 400 response
             }
 
-            // Apply auth middleware
+            // Apply auth middleware (loads user if present)
             if (!try middleware.authMiddleware(ctx, req, res)) {
                 return; // Auth middleware already set error response
             }
 
-            // Apply CSRF validation
+            // Check if user is actually authenticated
+            // authMiddleware just loads user, it doesn't require auth
+            if (ctx.user == null) {
+                res.status = 401;
+                res.content_type = .JSON;
+                try res.writer().writeAll("{\"error\":\"Authentication required\"}");
+                return;
+            }
+
+            // Apply CSRF validation (only for authenticated requests)
             if (!try validateCsrf(ctx, req, res)) {
                 return; // CSRF validation already set error response
             }
