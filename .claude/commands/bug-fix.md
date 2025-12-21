@@ -52,18 +52,14 @@ Parse the issue body to extract:
 5. **Affected Files**: Where to look for the fix
 6. **Root Cause Analysis**: Initial hypothesis (if provided)
 
-## Phase 2: Create Fix Branch
+## Phase 2: Prepare Workspace
 
-Before making any changes, create a dedicated branch:
+**Note**: We use single-branch development on `plue-git`. Do NOT create feature branches.
 
 ```bash
-# Ensure we're on a clean state
-git stash -u -m "bug-fix-$ISSUE_NUM-stash"
-
-# Create fix branch from main
-git checkout main
-git pull origin main
-git checkout -b fix/issue-$ISSUE_NUM
+# Ensure we're on plue-git and up to date
+git checkout plue-git
+git stash -u -m "bug-fix-$ISSUE_NUM-stash" 2>/dev/null || true
 
 # Post initial comment to issue
 gh issue comment $ISSUE_NUM --body "$(cat <<'EOF'
@@ -71,7 +67,7 @@ gh issue comment $ISSUE_NUM --body "$(cat <<'EOF'
 
 An automated fix attempt has been initiated.
 
-**Branch**: `fix/issue-$ISSUE_NUM`
+**Branch**: `plue-git`
 **Started**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
 Will update with progress...
@@ -149,7 +145,7 @@ Capture test output for reporting.
 If ALL tests pass:
 
 ```bash
-# 1. Commit the fix
+# 1. Commit the fix (single-branch workflow - commit directly to plue-git)
 git add -A
 git commit -m "$(cat <<'EOF'
 🐛 fix: [Issue Title]
@@ -169,36 +165,15 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 
-# 2. Push the branch
-git push -u origin fix/issue-$ISSUE_NUM
+# 2. Push to plue-git
+git push origin plue-git
 
-# 3. Create PR (optional - or merge directly if authorized)
-gh pr create --title "fix: $ISSUE_TITLE" --body "$(cat <<'EOF'
-## Summary
-
-Fixes #$ISSUE_NUM
-
-## Changes Made
-- [Detailed list]
-
-## Test Results
-- ✅ `BUG-XXX` test now passes
-- ✅ Full test suite passes (X tests)
-
-## Verification Steps
-1. Run `bun playwright test -g "BUG-XXX"`
-2. Verify expected behavior manually
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-
-# 4. Comment on issue with success
+# 3. Comment on issue with success
 gh issue comment $ISSUE_NUM --body "$(cat <<'EOF'
 ## ✅ Fix Implemented Successfully
 
-**Branch**: `fix/issue-$ISSUE_NUM`
-**PR**: #[PR_NUMBER]
+**Commit**: [COMMIT_HASH]
+**Branch**: `plue-git`
 
 ### Changes Made
 [Summary of changes]
@@ -216,8 +191,8 @@ The test case `BUG-XXX` now passes. Full test suite shows no regressions.
 EOF
 )"
 
-# 5. Close the issue (if PR is merged or direct fix)
-gh issue close $ISSUE_NUM --reason "completed" --comment "Fixed in PR #[PR_NUMBER]"
+# 4. Close the issue
+gh issue close $ISSUE_NUM --reason "completed" --comment "Fixed in commit [COMMIT_HASH]"
 ```
 
 ## Phase 7: Failure Path - Revert and Report
@@ -229,18 +204,14 @@ If tests FAIL or fix cannot be completed:
 LEARNINGS="[Document findings here]"
 BLOCKERS="[What prevented the fix]"
 
-# 2. Revert all changes
+# 2. Revert all uncommitted changes
 git checkout -- .
 git clean -fd
 
-# 3. Return to previous branch
-git checkout -
-git branch -D fix/issue-$ISSUE_NUM
-
-# 4. Restore stash if any
+# 3. Restore stash if any
 git stash pop 2>/dev/null || true
 
-# 5. Update issue with detailed findings
+# 4. Update issue with detailed findings
 gh issue comment $ISSUE_NUM --body "$(cat <<'EOF'
 ## ⚠️ Fix Attempt Unsuccessful
 
@@ -276,7 +247,7 @@ EOF
 ## Safety Checklist
 
 Before making any fix, verify:
-- [ ] Created a new branch (not modifying main directly)
+- [ ] Working on `plue-git` branch (single-branch workflow)
 - [ ] Issue is actually open and a bug
 - [ ] Test case exists to validate the fix
 - [ ] Understand the root cause (not just symptoms)

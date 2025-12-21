@@ -167,6 +167,22 @@ zig build check        # Quick lint + typecheck
 zig build test         # Run all tests
 ```
 
+### Git Workflow
+
+**Single-branch development**: All work happens on the `plue-git` branch. Do NOT create feature branches or fix branches - commit directly to `plue-git`.
+
+```bash
+# Always work on plue-git
+git checkout plue-git
+
+# Make changes and commit directly
+git add .
+git commit -m "feat: description"
+
+# Push when ready
+git push origin plue-git
+```
+
 ## Testing
 
 ```bash
