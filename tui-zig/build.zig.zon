@@ -1,0 +1,16 @@
+.{
+    .name = .plue_tui,
+    .fingerprint = 0x29e98710182ab0ef,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .vaxis = .{
+            .path = "../libvaxis",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
