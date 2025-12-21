@@ -1,7 +1,7 @@
-//! Distributed rate limiting middleware
+//! In-memory rate limiting middleware
 //!
-//! Uses PostgreSQL for rate limit storage, enabling rate limits to be
-//! shared across all server instances behind a load balancer.
+//! Uses a simple hash map for rate limit storage.
+//! For distributed deployments, consider using Redis or PostgreSQL-based rate limiting.
 
 const std = @import("std");
 const httpz = @import("httpz");
@@ -57,46 +57,64 @@ pub const presets = struct {
     };
 };
 
-/// Distributed rate limiter using PostgreSQL
-pub const RateLimiter = struct {
-    pool: *db.Pool,
-    config: RateLimitConfig,
-    allocator: std.mem.Allocator,
-
-    pub fn init(allocator: std.mem.Allocator, pool: *db.Pool, config: RateLimitConfig) RateLimiter {
-        return .{
-            .pool = pool,
-            .config = config,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *RateLimiter) void {
-        _ = self;
-        // No cleanup needed - pool is managed externally
-    }
-
-    /// Check if request should be rate limited
-    /// Returns true if allowed, false if rate limited
-    pub fn check(self: *RateLimiter, key: []const u8) !bool {
-        const result = try db.checkRateLimit(
-            self.pool,
-            key,
-            @intCast(self.config.max_requests),
-            @intCast(self.config.window_seconds),
-        );
-        return result.allowed;
-    }
-
-    /// Get remaining requests for a key
-    pub fn getState(self: *RateLimiter, key: []const u8) !db.RateLimitResult {
-        return try db.getRateLimitState(
-            self.pool,
-            key,
-            @intCast(self.config.max_requests),
-        );
-    }
+/// In-memory rate limit entry
+const RateLimitEntry = struct {
+    count: u32,
+    window_start: i64,
 };
+
+/// Global in-memory rate limit store
+var rate_limit_store: ?std.StringHashMap(RateLimitEntry) = null;
+var store_mutex: std.Thread.Mutex = .{};
+
+fn initStore(allocator: std.mem.Allocator) void {
+    store_mutex.lock();
+    defer store_mutex.unlock();
+    if (rate_limit_store == null) {
+        rate_limit_store = std.StringHashMap(RateLimitEntry).init(allocator);
+    }
+}
+
+/// Check rate limit for a key (in-memory implementation)
+fn checkRateLimitInMemory(key: []const u8, config: RateLimitConfig, allocator: std.mem.Allocator) !struct { allowed: bool, count: u32 } {
+    initStore(allocator);
+
+    store_mutex.lock();
+    defer store_mutex.unlock();
+
+    const now = std.time.timestamp();
+    var store = &rate_limit_store.?;
+
+    // Try to get or create entry
+    const gop = try store.getOrPut(key);
+    if (!gop.found_existing) {
+        // Need to dupe the key for long-term storage
+        const owned_key = try allocator.dupe(u8, key);
+        gop.key_ptr.* = owned_key;
+        gop.value_ptr.* = RateLimitEntry{
+            .count = 1,
+            .window_start = now,
+        };
+        return .{ .allowed = true, .count = 1 };
+    }
+
+    const entry = gop.value_ptr;
+
+    // Check if window expired
+    if (now - entry.window_start >= @as(i64, config.window_seconds)) {
+        // Reset window
+        entry.count = 1;
+        entry.window_start = now;
+        return .{ .allowed = true, .count = 1 };
+    }
+
+    // Increment and check
+    entry.count += 1;
+    return .{
+        .allowed = entry.count <= config.max_requests,
+        .count = entry.count,
+    };
+}
 
 /// Get rate limit key from request (IP address)
 fn getRateLimitKey(req: *httpz.Request, allocator: std.mem.Allocator, prefix: []const u8) ![]const u8 {
@@ -114,77 +132,48 @@ pub fn rateLimitMiddleware(
 ) fn (*Context, *httpz.Request, *httpz.Response) anyerror!bool {
     return struct {
         fn handler(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !bool {
-            // Create rate limiter for this request
-            var limiter = RateLimiter.init(ctx.allocator, ctx.pool, config);
-            defer limiter.deinit();
-
             // Generate rate limit key
             const key = try getRateLimitKey(req, ctx.allocator, key_prefix);
             defer ctx.allocator.free(key);
 
-            // Check rate limit
-            const allowed = limiter.check(key) catch |err| {
+            // Check rate limit using in-memory store
+            const result = checkRateLimitInMemory(key, config, ctx.allocator) catch |err| {
                 log.err("Rate limit check failed: {}", .{err});
                 // On error, allow the request (fail open)
                 return true;
             };
 
-            if (!allowed) {
-                // Get current state for headers
-                const state = limiter.getState(key) catch |err| {
-                    log.err("Failed to get rate limit state: {}", .{err});
-                    res.status = 429;
-                    res.content_type = .JSON;
-                    try res.writer().writeAll("{\"error\":\"Too many requests\"}");
-                    return false;
-                };
-
+            if (!result.allowed) {
                 res.status = 429;
                 res.content_type = .JSON;
 
                 // Add rate limit headers
-                var buf: [64]u8 = undefined;
-
-                // X-RateLimit-Limit
-                const limit_str = try std.fmt.bufPrint(&buf, "{d}", .{state.limit});
+                var limit_buf: [32]u8 = undefined;
+                const limit_str = try std.fmt.bufPrint(&limit_buf, "{d}", .{config.max_requests});
                 res.headers.add("X-RateLimit-Limit", limit_str);
 
-                // X-RateLimit-Remaining
-                const remaining = if (state.count >= state.limit) 0 else state.limit - state.count;
-                const remaining_str = try std.fmt.bufPrint(&buf, "{d}", .{remaining});
+                var remaining_buf: [32]u8 = undefined;
+                const remaining_str = try std.fmt.bufPrint(&remaining_buf, "0", .{});
                 res.headers.add("X-RateLimit-Remaining", remaining_str);
 
-                // X-RateLimit-Reset (Unix timestamp)
-                const reset_str = try std.fmt.bufPrint(&buf, "{d}", .{state.reset_at});
-                res.headers.add("X-RateLimit-Reset", reset_str);
-
-                // Retry-After (seconds until reset)
-                const now = std.time.timestamp();
-                const retry_after = if (state.reset_at > now) state.reset_at - now else 0;
-                const retry_str = try std.fmt.bufPrint(&buf, "{d}", .{retry_after});
+                var retry_buf: [32]u8 = undefined;
+                const retry_str = try std.fmt.bufPrint(&retry_buf, "{d}", .{config.window_seconds});
                 res.headers.add("Retry-After", retry_str);
 
                 try res.writer().writeAll("{\"error\":\"Too many requests\"}");
+                log.info("Rate limited: {s} (count: {d})", .{ key, result.count });
                 return false;
             }
 
-            // Add rate limit headers for successful requests too
-            const state = limiter.getState(key) catch {
-                // If we can't get state, just continue without headers
-                return true;
-            };
-
-            var buf: [64]u8 = undefined;
-
-            const limit_str = try std.fmt.bufPrint(&buf, "{d}", .{state.limit});
+            // Add rate limit headers for allowed requests
+            var limit_buf: [32]u8 = undefined;
+            const limit_str = try std.fmt.bufPrint(&limit_buf, "{d}", .{config.max_requests});
             res.headers.add("X-RateLimit-Limit", limit_str);
 
-            const remaining = if (state.count >= state.limit) 0 else state.limit - state.count;
-            const remaining_str = try std.fmt.bufPrint(&buf, "{d}", .{remaining});
+            var remaining_buf: [32]u8 = undefined;
+            const remaining = config.max_requests - result.count;
+            const remaining_str = try std.fmt.bufPrint(&remaining_buf, "{d}", .{remaining});
             res.headers.add("X-RateLimit-Remaining", remaining_str);
-
-            const reset_str = try std.fmt.bufPrint(&buf, "{d}", .{state.reset_at});
-            res.headers.add("X-RateLimit-Reset", reset_str);
 
             return true;
         }

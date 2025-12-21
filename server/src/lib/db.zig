@@ -2215,41 +2215,61 @@ pub fn checkRateLimit(
     limit: i32,
     window_seconds: i32,
 ) !RateLimitResult {
-    // Use INSERT ... ON CONFLICT to atomically check and increment
-    // The CASE expressions handle window expiration
-    const row = try pool.row(
-        \\INSERT INTO rate_limits (key, count, window_start, expires_at)
-        \\VALUES ($1, 1, NOW(), NOW() + $2 * INTERVAL '1 second')
-        \\ON CONFLICT (key) DO UPDATE SET
-        \\  count = CASE
-        \\    WHEN rate_limits.expires_at < NOW()
-        \\    THEN 1
-        \\    ELSE rate_limits.count + 1
-        \\  END,
-        \\  window_start = CASE
-        \\    WHEN rate_limits.expires_at < NOW()
-        \\    THEN NOW()
-        \\    ELSE rate_limits.window_start
-        \\  END,
-        \\  expires_at = CASE
-        \\    WHEN rate_limits.expires_at < NOW()
-        \\    THEN NOW() + $2 * INTERVAL '1 second'
-        \\    ELSE rate_limits.expires_at
-        \\  END
-        \\RETURNING count, EXTRACT(EPOCH FROM expires_at)::bigint as reset_at
-    , .{ key, window_seconds });
+    // Simple implementation: just check count and increment
+    // Use milliseconds like other timestamp queries
+    const now_ms = std.time.milliTimestamp();
+    const now_secs = @divFloor(now_ms, 1000);
+    const expires_at_ms: i64 = now_ms + @as(i64, window_seconds) * 1000;
 
-    if (row) |r| {
-        const count = r.get(i32, 0);
-        const reset_at = r.get(i64, 1);
+    // First try to get existing entry
+    const existing = try pool.row(
+        \\SELECT count, EXTRACT(EPOCH FROM expires_at)::bigint as expires_ts
+        \\FROM rate_limits WHERE key = $1
+    , .{key});
+
+    if (existing) |row| {
+        const count = row.get(i32, 0);
+        const expires_ts = row.get(i64, 1);
+
+        // Check if expired
+        if (expires_ts < now_secs) {
+            // Reset the entry
+            _ = try pool.exec(
+                \\UPDATE rate_limits SET count = 1, window_start = NOW(), expires_at = to_timestamp($2::bigint / 1000.0)
+                \\WHERE key = $1
+            , .{ key, expires_at_ms });
+            return RateLimitResult{
+                .allowed = true,
+                .count = 1,
+                .limit = limit,
+                .reset_at = @divFloor(expires_at_ms, 1000),
+            };
+        } else {
+            // Increment count
+            const new_count = count + 1;
+            _ = try pool.exec(
+                \\UPDATE rate_limits SET count = $2 WHERE key = $1
+            , .{ key, new_count });
+            return RateLimitResult{
+                .allowed = new_count <= limit,
+                .count = new_count,
+                .limit = limit,
+                .reset_at = expires_ts,
+            };
+        }
+    } else {
+        // Insert new entry
+        _ = try pool.exec(
+            \\INSERT INTO rate_limits (key, count, window_start, expires_at)
+            \\VALUES ($1, 1, NOW(), to_timestamp($2::bigint / 1000.0))
+        , .{ key, expires_at_ms });
         return RateLimitResult{
-            .allowed = count <= limit,
-            .count = count,
+            .allowed = true,
+            .count = 1,
             .limit = limit,
-            .reset_at = reset_at,
+            .reset_at = @divFloor(expires_at_ms, 1000),
         };
     }
-    return error.RateLimitCheckFailed;
 }
 
 /// Get current rate limit state without incrementing
