@@ -56,13 +56,9 @@ pub const FileTimeTracker = struct {
     }
 
     pub fn deinit(self: *FileTimeTracker) void {
-        // Free keys
+        // Free keys - only from read_times since the same keys are shared with mod_times
         var read_iter = self.read_times.keyIterator();
         while (read_iter.next()) |key| {
-            self.allocator.free(key.*);
-        }
-        var mod_iter = self.mod_times.keyIterator();
-        while (mod_iter.next()) |key| {
             self.allocator.free(key.*);
         }
         self.read_times.deinit();
@@ -99,12 +95,12 @@ pub const FileTimeTracker = struct {
 
     /// Clear tracking for a file
     pub fn clear(self: *FileTimeTracker, path: []const u8) void {
+        // Free the key once (shared between both maps)
         if (self.read_times.fetchRemove(path)) |entry| {
             self.allocator.free(entry.key);
         }
-        if (self.mod_times.fetchRemove(path)) |entry| {
-            self.allocator.free(entry.key);
-        }
+        // Just remove from mod_times, don't free (same key as read_times)
+        _ = self.mod_times.remove(path);
     }
 };
 

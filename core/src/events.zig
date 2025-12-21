@@ -125,7 +125,7 @@ pub const EventBus = struct {
         return .{
             .allocator = allocator,
             .subscribers = std.AutoHashMap(EventType, std.ArrayList(Subscriber)).init(allocator),
-            .global_subscribers = std.ArrayList(Subscriber).init(allocator),
+            .global_subscribers = .{},
             .mutex = .{},
         };
     }
@@ -133,10 +133,10 @@ pub const EventBus = struct {
     pub fn deinit(self: *EventBus) void {
         var iter = self.subscribers.valueIterator();
         while (iter.next()) |list| {
-            list.deinit();
+            list.deinit(self.allocator);
         }
         self.subscribers.deinit();
-        self.global_subscribers.deinit();
+        self.global_subscribers.deinit(self.allocator);
     }
 
     /// Subscribe to a specific event type
@@ -146,10 +146,10 @@ pub const EventBus = struct {
 
         const entry = self.subscribers.getPtr(event_type);
         if (entry) |list| {
-            try list.append(.{ .handler = handler, .context = context });
+            try list.append(self.allocator, .{ .handler = handler, .context = context });
         } else {
-            var list = std.ArrayList(Subscriber).init(self.allocator);
-            try list.append(.{ .handler = handler, .context = context });
+            var list: std.ArrayList(Subscriber) = .{};
+            try list.append(self.allocator, .{ .handler = handler, .context = context });
             try self.subscribers.put(event_type, list);
         }
     }
@@ -159,7 +159,7 @@ pub const EventBus = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        try self.global_subscribers.append(.{ .handler = handler, .context = context });
+        try self.global_subscribers.append(self.allocator, .{ .handler = handler, .context = context });
     }
 
     /// Publish an event
