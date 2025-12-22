@@ -64,10 +64,6 @@ pub const explore_agent = AgentConfig{
         .multiedit = false,
         .web_fetch = false,
         .github = true,
-        .unified_exec = false,
-        .write_stdin = false,
-        .close_pty_session = false,
-        .list_pty_sessions = false,
     },
     .allowed_shell_patterns = &.{ "ls *", "find *", "tree *", "git log *", "git show *", "git diff *", "git status" },
 };
