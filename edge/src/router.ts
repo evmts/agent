@@ -7,32 +7,11 @@ interface RoutePattern {
 }
 
 // Edge routes - served with edge rendering
+// Note: Most routes proxy to origin after migration away from Durable Objects.
+// Only simple auth pages (login/register) are rendered at the edge.
 const EDGE_ROUTES: RoutePattern[] = [
-  { pattern: /^\/$/, handler: 'home', paramNames: [] },
   { pattern: /^\/login$/, handler: 'login', paramNames: [] },
   { pattern: /^\/register$/, handler: 'register', paramNames: [] },
-  { pattern: /^\/settings$/, handler: 'settings', paramNames: [] },
-  { pattern: /^\/([^\/]+)$/, handler: 'userProfile', paramNames: ['user'] },
-  {
-    pattern: /^\/([^\/]+)\/([^\/]+)\/issues$/,
-    handler: 'issuesList',
-    paramNames: ['user', 'repo'],
-  },
-  {
-    pattern: /^\/([^\/]+)\/([^\/]+)\/issues\/(\d+)$/,
-    handler: 'issueDetail',
-    paramNames: ['user', 'repo', 'number'],
-  },
-  {
-    pattern: /^\/([^\/]+)\/([^\/]+)\/pulls$/,
-    handler: 'pullsList',
-    paramNames: ['user', 'repo'],
-  },
-  {
-    pattern: /^\/([^\/]+)\/([^\/]+)\/pulls\/(\d+)$/,
-    handler: 'pullDetail',
-    paramNames: ['user', 'repo', 'number'],
-  },
 ];
 
 // Origin routes - must be proxied to GKE (require git operations)

@@ -3,12 +3,6 @@ import { matchRoute } from './router';
 import { validateSession } from './lib/auth';
 
 // Page handlers
-import { handleHome } from './pages/home';
-import { handleUserProfile } from './pages/user-profile';
-import { handleIssuesList } from './pages/issues-list';
-import { handleIssueDetail } from './pages/issue-detail';
-import { handlePullsList } from './pages/pulls-list';
-import { handlePullDetail } from './pages/pull-detail';
 import { handleLogin } from './pages/login';
 import { handleRegister } from './pages/register';
 
@@ -35,57 +29,11 @@ export default {
     // Handle edge routes
     try {
       switch (route.handler) {
-        case 'home':
-          return handleHome(request, env, user);
-
         case 'login':
           return handleLogin(request, env, user);
 
         case 'register':
           return handleRegister(request, env, user);
-
-        case 'settings':
-          // Settings requires auth, redirect if not logged in
-          if (!user) {
-            return Response.redirect(`${url.origin}/login?redirect=/settings`, 302);
-          }
-          // Proxy to origin for now (has form handling)
-          return proxyToOrigin(request, env);
-
-        case 'userProfile':
-          return handleUserProfile(request, env, user, route.params as { user: string });
-
-        case 'issuesList':
-          return handleIssuesList(
-            request,
-            env,
-            user,
-            route.params as { user: string; repo: string }
-          );
-
-        case 'issueDetail':
-          return handleIssueDetail(
-            request,
-            env,
-            user,
-            route.params as { user: string; repo: string; number: string }
-          );
-
-        case 'pullsList':
-          return handlePullsList(
-            request,
-            env,
-            user,
-            route.params as { user: string; repo: string }
-          );
-
-        case 'pullDetail':
-          return handlePullDetail(
-            request,
-            env,
-            user,
-            route.params as { user: string; repo: string; number: string }
-          );
 
         default:
           // Unknown edge route, proxy to origin
