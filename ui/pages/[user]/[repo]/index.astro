@@ -572,7 +572,7 @@ try {
   const watchMenu = document.getElementById("watch-menu");
   const watchText = document.getElementById("watch-text");
 
-  if (starBtn) {
+  if (starBtn && starIcon && starText && starCountEl) {
     const username = starBtn.dataset.username;
     const repo = starBtn.dataset.repo;
 
@@ -624,16 +624,17 @@ try {
   }
 
   // Watch dropdown
-  if (watchBtn && watchMenu) {
-    const username = watchBtn.closest(".repo-actions").querySelector("#star-btn")?.dataset.username;
-    const repo = watchBtn.closest(".repo-actions").querySelector("#star-btn")?.dataset.repo;
+  if (watchBtn && watchMenu && watchText) {
+    const starBtnEl = watchBtn.closest(".repo-actions")?.querySelector("#star-btn") as HTMLElement | null;
+    const username = starBtnEl?.dataset.username;
+    const repo = starBtnEl?.dataset.repo;
 
     // Load initial watch status
     if (username && repo) {
       fetch(`/${username}/${repo}/watch/status`)
         .then(res => res.json())
         .then(data => {
-          if (data.watching) {
+          if (data.watching && watchText) {
             watchText.textContent = data.level === "all" ? "Watching" : "Watching releases";
           }
         })
@@ -655,13 +656,13 @@ try {
     watchMenu.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        const level = btn.dataset.level;
+        const level = (btn as HTMLElement).dataset.level;
 
         if (level === "ignore") {
           // Unwatch
           try {
             const res = await fetch(`/${username}/${repo}/watch`, { method: "DELETE" });
-            if (res.ok) {
+            if (res.ok && watchText) {
               watchText.textContent = "Watch";
               watchMenu.classList.remove("show");
             } else if (res.status === 401) {
@@ -679,7 +680,7 @@ try {
               body: JSON.stringify({ level }),
             });
 
-            if (res.ok) {
+            if (res.ok && watchText) {
               watchText.textContent = level === "all" ? "Watching" : "Watching releases";
               watchMenu.classList.remove("show");
             } else if (res.status === 401) {

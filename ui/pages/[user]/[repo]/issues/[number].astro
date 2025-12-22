@@ -76,6 +76,7 @@ const comments = gitComments.map(c => ({
   author_id: c.author.id,
   issue_id: gitIssue.id,
   created_at: new Date(c.created_at),
+  updated_at: c.updated_at ? new Date(c.updated_at) : undefined,
 }));
 
 // Create a unified timeline of comments and events, sorted by date

@@ -23,6 +23,7 @@ export interface Repository {
   description: string | null;
   is_public: boolean;
   default_branch: string;
+  default_bookmark?: string; // Jujutsu terminology alias for default_branch
   topics: string[];
   created_at: Date;
   updated_at: Date;
