@@ -1,5 +1,4 @@
 const std = @import("std");
-const pty = @import("../websocket/pty.zig");
 
 /// File time tracker for read-before-write safety
 pub const FileTimeTracker = struct {
