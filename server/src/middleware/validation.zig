@@ -23,9 +23,9 @@ pub const ValidationConfig = struct {
 pub const default_config = ValidationConfig{};
 
 /// Check if a byte is a forbidden control character
-/// Allows tab (0x09), newline (0x0A), and carriage return (0x0D)
+/// Allows tab (0x09), newline (0x0A), carriage return (0x0D), and null (0x00) - null is checked separately
 fn isForbiddenControlChar(c: u8) bool {
-    return c < 0x20 and c != '\t' and c != '\n' and c != '\r';
+    return c < 0x20 and c != 0 and c != '\t' and c != '\n' and c != '\r';
 }
 
 /// Check if a sequence at position i is a JSON-escaped forbidden character (\u00XX)

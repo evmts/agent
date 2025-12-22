@@ -108,16 +108,25 @@ pub fn verify(
     const payload_json = try base64UrlDecode(allocator, payload_b64);
     defer allocator.free(payload_json);
 
-    const payload = try std.json.parseFromSlice(JWTPayload, allocator, payload_json, .{});
-    defer payload.deinit();
+    const parsed = try std.json.parseFromSlice(JWTPayload, allocator, payload_json, .{});
+    defer parsed.deinit();
 
     // Check expiration
     const now = std.time.timestamp();
-    if (payload.value.exp < now) {
+    if (parsed.value.exp < now) {
         return JWTError.ExpiredToken;
     }
 
-    return payload.value;
+    // Duplicate string fields to ensure they're not dangling pointers after deinit
+    const result = JWTPayload{
+        .user_id = parsed.value.user_id,
+        .username = try allocator.dupe(u8, parsed.value.username),
+        .is_admin = parsed.value.is_admin,
+        .iat = parsed.value.iat,
+        .exp = parsed.value.exp,
+    };
+
+    return result;
 }
 
 /// Create a new JWT for a user
@@ -200,6 +209,8 @@ test "jwt sign and verify" {
     defer allocator.free(token);
 
     const payload = try verify(allocator, token, secret);
+    defer allocator.free(payload.username);
+
     try std.testing.expectEqual(@as(i64, 123), payload.user_id);
     try std.testing.expectEqualStrings("testuser", payload.username);
     try std.testing.expectEqual(false, payload.is_admin);
@@ -213,6 +224,8 @@ test "jwt sign and verify admin user" {
     defer allocator.free(token);
 
     const payload = try verify(allocator, token, secret);
+    defer allocator.free(payload.username);
+
     try std.testing.expectEqual(@as(i64, 999), payload.user_id);
     try std.testing.expectEqualStrings("adminuser", payload.username);
     try std.testing.expectEqual(true, payload.is_admin);

@@ -409,8 +409,14 @@ test "PTY session manager" {
     var manager = Manager.init(std.testing.allocator);
     defer manager.deinit();
 
-    // Create session
-    const session = try manager.createSession("echo 'Hello, PTY!'", "/tmp");
+    // Create session - skip test if PTY access is not available
+    const session = manager.createSession("echo 'Hello, PTY!'", "/tmp") catch |err| {
+        if (err == error.OpenPtyFailed or err == error.AccessDenied) {
+            std.debug.print("Skipping PTY test: PTY access not available ({s})\n", .{@errorName(err)});
+            return error.SkipZigTest;
+        }
+        return err;
+    };
     try std.testing.expect(session.running);
 
     // Wait a bit for command to execute
