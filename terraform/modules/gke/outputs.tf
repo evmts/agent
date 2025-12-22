@@ -44,3 +44,14 @@ output "get_credentials_command" {
   description = "gcloud command to get cluster credentials"
   value       = "gcloud container clusters get-credentials ${google_container_cluster.primary.name} --region ${var.region} --project ${var.project_id}"
 }
+
+# Sandbox pool outputs
+output "sandbox_pool_enabled" {
+  description = "Whether the sandbox node pool is enabled"
+  value       = var.enable_sandbox_pool
+}
+
+output "sandbox_pool_name" {
+  description = "Name of the sandbox node pool"
+  value       = var.enable_sandbox_pool ? google_container_node_pool.sandbox[0].name : null
+}

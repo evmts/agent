@@ -990,3 +990,53 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
+
+-- =============================================================================
+-- Runner Pool (Warm Pool for Agent/Workflow Execution)
+-- =============================================================================
+
+-- Tracks standby runner pods for fast task assignment
+CREATE TABLE IF NOT EXISTS runner_pool (
+  id SERIAL PRIMARY KEY,
+  pod_name VARCHAR(255) UNIQUE NOT NULL,
+  pod_ip VARCHAR(45) NOT NULL,
+  node_name VARCHAR(255),
+  status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'claimed', 'terminated')),
+  registered_at TIMESTAMP DEFAULT NOW(),
+  last_heartbeat TIMESTAMP DEFAULT NOW(),
+  claimed_at TIMESTAMP,
+  claimed_by_task_id INTEGER REFERENCES workflow_tasks(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_runner_pool_status ON runner_pool(status);
+CREATE INDEX IF NOT EXISTS idx_runner_pool_available ON runner_pool(status) WHERE status = 'available';
+CREATE INDEX IF NOT EXISTS idx_runner_pool_heartbeat ON runner_pool(last_heartbeat);
+
+-- Add workload_type and config columns to workflow_tasks if not exists
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'workflow_tasks' AND column_name = 'workload_type') THEN
+    ALTER TABLE workflow_tasks ADD COLUMN workload_type VARCHAR(20) DEFAULT 'workflow';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'workflow_tasks' AND column_name = 'config_json') THEN
+    ALTER TABLE workflow_tasks ADD COLUMN config_json TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'workflow_tasks' AND column_name = 'priority') THEN
+    ALTER TABLE workflow_tasks ADD COLUMN priority INTEGER DEFAULT 1;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'workflow_tasks' AND column_name = 'session_id') THEN
+    ALTER TABLE workflow_tasks ADD COLUMN session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'workflow_tasks' AND column_name = 'assigned_at') THEN
+    ALTER TABLE workflow_tasks ADD COLUMN assigned_at TIMESTAMP;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'workflow_tasks' AND column_name = 'completed_at') THEN
+    ALTER TABLE workflow_tasks ADD COLUMN completed_at TIMESTAMP;
+  END IF;
+END $$;

@@ -1,0 +1,153 @@
+# Default values for plue.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+
+replicaCount: 1
+
+image:
+  repository: gcr.io/plue-prod/zig-api
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# =============================================================================
+# Service Account
+# =============================================================================
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# =============================================================================
+# Pod Configuration
+# =============================================================================
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+# =============================================================================
+# Service
+# =============================================================================
+
+service:
+  type: ClusterIP
+  port: 4000
+
+# =============================================================================
+# Ingress
+# =============================================================================
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  host: plue.dev
+  tls:
+    enabled: true
+    secretName: plue-tls
+
+# =============================================================================
+# Resources
+# =============================================================================
+
+resources:
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+# =============================================================================
+# Autoscaling
+# =============================================================================
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# =============================================================================
+# Database
+# =============================================================================
+
+database:
+  # Cloud SQL connection name for cloud-sql-proxy
+  instanceConnectionName: ""
+  # Database name
+  name: "plue"
+  # User
+  user: "plue"
+  # Port (for cloud-sql-proxy)
+  port: 5432
+
+# =============================================================================
+# Runner (Sandbox Pool)
+# =============================================================================
+
+runner:
+  image:
+    repository: gcr.io/plue-prod/runner
+    tag: "latest"
+
+  warmPool:
+    enabled: true
+    replicas: 5
+
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+      ephemeral-storage: "10Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+
+# =============================================================================
+# Secrets
+# =============================================================================
+
+# External secrets configuration
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secrets
+
+# =============================================================================
+# Node Selection
+# =============================================================================
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# =============================================================================
+# Environment
+# =============================================================================
+
+env:
+  LOG_LEVEL: "info"
+  RUNNER_MODE: "kubernetes"

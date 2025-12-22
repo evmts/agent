@@ -73,7 +73,6 @@ codex/
 
 # Local data directories
 repos/
-runner/
 
 # Playwright
 playwright-report/

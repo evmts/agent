@@ -24,24 +24,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  electric:
-    image: electricsql/electric:latest
-    environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
-      ELECTRIC_INSECURE: true
-      ELECTRIC_WRITE_TO_PG_MODE: direct_writes
-    ports:
-      - '3000:3000'
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000/v1/health']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
   api:
     build:
       context: .
@@ -51,15 +33,12 @@ services:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
-      ELECTRIC_URL: http://electric:3000
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
     ports:
       - '4000:4000'
     depends_on:
       postgres:
-        condition: service_healthy
-      electric:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:4000/health']
@@ -80,16 +59,12 @@ services:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
       # API endpoints for SSR
       PUBLIC_API_URL: http://localhost:5173
-      PUBLIC_ELECTRIC_URL: http://electric:3000
       # Client-side URLs (browser accessible)
       PUBLIC_CLIENT_API_URL: ${PUBLIC_CLIENT_API_URL:-http://localhost:5173}
-      PUBLIC_CLIENT_ELECTRIC_URL: ${PUBLIC_CLIENT_ELECTRIC_URL:-http://localhost:3000}
     ports:
       - '5173:5173'
     depends_on:
       postgres:
-        condition: service_healthy
-      electric:
         condition: service_healthy
     restart: unless-stopped
 

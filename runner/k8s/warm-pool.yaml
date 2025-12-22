@@ -1,0 +1,155 @@
+# Warm pool deployment for standby runners
+# These pods wait for task assignments, providing <500ms cold start
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner-standby-pool
+  namespace: workflows
+  labels:
+    app: runner-standby
+spec:
+  replicas: 5  # Keep 5 warm pods
+  selector:
+    matchLabels:
+      app: runner-standby
+  template:
+    metadata:
+      labels:
+        app: runner-standby
+    spec:
+      runtimeClassName: gvisor
+      restartPolicy: Always
+
+      serviceAccountName: workflow-runner
+      automountServiceAccountToken: false
+
+      # Schedule on sandbox nodes
+      nodeSelector:
+        cloud.google.com/gke-sandbox: "true"
+      tolerations:
+      - key: "sandbox.gke.io/runtime"
+        operator: "Equal"
+        value: "gvisor"
+        effect: "NoSchedule"
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+      - name: runner
+        image: gcr.io/plue-prod/runner:latest
+        imagePullPolicy: Always
+
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+
+        env:
+        - name: MODE
+          value: "standby"
+        - name: REGISTER_URL
+          value: "https://api.plue.dev/internal/runners/register"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: workflow-secrets
+              key: anthropic-api-key
+
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+            ephemeral-storage: "10Gi"
+
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+      volumes:
+      - name: workspace
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+
+---
+# Horizontal Pod Autoscaler for the warm pool
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: runner-standby-hpa
+  namespace: workflows
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: runner-standby-pool
+  minReplicas: 2       # Never go below 2
+  maxReplicas: 50      # Scale up to 50 during traffic
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0  # Scale up immediately
+      policies:
+      - type: Pods
+        value: 10
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+
+---
+# Service account for runners (minimal permissions)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workflow-runner
+  namespace: workflows

@@ -5,7 +5,6 @@ pub const Config = struct {
     port: u16,
     database_url: []const u8,
     jwt_secret: []const u8,
-    electric_url: []const u8,
     cors_origins: []const []const u8,
     is_production: bool,
 
@@ -46,7 +45,6 @@ pub fn load() Config {
         },
         .database_url = std.posix.getenv("DATABASE_URL") orelse "postgresql://postgres:password@localhost:54321/electric",
         .jwt_secret = jwt_secret,
-        .electric_url = std.posix.getenv("ELECTRIC_URL") orelse "http://localhost:3000",
         .cors_origins = &.{
             "http://localhost:4321",
             "http://localhost:4000",

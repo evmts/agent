@@ -11,6 +11,7 @@ const middleware = @import("middleware/mod.zig");
 const repo_watcher = @import("services/repo_watcher.zig");
 const session_cleanup = @import("services/session_cleanup.zig");
 const edge_notifier = @import("services/edge_notifier.zig");
+const agent_handler = @import("websocket/agent_handler.zig");
 
 const log = std.log.scoped(.server);
 
@@ -159,6 +160,7 @@ pub const Context = struct {
     csrf_store: *middleware.CsrfStore,
     repo_watcher: ?*repo_watcher.RepoWatcher = null,
     edge_notifier: ?*edge_notifier.EdgeNotifier = null,
+    connection_manager: ?*agent_handler.ConnectionManager = null,
     // User set by auth middleware
     user: ?User = null,
     session_key: ?[]const u8 = null,

@@ -1,5 +1,5 @@
 import type { Env, JWTPayload } from './types';
-import { matchRoute, getDoName } from './router';
+import { matchRoute } from './router';
 import { validateSession } from './lib/auth';
 
 // Page handlers
@@ -11,9 +11,6 @@ import { handlePullsList } from './pages/pulls-list';
 import { handlePullDetail } from './pages/pull-detail';
 import { handleLogin } from './pages/login';
 import { handleRegister } from './pages/register';
-
-// Export Durable Object
-export { DataSyncDO } from './durable-objects/data-sync';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

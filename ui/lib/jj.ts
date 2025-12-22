@@ -164,7 +164,7 @@ export async function listBookmarks(user: string, name: string): Promise<Bookmar
       const workspace = JjWorkspace.open(repoPath);
       const nativeBookmarks = workspace.listBookmarks();
 
-      return nativeBookmarks.map((bm, index) => ({
+      return nativeBookmarks.map((bm: { name: string; targetId?: string }, index: number) => ({
         id: index + 1,
         repositoryId: 0, // Will be filled by caller
         name: bm.name,
@@ -313,7 +313,7 @@ export async function listChanges(
       const workspace = JjWorkspace.open(repoPath);
       const nativeChanges = workspace.listChanges(limit, bookmark || null);
 
-      return nativeChanges.map(c => ({
+      return nativeChanges.map((c: { changeId: string; id: string; description: string; authorName: string; authorEmail: string; authorTimestamp: number; isEmpty: boolean }) => ({
         changeId: c.changeId,
         commitId: c.id,
         description: c.description,
@@ -519,6 +519,91 @@ export async function getFileContent(
   }
 
   return null;
+}
+
+// =============================================================================
+// SHA-based API Helpers (with HTTP caching)
+// =============================================================================
+
+/**
+ * Resolve a ref (bookmark, change ID) to a commit SHA via the API
+ * Uses short cache (5s) since refs are mutable
+ */
+export async function resolveRef(
+  user: string,
+  name: string,
+  ref: string
+): Promise<string | null> {
+  try {
+    const response = await fetch(`/api/${user}/${name}/refs/${encodeURIComponent(ref)}`);
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    return data.commit || null;
+  } catch (e) {
+    console.error('Failed to resolve ref:', e);
+    return null;
+  }
+}
+
+/**
+ * Get tree entries at a specific commit SHA via the API
+ * Uses immutable cache (forever) since SHA-based content never changes
+ */
+export async function getTreeBySha(
+  user: string,
+  name: string,
+  sha: string,
+  path: string = ""
+): Promise<TreeEntry[]> {
+  try {
+    const url = path
+      ? `/api/${user}/${name}/tree/${sha}/${encodeURIComponent(path)}`
+      : `/api/${user}/${name}/tree/${sha}`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+
+    // Convert API response to TreeEntry format
+    return (data.entries || []).map((entry: { name: string; type: string; path: string }) => ({
+      mode: entry.type === 'tree' ? '040000' : '100644',
+      type: entry.type,
+      hash: sha, // Use commit SHA as identifier
+      name: entry.name,
+    }));
+  } catch (e) {
+    console.error('Failed to get tree by SHA:', e);
+    return [];
+  }
+}
+
+/**
+ * Get file content at a specific commit SHA via the API
+ * Uses immutable cache (forever) since SHA-based content never changes
+ */
+export async function getFileBySha(
+  user: string,
+  name: string,
+  sha: string,
+  path: string
+): Promise<string | null> {
+  try {
+    const response = await fetch(`/api/${user}/${name}/blob/${sha}/${encodeURIComponent(path)}`);
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data.content || null;
+  } catch (e) {
+    console.error('Failed to get file by SHA:', e);
+    return null;
+  }
 }
 
 /**

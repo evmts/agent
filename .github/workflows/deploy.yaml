@@ -1,0 +1,190 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - 'staging/*'  # staging/alice, staging/bob, etc.
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_ID_STAGING: plue-staging
+  PROJECT_ID_PROD: plue-prod
+  REGION: us-central1
+  REGISTRY: gcr.io
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.1
+
+      - name: Run Zig tests
+        run: zig build test
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run TypeScript tests
+        run: bun test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.PROJECT_ID_STAGING }}/zig-api
+          tags: |
+            type=sha,prefix=
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker gcr.io
+
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          context: ./server
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Runner
+        uses: docker/build-push-action@v5
+        with:
+          context: ./runner
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID_STAGING }}/runner:${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    needs: build
+    if: startsWith(github.ref, 'refs/heads/staging/')
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get namespace from branch
+        id: namespace
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/staging/}
+          echo "namespace=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: plue-staging
+          location: ${{ env.REGION }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Deploy to staging
+        run: |
+          helm upgrade --install plue ./helm/plue \
+            --namespace ${{ steps.namespace.outputs.namespace }} \
+            --create-namespace \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set runner.image.tag=${{ needs.build.outputs.image_tag }} \
+            --set ingress.host="${{ steps.namespace.outputs.namespace }}.staging.plue.dev" \
+            --set database.name="plue_${{ steps.namespace.outputs.namespace }}" \
+            -f helm/plue/values-staging.yaml \
+            --wait \
+            --timeout 10m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/plue -n ${{ steps.namespace.outputs.namespace }} --timeout=5m
+
+      - name: Run smoke test
+        run: |
+          curl -f https://${{ steps.namespace.outputs.namespace }}.staging.plue.dev/health
+
+  deploy-production:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_PROD_SA_KEY }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: plue-prod
+          location: ${{ env.REGION }}
+          project_id: ${{ env.PROJECT_ID_PROD }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Deploy to production
+        run: |
+          helm upgrade --install plue ./helm/plue \
+            --namespace production \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set runner.image.tag=${{ needs.build.outputs.image_tag }} \
+            -f helm/plue/values-production.yaml \
+            --wait \
+            --timeout 10m
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/plue -n production --timeout=5m
+
+      - name: Smoke test
+        run: |
+          curl -f https://api.plue.dev/health
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "Successfully deployed to production: ${{ needs.build.outputs.image_tag }}"

@@ -18,6 +18,8 @@ const milestones = @import("routes/milestones.zig");
 const landing_queue = @import("routes/landing_queue.zig");
 const watcher_routes = @import("routes/watcher.zig");
 const changes = @import("routes/changes.zig");
+const git_routes = @import("routes/git.zig");
+const internal_routes = @import("routes/internal.zig");
 const agent_routes = @import("routes/agent.zig");
 const operations = @import("routes/operations.zig");
 const metrics_routes = @import("routes/metrics.zig");
@@ -154,9 +156,6 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     // Prometheus metrics endpoint
     router.get("/metrics", metrics_routes.getMetrics, .{});
 
-    // ElectricSQL shape proxy
-    router.get("/shape", shapeProxy, .{});
-
     // API routes - auth (delegating to auth_routes module for consistency)
     // Note: Login/register don't require auth (user isn't authenticated yet)
     // but DO require rate limiting to prevent brute force attacks
@@ -201,6 +200,18 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.put("/api/:user/:repo/bookmarks/:name", withAuthAndCsrf(repo_routes.updateBookmark), .{});
     router.post("/api/:user/:repo/bookmarks/:name/set-default", withAuthAndCsrf(repo_routes.setDefaultBookmark), .{});
     router.delete("/api/:user/:repo/bookmarks/:name", withAuthAndCsrf(repo_routes.deleteBookmark), .{});
+
+    // API routes - git content with SHA-based caching
+    router.get("/api/:owner/:repo/refs/:ref", git_routes.resolveRef, .{});
+    router.get("/api/:owner/:repo/tree/:sha", git_routes.getTreeBySha, .{});
+    router.get("/api/:owner/:repo/tree/:sha/*", git_routes.getTreeBySha, .{});
+    router.get("/api/:owner/:repo/blob/:sha/*", git_routes.getBlobBySha, .{});
+
+    // Internal API routes - for runner pods (not exposed externally)
+    router.post("/internal/runners/register", internal_routes.registerRunner, .{});
+    router.post("/internal/runners/:pod_name/heartbeat", internal_routes.runnerHeartbeat, .{});
+    router.post("/internal/tasks/:task_id/stream", internal_routes.streamTaskEvent, .{});
+    router.post("/internal/tasks/:task_id/complete", internal_routes.completeTask, .{});
 
     // API routes - changes (jj)
     router.get("/api/:user/:repo/changes", repo_routes.listChanges, .{});
@@ -371,86 +382,6 @@ fn healthCheck(_: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     res.status = 200;
     res.content_type = .JSON;
     try res.writer().writeAll("{\"status\":\"ok\"}");
-}
-
-fn shapeProxy(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
-    const allocator = ctx.allocator;
-
-    // Build Electric URL with /v1/shape path
-    var electric_url = std.ArrayList(u8).initCapacity(allocator, ctx.config.electric_url.len + 256) catch |err| {
-        log.err("Failed to allocate URL buffer: {}", .{err});
-        res.status = 500;
-        res.content_type = .JSON;
-        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
-        return;
-    };
-    defer electric_url.deinit(allocator);
-
-    try electric_url.appendSlice(allocator, ctx.config.electric_url);
-    try electric_url.appendSlice(allocator, "/v1/shape");
-
-    // Forward all query parameters from the request
-    // Query parameters include: table, offset, live, handle, where, etc.
-    const query_string = req.url.query;
-    if (query_string.len > 0) {
-        try electric_url.append(allocator, '?');
-        try electric_url.appendSlice(allocator, query_string);
-    }
-
-    const url = try electric_url.toOwnedSlice(allocator);
-    defer allocator.free(url);
-
-    log.debug("Proxying shape request to: {s}", .{url});
-
-    // Parse the Electric URL
-    const uri = std.Uri.parse(url) catch |err| {
-        log.err("Failed to parse Electric URL: {}", .{err});
-        res.status = 500;
-        res.content_type = .JSON;
-        try res.writer().writeAll("{\"error\":\"Invalid Electric URL configuration\"}");
-        return;
-    };
-
-    // Create HTTP client
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    // Create a buffer to store the response body
-    var body_buffer = std.ArrayList(u8){};
-    defer body_buffer.deinit(allocator);
-
-    // Create a writer for the response
-    var response_writer = body_buffer.writer(allocator);
-
-    // Prepare fetch options
-    const fetch_options = std.http.Client.FetchOptions{
-        .location = .{ .uri = uri },
-        .method = .GET,
-        .response_writer = @ptrCast(&response_writer),
-    };
-
-    // Make the request
-    const fetch_result = client.fetch(fetch_options) catch |err| {
-        log.err("Failed to fetch from Electric: {}", .{err});
-        res.status = 503;
-        res.content_type = .JSON;
-        try res.writer().writeAll("{\"error\":\"Electric service unavailable\"}");
-        return;
-    };
-
-    // Set response status from Electric
-    res.status = @intFromEnum(fetch_result.status);
-
-    // Set content-type to JSON (Electric shape responses are JSON)
-    res.content_type = .JSON;
-
-    // Note: Zig 0.15.1 fetch() doesn't provide access to response headers
-    // In production, you may want to use a lower-level HTTP client to forward headers
-    // like electric-offset, electric-handle, etc. For now, we just proxy the body.
-
-    // Write the response body
-    try res.writer().writeAll(body_buffer.items);
-    log.debug("Shape proxy completed: status={d}, body_size={d}", .{ res.status, body_buffer.items.len });
 }
 
 // NOTE: Auth handlers (getNonce, verify, register, logout, me) have been moved to

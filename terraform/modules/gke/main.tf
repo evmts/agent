@@ -241,3 +241,82 @@ resource "google_container_node_pool" "primary" {
     ]
   }
 }
+
+# -----------------------------------------------------------------------------
+# Sandbox Node Pool (gVisor) - for agent/workflow execution
+# -----------------------------------------------------------------------------
+
+resource "google_container_node_pool" "sandbox" {
+  count = var.enable_sandbox_pool ? 1 : 0
+
+  name     = "sandbox-pool"
+  project  = var.project_id
+  location = var.region
+  cluster  = google_container_cluster.primary.name
+
+  autoscaling {
+    min_node_count = var.sandbox_pool_min_size
+    max_node_count = var.sandbox_pool_max_size
+  }
+
+  node_config {
+    machine_type = var.sandbox_machine_type
+    disk_size_gb = var.sandbox_disk_size_gb
+    disk_type    = "pd-ssd"
+    image_type   = "COS_CONTAINERD"
+
+    service_account = google_service_account.gke_nodes.email
+
+    oauth_scopes = [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ]
+
+    # Enable gVisor sandbox
+    sandbox_config {
+      sandbox_type = "gvisor"
+    }
+
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
+
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
+
+    # Taint so only sandbox workloads schedule here
+    taint {
+      key    = "sandbox.gke.io/runtime"
+      value  = "gvisor"
+      effect = "NO_SCHEDULE"
+    }
+
+    labels = {
+      pool = "sandbox"
+    }
+
+    tags = ["gke-node", "${var.name_prefix}-sandbox-node"]
+
+    metadata = {
+      disable-legacy-endpoints = "true"
+    }
+  }
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+
+  upgrade_settings {
+    max_surge       = 1
+    max_unavailable = 0
+  }
+
+  lifecycle {
+    ignore_changes = [
+      # Autoscaler manages actual node count
+      initial_node_count,
+    ]
+  }
+}

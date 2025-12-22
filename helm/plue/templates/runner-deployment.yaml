@@ -1,0 +1,115 @@
+{{- if .Values.runner.warmPool.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "plue.fullname" . }}-runner-pool
+  labels:
+    {{- include "plue.labels" . | nindent 4 }}
+    app: runner-standby
+spec:
+  replicas: {{ .Values.runner.warmPool.replicas }}
+  selector:
+    matchLabels:
+      app: runner-standby
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: runner-standby
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      runtimeClassName: gvisor
+      restartPolicy: Always
+      serviceAccountName: workflow-runner
+      automountServiceAccountToken: false
+
+      # Schedule on sandbox nodes
+      nodeSelector:
+        cloud.google.com/gke-sandbox: "true"
+      tolerations:
+      - key: "sandbox.gke.io/runtime"
+        operator: "Equal"
+        value: "gvisor"
+        effect: "NoSchedule"
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+      - name: runner
+        image: "{{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag }}"
+        imagePullPolicy: Always
+
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+
+        env:
+        - name: MODE
+          value: "standby"
+        - name: REGISTER_URL
+          value: "http://{{ include "plue.fullname" . }}:{{ .Values.service.port }}/internal/runners/register"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "plue.fullname" . }}-secrets
+              key: ANTHROPIC_API_KEY
+
+        resources:
+          {{- toYaml .Values.runner.resources | nindent 10 }}
+
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+      volumes:
+      - name: workspace
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+---
+# Service account for runners
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workflow-runner
+  labels:
+    {{- include "plue.labels" . | nindent 4 }}
+{{- end }}

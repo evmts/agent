@@ -10,7 +10,6 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@electric-sql/client": "^0.8.0",
     "hono": "^4.6.0",
     "jose": "^5.9.0"
   },

@@ -1,0 +1,54 @@
+# Staging values for plue.
+# Override defaults for staging environments.
+
+replicaCount: 1
+
+image:
+  repository: gcr.io/plue-staging/zig-api
+  pullPolicy: Always
+  tag: "latest"
+
+runner:
+  image:
+    repository: gcr.io/plue-staging/runner
+    tag: "latest"
+
+  warmPool:
+    enabled: true
+    replicas: 2  # Smaller pool for staging
+
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+
+database:
+  instanceConnectionName: "plue-staging:us-central1:plue-staging"
+  name: "plue_${NAMESPACE}"  # Templated per-engineer
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+  host: "${NAMESPACE}.staging.plue.dev"
+  tls:
+    enabled: true
+
+resources:
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+
+autoscaling:
+  enabled: false
+
+env:
+  LOG_LEVEL: "debug"
+  RUNNER_MODE: "kubernetes"

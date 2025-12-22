@@ -1,0 +1,21 @@
+apiVersion: v2
+name: plue
+description: A brutalist GitHub clone with integrated AI agent capabilities
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+maintainers:
+  - name: Plue Team
+    email: team@plue.dev
+
+keywords:
+  - git
+  - github
+  - ai
+  - claude
+  - agent
+
+home: https://plue.dev
+sources:
+  - https://github.com/plue/plue

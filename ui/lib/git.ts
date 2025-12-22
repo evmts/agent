@@ -322,16 +322,16 @@ export async function compareRefs(
   }
 
   return {
-    mergeBase: mergeBase.trim(),
-    baseCommitId: baseCommitId.trim(),
-    headCommitId: headCommitId.trim(),
+    merge_base: mergeBase.trim(),
+    base_commit_id: baseCommitId.trim(),
+    head_commit_id: headCommitId.trim(),
     commits,
     files,
-    totalAdditions,
-    totalDeletions,
-    totalFiles: files.length,
-    commitsAhead,
-    commitsBehind,
+    total_additions: totalAdditions,
+    total_deletions: totalDeletions,
+    total_files: files.length,
+    commits_ahead: commitsAhead,
+    commits_behind: commitsBehind,
   };
 }
 

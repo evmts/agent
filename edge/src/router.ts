@@ -6,7 +6,7 @@ interface RoutePattern {
   paramNames: string[];
 }
 
-// Edge routes - served from Durable Objects with synced SQLite
+// Edge routes - served with edge rendering
 const EDGE_ROUTES: RoutePattern[] = [
   { pattern: /^\/$/, handler: 'home', paramNames: [] },
   { pattern: /^\/login$/, handler: 'login', paramNames: [] },
@@ -84,13 +84,4 @@ export function matchRoute(pathname: string): RouteMatch {
 
   // Default to origin for unmatched routes (404 handling, etc.)
   return { type: 'origin' };
-}
-
-export function getDoName(params?: Record<string, string>): string {
-  // Per-repository Durable Objects for repo-scoped data
-  if (params?.user && params?.repo) {
-    return `repo:${params.user}/${params.repo}`;
-  }
-  // Global DO for home page, user profiles, etc.
-  return 'global';
 }

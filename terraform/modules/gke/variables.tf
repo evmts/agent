@@ -107,3 +107,37 @@ variable "labels" {
     app        = "plue"
   }
 }
+
+# =============================================================================
+# Sandbox Node Pool (gVisor) - for agent/workflow execution
+# =============================================================================
+
+variable "enable_sandbox_pool" {
+  description = "Enable sandbox node pool with gVisor for agent execution"
+  type        = bool
+  default     = false
+}
+
+variable "sandbox_machine_type" {
+  description = "Machine type for sandbox node pool"
+  type        = string
+  default     = "e2-standard-4"
+}
+
+variable "sandbox_disk_size_gb" {
+  description = "Disk size for sandbox node pool nodes"
+  type        = number
+  default     = 100
+}
+
+variable "sandbox_pool_min_size" {
+  description = "Minimum number of nodes per zone in sandbox pool"
+  type        = number
+  default     = 1
+}
+
+variable "sandbox_pool_max_size" {
+  description = "Maximum number of nodes per zone in sandbox pool"
+  type        = number
+  default     = 10
+}

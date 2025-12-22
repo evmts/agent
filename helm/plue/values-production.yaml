@@ -1,0 +1,74 @@
+# Production values for plue.
+# High availability and security settings.
+
+replicaCount: 3
+
+image:
+  repository: gcr.io/plue-prod/zig-api
+  pullPolicy: IfNotPresent
+  # tag is set during deployment
+
+runner:
+  image:
+    repository: gcr.io/plue-prod/runner
+    # tag is set during deployment
+
+  warmPool:
+    enabled: true
+    replicas: 5
+
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+      ephemeral-storage: "10Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+
+database:
+  instanceConnectionName: "plue-prod:us-central1:plue-prod"
+  name: "plue"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  host: "api.plue.dev"
+  tls:
+    enabled: true
+    secretName: plue-prod-tls
+
+resources:
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+env:
+  LOG_LEVEL: "info"
+  RUNNER_MODE: "kubernetes"
+
+# Pod anti-affinity for HA
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - plue
+        topologyKey: topology.kubernetes.io/zone

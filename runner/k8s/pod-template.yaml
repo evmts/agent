@@ -1,0 +1,73 @@
+# Pod template for runner jobs
+# This template is used by the Zig server to create K8s jobs for task execution
+apiVersion: v1
+kind: Pod
+metadata:
+  name: runner-${TASK_ID}
+  namespace: workflows
+  labels:
+    app: workflow-runner
+    task-id: "${TASK_ID}"
+spec:
+  runtimeClassName: gvisor
+  restartPolicy: Never
+  activeDeadlineSeconds: 3600  # 1 hour max
+
+  serviceAccountName: workflow-runner
+  automountServiceAccountToken: false
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  containers:
+  - name: runner
+    image: gcr.io/plue-prod/runner:${VERSION}
+
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+
+    env:
+    - name: MODE
+      value: "active"
+    - name: TASK_ID
+      value: "${TASK_ID}"
+    - name: CALLBACK_URL
+      value: "https://api.plue.dev/internal/tasks/${TASK_ID}/stream"
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: workflow-secrets
+          key: anthropic-api-key
+    - name: TASK_CONFIG
+      value: "${TASK_CONFIG_JSON}"
+
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+        ephemeral-storage: "10Gi"
+
+    volumeMounts:
+    - name: workspace
+      mountPath: /workspace
+    - name: tmp
+      mountPath: /tmp
+
+  volumes:
+  - name: workspace
+    emptyDir:
+      sizeLimit: 10Gi
+  - name: tmp
+    emptyDir:
+      sizeLimit: 1Gi
