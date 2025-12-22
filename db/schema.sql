@@ -953,10 +953,75 @@ CREATE INDEX IF NOT EXISTS idx_pinned_issues_issue ON pinned_issues(issue_id);
 CREATE INDEX IF NOT EXISTS idx_pinned_issues_order ON pinned_issues(repository_id, pin_order);
 
 -- =============================================================================
--- Conflicts (jj conflict tracking)
+-- JJ-Native Tables (Jujutsu VCS Support)
 -- =============================================================================
 
--- Track conflicts in changes and their resolution status
+-- Changes - tracks jj change metadata
+CREATE TABLE IF NOT EXISTS changes (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  change_id VARCHAR(64) NOT NULL, -- jj change ID (stable across rebases)
+  commit_id VARCHAR(64), -- git commit ID if colocated
+  description TEXT,
+  author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  author_name VARCHAR(255),
+  author_email VARCHAR(255),
+  has_conflict BOOLEAN DEFAULT false,
+  is_empty BOOLEAN DEFAULT false,
+  parent_change_ids JSONB DEFAULT '[]',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, change_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_changes_repo ON changes(repository_id);
+CREATE INDEX IF NOT EXISTS idx_changes_change_id ON changes(change_id);
+CREATE INDEX IF NOT EXISTS idx_changes_commit ON changes(commit_id);
+
+-- Bookmarks - jj bookmarks (like git branches but movable labels)
+CREATE TABLE IF NOT EXISTS bookmarks (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  target_change_id VARCHAR(64) NOT NULL,
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookmarks_repo ON bookmarks(repository_id);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_target ON bookmarks(target_change_id);
+
+-- JJ Operations - operation log for undo/redo
+CREATE TABLE IF NOT EXISTS jj_operations (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  operation_id VARCHAR(64) NOT NULL,
+  operation_type VARCHAR(64) NOT NULL,
+  description TEXT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  parent_operation_id VARCHAR(64),
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jj_operations_repo ON jj_operations(repository_id);
+
+-- Protected Bookmarks - protection rules for bookmarks
+CREATE TABLE IF NOT EXISTS protected_bookmarks (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  pattern VARCHAR(255) NOT NULL,
+  require_review BOOLEAN DEFAULT true,
+  required_approvals INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, pattern)
+);
+
+CREATE INDEX IF NOT EXISTS idx_protected_bookmarks_repo ON protected_bookmarks(repository_id);
+
+-- Conflicts - track conflicts in changes and their resolution status
 CREATE TABLE IF NOT EXISTS conflicts (
   id SERIAL PRIMARY KEY,
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
