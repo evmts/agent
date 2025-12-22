@@ -5,7 +5,7 @@
 import postgres from "postgres";
 
 const DATABASE_URL = process.env.DATABASE_URL ||
-  "postgresql://postgres:password@localhost:54321/electric";
+  "postgresql://postgres:password@localhost:5432/plue";
 
 // Default query timeout in seconds (30 seconds)
 const QUERY_TIMEOUT = parseInt(process.env.DB_QUERY_TIMEOUT || '30', 10);

@@ -54,9 +54,9 @@ pub fn build(b: *std.Build) void {
     // RUN STEPS
     // ==========================================================================
 
-    // Run docker compose (postgres, electric)
-    const run_docker = b.addSystemCommand(&.{ "docker", "compose", "up", "-d", "postgres", "electric" });
-    const run_docker_step = b.step("run:docker", "Start Docker services (postgres, electric)");
+    // Run docker compose (postgres only - Electric was removed in architecture migration)
+    const run_docker = b.addSystemCommand(&.{ "docker", "compose", "up", "-d", "postgres" });
+    const run_docker_step = b.step("run:docker", "Start Docker services (postgres)");
     run_docker_step.dependOn(&run_docker.step);
 
     // Run Zig server only

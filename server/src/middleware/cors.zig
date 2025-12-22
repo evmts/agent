@@ -16,13 +16,7 @@ pub const CorsConfig = struct {
     /// Allowed headers
     allowed_headers: []const []const u8 = &.{ "Content-Type", "Authorization" },
     /// Headers to expose to client
-    exposed_headers: []const []const u8 = &.{
-        "electric-offset",
-        "electric-handle",
-        "electric-schema",
-        "electric-cursor",
-        "electric-up-to-date",
-    },
+    exposed_headers: []const []const u8 = &.{},
     /// Max age for preflight cache (seconds)
     max_age: u32 = 600,
     /// Allow credentials

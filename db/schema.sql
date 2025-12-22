@@ -1012,6 +1012,69 @@ CREATE INDEX IF NOT EXISTS idx_runner_pool_status ON runner_pool(status);
 CREATE INDEX IF NOT EXISTS idx_runner_pool_available ON runner_pool(status) WHERE status = 'available';
 CREATE INDEX IF NOT EXISTS idx_runner_pool_heartbeat ON runner_pool(last_heartbeat);
 
+-- =============================================================================
+-- Landing Queue (Pull Request Landing System)
+-- =============================================================================
+
+-- Tracks change landing requests (similar to GitHub merge queue)
+CREATE TABLE IF NOT EXISTS landing_queue (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  change_id VARCHAR(255) NOT NULL,
+  target_bookmark VARCHAR(255) NOT NULL,
+  title VARCHAR(512),
+  description TEXT,
+  author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'checking', 'ready', 'landed', 'failed', 'aborted')),
+  has_conflicts BOOLEAN DEFAULT false,
+  conflicted_files TEXT[],
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  landed_at TIMESTAMP,
+  landed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  landed_change_id VARCHAR(255),
+  UNIQUE(repository_id, change_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_landing_queue_repo ON landing_queue(repository_id);
+CREATE INDEX IF NOT EXISTS idx_landing_queue_status ON landing_queue(status);
+CREATE INDEX IF NOT EXISTS idx_landing_queue_author ON landing_queue(author_id);
+CREATE INDEX IF NOT EXISTS idx_landing_queue_created ON landing_queue(created_at);
+
+-- Landing reviews (approval/rejection of landing requests)
+CREATE TABLE IF NOT EXISTS landing_reviews (
+  id SERIAL PRIMARY KEY,
+  landing_id INTEGER NOT NULL REFERENCES landing_queue(id) ON DELETE CASCADE,
+  reviewer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'dismissed')),
+  comment TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(landing_id, reviewer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_landing_reviews_landing ON landing_reviews(landing_id);
+CREATE INDEX IF NOT EXISTS idx_landing_reviews_reviewer ON landing_reviews(reviewer_id);
+
+-- Line comments on landing requests
+CREATE TABLE IF NOT EXISTS landing_line_comments (
+  id SERIAL PRIMARY KEY,
+  landing_id INTEGER NOT NULL REFERENCES landing_queue(id) ON DELETE CASCADE,
+  author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  file_path TEXT NOT NULL,
+  line_number INTEGER,
+  side VARCHAR(10) CHECK (side IN ('left', 'right')),
+  content TEXT NOT NULL,
+  resolved BOOLEAN DEFAULT false,
+  resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  resolved_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_landing_line_comments_landing ON landing_line_comments(landing_id);
+CREATE INDEX IF NOT EXISTS idx_landing_line_comments_file ON landing_line_comments(landing_id, file_path);
+
 -- Add workload_type and config columns to workflow_tasks if not exists
 DO $$
 BEGIN
