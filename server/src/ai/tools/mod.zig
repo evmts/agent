@@ -41,10 +41,6 @@ pub const ToolName = enum {
     multiedit,
     web_fetch,
     github,
-    unified_exec,
-    write_stdin,
-    close_pty_session,
-    list_pty_sessions,
 
     pub fn toString(self: ToolName) []const u8 {
         return switch (self) {
@@ -54,10 +50,6 @@ pub const ToolName = enum {
             .multiedit => "multiedit",
             .web_fetch => "webFetch",
             .github => "github",
-            .unified_exec => "unifiedExec",
-            .write_stdin => "writeStdin",
-            .close_pty_session => "closePtySession",
-            .list_pty_sessions => "listPtySessions",
         };
     }
 };
@@ -70,10 +62,6 @@ pub const ALL_TOOLS: []const ToolName = &.{
     .multiedit,
     .web_fetch,
     .github,
-    .unified_exec,
-    .write_stdin,
-    .close_pty_session,
-    .list_pty_sessions,
 };
 
 /// Get tools enabled for a specific agent
@@ -135,38 +123,6 @@ pub fn getEnabledTools(
         });
     }
 
-    if (enabled_config.unified_exec) {
-        try tools.append(allocator, client.Tool{
-            .name = "unifiedExec",
-            .description = "Execute a command in a PTY session",
-            .input_schema = try stringifySchema(allocator, try pty_tools.createUnifiedExecSchema(allocator)),
-        });
-    }
-
-    if (enabled_config.write_stdin) {
-        try tools.append(allocator, client.Tool{
-            .name = "writeStdin",
-            .description = "Send input to a running PTY session",
-            .input_schema = try stringifySchema(allocator, try pty_tools.createWriteStdinSchema(allocator)),
-        });
-    }
-
-    if (enabled_config.close_pty_session) {
-        try tools.append(allocator, client.Tool{
-            .name = "closePtySession",
-            .description = "Close a PTY session",
-            .input_schema = try stringifySchema(allocator, try pty_tools.createClosePtySchema(allocator)),
-        });
-    }
-
-    if (enabled_config.list_pty_sessions) {
-        try tools.append(allocator, client.Tool{
-            .name = "listPtySessions",
-            .description = "List active PTY sessions",
-            .input_schema = try stringifySchema(allocator, try pty_tools.createListPtySchema(allocator)),
-        });
-    }
-
     return tools.toOwnedSlice(allocator);
 }
 
@@ -217,49 +173,6 @@ pub fn executeTool(
         const params = try parseGitHubParams(allocator, input);
         const result = try github.githubImpl(allocator, params, ctx.working_dir);
         return result.output orelse result.error_msg orelse "No output";
-    }
-
-    if (std.mem.eql(u8, tool_name, "unifiedExec")) {
-        const params = try parseUnifiedExecParams(input);
-        const result = try pty_tools.unifiedExecImpl(allocator, params, ctx);
-        if (result.success) {
-            return try std.fmt.allocPrint(allocator, "Session: {s}\n{s}", .{
-                result.session_id orelse "unknown",
-                result.output orelse "",
-            });
-        }
-        return result.error_msg orelse "Exec failed";
-    }
-
-    if (std.mem.eql(u8, tool_name, "writeStdin")) {
-        const params = try parseWriteStdinParams(input);
-        const result = try pty_tools.writeStdinImpl(allocator, params, ctx);
-        return result.output orelse result.error_msg orelse "No output";
-    }
-
-    if (std.mem.eql(u8, tool_name, "closePtySession")) {
-        const params = try parseClosePtyParams(input);
-        const result = pty_tools.closePtySessionImpl(params, ctx);
-        if (result.success) {
-            return try allocator.dupe(u8, "Session closed");
-        }
-        return result.error_msg orelse "Close failed";
-    }
-
-    if (std.mem.eql(u8, tool_name, "listPtySessions")) {
-        const result = try pty_tools.listPtySessionsImpl(allocator, ctx);
-        var output = std.ArrayList(u8){};
-        errdefer output.deinit(allocator);
-
-        try output.appendSlice(allocator, "Sessions:\n");
-        for (result.sessions) |session| {
-            try output.writer(allocator).print("- {s}: {s} ({s})\n", .{
-                session.id,
-                session.command,
-                if (session.running) "running" else "stopped",
-            });
-        }
-        return output.toOwnedSlice(allocator);
     }
 
     return error.ToolExecutionFailed;
