@@ -5,8 +5,6 @@ const db = @import("lib/db.zig");
 const metrics = @import("lib/metrics.zig");
 const routes = @import("routes.zig");
 const ssh = @import("ssh/server.zig");
-const pty = @import("websocket/pty.zig");
-const ws_handler = @import("websocket/handler.zig");
 const middleware = @import("middleware/mod.zig");
 const repo_watcher = @import("services/repo_watcher.zig");
 const session_cleanup = @import("services/session_cleanup.zig");
@@ -38,12 +36,6 @@ pub fn main() !void {
     defer pool.deinit();
 
     log.info("Database pool initialized", .{});
-
-    // Initialize PTY manager
-    var pty_manager = pty.Manager.init(allocator);
-    defer pty_manager.deinit();
-
-    log.info("PTY manager initialized", .{});
 
     // Initialize CSRF token store
     var csrf_store = middleware.CsrfStore.init(allocator);
@@ -91,7 +83,6 @@ pub fn main() !void {
         .allocator = allocator,
         .pool = pool,
         .config = cfg,
-        .pty_manager = &pty_manager,
         .csrf_store = &csrf_store,
         .repo_watcher = if (cfg.watcher_enabled) &watcher else null,
         .edge_notifier = edge_notifier_ptr,
@@ -163,7 +154,6 @@ pub const Context = struct {
     allocator: std.mem.Allocator,
     pool: *db.Pool,
     config: config.Config,
-    pty_manager: *pty.Manager,
     csrf_store: *middleware.CsrfStore,
     repo_watcher: ?*repo_watcher.RepoWatcher = null,
     edge_notifier: ?*edge_notifier.EdgeNotifier = null,
@@ -173,9 +163,6 @@ pub const Context = struct {
     session_key: ?[]const u8 = null,
     // Token scopes (comma-separated) set by auth middleware when using API tokens
     token_scopes: ?[]const u8 = null,
-
-    // WebSocket handler type for PTY connections
-    pub const WebsocketHandler = ws_handler.PtyWebSocket;
 };
 
 pub const User = struct {

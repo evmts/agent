@@ -354,10 +354,14 @@ pub fn abortSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         return;
     }
 
-    // Note: Task cancellation requires coordination with the agent runner
-    // This would need a task tracking system to abort running operations
-    res.status = 501;
-    try res.writer().writeAll("{\"error\":\"Abort not implemented - requires task tracking system\",\"success\":false}");
+    // Set abort flag via connection manager
+    if (ctx.connection_manager) |manager| {
+        try manager.abort(session_id);
+        try res.writer().writeAll("{\"success\":true}");
+    } else {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Connection manager not available\",\"success\":false}");
+    }
 }
 
 /// GET /api/sessions/:sessionId/diff
@@ -1231,14 +1235,14 @@ pub fn undoTurns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
 }
 
 // =============================================================================
-// WebSocket Upgrade for Agent Streaming
+// SSE Stream for Agent
 // =============================================================================
 
 const agent_handler = @import("../websocket/agent_handler.zig");
 
-/// WebSocket upgrade handler for agent session streaming
-/// GET /api/sessions/:sessionId/ws (with Upgrade: websocket header)
-pub fn websocket(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+/// SSE stream handler for agent session streaming
+/// GET /api/sessions/:sessionId/stream
+pub fn streamSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     const session_id = req.param("sessionId") orelse {
         res.status = 400;
         res.content_type = .TEXT;
@@ -1261,22 +1265,26 @@ pub fn websocket(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
         return;
     }
 
-    log.info("Upgrading to WebSocket for agent session: {s}", .{session_id});
+    log.info("Starting SSE stream for agent session: {s}", .{session_id});
 
-    // Prepare upgrade context
-    const upgrade_ctx = agent_handler.UpgradeContext{
-        .session_id = session_id,
-        .allocator = ctx.allocator,
-    };
+    // Set up SSE headers
+    res.content_type = .EVENTS;
+    res.headers.add("Cache-Control", "no-cache");
+    res.headers.add("Connection", "keep-alive");
+    res.headers.add("X-Accel-Buffering", "no");
 
-    // Upgrade to WebSocket
-    const upgraded = try httpz.upgradeWebsocket(agent_handler.AgentWebSocket, req, res, &upgrade_ctx);
-    if (!upgraded) {
-        res.status = 400;
-        res.content_type = .TEXT;
-        try res.writer().writeAll("Invalid WebSocket upgrade request");
-        return;
+    // Clear any existing abort flag for this session
+    if (ctx.connection_manager) |manager| {
+        manager.clearAbort(session_id);
     }
 
-    log.info("WebSocket upgrade successful for agent session: {s}", .{session_id});
+    const writer = res.writer();
+
+    // Send initial connection event
+    try writer.writeAll("event: connected\ndata: {\"type\":\"connected\"}\n\n");
+
+    // Keep connection alive with periodic keepalive comments
+    // In a real implementation, this would integrate with the agent execution
+    // For now, this just demonstrates the SSE format
+    log.info("SSE stream established for session: {s}", .{session_id});
 }
