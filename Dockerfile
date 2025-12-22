@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # =============================================================================
 FROM base AS deps
 COPY package.json bun.lock* ./
+# Copy local @plue/snapshot package (required by package.json)
+COPY snapshot ./snapshot
 RUN bun install --frozen-lockfile
 
 # =============================================================================
