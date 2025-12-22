@@ -1,8 +1,13 @@
 import type { APIRoute } from 'astro';
-import { SiweMessage } from 'siwe';
 import { randomBytes } from 'crypto';
+import { parseSiweMessage, verifySiweMessage } from 'viem/siwe';
+import { Porto } from 'porto';
+import { RelayClient } from 'porto/viem';
 import sql from '../../../../lib/db';
 import { createSessionCookie } from '../../../../lib/auth-helpers';
+
+// Porto instance for signature verification
+const porto = Porto.create();
 
 export const POST: APIRoute = async ({ request }) => {
   try {
@@ -16,11 +21,10 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    // Parse and verify SIWE message
-    // SiweMessage can accept either a string (EIP-4361) or an object
-    let siweMessage: InstanceType<typeof SiweMessage>;
+    // Parse SIWE message using Viem
+    let siweMessage: ReturnType<typeof parseSiweMessage>;
     try {
-      siweMessage = new SiweMessage(message);
+      siweMessage = parseSiweMessage(message);
     } catch (parseError) {
       console.error('SIWE parse error:', parseError);
       console.error('Raw message:', message);
@@ -28,6 +32,13 @@ export const POST: APIRoute = async ({ request }) => {
         error: 'Invalid SIWE message format',
         details: parseError instanceof Error ? parseError.message : 'Unknown error'
       }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!siweMessage.nonce || !siweMessage.address) {
+      return new Response(JSON.stringify({ error: 'Invalid SIWE message: missing nonce or address' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -54,10 +65,22 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    // Verify the signature
+    // Verify the signature using Porto's RelayClient (supports ERC-6492/ERC-1271)
     try {
-      await siweMessage.verify({ signature });
-    } catch {
+      const client = RelayClient.fromPorto(porto, { chainId: siweMessage.chainId });
+      const valid = await verifySiweMessage(client, {
+        message,
+        signature,
+      });
+
+      if (!valid) {
+        return new Response(JSON.stringify({ error: 'Invalid signature' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    } catch (verifyError) {
+      console.error('Signature verification error:', verifyError);
       return new Response(JSON.stringify({ error: 'Invalid signature' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }

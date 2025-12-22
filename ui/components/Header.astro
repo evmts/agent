@@ -1,26 +1,19 @@
 ---
+import { getUserBySession as dbGetUserBySession } from '../lib/auth-db';
+
 interface Props {
   currentPath?: string;
 }
 
 const { currentPath = "/" } = Astro.props;
 
-// Check if user is authenticated
+// Check if user is authenticated - call function directly instead of HTTP fetch
 let user = null;
 const sessionCookie = Astro.cookies.get('session');
 
 if (sessionCookie) {
   try {
-    const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
-      headers: {
-        Cookie: `session=${sessionCookie.value}`,
-      },
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      user = data.user;
-    }
+    user = await dbGetUserBySession(sessionCookie.value);
   } catch (error) {
     console.error('Failed to fetch user:', error);
   }
