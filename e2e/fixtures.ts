@@ -54,6 +54,14 @@ export const test = base.extend<{
   /** Captured network requests */
   networkLogs: NetworkEntry[];
 }>({
+  // Inject E2E test flag before each test so Porto uses mock passkeys
+  context: async ({ context }, use) => {
+    await context.addInitScript(() => {
+      (window as any).__E2E_TEST__ = true;
+    });
+    await use(context);
+  },
+
   // Test context - automatically injected into all requests
   testContext: async ({ page }, use, testInfo) => {
     const context: TestContext = {
@@ -261,6 +269,14 @@ export const authenticatedTest = base.extend<{
   /** Authenticated user info */
   authedUser: { username: string; id: number };
 }>({
+  // Inject E2E test flag before each test so Porto uses mock passkeys
+  context: async ({ context }, use) => {
+    await context.addInitScript(() => {
+      (window as any).__E2E_TEST__ = true;
+    });
+    await use(context);
+  },
+
   authedUser: async ({}, use) => {
     // Use the seeded test user
     await use({ username: TEST_DATA.user, id: 7 });
