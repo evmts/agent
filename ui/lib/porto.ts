@@ -83,7 +83,7 @@ export async function signInWithEthereum(config: SiweConfig): Promise<{
       }],
     });
     // Extract address from the result
-    address = (result as { accounts: Array<{ address: `0x${string}` }> }).accounts[0].address;
+    address = (result as unknown as { accounts: Array<{ address: `0x${string}` }> }).accounts[0].address;
   } else {
     // Production: use dialog mode (shows Porto dialog)
     const [addr] = await client.requestAddresses();

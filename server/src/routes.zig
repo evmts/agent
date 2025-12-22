@@ -348,6 +348,7 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
 
     // API routes - AI agent - CSRF protected
     router.post("/api/sessions/:sessionId/run", withAuthAndCsrf(agent_routes.runAgentHandler), .{});
+    router.get("/api/sessions/:sessionId/ws", sessions.websocket, .{});  // WebSocket streaming
     router.get("/api/agents", agent_routes.listAgentsHandler, .{});
     router.get("/api/agents/:name", agent_routes.getAgentHandler, .{});
     router.get("/api/tools", agent_routes.listToolsHandler, .{});

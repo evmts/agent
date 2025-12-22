@@ -6,7 +6,7 @@
  */
 import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
-import Terminal from "../components/Terminal.astro";
+import TerminalComponent from "../components/Terminal.astro";
 
 // Check authentication
 let currentUser = null;
@@ -67,7 +67,7 @@ const existingPtyId = Astro.url.searchParams.get('pty');
         </div>
       </div>
       <div id="terminal-wrapper" style="display: none;">
-        <Terminal ptyId={existingPtyId || ''} class="full-terminal" />
+        <TerminalComponent ptyId={existingPtyId || ''} class="full-terminal" />
       </div>
     </div>
 
@@ -237,11 +237,11 @@ const existingPtyId = Astro.url.searchParams.get('pty');
 </style>
 
 <script>
-  import { Ghostty, Terminal, FitAddon } from "ghostty-web";
+  import { Ghostty, Terminal as GhosttyTerminal, FitAddon } from "ghostty-web";
 
   let currentPtyId: string | null = null;
   let currentWs: WebSocket | null = null;
-  let terminal: Terminal | null = null;
+  let terminal: GhosttyTerminal | null = null;
   let fitAddon: FitAddon | null = null;
 
   const terminalPlaceholder = document.getElementById('terminal-placeholder');
@@ -339,7 +339,7 @@ const existingPtyId = Astro.url.searchParams.get('pty');
     if (container && !terminal) {
       const ghostty = await Ghostty.load();
 
-      terminal = new Terminal({
+      terminal = new GhosttyTerminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace",

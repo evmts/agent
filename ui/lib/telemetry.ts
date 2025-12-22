@@ -29,6 +29,7 @@ interface PerformanceData {
   metric: string;
   value: number;
   unit: string;
+  [key: string]: unknown;
 }
 
 interface NetworkData {
@@ -37,6 +38,7 @@ interface NetworkData {
   status?: number;
   duration?: number;
   error?: string;
+  [key: string]: unknown;
 }
 
 // Session ID for correlating events

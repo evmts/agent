@@ -1229,3 +1229,54 @@ pub fn undoTurns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     res.status = 501;
     try res.writer().writeAll("{\"error\":\"Undo turns not implemented\",\"success\":false}");
 }
+
+// =============================================================================
+// WebSocket Upgrade for Agent Streaming
+// =============================================================================
+
+const agent_handler = @import("../websocket/agent_handler.zig");
+
+/// WebSocket upgrade handler for agent session streaming
+/// GET /api/sessions/:sessionId/ws (with Upgrade: websocket header)
+pub fn websocket(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    const session_id = req.param("sessionId") orelse {
+        res.status = 400;
+        res.content_type = .TEXT;
+        try res.writer().writeAll("Missing session id");
+        return;
+    };
+
+    // Verify session exists
+    const session = db.getAgentSessionById(ctx.pool, session_id) catch {
+        res.status = 500;
+        res.content_type = .TEXT;
+        try res.writer().writeAll("Database error");
+        return;
+    };
+
+    if (session == null) {
+        res.status = 404;
+        res.content_type = .TEXT;
+        try res.writer().writeAll("Session not found");
+        return;
+    }
+
+    log.info("Upgrading to WebSocket for agent session: {s}", .{session_id});
+
+    // Prepare upgrade context
+    const upgrade_ctx = agent_handler.UpgradeContext{
+        .session_id = session_id,
+        .allocator = ctx.allocator,
+    };
+
+    // Upgrade to WebSocket
+    const upgraded = try httpz.upgradeWebsocket(agent_handler.AgentWebSocket, req, res, &upgrade_ctx);
+    if (!upgraded) {
+        res.status = 400;
+        res.content_type = .TEXT;
+        try res.writer().writeAll("Invalid WebSocket upgrade request");
+        return;
+    }
+
+    log.info("WebSocket upgrade successful for agent session: {s}", .{session_id});
+}

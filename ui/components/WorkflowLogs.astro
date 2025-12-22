@@ -229,7 +229,7 @@ const { runId, username, reponame, autoScroll = false } = Astro.props;
     const reponame = logsDiv.getAttribute('data-reponame');
 
     async function loadLogs() {
-      if (!runId || !username || !reponame) return;
+      if (!runId || !username || !reponame || !container) return;
 
       try {
         const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/logs`);
