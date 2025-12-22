@@ -50,7 +50,7 @@ pub const Session = struct {
 
         // Try to open PTY using openpt
         master = posix.open("/dev/ptmx", .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0) catch |err| {
-            log.err("Failed to open /dev/ptmx: {}", .{err});
+            log.warn("Failed to open /dev/ptmx: {}", .{err});
             return PtyError.OpenPtyFailed;
         };
         errdefer posix.close(master);
@@ -64,7 +64,7 @@ pub const Session = struct {
 
         // Open slave PTY
         slave = posix.open(slave_name_slice, .{ .ACCMODE = .RDWR, .NOCTTY = true }, 0) catch |err| {
-            log.err("Failed to open slave PTY {s}: {}", .{ slave_name_slice, err });
+            log.warn("Failed to open slave PTY {s}: {}", .{ slave_name_slice, err });
             return PtyError.OpenPtyFailed;
         };
         errdefer posix.close(slave);
