@@ -11,13 +11,13 @@ if (!username) {
 // Check if user is authenticated and viewing their own profile
 let currentUser = null;
 let userProfile = null;
-const sessionCookie = Astro.cookies.get('plue_session');
+const sessionCookie = Astro.cookies.get('session');
 
 if (sessionCookie) {
   try {
     const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
       headers: {
-        Cookie: `plue_session=${sessionCookie.value}`,
+        Cookie: `session=${sessionCookie.value}`,
       },
     });
 

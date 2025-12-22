@@ -4,7 +4,7 @@ import Header from "../components/Header.astro";
 
 // Check authentication
 let currentUser = null;
-const sessionCookie = Astro.cookies.get('plue_session');
+const sessionCookie = Astro.cookies.get('session');
 
 if (!sessionCookie) {
   return Astro.redirect('/login');
@@ -13,7 +13,7 @@ if (!sessionCookie) {
 try {
   const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
     headers: {
-      Cookie: `plue_session=${sessionCookie.value}`,
+      Cookie: `session=${sessionCookie.value}`,
     },
   });
 
