@@ -303,7 +303,6 @@ pub const ToolError = error{
     HttpRequestFailed,
     ResponseTooLarge,
     GitHubCommandNotAllowed,
-    PtySessionNotFound,
     ApiError,
     OutOfMemory,
     Overflow,
