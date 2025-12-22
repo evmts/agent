@@ -2,7 +2,7 @@
 /// Validates SSH public keys against the database
 const std = @import("std");
 const types = @import("types.zig");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const crypto = @import("crypto");
 
 const log = std.log.scoped(.ssh_auth);

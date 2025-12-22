@@ -30,8 +30,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db_issues = @import("../lib/db_issues.zig");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.issue_routes);
 
@@ -58,7 +57,7 @@ pub fn listIssues(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -75,7 +74,7 @@ pub fn listIssues(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     const state = query_params.get("state") orelse "open";
 
     // List issues
-    const issues = db_issues.listIssues(ctx.pool, allocator, repo.?.id, state) catch |err| {
+    const issues = db.listIssues(ctx.pool, allocator, repo.?.id, state) catch |err| {
         log.err("Failed to list issues: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -84,7 +83,7 @@ pub fn listIssues(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     defer allocator.free(issues);
 
     // Get counts
-    const counts = db_issues.getIssueCounts(ctx.pool, repo.?.id) catch |err| {
+    const counts = db.getIssueCounts(ctx.pool, repo.?.id) catch |err| {
         log.err("Failed to get issue counts: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -97,12 +96,20 @@ pub fn listIssues(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     for (issues, 0..) |issue, i| {
         if (i > 0) try writer.writeAll(",");
         try writer.print(
-            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+            \\{{"id":{d},"number":{d},"title":"{s}","body":
         , .{
             issue.id,
             issue.issue_number,
             issue.title,
-            if (issue.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+        });
+        if (issue.body) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
             issue.state,
             issue.created_at,
             issue.updated_at,
@@ -142,7 +149,7 @@ pub fn getIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -156,7 +163,7 @@ pub fn getIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -170,7 +177,7 @@ pub fn getIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     }
 
     // Get comments
-    const comments = db_issues.getComments(ctx.pool, allocator, issue.?.id) catch |err| {
+    const comments = db.getComments(ctx.pool, allocator, issue.?.id) catch |err| {
         log.err("Failed to get comments: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -181,12 +188,20 @@ pub fn getIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     // Build JSON response
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d},"comments":[
+        \\{{"id":{d},"number":{d},"title":"{s}","body":
     , .{
         issue.?.id,
         issue.?.issue_number,
         issue.?.title,
-        if (issue.?.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+    });
+    if (issue.?.body) |b| {
+        try writer.print("\"{s}\"", .{b});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"state":"{s}","createdAt":{d},"updatedAt":{d},"comments":[
+    , .{
         issue.?.state,
         issue.?.created_at,
         issue.?.updated_at,
@@ -258,7 +273,7 @@ pub fn createIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -272,7 +287,7 @@ pub fn createIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Create issue
-    const issue = db_issues.createIssue(ctx.pool, repo.?.id, ctx.user.?.id, v.title, v.body) catch |err| {
+    const issue = db.createIssue(ctx.pool, repo.?.id, ctx.user.?.id, v.title, v.body) catch |err| {
         log.err("Failed to create issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to create issue\"}");
@@ -292,12 +307,20 @@ pub fn createIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     res.status = 201;
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        \\{{"id":{d},"number":{d},"title":"{s}","body":
     , .{
         issue.id,
         issue.issue_number,
         issue.title,
-        if (issue.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+    });
+    if (issue.body) |b| {
+        try writer.print("\"{s}\"", .{b});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+    , .{
         issue.state,
         issue.created_at,
         issue.updated_at,
@@ -361,7 +384,7 @@ pub fn updateIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -375,7 +398,7 @@ pub fn updateIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Update issue
-    const issue = db_issues.updateIssue(ctx.pool, repo.?.id, issue_number, v.title, v.body) catch |err| {
+    const issue = db.updateIssue(ctx.pool, repo.?.id, issue_number, v.title, v.body) catch |err| {
         log.err("Failed to update issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to update issue\"}");
@@ -394,12 +417,20 @@ pub fn updateIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     // Return updated issue
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        \\{{"id":{d},"number":{d},"title":"{s}","body":
     , .{
         issue.id,
         issue.issue_number,
         issue.title,
-        if (issue.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+    });
+    if (issue.body) |b| {
+        try writer.print("\"{s}\"", .{b});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+    , .{
         issue.state,
         issue.created_at,
         issue.updated_at,
@@ -444,7 +475,7 @@ pub fn closeIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -458,7 +489,7 @@ pub fn closeIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Close issue
-    db_issues.closeIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    db.closeIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to close issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to close issue\"}");
@@ -475,7 +506,7 @@ pub fn closeIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Get updated issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -485,12 +516,20 @@ pub fn closeIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     if (issue) |iss| {
         var writer = res.writer();
         try writer.print(
-            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+            \\{{"id":{d},"number":{d},"title":"{s}","body":
         , .{
             iss.id,
             iss.issue_number,
             iss.title,
-            if (iss.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+        });
+        if (iss.body) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
             iss.state,
             iss.created_at,
             iss.updated_at,
@@ -539,7 +578,7 @@ pub fn reopenIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -553,7 +592,7 @@ pub fn reopenIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Reopen issue
-    db_issues.reopenIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    db.reopenIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to reopen issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to reopen issue\"}");
@@ -570,7 +609,7 @@ pub fn reopenIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Get updated issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -580,12 +619,20 @@ pub fn reopenIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     if (issue) |iss| {
         var writer = res.writer();
         try writer.print(
-            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+            \\{{"id":{d},"number":{d},"title":"{s}","body":
         , .{
             iss.id,
             iss.issue_number,
             iss.title,
-            if (iss.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+        });
+        if (iss.body) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
             iss.state,
             iss.created_at,
             iss.updated_at,
@@ -631,7 +678,7 @@ pub fn getComments(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -645,7 +692,7 @@ pub fn getComments(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -659,7 +706,7 @@ pub fn getComments(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Get comments
-    const comments = db_issues.getComments(ctx.pool, allocator, issue.?.id) catch |err| {
+    const comments = db.getComments(ctx.pool, allocator, issue.?.id) catch |err| {
         log.err("Failed to get comments: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -746,7 +793,7 @@ pub fn addComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -760,7 +807,7 @@ pub fn addComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -774,7 +821,7 @@ pub fn addComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Add comment
-    const comment = db_issues.addComment(ctx.pool, issue.?.id, ctx.user.?.id, v.body) catch |err| {
+    const comment = db.addComment(ctx.pool, issue.?.id, ctx.user.?.id, v.body) catch |err| {
         log.err("Failed to add comment: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to add comment\"}");
@@ -865,7 +912,7 @@ pub fn updateComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     }
 
     // Update comment
-    const comment = db_issues.updateComment(ctx.pool, comment_id, v.body) catch |err| {
+    const comment = db.updateComment(ctx.pool, comment_id, v.body) catch |err| {
         log.err("Failed to update comment: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to update comment\"}");
@@ -931,7 +978,7 @@ pub fn deleteComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     };
 
     // Delete comment
-    db_issues.deleteComment(ctx.pool, comment_id) catch |err| {
+    db.deleteComment(ctx.pool, comment_id) catch |err| {
         log.err("Failed to delete comment: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to delete comment\"}");
@@ -973,7 +1020,7 @@ pub fn getLabels(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -987,7 +1034,7 @@ pub fn getLabels(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     }
 
     // Get labels
-    const labels = db_issues.getLabels(ctx.pool, allocator, repo.?.id) catch |err| {
+    const labels = db.getLabels(ctx.pool, allocator, repo.?.id) catch |err| {
         log.err("Failed to get labels: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1001,13 +1048,18 @@ pub fn getLabels(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     for (labels, 0..) |label, i| {
         if (i > 0) try writer.writeAll(",");
         try writer.print(
-            \\{{"id":{d},"name":"{s}","color":"{s}","description":{s}}}
+            \\{{"id":{d},"name":"{s}","color":"{s}","description":
         , .{
             label.id,
             label.name,
             label.color,
-            if (label.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
         });
+        if (label.description) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll("}}");
     }
     try writer.writeAll("]}");
 }
@@ -1070,7 +1122,7 @@ pub fn createLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1084,7 +1136,7 @@ pub fn createLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Create label
-    const label = db_issues.createLabel(ctx.pool, repo.?.id, v.name, v.color, v.description) catch |err| {
+    const label = db.createLabel(ctx.pool, repo.?.id, v.name, v.color, v.description) catch |err| {
         log.err("Failed to create label: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to create label\"}");
@@ -1095,13 +1147,18 @@ pub fn createLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     res.status = 201;
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"name":"{s}","color":"{s}","description":{s}}}
+        \\{{"id":{d},"name":"{s}","color":"{s}","description":
     , .{
         label.id,
         label.name,
         label.color,
-        if (label.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
     });
+    if (label.description) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll("}}");
 }
 
 /// POST /:user/:repo/issues/:number/labels
@@ -1160,7 +1217,7 @@ pub fn addLabelsToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1174,7 +1231,7 @@ pub fn addLabelsToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1189,13 +1246,13 @@ pub fn addLabelsToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response
 
     // Add each label
     for (v.labels) |label_name| {
-        const label = db_issues.getLabelByName(ctx.pool, repo.?.id, label_name) catch |err| {
+        const label = db.getLabelByName(ctx.pool, repo.?.id, label_name) catch |err| {
             log.err("Failed to get label: {}", .{err});
             continue;
         };
 
         if (label) |lbl| {
-            db_issues.addLabelToIssue(ctx.pool, issue.?.id, lbl.id) catch |err| {
+            db.addLabelToIssue(ctx.pool, issue.?.id, lbl.id) catch |err| {
                 log.err("Failed to add label to issue: {}", .{err});
                 continue;
             };
@@ -1254,7 +1311,7 @@ pub fn removeLabelFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1268,7 +1325,7 @@ pub fn removeLabelFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1282,7 +1339,7 @@ pub fn removeLabelFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     }
 
     // Remove label
-    db_issues.removeLabelFromIssue(ctx.pool, issue.?.id, label_id) catch |err| {
+    db.removeLabelFromIssue(ctx.pool, issue.?.id, label_id) catch |err| {
         log.err("Failed to remove label from issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove label\"}");
@@ -1333,7 +1390,7 @@ pub fn pinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1347,7 +1404,7 @@ pub fn pinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1361,7 +1418,7 @@ pub fn pinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
     }
 
     // Pin the issue
-    db_issues.pinIssue(ctx.pool, repo.?.id, issue.?.id, ctx.user.?.id) catch |err| {
+    db.pinIssue(ctx.pool, repo.?.id, issue.?.id, ctx.user.?.id) catch |err| {
         if (err == error.MaxPinnedIssuesReached) {
             res.status = 400;
             try res.writer().writeAll("{\"error\":\"Maximum of 3 pinned issues reached\"}");
@@ -1413,7 +1470,7 @@ pub fn unpinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1427,7 +1484,7 @@ pub fn unpinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1441,7 +1498,7 @@ pub fn unpinIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Unpin the issue
-    db_issues.unpinIssue(ctx.pool, issue.?.id) catch |err| {
+    db.unpinIssue(ctx.pool, issue.?.id) catch |err| {
         log.err("Failed to unpin issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to unpin issue\"}");
@@ -1516,7 +1573,7 @@ pub fn addReactionToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1530,7 +1587,7 @@ pub fn addReactionToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1544,7 +1601,7 @@ pub fn addReactionToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Add reaction (use issue_number as target_id for compatibility with TS)
-    const reaction = db_issues.addReaction(ctx.pool, ctx.user.?.id, "issue", issue_number, v.emoji) catch |err| {
+    const reaction = db.addReaction(ctx.pool, ctx.user.?.id, "issue", issue_number, v.emoji) catch |err| {
         log.err("Failed to add reaction: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to add reaction\"}");
@@ -1605,7 +1662,7 @@ pub fn removeReactionFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1619,7 +1676,7 @@ pub fn removeReactionFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
     }
 
     // Get issue to verify it exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1633,7 +1690,7 @@ pub fn removeReactionFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
     }
 
     // Remove reaction (use issue_number as target_id for compatibility with TS)
-    db_issues.removeReaction(ctx.pool, ctx.user.?.id, "issue", issue_number, emoji) catch |err| {
+    db.removeReaction(ctx.pool, ctx.user.?.id, "issue", issue_number, emoji) catch |err| {
         log.err("Failed to remove reaction: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove reaction\"}");
@@ -1690,7 +1747,7 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1704,7 +1761,7 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
 
     // Get issue to verify it exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1718,7 +1775,7 @@ pub fn getCommentReactions(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     }
 
     // Get reactions for the comment
-    const reactions = db_issues.getReactions(ctx.pool, allocator, "comment", comment_id) catch |err| {
+    const reactions = db.getReactions(ctx.pool, allocator, "comment", comment_id) catch |err| {
         log.err("Failed to get comment reactions: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1853,7 +1910,7 @@ pub fn addCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1867,7 +1924,7 @@ pub fn addCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Get issue to verify it exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1881,7 +1938,7 @@ pub fn addCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Add reaction to comment
-    const reaction = db_issues.addReaction(ctx.pool, ctx.user.?.id, "comment", comment_id, v.emoji) catch |err| {
+    const reaction = db.addReaction(ctx.pool, ctx.user.?.id, "comment", comment_id, v.emoji) catch |err| {
         log.err("Failed to add comment reaction: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to add reaction\"}");
@@ -1954,7 +2011,7 @@ pub fn removeCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Res
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1968,7 +2025,7 @@ pub fn removeCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Res
     }
 
     // Get issue to verify it exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -1982,7 +2039,7 @@ pub fn removeCommentReaction(ctx: *Context, req: *httpz.Request, res: *httpz.Res
     }
 
     // Remove reaction from comment
-    db_issues.removeReaction(ctx.pool, ctx.user.?.id, "comment", comment_id, emoji) catch |err| {
+    db.removeReaction(ctx.pool, ctx.user.?.id, "comment", comment_id, emoji) catch |err| {
         log.err("Failed to remove comment reaction: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove reaction\"}");
@@ -2051,7 +2108,7 @@ pub fn addAssigneeToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2065,7 +2122,7 @@ pub fn addAssigneeToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2079,7 +2136,7 @@ pub fn addAssigneeToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
     }
 
     // Add assignee
-    db_issues.addAssignee(ctx.pool, issue.?.id, v.user_id) catch |err| {
+    db.addAssignee(ctx.pool, issue.?.id, v.user_id) catch |err| {
         log.err("Failed to add assignee: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to add assignee\"}");
@@ -2138,7 +2195,7 @@ pub fn removeAssigneeFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2152,7 +2209,7 @@ pub fn removeAssigneeFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
     }
 
     // Get issue
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2166,7 +2223,7 @@ pub fn removeAssigneeFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.R
     }
 
     // Remove assignee
-    db_issues.removeAssignee(ctx.pool, issue.?.id, user_id) catch |err| {
+    db.removeAssignee(ctx.pool, issue.?.id, user_id) catch |err| {
         log.err("Failed to remove assignee: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove assignee\"}");
@@ -2235,7 +2292,7 @@ pub fn addDependencyToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2249,7 +2306,7 @@ pub fn addDependencyToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     }
 
     // Get blocker issue (this issue)
-    const blocker_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const blocker_issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get blocker issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2263,7 +2320,7 @@ pub fn addDependencyToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     }
 
     // Get blocked issue
-    const blocked_issue = db_issues.getIssue(ctx.pool, repo.?.id, v.blocks) catch |err| {
+    const blocked_issue = db.getIssue(ctx.pool, repo.?.id, v.blocks) catch |err| {
         log.err("Failed to get blocked issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2277,7 +2334,7 @@ pub fn addDependencyToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Resp
     }
 
     // Add dependency
-    db_issues.addDependency(ctx.pool, repo.?.id, blocker_issue.?.id, blocked_issue.?.id) catch |err| {
+    db.addDependency(ctx.pool, repo.?.id, blocker_issue.?.id, blocked_issue.?.id) catch |err| {
         log.err("Failed to add dependency: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to add dependency\"}");
@@ -2337,7 +2394,7 @@ pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2351,7 +2408,7 @@ pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz
     }
 
     // Get blocker issue
-    const blocker_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const blocker_issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get blocker issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2365,7 +2422,7 @@ pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz
     }
 
     // Get blocked issue
-    const blocked_issue = db_issues.getIssue(ctx.pool, repo.?.id, blocked_number) catch |err| {
+    const blocked_issue = db.getIssue(ctx.pool, repo.?.id, blocked_number) catch |err| {
         log.err("Failed to get blocked issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2379,7 +2436,7 @@ pub fn removeDependencyFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz
     }
 
     // Remove dependency
-    db_issues.removeDependency(ctx.pool, blocker_issue.?.id, blocked_issue.?.id) catch |err| {
+    db.removeDependency(ctx.pool, blocker_issue.?.id, blocked_issue.?.id) catch |err| {
         log.err("Failed to remove dependency: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove dependency\"}");
@@ -2427,7 +2484,7 @@ pub fn deleteIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2441,7 +2498,7 @@ pub fn deleteIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Check if issue exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2455,7 +2512,7 @@ pub fn deleteIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Delete issue
-    db_issues.deleteIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    db.deleteIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to delete issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to delete issue\"}");
@@ -2529,7 +2586,7 @@ pub fn updateLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2543,7 +2600,7 @@ pub fn updateLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Update label
-    const label = db_issues.updateLabel(ctx.pool, repo.?.id, old_name, v.name, v.color, v.description) catch |err| {
+    const label = db.updateLabel(ctx.pool, repo.?.id, old_name, v.name, v.color, v.description) catch |err| {
         log.err("Failed to update label: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to update label\"}");
@@ -2553,13 +2610,18 @@ pub fn updateLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     // Return updated label
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"name":"{s}","color":"{s}","description":{s}}}
+        \\{{"id":{d},"name":"{s}","color":"{s}","description":
     , .{
         label.id,
         label.name,
         label.color,
-        if (label.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
     });
+    if (label.description) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.writeAll("}}");
 }
 
 /// DELETE /:user/:repo/labels/:name
@@ -2593,7 +2655,7 @@ pub fn deleteLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2607,7 +2669,7 @@ pub fn deleteLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Check if label exists
-    const label = db_issues.getLabelByName(ctx.pool, repo.?.id, label_name) catch |err| {
+    const label = db.getLabelByName(ctx.pool, repo.?.id, label_name) catch |err| {
         log.err("Failed to get label: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2621,7 +2683,7 @@ pub fn deleteLabel(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     }
 
     // Delete label
-    db_issues.deleteLabel(ctx.pool, repo.?.id, label_name) catch |err| {
+    db.deleteLabel(ctx.pool, repo.?.id, label_name) catch |err| {
         log.err("Failed to delete label: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to delete label\"}");
@@ -2662,7 +2724,7 @@ pub fn getIssueHistory(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2676,7 +2738,7 @@ pub fn getIssueHistory(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Check if issue exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2690,7 +2752,7 @@ pub fn getIssueHistory(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Get history
-    const history = db_issues.getIssueHistory(ctx.pool, allocator, repo.?.id, issue_number) catch |err| {
+    const history = db.getIssueHistory(ctx.pool, allocator, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue history: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2704,10 +2766,16 @@ pub fn getIssueHistory(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     for (history, 0..) |event, i| {
         if (i > 0) try writer.writeAll(",");
         try writer.print(
-            \\{{"id":{d},"actorId":{s},"eventType":"{s}","metadata":{s},"createdAt":{d}}}
+            \\{{"id":{d},"actorId":
+        , .{event.id});
+        if (event.actor_id) |aid| {
+            try writer.print("{d}", .{aid});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"eventType":"{s}","metadata":{s},"createdAt":{d}}}
         , .{
-            event.id,
-            if (event.actor_id) |aid| try std.fmt.allocPrint(allocator, "{d}", .{aid}) else "null",
             event.event_type,
             event.metadata,
             event.created_at,
@@ -2734,7 +2802,7 @@ pub fn getIssueCounts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2748,7 +2816,7 @@ pub fn getIssueCounts(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     }
 
     // Get counts
-    const counts = db_issues.getIssueCounts(ctx.pool, repo.?.id) catch |err| {
+    const counts = db.getIssueCounts(ctx.pool, repo.?.id) catch |err| {
         log.err("Failed to get issue counts: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2791,7 +2859,7 @@ pub fn getDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2805,7 +2873,7 @@ pub fn getDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Check if issue exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2819,7 +2887,7 @@ pub fn getDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Get due date
-    const due_date = db_issues.getDueDate(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const due_date = db.getDueDate(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get due date: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2891,7 +2959,7 @@ pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2905,7 +2973,7 @@ pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Check if issue exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2919,7 +2987,7 @@ pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     }
 
     // Set due date
-    db_issues.setDueDate(ctx.pool, repo.?.id, issue_number, v.due_date) catch |err| {
+    db.setDueDate(ctx.pool, repo.?.id, issue_number, v.due_date) catch |err| {
         log.err("Failed to set due date: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to set due date\"}");
@@ -2927,7 +2995,7 @@ pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     };
 
     // Return updated issue
-    const updated_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const updated_issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get updated issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -2937,12 +3005,20 @@ pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     if (updated_issue) |iss| {
         var writer = res.writer();
         try writer.print(
-            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+            \\{{"id":{d},"number":{d},"title":"{s}","body":
         , .{
             iss.id,
             iss.issue_number,
             iss.title,
-            if (iss.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+        });
+        if (iss.body) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
             iss.state,
             iss.created_at,
             iss.updated_at,
@@ -2954,7 +3030,6 @@ pub fn setDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
 /// Remove issue due date
 pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
-    const allocator = ctx.allocator;
 
     // Require authentication
     if (ctx.user == null) {
@@ -2988,7 +3063,7 @@ pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -3002,7 +3077,7 @@ pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     }
 
     // Check if issue exists
-    const issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -3016,7 +3091,7 @@ pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     }
 
     // Remove due date
-    db_issues.removeDueDate(ctx.pool, repo.?.id, issue_number) catch |err| {
+    db.removeDueDate(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to remove due date: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove due date\"}");
@@ -3024,7 +3099,7 @@ pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     };
 
     // Return updated issue
-    const updated_issue = db_issues.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    const updated_issue = db.getIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to get updated issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -3034,12 +3109,20 @@ pub fn removeDueDate(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     if (updated_issue) |iss| {
         var writer = res.writer();
         try writer.print(
-            \\{{"id":{d},"number":{d},"title":"{s}","body":{s},"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+            \\{{"id":{d},"number":{d},"title":"{s}","body":
         , .{
             iss.id,
             iss.issue_number,
             iss.title,
-            if (iss.body) |b| try std.fmt.allocPrint(allocator, "\"{s}\"", .{b}) else "null",
+        });
+        if (iss.body) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"state":"{s}","createdAt":{d},"updatedAt":{d}}}
+        , .{
             iss.state,
             iss.created_at,
             iss.updated_at,

@@ -224,6 +224,56 @@ pub const ConnectionManager = struct {
             log.info("Session removed from abort tracking: {s}", .{session_id});
         }
     }
+
+    /// Broadcast a token event to all subscribers of a session
+    pub fn broadcastToken(self: *Self, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) void {
+        _ = self;
+        _ = session_id;
+        _ = message_id;
+        _ = text;
+        _ = token_index;
+        // TODO: Implement WebSocket broadcasting
+        log.debug("broadcastToken called (not yet implemented)", .{});
+    }
+
+    /// Broadcast a tool start event to all subscribers of a session
+    pub fn broadcastToolStart(self: *Self, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) void {
+        _ = self;
+        _ = session_id;
+        _ = message_id;
+        _ = tool_id;
+        _ = tool_name;
+        // TODO: Implement WebSocket broadcasting
+        log.debug("broadcastToolStart called (not yet implemented)", .{});
+    }
+
+    /// Broadcast a tool end event to all subscribers of a session
+    pub fn broadcastToolEnd(self: *Self, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) void {
+        _ = self;
+        _ = session_id;
+        _ = tool_id;
+        _ = tool_state;
+        _ = output;
+        // TODO: Implement WebSocket broadcasting
+        log.debug("broadcastToolEnd called (not yet implemented)", .{});
+    }
+
+    /// Broadcast a done event to all subscribers of a session
+    pub fn broadcastDone(self: *Self, session_id: []const u8) void {
+        _ = self;
+        _ = session_id;
+        // TODO: Implement WebSocket broadcasting
+        log.debug("broadcastDone called (not yet implemented)", .{});
+    }
+
+    /// Broadcast an error event to all subscribers of a session
+    pub fn broadcastError(self: *Self, session_id: []const u8, message: []const u8) void {
+        _ = self;
+        _ = session_id;
+        _ = message;
+        // TODO: Implement WebSocket broadcasting
+        log.debug("broadcastError called (not yet implemented)", .{});
+    }
 };
 
 // =============================================================================

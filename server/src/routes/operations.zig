@@ -6,7 +6,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.operations_routes);
 
@@ -126,7 +126,7 @@ pub fn listOperations(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
         try res.writer().writeAll("{\"error\":\"Failed to retrieve operations\"}");
         return;
     };
-    defer operations.deinit();
+    defer operations.deinit(ctx.allocator);
 
     var writer = res.writer();
     try writer.writeAll("{\"operations\":[");

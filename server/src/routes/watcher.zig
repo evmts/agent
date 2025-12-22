@@ -5,7 +5,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.watcher_routes);
 

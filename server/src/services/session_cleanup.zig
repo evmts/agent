@@ -4,7 +4,7 @@
 //! Runs as a background service with configurable interval.
 
 const std = @import("std");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.session_cleanup);
 

@@ -8,7 +8,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.tokens);
 
@@ -80,15 +80,20 @@ pub fn list(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
         const last_used_at = row.get(?[]const u8, 5);
 
         try writer.print(
-            \\{{"id":{d},"name":"{s}","tokenLastEight":"{s}","scopes":"{s}","createdAt":"{s}","lastUsedAt":{s}}}
+            \\{{"id":{d},"name":"{s}","tokenLastEight":"{s}","scopes":"{s}","createdAt":"{s}","lastUsedAt":
         , .{
             id,
             name,
             token_last_eight,
             scopes,
             created_at,
-            if (last_used_at) |lut| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{lut}) else "null",
         });
+        if (last_used_at) |lut| {
+            try writer.print("\"{s}\"", .{lut});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll("}}}");
     }
 
     try writer.writeAll("]}");

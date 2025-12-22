@@ -8,7 +8,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const auth = @import("../middleware/auth.zig");
 
 const log = std.log.scoped(.ssh_keys);

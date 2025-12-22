@@ -10,7 +10,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const workflows = @import("workflows.zig");
 
 const log = std.log.scoped(.runner_routes);
@@ -177,17 +177,21 @@ pub fn fetchTask(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     // Build response
     var writer = res.writer();
     try writer.print(
-        \\{{"task":{{"id":{d},"jobId":{d},"attempt":{d},"repositoryId":{d},"commitSha":{s},"workflowContent":"{s}","workflowPath":"{s}","token":"{s}"}}}}
-    , .{
-        t.id,
-        t.job_id,
-        t.attempt,
-        t.repository_id,
-        if (t.commit_sha) |sha| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{sha}) else "null",
-        escapeJson(ctx.allocator, t.workflow_content) catch t.workflow_content,
-        escapeJson(ctx.allocator, t.workflow_path) catch t.workflow_path,
-        task_token,
-    });
+        \\{{"task":{{"id":{d},"jobId":{d},"attempt":{d},"repositoryId":{d},"commitSha":
+    , .{ t.id, t.job_id, t.attempt, t.repository_id });
+
+    if (t.commit_sha) |sha| {
+        try writer.print("\"{s}\"", .{sha});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    const escaped_content = escapeJson(ctx.allocator, t.workflow_content) catch t.workflow_content;
+    const escaped_path = escapeJson(ctx.allocator, t.workflow_path) catch t.workflow_path;
+
+    try writer.print(
+        \\,"workflowContent":"{s}","workflowPath":"{s}","token":"{s}"}}}}
+    , .{ escaped_content, escaped_path, task_token });
 }
 
 /// POST /runners/tasks/:taskId/status

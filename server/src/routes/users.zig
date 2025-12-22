@@ -8,7 +8,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const auth = @import("../middleware/auth.zig");
 
 const log = std.log.scoped(.user_routes);
@@ -93,13 +93,20 @@ pub fn search(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         const avatar_url: ?[]const u8 = row.get(?[]const u8, 3);
 
         try writer.print(
-            \\{{"id":{d},"username":"{s}","displayName":{s},"avatarUrl":{s}}}
-        , .{
-            id,
-            username,
-            if (display_name) |d| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{d}) else "null",
-            if (avatar_url) |a| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{a}) else "null",
-        });
+            \\{{"id":{d},"username":"{s}","displayName":
+        , .{ id, username });
+        if (display_name) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"avatarUrl\":");
+        if (avatar_url) |a| {
+            try writer.print("\"{s}\"", .{a});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll("}}");
     }
 
     try writer.writeAll("]}");
@@ -143,15 +150,16 @@ pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     // Return profile
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"username":"{s}","displayName":{s},"bio":{s},"avatarUrl":{s},"repositoryCount":{d}}}
-    , .{
-        u.id,
-        u.username,
-        if (u.display_name) |d| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{d}) else "null",
-        "null", // bio not in UserRecord, would need separate query
-        "null", // avatar_url not in UserRecord
-        repo_count,
-    });
+        \\{{"id":{d},"username":"{s}","displayName":
+    , .{ u.id, u.username });
+    if (u.display_name) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"bio":null,"avatarUrl":null,"repositoryCount":{d}}}
+    , .{repo_count});
 }
 
 /// PATCH /users/me

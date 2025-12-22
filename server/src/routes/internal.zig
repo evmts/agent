@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const httpz = @import("httpz");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const queue = @import("../dispatch/queue.zig");
 const agent_handler = @import("../websocket/agent_handler.zig");
 

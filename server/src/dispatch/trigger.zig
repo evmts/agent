@@ -4,7 +4,7 @@
 //! Supports both traditional CI events (push, PR) and agent events (chat, mention).
 
 const std = @import("std");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const queue = @import("queue.zig");
 
 const log = std.log.scoped(.trigger);

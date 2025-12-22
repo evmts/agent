@@ -12,7 +12,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db_issues = @import("../lib/db_issues.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.milestone_routes);
 
@@ -39,7 +39,7 @@ pub fn listMilestones(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -56,7 +56,7 @@ pub fn listMilestones(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     const state = query_params.get("state") orelse "open";
 
     // List milestones
-    const milestones = db_issues.listMilestones(ctx.pool, allocator, repo.?.id, state) catch |err| {
+    const milestones = db.listMilestones(ctx.pool, allocator, repo.?.id, state) catch |err| {
         log.err("Failed to list milestones: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -67,22 +67,36 @@ pub fn listMilestones(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     // Build JSON response
     var writer = res.writer();
     try writer.writeAll("{\"milestones\":[");
-    for (milestones, 0..) |milestone, i| {
+    for (milestones, 0..) |m, i| {
         if (i > 0) try writer.writeAll(",");
         try writer.print(
-            \\{{"id":{d},"title":"{s}","description":{s},"dueDate":{s},"state":"{s}","openIssues":{d},"closedIssues":{d},"createdAt":{d},"updatedAt":{d},"closedAt":{s}}}
-        , .{
-            milestone.id,
-            milestone.title,
-            if (milestone.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
-            if (milestone.due_date) |dd| try std.fmt.allocPrint(allocator, "{d}", .{dd}) else "null",
-            milestone.state,
-            milestone.open_issues,
-            milestone.closed_issues,
-            milestone.created_at,
-            milestone.updated_at,
-            if (milestone.closed_at) |ca| try std.fmt.allocPrint(allocator, "{d}", .{ca}) else "null",
-        });
+            \\{{"id":{d},"title":"{s}","description":
+        , .{ m.id, m.title });
+
+        if (m.description) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+
+        try writer.writeAll(",\"dueDate\":");
+        if (m.due_date) |dd| {
+            try writer.print("{d}", .{dd});
+        } else {
+            try writer.writeAll("null");
+        }
+
+        try writer.print(
+            \\,"state":"{s}","openIssues":{d},"closedIssues":{d},"createdAt":{d},"updatedAt":{d},"closedAt":
+        , .{ m.state, m.open_issues, m.closed_issues, m.created_at, m.updated_at });
+
+        if (m.closed_at) |ca| {
+            try writer.print("{d}", .{ca});
+        } else {
+            try writer.writeAll("null");
+        }
+
+        try writer.writeAll("}");
     }
     try writer.writeAll("]}");
 }
@@ -91,7 +105,6 @@ pub fn listMilestones(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 /// Get a single milestone with issue counts
 pub fn getMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
-    const allocator = ctx.allocator;
 
     const username = req.param("user") orelse {
         res.status = 400;
@@ -118,7 +131,7 @@ pub fn getMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -132,7 +145,7 @@ pub fn getMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
     }
 
     // Get milestone
-    const milestone = db_issues.getMilestone(ctx.pool, repo.?.id, milestone_id) catch |err| {
+    const milestone = db.getMilestone(ctx.pool, repo.?.id, milestone_id) catch |err| {
         log.err("Failed to get milestone: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -146,21 +159,36 @@ pub fn getMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
     }
 
     // Build JSON response
+    const m = milestone.?;
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"title":"{s}","description":{s},"dueDate":{s},"state":"{s}","openIssues":{d},"closedIssues":{d},"createdAt":{d},"updatedAt":{d},"closedAt":{s}}}
-    , .{
-        milestone.?.id,
-        milestone.?.title,
-        if (milestone.?.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
-        if (milestone.?.due_date) |dd| try std.fmt.allocPrint(allocator, "{d}", .{dd}) else "null",
-        milestone.?.state,
-        milestone.?.open_issues,
-        milestone.?.closed_issues,
-        milestone.?.created_at,
-        milestone.?.updated_at,
-        if (milestone.?.closed_at) |ca| try std.fmt.allocPrint(allocator, "{d}", .{ca}) else "null",
-    });
+        \\{{"id":{d},"title":"{s}","description":
+    , .{ m.id, m.title });
+
+    if (m.description) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll(",\"dueDate\":");
+    if (m.due_date) |dd| {
+        try writer.print("{d}", .{dd});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.print(
+        \\,"state":"{s}","openIssues":{d},"closedIssues":{d},"createdAt":{d},"updatedAt":{d},"closedAt":
+    , .{ m.state, m.open_issues, m.closed_issues, m.created_at, m.updated_at });
+
+    if (m.closed_at) |ca| {
+        try writer.print("{d}", .{ca});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll("}");
 }
 
 /// POST /:user/:repo/milestones
@@ -215,7 +243,7 @@ pub fn createMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -229,7 +257,7 @@ pub fn createMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Create milestone
-    const milestone = db_issues.createMilestone(ctx.pool, repo.?.id, v.title, v.description, v.due_date) catch |err| {
+    const milestone = db.createMilestone(ctx.pool, repo.?.id, v.title, v.description, v.due_date) catch |err| {
         log.err("Failed to create milestone: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to create milestone\"}");
@@ -240,16 +268,25 @@ pub fn createMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     res.status = 201;
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"title":"{s}","description":{s},"dueDate":{s},"state":"{s}","openIssues":0,"closedIssues":0,"createdAt":{d},"updatedAt":{d},"closedAt":null}}
-    , .{
-        milestone.id,
-        milestone.title,
-        if (milestone.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
-        if (milestone.due_date) |dd| try std.fmt.allocPrint(allocator, "{d}", .{dd}) else "null",
-        milestone.state,
-        milestone.created_at,
-        milestone.updated_at,
-    });
+        \\{{"id":{d},"title":"{s}","description":
+    , .{ milestone.id, milestone.title });
+
+    if (milestone.description) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll(",\"dueDate\":");
+    if (milestone.due_date) |dd| {
+        try writer.print("{d}", .{dd});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.print(
+        \\,"state":"{s}","openIssues":0,"closedIssues":0,"createdAt":{d},"updatedAt":{d},"closedAt":null}}
+    , .{ milestone.state, milestone.created_at, milestone.updated_at });
 }
 
 /// PATCH /:user/:repo/milestones/:id
@@ -311,7 +348,7 @@ pub fn updateMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -325,7 +362,7 @@ pub fn updateMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Update milestone
-    const milestone = db_issues.updateMilestone(
+    const milestone = db.updateMilestone(
         ctx.pool,
         repo.?.id,
         milestone_id,
@@ -347,21 +384,36 @@ pub fn updateMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Return updated milestone
+    const m = milestone.?;
     var writer = res.writer();
     try writer.print(
-        \\{{"id":{d},"title":"{s}","description":{s},"dueDate":{s},"state":"{s}","openIssues":{d},"closedIssues":{d},"createdAt":{d},"updatedAt":{d},"closedAt":{s}}}
-    , .{
-        milestone.?.id,
-        milestone.?.title,
-        if (milestone.?.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
-        if (milestone.?.due_date) |dd| try std.fmt.allocPrint(allocator, "{d}", .{dd}) else "null",
-        milestone.?.state,
-        milestone.?.open_issues,
-        milestone.?.closed_issues,
-        milestone.?.created_at,
-        milestone.?.updated_at,
-        if (milestone.?.closed_at) |ca| try std.fmt.allocPrint(allocator, "{d}", .{ca}) else "null",
-    });
+        \\{{"id":{d},"title":"{s}","description":
+    , .{ m.id, m.title });
+
+    if (m.description) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll(",\"dueDate\":");
+    if (m.due_date) |dd| {
+        try writer.print("{d}", .{dd});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.print(
+        \\,"state":"{s}","openIssues":{d},"closedIssues":{d},"createdAt":{d},"updatedAt":{d},"closedAt":
+    , .{ m.state, m.open_issues, m.closed_issues, m.created_at, m.updated_at });
+
+    if (m.closed_at) |ca| {
+        try writer.print("{d}", .{ca});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll("}");
 }
 
 /// DELETE /:user/:repo/milestones/:id
@@ -401,7 +453,7 @@ pub fn deleteMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -415,7 +467,7 @@ pub fn deleteMilestone(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     }
 
     // Delete milestone
-    const deleted = db_issues.deleteMilestone(ctx.pool, repo.?.id, milestone_id) catch |err| {
+    const deleted = db.deleteMilestone(ctx.pool, repo.?.id, milestone_id) catch |err| {
         log.err("Failed to delete milestone: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to delete milestone\"}");
@@ -490,7 +542,7 @@ pub fn assignMilestoneToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Re
     const v = parsed.value;
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -504,7 +556,7 @@ pub fn assignMilestoneToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Re
     }
 
     // Verify milestone exists and belongs to this repository
-    const milestone = db_issues.getMilestone(ctx.pool, repo.?.id, v.milestone_id) catch |err| {
+    const milestone = db.getMilestone(ctx.pool, repo.?.id, v.milestone_id) catch |err| {
         log.err("Failed to get milestone: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -518,7 +570,7 @@ pub fn assignMilestoneToIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Re
     }
 
     // Assign milestone to issue
-    db_issues.assignMilestoneToIssue(ctx.pool, repo.?.id, issue_number, v.milestone_id) catch |err| {
+    db.assignMilestoneToIssue(ctx.pool, repo.?.id, issue_number, v.milestone_id) catch |err| {
         log.err("Failed to assign milestone to issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to assign milestone\"}");
@@ -565,7 +617,7 @@ pub fn removeMilestoneFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.
     };
 
     // Get repository
-    const repo = db_issues.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
+    const repo = db.getRepositoryByName(ctx.pool, username, repo_name) catch |err| {
         log.err("Failed to get repository: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Database error\"}");
@@ -579,7 +631,7 @@ pub fn removeMilestoneFromIssue(ctx: *Context, req: *httpz.Request, res: *httpz.
     }
 
     // Remove milestone from issue
-    db_issues.removeMilestoneFromIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
+    db.removeMilestoneFromIssue(ctx.pool, repo.?.id, issue_number) catch |err| {
         log.err("Failed to remove milestone from issue: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to remove milestone\"}");

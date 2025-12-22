@@ -13,7 +13,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const auth = @import("auth.zig");
 const session = @import("session.zig");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.ssh_server);
 

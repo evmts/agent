@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const httpz = @import("httpz");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const Context = @import("../main.zig").Context;
 
 const log = std.log.scoped(.rate_limit);

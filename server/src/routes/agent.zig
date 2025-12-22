@@ -1,7 +1,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const ai_mod = @import("../ai/mod.zig");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const Context = @import("../main.zig").Context;
 
 /// POST /api/sessions/:sessionId/run

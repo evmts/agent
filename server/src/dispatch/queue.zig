@@ -4,7 +4,7 @@
 //! Provides <500ms assignment for interactive agents when runners are available.
 
 const std = @import("std");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.queue);
 

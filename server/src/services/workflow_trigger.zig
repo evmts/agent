@@ -5,7 +5,7 @@
 //! for workflow_runs, workflow_jobs, and workflow_tasks.
 
 const std = @import("std");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.workflow_trigger);
 

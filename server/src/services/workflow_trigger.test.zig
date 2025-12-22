@@ -28,7 +28,7 @@ test "parseWorkflowFile - basic workflow" {
     const abs_path = try test_dir.dir.realpathAlloc(allocator, file_path);
     defer allocator.free(abs_path);
 
-    var mock_pool: @import("../lib/db.zig").Pool = undefined;
+    var mock_pool: @import("db").Pool = undefined;
     var trigger = WorkflowTrigger.init(allocator, &mock_pool);
 
     var metadata = try trigger.parseWorkflowFile(abs_path, file_path);
@@ -65,7 +65,7 @@ test "parseWorkflowFile - agent workflow" {
     const abs_path = try test_dir.dir.realpathAlloc(allocator, file_path);
     defer allocator.free(abs_path);
 
-    var mock_pool: @import("../lib/db.zig").Pool = undefined;
+    var mock_pool: @import("db").Pool = undefined;
     var trigger = WorkflowTrigger.init(allocator, &mock_pool);
 
     var metadata = try trigger.parseWorkflowFile(abs_path, file_path);
@@ -99,7 +99,7 @@ test "parseWorkflowFile - no decorator" {
     const abs_path = try test_dir.dir.realpathAlloc(allocator, file_path);
     defer allocator.free(abs_path);
 
-    var mock_pool: @import("../lib/db.zig").Pool = undefined;
+    var mock_pool: @import("db").Pool = undefined;
     var trigger = WorkflowTrigger.init(allocator, &mock_pool);
 
     var metadata = try trigger.parseWorkflowFile(abs_path, file_path);
@@ -113,7 +113,7 @@ test "parseWorkflowFile - no decorator" {
 test "shouldTrigger - matching event" {
     const allocator = testing.allocator;
 
-    var mock_pool: @import("../lib/db.zig").Pool = undefined;
+    var mock_pool: @import("db").Pool = undefined;
     var trigger = WorkflowTrigger.init(allocator, &mock_pool);
 
     const events = [_][]const u8{ "push", "pull_request" };
@@ -133,7 +133,7 @@ test "shouldTrigger - matching event" {
 test "eventsToJson" {
     const allocator = testing.allocator;
 
-    var mock_pool: @import("../lib/db.zig").Pool = undefined;
+    var mock_pool: @import("db").Pool = undefined;
     var trigger = WorkflowTrigger.init(allocator, &mock_pool);
 
     const events = [_][]const u8{ "push", "pull_request", "issue" };
@@ -146,7 +146,7 @@ test "eventsToJson" {
 test "eventsToJson - empty" {
     const allocator = testing.allocator;
 
-    var mock_pool: @import("../lib/db.zig").Pool = undefined;
+    var mock_pool: @import("db").Pool = undefined;
     var trigger = WorkflowTrigger.init(allocator, &mock_pool);
 
     const events = [_][]const u8{};

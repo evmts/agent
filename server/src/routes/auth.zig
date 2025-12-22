@@ -11,7 +11,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const primitives = @import("primitives");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const siwe = @import("../lib/siwe.zig");
 const jwt = @import("../lib/jwt.zig");
 const auth_middleware = @import("../middleware/auth.zig");
@@ -153,11 +153,16 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     // Return user data
     var writer = res.writer();
     try writer.print(
-        \\{{"message":"Login successful","user":{{"id":{d},"username":"{s}","email":{s},"isActive":{s},"isAdmin":{s},"walletAddress":"{s}"}}}}
+        \\{{"message":"Login successful","user":{{"id":{d},"username":"{s}","email":
+    , .{ u.id, u.username });
+    if (u.email) |e| {
+        try writer.print("\"{s}\"", .{e});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"isActive":{s},"isAdmin":{s},"walletAddress":"{s}"}}}}
     , .{
-        u.id,
-        u.username,
-        if (u.email) |e| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{e}) else "null",
         if (u.is_active) "true" else "false",
         if (u.is_admin) "true" else "false",
         wallet_address,
@@ -286,16 +291,31 @@ pub fn me(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     if (ctx.user) |u| {
         var writer = res.writer();
         try writer.print(
-            \\{{"user":{{"id":{d},"username":"{s}","email":{s},"displayName":{s},"isActive":{s},"isAdmin":{s},"walletAddress":{s}}}}}
+            \\{{"user":{{"id":{d},"username":"{s}","email":
+        , .{ u.id, u.username });
+        if (u.email) |e| {
+            try writer.print("\"{s}\"", .{e});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"displayName\":");
+        if (u.display_name) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(
+            \\,"isActive":{s},"isAdmin":{s},"walletAddress":
         , .{
-            u.id,
-            u.username,
-            if (u.email) |e| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{e}) else "null",
-            if (u.display_name) |d| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{d}) else "null",
             if (u.is_active) "true" else "false",
             if (u.is_admin) "true" else "false",
-            if (u.wallet_address) |w| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{w}) else "null",
         });
+        if (u.wallet_address) |w| {
+            try writer.print("\"{s}\"", .{w});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll("}}}}");
     } else {
         try res.writer().writeAll("{\"user\":null}");
     }

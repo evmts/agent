@@ -279,6 +279,10 @@ pub const AgentConfig = struct {
         multiedit: bool = true,
         web_fetch: bool = true,
         github: bool = true,
+        unified_exec: bool = true,
+        write_stdin: bool = true,
+        close_pty_session: bool = true,
+        list_pty_sessions: bool = true,
     };
 };
 

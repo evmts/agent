@@ -6,7 +6,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const auth = @import("../middleware/auth.zig");
 
 const log = std.log.scoped(.repo_routes);
@@ -213,11 +213,17 @@ pub fn createRepository(ctx: *Context, req: *httpz.Request, res: *httpz.Response
 
     var writer = res.writer();
     res.status = 201;
-    try writer.print("{{\"repository\":{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":{s},\"isPublic\":{s}}}}}", .{
+    try writer.print("{{\"repository\":{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
         repo_id,
         name,
         user.username,
-        if (description) |d| try std.fmt.allocPrint(ctx.allocator, "\"{s}\"", .{d}) else "null",
+    });
+    if (description) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(",\"isPublic\":{s}}}}}", .{
         if (is_public) "true" else "false",
     });
 }
@@ -898,7 +904,7 @@ pub fn updateBookmark(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
     }
 
     // Update bookmark
-    db.updateBookmark(ctx.pool, repo.id, name, change_id, user.id) catch |err| {
+    db.updateBookmark(ctx.pool, repo.id, name, change_id) catch |err| {
         log.err("Failed to update bookmark: {}", .{err});
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Failed to move bookmark\"}");

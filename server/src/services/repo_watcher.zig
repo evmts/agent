@@ -4,7 +4,7 @@
 //! Runs as a background service with file system watching and debouncing.
 
 const std = @import("std");
-const db = @import("../lib/db.zig");
+const db = @import("db");
 const EdgeNotifier = @import("edge_notifier.zig").EdgeNotifier;
 const WorkflowTrigger = @import("workflow_trigger.zig").WorkflowTrigger;
 const jj = @cImport({

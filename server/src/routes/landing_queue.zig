@@ -20,7 +20,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
-const db = @import("../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.landing_queue);
 
@@ -1442,40 +1442,66 @@ pub fn deleteLineComment(ctx: *Context, req: *httpz.Request, res: *httpz.Respons
 // ============================================================================
 
 fn writeLandingRequestJson(writer: anytype, allocator: std.mem.Allocator, request: db.LandingRequest) !void {
-    try writer.print(
-        \\{{"id":{d},"changeId":"{s}","targetBookmark":"{s}","title":{s},"description":{s},"authorId":{d},"status":"{s}","hasConflicts":{s},"conflictedFiles":
-    , .{
-        request.id,
-        request.change_id,
-        request.target_bookmark,
-        if (request.title) |t| try std.fmt.allocPrint(allocator, "\"{s}\"", .{t}) else "null",
-        if (request.description) |d| try std.fmt.allocPrint(allocator, "\"{s}\"", .{d}) else "null",
-        request.author_id,
-        request.status,
-        if (request.has_conflicts) "true" else "false",
-    });
+    _ = allocator;
 
-    // Write conflicted_files array
-    if (request.conflicted_files) |files| {
-        try writer.writeAll("[");
-        for (files, 0..) |file, i| {
-            if (i > 0) try writer.writeAll(",");
-            try writer.print("\"{s}\"", .{file});
-        }
-        try writer.writeAll("]");
+    try writer.print(
+        \\{{"id":{d},"changeId":"{s}","targetBookmark":"{s}","title":
+    , .{ request.id, request.change_id, request.target_bookmark });
+
+    if (request.title) |t| {
+        try writer.print("\"{s}\"", .{t});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll(",\"description\":");
+    if (request.description) |d| {
+        try writer.print("\"{s}\"", .{d});
     } else {
         try writer.writeAll("null");
     }
 
     try writer.print(
-        \\,"createdAt":{d},"updatedAt":{d},"landedAt":{s},"landedBy":{s},"landedChangeId":{s}}}
+        \\,"authorId":{d},"status":"{s}","hasConflicts":{s},"conflictedFiles":
     , .{
+        request.author_id,
+        request.status,
+        if (request.has_conflicts) "true" else "false",
+    });
+
+    // Write conflicted_files (already a JSON string from DB)
+    if (request.conflicted_files) |files| {
+        try writer.writeAll(files);
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.print(",\"createdAt\":{d},\"updatedAt\":{d},\"landedAt\":", .{
         request.created_at,
         request.updated_at,
-        if (request.landed_at) |la| try std.fmt.allocPrint(allocator, "{d}", .{la}) else "null",
-        if (request.landed_by) |lb| try std.fmt.allocPrint(allocator, "{d}", .{lb}) else "null",
-        if (request.landed_change_id) |lc| try std.fmt.allocPrint(allocator, "\"{s}\"", .{lc}) else "null",
     });
+
+    if (request.landed_at) |la| {
+        try writer.print("{d}", .{la});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll(",\"landedBy\":");
+    if (request.landed_by) |lb| {
+        try writer.print("{d}", .{lb});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll(",\"landedChangeId\":");
+    if (request.landed_change_id) |lc| {
+        try writer.print("\"{s}\"", .{lc});
+    } else {
+        try writer.writeAll("null");
+    }
+
+    try writer.writeAll("}");
 }
 
 fn writeLandingReviewJson(writer: anytype, review: db.LandingReview) !void {
