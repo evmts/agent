@@ -16,7 +16,6 @@ pub const write_file = @import("write_file.zig");
 pub const multiedit = @import("multiedit.zig");
 pub const web_fetch = @import("web_fetch.zig");
 pub const github = @import("github.zig");
-pub const pty_tools = @import("pty_tools.zig");
 
 // Re-export key types
 pub const GrepParams = grep.GrepParams;
@@ -33,14 +32,6 @@ pub const WebFetchParams = web_fetch.WebFetchParams;
 pub const WebFetchResult = web_fetch.WebFetchResult;
 pub const GitHubParams = github.GitHubParams;
 pub const GitHubResult = github.GitHubResult;
-pub const UnifiedExecParams = pty_tools.UnifiedExecParams;
-pub const UnifiedExecResult = pty_tools.UnifiedExecResult;
-pub const WriteStdinParams = pty_tools.WriteStdinParams;
-pub const WriteStdinResult = pty_tools.WriteStdinResult;
-pub const ClosePtyParams = pty_tools.ClosePtyParams;
-pub const ClosePtyResult = pty_tools.ClosePtyResult;
-pub const ListPtyResult = pty_tools.ListPtyResult;
-pub const PtySessionInfo = pty_tools.PtySessionInfo;
 
 /// Tool names
 pub const ToolName = enum {
