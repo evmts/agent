@@ -27,30 +27,33 @@ pub const SSEEventType = enum {
 };
 
 /// Agent SSE response handler - handles per-connection state
-pub const AgentSSEResponse = struct {
-    writer: anytype,
-    allocator: std.mem.Allocator,
-    session_id: []const u8,
-    aborted: std.atomic.Value(bool),
+pub fn AgentSSEResponse(comptime Writer: type) type {
+    return struct {
+        const Self = @This();
 
-    /// Initialize the SSE response handler
-    pub fn init(writer: anytype, allocator: std.mem.Allocator, session_id: []const u8) AgentSSEResponse {
-        log.info("Agent SSE handler initialized for session: {s}", .{session_id});
+        writer: Writer,
+        allocator: std.mem.Allocator,
+        session_id: []const u8,
+        aborted: std.atomic.Value(bool),
 
-        return .{
-            .writer = writer,
-            .allocator = allocator,
-            .session_id = session_id,
-            .aborted = std.atomic.Value(bool).init(false),
-        };
-    }
+        /// Initialize the SSE response handler
+        pub fn init(writer: Writer, allocator: std.mem.Allocator, session_id: []const u8) Self {
+            log.info("Agent SSE handler initialized for session: {s}", .{session_id});
+
+            return .{
+                .writer = writer,
+                .allocator = allocator,
+                .session_id = session_id,
+                .aborted = std.atomic.Value(bool).init(false),
+            };
+        }
 
     // =========================================================================
     // Server → Client SSE event sending
     // =========================================================================
 
     /// Send a token event (text delta from Claude)
-    pub fn sendToken(self: *AgentSSEResponse, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) !void {
+    pub fn sendToken(self: *Self, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) !void {
         var buf: [8192]u8 = undefined;
         const escaped = escapeJsonString(&buf, text);
         var msg_buf: [16384]u8 = undefined;
@@ -64,7 +67,7 @@ pub const AgentSSEResponse = struct {
     }
 
     /// Send a tool start event
-    pub fn sendToolStart(self: *AgentSSEResponse, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) !void {
+    pub fn sendToolStart(self: *Self, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) !void {
         var buf: [4096]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"tool_start\",\"session_id\":\"{s}\",\"message_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_name\":\"{s}\"}}", .{
             session_id,
@@ -76,7 +79,7 @@ pub const AgentSSEResponse = struct {
     }
 
     /// Send a tool end event
-    pub fn sendToolEnd(self: *AgentSSEResponse, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) !void {
+    pub fn sendToolEnd(self: *Self, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) !void {
         var buf: [8192]u8 = undefined;
         var escaped_buf: [4096]u8 = undefined;
 
