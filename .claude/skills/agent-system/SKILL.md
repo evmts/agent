@@ -39,11 +39,12 @@ server/src/ai/
 
 - **Read-before-write safety**: Files must be read before writing
 - **Path traversal protection**: Sandboxed to working directory
-- **WebSocket streaming**: Real-time token output
-- **PTY execution**: Full terminal emulation for shell commands
+- **SSE streaming**: Real-time token output via Server-Sent Events
+- **Abort support**: Graceful cancellation via POST endpoint
 
 ## Configuration
 
 - Model: Claude Sonnet 4
 - Max iterations: Configurable per request
-- Output: Streaming via WebSocket
+- Output: Streaming via SSE (Server-Sent Events)
+- Endpoints: GET /api/sessions/:id/stream, POST /api/sessions/:id/abort
