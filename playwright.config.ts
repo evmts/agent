@@ -56,7 +56,7 @@ export default defineConfig({
 
   use: {
     /* Base URL for navigation */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:4321',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'https://localhost:4321',
 
     /*
      * Tracing: Capture on first failure AND retries
@@ -118,10 +118,11 @@ export default defineConfig({
    */
   webServer: {
     command: 'bun run dev',
-    url: 'http://localhost:4321',
+    url: 'https://localhost:4321',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',
+    ignoreHTTPSErrors: true,
   },
 });

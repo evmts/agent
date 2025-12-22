@@ -306,7 +306,7 @@ export const authenticatedTest = base.extend<{
  */
 export async function isAuthenticated(page: Page): Promise<boolean> {
   const cookies = await page.context().cookies();
-  return cookies.some(c => c.name === 'plue_session' && c.value.length > 0);
+  return cookies.some(c => c.name === 'session' && c.value.length > 0);
 }
 
 /**
