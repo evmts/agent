@@ -2,7 +2,7 @@
  * Parse references from issue/comment text (for git-based issues)
  */
 
-import { parseReferences, type IssueReference } from "./references";
+import { parseReferences } from "./references";
 import { getIssue as getGitIssue } from "./git-issues";
 
 export interface ResolvedReference {
@@ -75,9 +75,9 @@ export async function parseAndResolveReferences(
  * This requires scanning all issues - expensive but works for git-based system
  */
 export async function findReferencingIssues(
-  targetOwner: string,
-  targetRepo: string,
-  targetNumber: number
+  _targetOwner: string,
+  _targetRepo: string,
+  _targetNumber: number
 ): Promise<Array<{ owner: string; repo: string; number: number; title: string; state: 'open' | 'closed' }>> {
   // For now, return empty array
   // In the future, this could be implemented by:

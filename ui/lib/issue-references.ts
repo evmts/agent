@@ -5,7 +5,7 @@
  */
 
 import { sql } from "./db";
-import { parseReferences, type IssueReference } from "./references";
+import { parseReferences } from "./references";
 
 /**
  * Parse and store references from issue body

@@ -30,7 +30,7 @@ export function renderMarkdown(content: string, owner?: string, repo?: string): 
     // Full references: owner/repo#123
     text = text.replace(
       /([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)#(\d+)/g,
-      (match, refOwner, refRepo, number) => {
+      (_match, refOwner, refRepo, number) => {
         return `<a href="/${refOwner}/${refRepo}/issues/${number}" class="issue-link">${refOwner}/${refRepo}#${number}</a>`;
       }
     );
@@ -38,7 +38,7 @@ export function renderMarkdown(content: string, owner?: string, repo?: string): 
     // Short references: #123 (only match if preceded by whitespace, start, or punctuation)
     text = text.replace(
       /(?:^|[\s([{])(#(\d+))(?=$|[\s)\]}.,;!?])/gm,
-      (match, ref, number) => {
+      (match, _ref, number) => {
         const prefix = match.charAt(0) === '#' ? '' : match.charAt(0);
         return `${prefix}<a href="/${owner}/${repo}/issues/${number}" class="issue-link">#${number}</a>`;
       }

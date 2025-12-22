@@ -98,7 +98,7 @@ export async function initRepo(user: string, name: string): Promise<void> {
     await run(`git commit -m "Initial commit"`, repoPath);
 
     // Import git commit into jj
-    const workspace = JjWorkspace.open(repoPath);
+    JjWorkspace.open(repoPath);
     // Note: jj auto-imports git changes when you open the workspace
 
   } catch (e) {
@@ -647,8 +647,6 @@ export async function getBlame(
   changeId: string,
   path: string
 ): Promise<BlameLine[]> {
-  const repoPath = getRepoPath(user, name);
-
   // Get file content
   const content = await getFileContent(user, name, changeId, path);
   if (!content) return [];
