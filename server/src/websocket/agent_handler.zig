@@ -186,7 +186,7 @@ pub const ConnectionManager = struct {
         } else {
             // Create abort flag if it doesn't exist
             const owned_id = try self.allocator.dupe(u8, session_id);
-            var flag = std.atomic.Value(bool).init(true);
+            const flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(true);
             try self.abort_flags.put(owned_id, flag);
             log.info("Abort flag created and set for session: {s}", .{session_id});
         }

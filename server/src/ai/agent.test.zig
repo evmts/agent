@@ -8,7 +8,6 @@ const testing = std.testing;
 const agent = @import("agent.zig");
 const client = @import("client.zig");
 const types = @import("types.zig");
-const pty = @import("../websocket/pty.zig");
 
 test "agent reads file and returns structured output via LLM" {
     // Skip if no API key - use page allocator for this check to avoid leak tracking
@@ -43,10 +42,6 @@ test "agent reads file and returns structured output via LLM" {
     const file_path = try std.fs.path.join(allocator, &.{ dir_path, "config.json" });
     // No need to free page_allocator memory
 
-    // Create PTY manager for tool context
-    var pty_manager = pty.Manager.init(allocator);
-    defer pty_manager.deinit();
-
     // Create file tracker
     var file_tracker = types.FileTimeTracker.init(allocator);
     defer file_tracker.deinit();
@@ -55,7 +50,6 @@ test "agent reads file and returns structured output via LLM" {
         .session_id = "test-session",
         .working_dir = dir_path,
         .allocator = allocator,
-        .pty_manager = &pty_manager,
         .file_tracker = &file_tracker,
     };
 

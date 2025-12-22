@@ -10,7 +10,6 @@ const config = @import("../../config.zig");
 const db = @import("../../lib/db.zig");
 const Context = @import("../../main.zig").Context;
 const middleware = @import("../../middleware/mod.zig");
-const pty = @import("../../websocket/pty.zig");
 const routes = @import("../../routes.zig");
 
 const log = std.log.scoped(.integration_test);
@@ -66,16 +65,9 @@ pub const TestContext = struct {
 
         log.info("Database pool created", .{});
 
-        // Initialize PTY manager (needed for context, even if not used in tests)
-        const pty_manager = try allocator.create(pty.Manager);
-        pty_manager.* = pty.Manager.init(allocator);
-
-        // Initialize rate limiters
-        const api_rate_limiter = try allocator.create(middleware.RateLimiter);
-        api_rate_limiter.* = middleware.RateLimiter.init(allocator, middleware.rate_limit_presets.api);
-
-        const auth_rate_limiter = try allocator.create(middleware.RateLimiter);
-        auth_rate_limiter.* = middleware.RateLimiter.init(allocator, middleware.rate_limit_presets.auth);
+        // Initialize CSRF store
+        const csrf_store = try allocator.create(middleware.CsrfStore);
+        csrf_store.* = middleware.CsrfStore.init(allocator);
 
         // Create application context
         const app_context = try allocator.create(Context);
@@ -97,13 +89,13 @@ pub const TestContext = struct {
                 .edge_url = "",
                 .edge_push_secret = "",
             },
-            .pty_manager = pty_manager,
-            .api_rate_limiter = api_rate_limiter,
-            .auth_rate_limiter = auth_rate_limiter,
+            .csrf_store = csrf_store,
             .repo_watcher = null,
             .edge_notifier = null,
+            .connection_manager = null,
             .user = null,
             .session_key = null,
+            .token_scopes = null,
         };
 
         // Initialize HTTP server (won't actually listen)
@@ -163,17 +155,13 @@ pub const TestContext = struct {
 
         // Deinit server and services
         self.server.deinit();
-        self.app_context.api_rate_limiter.deinit();
-        self.app_context.auth_rate_limiter.deinit();
-        self.app_context.pty_manager.deinit();
+        self.app_context.csrf_store.deinit();
 
         // Deinit pool
         self.pool.deinit();
 
         // Free allocated structures
-        self.allocator.destroy(self.app_context.api_rate_limiter);
-        self.allocator.destroy(self.app_context.auth_rate_limiter);
-        self.allocator.destroy(self.app_context.pty_manager);
+        self.allocator.destroy(self.app_context.csrf_store);
         self.allocator.destroy(self.server);
         self.allocator.destroy(self.app_context);
         self.allocator.destroy(self.pool);

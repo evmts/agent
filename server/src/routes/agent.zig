@@ -54,7 +54,6 @@ pub fn runAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         .session_id = session_id,
         .working_dir = session.directory,
         .allocator = ctx.allocator,
-        .pty_manager = ctx.pty_manager,
         .file_tracker = &file_tracker,
     };
 
