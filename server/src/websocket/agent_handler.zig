@@ -315,11 +315,9 @@ test "ConnectionManager init/deinit" {
     defer manager.deinit();
 }
 
-test "AgentWebSocket struct fields" {
-    const info = @typeInfo(AgentWebSocket);
+test "AgentSSEResponse is a function" {
+    // AgentSSEResponse is now a function that returns a type
+    const ResponseType = AgentSSEResponse(std.io.AnyWriter);
+    const info = @typeInfo(ResponseType);
     try std.testing.expect(info == .@"struct");
-
-    // Should have fields: conn, allocator, session_id, running, aborted
-    const fields = info.@"struct".fields;
-    try std.testing.expect(fields.len == 5);
 }
