@@ -140,6 +140,29 @@ pub fn createWebFetchSchema(allocator: std.mem.Allocator) !std.json.Value {
 }
 
 // ============================================================================
+// Helper for cleaning up JSON values in tests
+// ============================================================================
+
+fn freeJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    switch (value.*) {
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                freeJsonValue(allocator, entry.value_ptr);
+            }
+            obj.deinit();
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                freeJsonValue(allocator, item);
+            }
+            arr.deinit();
+        },
+        else => {},
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -206,7 +229,8 @@ test "MAX_RESPONSE_SIZE constant" {
 test "createWebFetchSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createWebFetchSchema(allocator);
+    var schema = try createWebFetchSchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     // Schema should be an object
     try std.testing.expect(schema == .object);

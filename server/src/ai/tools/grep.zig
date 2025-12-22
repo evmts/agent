@@ -261,6 +261,29 @@ pub fn createGrepSchema(allocator: std.mem.Allocator) !std.json.Value {
 }
 
 // ============================================================================
+// Helper for cleaning up JSON values in tests
+// ============================================================================
+
+fn freeJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    switch (value.*) {
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                freeJsonValue(allocator, entry.value_ptr);
+            }
+            obj.deinit();
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                freeJsonValue(allocator, item);
+            }
+            arr.deinit();
+        },
+        else => {},
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -368,7 +391,8 @@ test "GrepResult error" {
 test "createGrepSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createGrepSchema(allocator);
+    var schema = try createGrepSchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     // Schema should be an object
     try std.testing.expect(schema == .object);

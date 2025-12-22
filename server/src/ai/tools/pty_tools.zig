@@ -290,6 +290,29 @@ pub fn createListPtySchema(allocator: std.mem.Allocator) !std.json.Value {
 }
 
 // ============================================================================
+// Helper for cleaning up JSON values in tests
+// ============================================================================
+
+fn freeJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    switch (value.*) {
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                freeJsonValue(allocator, entry.value_ptr);
+            }
+            obj.deinit();
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                freeJsonValue(allocator, item);
+            }
+            arr.deinit();
+        },
+        else => {},
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -434,7 +457,8 @@ test "ListPtyResult success" {
 test "createUnifiedExecSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createUnifiedExecSchema(allocator);
+    var schema = try createUnifiedExecSchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     try std.testing.expect(schema == .object);
 
@@ -453,7 +477,8 @@ test "createUnifiedExecSchema" {
 test "createWriteStdinSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createWriteStdinSchema(allocator);
+    var schema = try createWriteStdinSchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     try std.testing.expect(schema == .object);
 
@@ -469,7 +494,8 @@ test "createWriteStdinSchema" {
 test "createClosePtySchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createClosePtySchema(allocator);
+    var schema = try createClosePtySchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     try std.testing.expect(schema == .object);
 
@@ -484,7 +510,8 @@ test "createClosePtySchema" {
 test "createListPtySchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createListPtySchema(allocator);
+    var schema = try createListPtySchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     try std.testing.expect(schema == .object);
 

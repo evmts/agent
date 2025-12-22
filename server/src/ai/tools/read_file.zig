@@ -210,10 +210,33 @@ test "MAX_FILE_SIZE constant" {
     try std.testing.expectEqual(@as(usize, 10 * 1024 * 1024), MAX_FILE_SIZE);
 }
 
+/// Helper to recursively deinit a JSON value
+fn deinitJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    _ = allocator;
+    switch (value.*) {
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                var v = entry.value_ptr.*;
+                deinitJsonValue(undefined, &v);
+            }
+            obj.deinit();
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                deinitJsonValue(undefined, item);
+            }
+            arr.deinit();
+        },
+        else => {},
+    }
+}
+
 test "createReadFileSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createReadFileSchema(allocator);
+    var schema = try createReadFileSchema(allocator);
+    defer deinitJsonValue(allocator, &schema);
 
     // Schema should be an object
     try std.testing.expect(schema == .object);

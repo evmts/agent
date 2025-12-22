@@ -184,7 +184,10 @@ fn replaceAll(allocator: std.mem.Allocator, haystack: []const u8, needle: []cons
         }
     }
 
-    if (!replaced) return null;
+    if (!replaced) {
+        result.deinit(allocator);
+        return null;
+    }
 
     const slice = try result.toOwnedSlice(allocator);
     return slice;
@@ -242,6 +245,26 @@ pub fn createMultieditSchema(allocator: std.mem.Allocator) !std.json.Value {
     try schema.put("required", std.json.Value{ .array = required });
 
     return std.json.Value{ .object = schema };
+}
+
+// Helper for cleaning up JSON values in tests
+fn freeJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    switch (value.*) {
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                freeJsonValue(allocator, entry.value_ptr);
+            }
+            obj.deinit();
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                freeJsonValue(allocator, item);
+            }
+            arr.deinit();
+        },
+        else => {},
+    }
 }
 
 test "replaceFirst replaces first occurrence" {
@@ -362,7 +385,8 @@ test "MultieditResult error" {
 test "createMultieditSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createMultieditSchema(allocator);
+    var schema = try createMultieditSchema(allocator);
+    defer freeJsonValue(allocator, &schema);
 
     // Schema should be an object
     try std.testing.expect(schema == .object);

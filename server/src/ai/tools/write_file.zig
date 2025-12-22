@@ -182,10 +182,33 @@ test "WriteFileResult read-before-write error" {
     try std.testing.expect(std.mem.indexOf(u8, result.error_msg.?, "read before writing") != null);
 }
 
+/// Helper to recursively deinit a JSON value
+fn deinitJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    _ = allocator;
+    switch (value.*) {
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                var v = entry.value_ptr.*;
+                deinitJsonValue(undefined, &v);
+            }
+            obj.deinit();
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                deinitJsonValue(undefined, item);
+            }
+            arr.deinit();
+        },
+        else => {},
+    }
+}
+
 test "createWriteFileSchema" {
     const allocator = std.testing.allocator;
 
-    const schema = try createWriteFileSchema(allocator);
+    var schema = try createWriteFileSchema(allocator);
+    defer deinitJsonValue(allocator, &schema);
 
     // Schema should be an object
     try std.testing.expect(schema == .object);
