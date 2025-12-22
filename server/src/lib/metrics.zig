@@ -244,7 +244,6 @@ pub const PathCategory = enum {
     api_messages,
     api_workflows,
     pty,
-    shape,
     metrics,
     other,
 
@@ -259,7 +258,6 @@ pub const PathCategory = enum {
             .api_messages => "/api/sessions/:id/messages/*",
             .api_workflows => "/api/:user/:repo/workflows/*",
             .pty => "/pty/*",
-            .shape => "/shape",
             .metrics => "/metrics",
             .other => "other",
         };
@@ -269,7 +267,6 @@ pub const PathCategory = enum {
 fn pathCategory(path: []const u8) PathCategory {
     if (std.mem.startsWith(u8, path, "/health")) return .health;
     if (std.mem.startsWith(u8, path, "/metrics")) return .metrics;
-    if (std.mem.startsWith(u8, path, "/shape")) return .shape;
     if (std.mem.startsWith(u8, path, "/pty")) return .pty;
     if (std.mem.startsWith(u8, path, "/api/auth")) return .auth;
     if (std.mem.startsWith(u8, path, "/api/users")) return .api_users;
@@ -364,8 +361,8 @@ pub const UnimplementedEndpoint = enum {
 /// Counter for HTTP requests by method/path/status
 const RequestCounter = struct {
     // Using a fixed-size array for common status codes
-    // Index: method(8) * path_category(12) * status_bucket(5) = 480 slots
-    counts: [8 * 12 * 5]std.atomic.Value(u64) = [_]std.atomic.Value(u64){std.atomic.Value(u64).init(0)} ** (8 * 12 * 5),
+    // Index: method(8) * path_category(11) * status_bucket(5) = 440 slots
+    counts: [8 * 11 * 5]std.atomic.Value(u64) = [_]std.atomic.Value(u64){std.atomic.Value(u64).init(0)} ** (8 * 11 * 5),
 
     fn statusBucket(status: u16) usize {
         return switch (status / 100) {
@@ -380,7 +377,7 @@ const RequestCounter = struct {
     fn index(method: Method, path: PathCategory, status: u16) usize {
         const method_idx: usize = @intFromEnum(method);
         const path_idx: usize = @intFromEnum(path);
-        return method_idx * 12 * 5 + path_idx * 5 + statusBucket(status);
+        return method_idx * 11 * 5 + path_idx * 5 + statusBucket(status);
     }
 
     pub fn inc(self: *RequestCounter, method: Method, path: PathCategory, status: u16) void {
@@ -390,7 +387,7 @@ const RequestCounter = struct {
 
     pub fn format(self: *const RequestCounter, writer: anytype) !void {
         const methods = [_]Method{ .GET, .POST, .PUT, .PATCH, .DELETE, .OPTIONS, .HEAD, .OTHER };
-        const paths = [_]PathCategory{ .health, .auth, .api_users, .api_repos, .api_issues, .api_sessions, .api_messages, .api_workflows, .pty, .shape, .metrics, .other };
+        const paths = [_]PathCategory{ .health, .auth, .api_users, .api_repos, .api_issues, .api_sessions, .api_messages, .api_workflows, .pty, .metrics, .other };
         const statuses = [_][]const u8{ "2xx", "3xx", "4xx", "5xx", "other" };
 
         for (methods) |method| {
@@ -398,7 +395,7 @@ const RequestCounter = struct {
                 for (statuses, 0..) |status_str, status_idx| {
                     const method_idx: usize = @intFromEnum(method);
                     const path_idx: usize = @intFromEnum(path);
-                    const idx = method_idx * 12 * 5 + path_idx * 5 + status_idx;
+                    const idx = method_idx * 11 * 5 + path_idx * 5 + status_idx;
                     const count = self.counts[idx].load(.monotonic);
                     if (count > 0) {
                         try writer.print("plue_http_requests_total{{method=\"{s}\",path=\"{s}\",status=\"{s}\"}} {d}\n", .{

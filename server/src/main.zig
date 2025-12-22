@@ -51,6 +51,12 @@ pub fn main() !void {
 
     log.info("CSRF protection initialized", .{});
 
+    // Initialize agent WebSocket connection manager
+    var connection_manager = agent_handler.ConnectionManager.init(allocator);
+    defer connection_manager.deinit();
+
+    log.info("Agent WebSocket connection manager initialized", .{});
+
     // Initialize edge notifier
     var edge_notify = edge_notifier.EdgeNotifier.init(allocator, cfg.edge_url, cfg.edge_push_secret);
     const edge_notifier_ptr: ?*edge_notifier.EdgeNotifier = if (cfg.edge_url.len > 0) &edge_notify else null;
@@ -89,6 +95,7 @@ pub fn main() !void {
         .csrf_store = &csrf_store,
         .repo_watcher = if (cfg.watcher_enabled) &watcher else null,
         .edge_notifier = edge_notifier_ptr,
+        .connection_manager = &connection_manager,
     };
 
     // Initialize HTTP server
