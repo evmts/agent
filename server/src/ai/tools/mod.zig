@@ -254,29 +254,6 @@ fn parseGitHubParams(allocator: std.mem.Allocator, input: std.json.Value) !GitHu
     };
 }
 
-fn parseUnifiedExecParams(input: std.json.Value) !UnifiedExecParams {
-    const obj = input.object;
-    return UnifiedExecParams{
-        .cmd = if (obj.get("cmd")) |v| v.string else return error.InvalidToolParameters,
-        .workdir = if (obj.get("workdir")) |v| v.string else null,
-    };
-}
-
-fn parseWriteStdinParams(input: std.json.Value) !WriteStdinParams {
-    const obj = input.object;
-    return WriteStdinParams{
-        .session_id = if (obj.get("session_id")) |v| v.string else return error.InvalidToolParameters,
-        .chars = if (obj.get("chars")) |v| v.string else return error.InvalidToolParameters,
-    };
-}
-
-fn parseClosePtyParams(input: std.json.Value) !ClosePtyParams {
-    const obj = input.object;
-    return ClosePtyParams{
-        .session_id = if (obj.get("session_id")) |v| v.string else return error.InvalidToolParameters,
-    };
-}
-
 test {
     std.testing.refAllDecls(@This());
 }
