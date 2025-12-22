@@ -5,16 +5,9 @@ description: Plue database schema, migrations, and table structure. Use when wor
 
 # Plue Database
 
-## Running Migrations
-
-```bash
-bun run db:migrate     # Run migrations
-```
-
 ## Schema Location
 
 - Schema file: `db/schema.sql`
-- Migration script: `db/migrate.ts`
 
 ## Tables
 
@@ -23,20 +16,22 @@ bun run db:migrate     # Run migrations
 - `repositories` - Git repositories
 - `issues` - Issue tracking
 - `comments` - Issue/PR comments
+- `labels`, `milestones` - Issue organization
 
 ### Agent State Persistence
 - `sessions` - Agent conversation sessions
 - `messages` - Chat messages within sessions
-- `snapshots` - State snapshots for rollback
-
-### Agent Task Tracking
-- `subtasks` - Task breakdown for agent work
-- `file_trackers` - Files being tracked/modified
+- `workflow_tasks` - Agent task tracking
 
 ## Connection
 
 ```bash
-DATABASE_URL=postgresql://postgres:password@localhost:54321/electric
+DATABASE_URL=postgresql://postgres:password@localhost:5432/plue
 ```
 
-ElectricSQL provides real-time sync on top of PostgreSQL.
+## Local Development
+
+```bash
+docker compose up -d postgres    # Start PostgreSQL
+zig build run                    # Server connects automatically
+```

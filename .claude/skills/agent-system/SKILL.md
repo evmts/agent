@@ -10,46 +10,40 @@ The agent system provides autonomous Claude-powered assistance integrated into t
 ## Architecture
 
 ```
-ai/
-├── agent.ts           # Agent runner (Vercel AI SDK + Claude)
-├── registry.ts        # Agent configuration
-└── tools/             # 9 agent tools
+server/src/ai/
+├── agent.zig          # Agent runner (Claude API)
+├── client.zig         # Anthropic API client
+├── types.zig          # Shared types
+└── tools/             # Agent tools
+    ├── grep.zig       # Content search
+    ├── read_file.zig  # File reading
+    ├── write_file.zig # File writing
+    ├── multiedit.zig  # Multi-file editing
+    ├── web_fetch.zig  # HTTP fetching
+    ├── github.zig     # GitHub API
+    └── pty_tools.zig  # Shell execution
 ```
-
-## Agent Modes
-
-| Mode      | Purpose                              |
-|-----------|--------------------------------------|
-| `general` | General-purpose assistance           |
-| `explore` | Codebase exploration and discovery   |
-| `plan`    | Planning and architecture decisions  |
 
 ## Available Tools
 
-The agent has access to 9 tools:
-- `grep` - Search file contents
-- `readFile` - Read file contents
-- `writeFile` - Write/create files
-- `multiedit` - Edit multiple files
-- `webFetch` - Fetch web content
-- `unifiedExec` - Execute shell commands
-- Plus additional file operation tools
+| Tool | Purpose |
+|------|---------|
+| `grep` | Search file contents with regex |
+| `readFile` | Read file with line numbers |
+| `writeFile` | Write/create files (requires read first) |
+| `multiedit` | Multiple find-replace operations |
+| `webFetch` | Fetch and process web content |
+| `bash` | Execute shell commands via PTY |
+
+## Key Features
+
+- **Read-before-write safety**: Files must be read before writing
+- **Path traversal protection**: Sandboxed to working directory
+- **WebSocket streaming**: Real-time token output
+- **PTY execution**: Full terminal emulation for shell commands
 
 ## Configuration
 
-- Max steps per run: 10 (configurable)
 - Model: Claude Sonnet 4
-- Output: Streaming via SSE
-
-## State Management
-
-- **Runtime**: Maps for active sessions/tasks (in-memory)
-- **Persistence**: PostgreSQL for sessions, messages, snapshots
-- **Communication**: EventBus pub/sub system
-
-## Key Files
-
-- `core/state.ts` - Dual-layer state (runtime + DB)
-- `core/events.ts` - EventBus pub/sub
-- `core/sessions.ts` - Session CRUD
-- `core/models/` - Data models (message, session, part)
+- Max iterations: Configurable per request
+- Output: Streaming via WebSocket
