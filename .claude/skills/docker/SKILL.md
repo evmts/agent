@@ -26,5 +26,5 @@ bun run docker:logs    # View logs
 ## Configuration
 
 Docker configuration is in:
-- `docker-compose.yml` - Service definitions
-- `Dockerfile` - Container build instructions
+- `infra/docker/docker-compose.yaml` - Service definitions
+- `infra/docker/Dockerfile` - Container build instructions

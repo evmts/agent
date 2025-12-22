@@ -27,13 +27,13 @@ zig build run:web      # Start Astro dev server (separate terminal)
 - **Compute**: GKE with gVisor node pool for sandboxing
 - **Database**: Cloud SQL (PostgreSQL 16)
 - **CDN**: Cloudflare
-- **IaC**: Terraform in `terraform/`
+- **IaC**: Terraform in `infra/terraform/`
 - **CI/CD**: GitHub Actions → GKE
 
 ## Terraform Structure
 
 ```
-terraform/
+infra/terraform/
 ├── modules/           # Reusable: gke-cluster, cloud-sql, staging-namespace
 └── environments/      # staging-base, staging-{name}, production
 ```

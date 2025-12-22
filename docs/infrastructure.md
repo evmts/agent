@@ -247,7 +247,7 @@ test-e2e-ui: dev-db
 # Deploy to your staging environment
 deploy-staging:
 	@echo "Deploying to staging..."
-	./scripts/deploy-staging.sh
+	./infra/scripts/deploy-staging.sh
 
 # View your staging logs
 logs-staging:
@@ -368,7 +368,7 @@ kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -
 
 # Deploy with Helm
 echo "→ Deploying with Helm..."
-helm upgrade --install plue ./helm/plue \
+helm upgrade --install plue ./infra/helm/plue \
   --namespace ${NAMESPACE} \
   --set image.repository=${REGISTRY}/zig-api \
   --set image.tag=${IMAGE_TAG} \
@@ -392,7 +392,7 @@ echo "════════════════════════�
 ### Helm Chart Structure
 
 ```
-helm/plue/
+infra/helm/plue/
 ├── Chart.yaml
 ├── values.yaml
 ├── values-staging.yaml
@@ -413,7 +413,7 @@ helm/plue/
 ### Helm Values (Staging)
 
 ```yaml
-# helm/plue/values-staging.yaml
+# infra/helm/plue/values-staging.yaml
 
 replicaCount: 1
 
@@ -605,7 +605,7 @@ autoscaling:
 ### Directory Layout
 
 ```
-terraform/
+infra/terraform/
 ├── modules/                      # Reusable modules
 │   ├── gke-cluster/
 │   │   ├── main.tf
@@ -659,7 +659,7 @@ terraform/
 │       ├── terraform.tfvars
 │       └── backend.tf
 │
-└── scripts/
+└── scripts/                      # Deployment scripts (in infra/scripts/)
     ├── init-staging-base.sh      # One-time setup by admin
     ├── init-my-staging.sh        # Run by each engineer
     └── init-production.sh
@@ -1155,10 +1155,10 @@ data "google_secret_manager_secret_version" "db_password" {
 resource "helm_release" "plue" {
   name      = "plue"
   namespace = kubernetes_namespace.namespace.metadata[0].name
-  chart     = "${path.module}/../../../helm/plue"
+  chart     = "${path.module}/../../../../infra/helm/plue"
 
   values = [
-    file("${path.module}/../../../helm/plue/values-staging.yaml")
+    file("${path.module}/../../../../infra/helm/plue/values-staging.yaml")
   ]
 
   set {
@@ -1394,7 +1394,7 @@ cloudflare_zone_id = "your-zone-id"
 set -euo pipefail
 
 ENGINEER=${1:-$USER}
-ENV_DIR="terraform/environments/staging-${ENGINEER}"
+ENV_DIR="infra/terraform/environments/staging-${ENGINEER}"
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  Setting up staging environment for: ${ENGINEER}"
@@ -1403,7 +1403,7 @@ echo "════════════════════════�
 # Check if directory exists
 if [ ! -d "$ENV_DIR" ]; then
   echo "Creating environment directory..."
-  cp -r terraform/environments/staging-alice "$ENV_DIR"
+  cp -r infra/terraform/environments/staging-alice "$ENV_DIR"
 
   # Update engineer name in main.tf
   sed -i '' "s/engineer_name.*=.*\"alice\"/engineer_name = \"${ENGINEER}\"/" "$ENV_DIR/main.tf"
@@ -1440,10 +1440,10 @@ fi
 
 ```bash
 # First time setup (creates your staging env)
-./scripts/init-my-staging.sh
+./infra/scripts/init-my-staging.sh
 
 # Deploy latest code to your staging
-cd terraform/environments/staging-$USER
+cd infra/terraform/environments/staging-$USER
 terraform apply
 
 # Destroy your staging (saves money when not using)
@@ -1670,12 +1670,12 @@ jobs:
 
       - name: Deploy to staging
         run: |
-          helm upgrade --install plue ./helm/plue \
+          helm upgrade --install plue ./infra/helm/plue \
             --namespace ${{ steps.namespace.outputs.namespace }} \
             --create-namespace \
             --set image.tag=${{ needs.build.outputs.image_tag }} \
             --set ingress.host="${{ steps.namespace.outputs.namespace }}.staging.plue.dev" \
-            -f helm/plue/values-staging.yaml \
+            -f infra/helm/plue/values-staging.yaml \
             --wait
 
       - name: Run E2E tests
@@ -1706,10 +1706,10 @@ jobs:
 
       - name: Deploy to production
         run: |
-          helm upgrade --install plue ./helm/plue \
+          helm upgrade --install plue ./infra/helm/plue \
             --namespace production \
             --set image.tag=${{ needs.build.outputs.image_tag }} \
-            -f helm/plue/values-production.yaml \
+            -f infra/helm/plue/values-production.yaml \
             --wait
 
       - name: Smoke test
@@ -1870,11 +1870,11 @@ if [ -z "$ENGINEER" ]; then
 fi
 
 # 1. Add to Terraform
-echo "Adding $ENGINEER to terraform/environments/staging/main.tf..."
+echo "Adding $ENGINEER to infra/terraform/environments/staging/main.tf..."
 # Edit engineers list
 
 # 2. Apply Terraform (creates database)
-cd terraform/environments/staging
+cd infra/terraform/environments/staging
 terraform apply
 
 # 3. Create namespace

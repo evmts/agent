@@ -22,7 +22,14 @@ plue/
 ├── edge/              # Cloudflare Workers proxy
 ├── db/schema.sql      # PostgreSQL schema
 ├── docs/              # Architecture & infrastructure docs
-└── terraform/         # Infrastructure as code
+├── infra/             # All deployment infrastructure
+│   ├── terraform/     # Infrastructure as code
+│   ├── helm/          # Helm charts
+│   ├── k8s/           # Kubernetes manifests
+│   ├── docker/        # Dockerfile, docker-compose
+│   ├── monitoring/    # Prometheus, Grafana, Loki
+│   └── scripts/       # Deployment scripts
+└── runner/            # Agent execution environment
 ```
 
 ## Build Commands
