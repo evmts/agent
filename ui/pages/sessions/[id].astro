@@ -577,7 +577,6 @@ try {
   const sendButton = chatForm?.querySelector('button[type="submit"]');
 
   // Track current streaming state
-  let currentEventSource = null;
   let currentAssistantMessage = null;
   let isStreaming = false;
   let currentAbortController = null;
@@ -1012,13 +1011,18 @@ try {
           }
           finishAssistantMessage();
 
-          // Then notify the server to abort
+          // Then notify the server to abort via REST endpoint
           const abortRes = await fetch(`/api/sessions/${sessionId}/abort`, {
             method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
           });
           if (abortRes.ok) {
             window.toast?.success('Task aborted');
           } else {
+            const errorText = await abortRes.text();
+            console.error('Abort failed:', errorText);
             window.toast?.error('Failed to abort task');
           }
           break;
