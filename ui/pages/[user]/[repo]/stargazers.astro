@@ -97,7 +97,7 @@ const defaultBookmark = repo.default_bookmark || 'main';
         <div class="users-grid">
           {stargazers.map((stargazer: any) => (
             <a href={`/${stargazer.username}`} class="user-card">
-              <Avatar username={stargazer.username} avatarUrl={stargazer.avatar_url} size={48} />
+              <Avatar user={{ username: stargazer.username, avatar_url: stargazer.avatar_url }} size="lg" />
               <div class="user-info">
                 <div class="user-name">
                   {stargazer.display_name || stargazer.username}

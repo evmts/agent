@@ -114,7 +114,7 @@ const totalPages = Math.ceil(totalCount / PAGE_SIZE);
         <div class="users-grid">
           {users.map((user: any) => (
             <a href={`/${user.username}`} class="user-card">
-              <Avatar username={user.username} avatarUrl={user.avatar_url} size={56} />
+              <Avatar user={{ username: user.username, avatar_url: user.avatar_url }} size="lg" />
               <div class="user-info">
                 <div class="user-name">
                   {user.display_name || user.username}

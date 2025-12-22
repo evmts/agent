@@ -108,7 +108,7 @@ function getLevelLabel(level: string): string {
         <div class="users-grid">
           {watchers.map((watcher: any) => (
             <a href={`/${watcher.username}`} class="user-card">
-              <Avatar username={watcher.username} avatarUrl={watcher.avatar_url} size={48} />
+              <Avatar user={{ username: watcher.username, avatar_url: watcher.avatar_url }} size="lg" />
               <div class="user-info">
                 <div class="user-name">
                   {watcher.display_name || watcher.username}
