@@ -107,6 +107,6 @@ To work on the Zig server:
 ## Future Plans
 
 - [ ] Complete API parity with TypeScript server
-- [ ] WebSocket support for real-time features
+- [x] SSE support for real-time agent streaming
 - [ ] Performance benchmarks vs TypeScript implementation
 - [ ] Production deployment documentation

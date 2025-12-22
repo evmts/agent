@@ -26,7 +26,7 @@ Plue is a brutalist GitHub clone with integrated AI agent capabilities. This doc
 - **Removes Edge SQLite (Durable Objects)** — over-engineered for our needs
 - **Unifies Workflows and Agents** — same sandbox, same abstraction
 - **Simplifies Git file serving** — leverage Git's content-addressable nature
-- **Adopts WebSocket for streaming** — direct push, no sync layer
+- **Adopts SSE for streaming** — direct push, no sync layer
 
 ### Before vs After
 
@@ -36,7 +36,7 @@ BEFORE                                  AFTER
 Postgres ──► Electric ──► Edge DO       Postgres ◄──► Zig Server
                 │            │                            │
                 ▼            ▼                            ▼
-            Zig Proxy    SQLite Cache              CDN + WebSocket
+            Zig Proxy    SQLite Cache              CDN + SSE
                 │                                        │
                 ▼                                        ▼
              Client                                   Client
@@ -66,7 +66,7 @@ Complexity: High                        Complexity: Low
 │  │   - SQLite cache          │  │    │  - /shape proxy (broken)        │
 │  │   - Shape sync            │  │    │  - Auth (SIWE, JWT)             │
 │  │   - Merkle validation     │  │    │  - Git operations (jj-lib)      │
-│  │   - 5s TTL polling        │  │    │  - WebSocket/PTY                │
+│  │   - 5s TTL polling        │  │    │  - SSE streaming                │
 │  └───────────────────────────┘  │    │  - Agent execution              │
 └─────────────────────────────────┘    └─────────────────────────────────┘
                     │                                    │
@@ -160,7 +160,7 @@ Plue's reality:
 │                                                                          │
 │   Browser ◄──────────────────────────────────────────────► Browser      │
 │      │                                                         │         │
-│      │ WebSocket (streaming)              REST + Cache (reads) │         │
+│      │ SSE (streaming)                    REST + Cache (reads) │         │
 │      │                                                         │         │
 └──────┼─────────────────────────────────────────────────────────┼─────────┘
        │                                                         │
@@ -179,12 +179,12 @@ Plue's reality:
 │                           ZIG SERVER                                     │
 │                                                                          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │   REST API  │  │  WebSocket  │  │  Auth       │  │  K8s Client │    │
-│  │             │  │  Server     │  │  (SIWE/JWT) │  │             │    │
+│  │   REST API  │  │     SSE     │  │  Auth       │  │  K8s Client │    │
+│  │             │  │  Streaming  │  │  (SIWE/JWT) │  │             │    │
 │  │  - CRUD     │  │             │  │             │  │  - Create   │    │
 │  │  - Git tree │  │  - Agent    │  │  - Login    │  │    Jobs     │    │
 │  │  - Git blob │  │    stream   │  │  - Validate │  │  - Watch    │    │
-│  │             │  │  - PTY      │  │  - Sessions │  │    status   │    │
+│  │  - Abort    │  │  - Sessions │  │  - Sessions │  │    status   │    │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
 │         │                │                                │             │
 │         │                │                                │             │
@@ -218,7 +218,7 @@ Plue's reality:
 1. **Postgres is the source of truth** — all state lives here
 2. **Zig is the application server** — API, auth, git ops, orchestration
 3. **CDN for caching** — not replication, just HTTP caching
-4. **WebSocket for real-time** — direct push, no sync layer
+4. **SSE for real-time streaming** — direct push, no sync layer
 5. **K8s for sandboxed execution** — workflows and agents are the same thing
 
 ---
@@ -337,9 +337,9 @@ workflow_runs, workflow_jobs, workflow_tasks, workflow_logs
 
 | Data | Update Frequency | Strategy |
 |------|------------------|----------|
-| Agent parts | High (token streaming) | **WebSocket push** |
-| Workflow logs | High (during execution) | **WebSocket push** |
-| Issues/PRs | Low | **REST + polling or SSE** |
+| Agent parts | High (token streaming) | **SSE push** |
+| Workflow logs | High (during execution) | **SSE push** |
+| Issues/PRs | Low | **REST + polling** |
 | Git metadata | On push only | **Webhook + cache invalidation** |
 
 ---
@@ -522,12 +522,12 @@ agent:
 │                          ZIG SERVER                                      │
 │                                                                          │
 │  - Receive streaming output from runner                                  │
-│  - Push to client via WebSocket                                          │
+│  - Push to client via SSE                                                │
 │  - Batch persist to Postgres (messages, parts tables)                    │
 │  - Update workflow_task status on completion                             │
 └─────────────────────────────────────────────────────────────────────────┘
                                    │
-                                   │ WebSocket
+                                   │ SSE (Server-Sent Events)
                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                            CLIENT                                        │
@@ -752,14 +752,15 @@ spec:
 
 ### Real-time Streaming
 
-#### Why WebSocket, Not Electric/SSE
+#### Why SSE, Not WebSocket
 
-| Factor | Electric SSE | WebSocket |
-|--------|--------------|-----------|
-| Latency | 100-500ms (sync overhead) | <50ms (direct push) |
-| Complexity | High (shape sync, offsets) | Low (direct connection) |
-| Infrastructure | Separate service | Built into Zig |
-| Already have it | No | Yes (PTY uses WebSocket) |
+| Factor | WebSocket | SSE |
+|--------|-----------|-----|
+| Complexity | Higher (bidirectional protocol) | Lower (HTTP-based, unidirectional) |
+| HTTP compatibility | Requires upgrade | Native HTTP |
+| Reconnection | Manual | Browser handles automatically |
+| Multiplexing | Custom | Works with HTTP/2 |
+| Server complexity | Connection state management | Standard HTTP response |
 
 #### Streaming Architecture
 
@@ -785,7 +786,7 @@ spec:
 │   │                      ZIG SERVER                                  │   │
 │   │                                                                  │   │
 │   │   1. Receive token from runner                                  │   │
-│   │   2. Push to client via WebSocket                               │   │
+│   │   2. Push to client via SSE                                     │   │
 │   │   3. Buffer for batch persist                                   │   │
 │   │   4. Every N tokens: persist to Postgres                        │   │
 │   │                                                                  │   │
@@ -795,7 +796,7 @@ spec:
 │              │                 │                 │                      │
 │              ▼                 ▼                 ▼                      │
 │   ┌──────────────────┐  ┌───────────┐  ┌──────────────────┐            │
-│   │   WebSocket      │  │ Postgres  │  │   WebSocket      │            │
+│   │ SSE EventSource  │  │ Postgres  │  │ SSE EventSource  │            │
 │   │   Client A       │  │ (batch)   │  │   Client B       │            │
 │   │   (real-time)    │  │           │  │   (optional)     │            │
 │   └──────────────────┘  └───────────┘  └──────────────────┘            │
@@ -817,19 +818,15 @@ spec:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### WebSocket Message Protocol
+#### SSE Message Protocol
 
 ```typescript
-// Client → Server
-interface ClientMessage {
-  type: 'subscribe' | 'unsubscribe' | 'ping';
-  session_id?: string;
-}
+// Streaming endpoint: GET /api/sessions/:id/stream
+// Abort endpoint: POST /api/sessions/:id/abort
 
-// Server → Client
-interface ServerMessage {
-  type: 'token' | 'tool_start' | 'tool_end' | 'done' | 'error' | 'pong';
-  session_id: string;
+// Server → Client (SSE events)
+interface ServerEvent {
+  event: 'token' | 'tool_start' | 'tool_end' | 'done' | 'error';
   data: TokenData | ToolData | ErrorData;
 }
 
@@ -848,6 +845,17 @@ interface ToolData {
   input?: object;
   output?: object;
 }
+
+// Client code
+const eventSource = new EventSource('/api/sessions/123/stream');
+eventSource.addEventListener('token', (e) => {
+  const data = JSON.parse(e.data);
+  // Render token
+});
+
+// To abort:
+await fetch('/api/sessions/123/abort', { method: 'POST' });
+eventSource.close();
 ```
 
 ---
@@ -1071,18 +1079,18 @@ spec:
    - Poll workflow_tasks table
    - Claim runners or create Jobs
 
-### Phase 4: WebSocket Streaming
+### Phase 4: SSE Streaming
 
 1. **Add streaming endpoint to runner**
-   - HTTP POST with chunked transfer encoding
-   - Or WebSocket to Zig
+   - HTTP POST with chunked transfer encoding to Zig
 
-2. **Implement WebSocket broadcast in Zig**
-   - Track subscribed clients per session
-   - Push tokens as they arrive
+2. **Implement SSE broadcast in Zig**
+   - GET /api/sessions/:id/stream endpoint
+   - POST /api/sessions/:id/abort endpoint
+   - Push tokens as they arrive via SSE
 
 3. **Update client**
-   - WebSocket connection for active sessions
+   - EventSource connection for active sessions
    - REST for historical sessions
 
 ---
@@ -1207,14 +1215,15 @@ spec:
 | Component | Change |
 |-----------|--------|
 | Git API | Use commit SHA in URL, cache forever |
-| WebSocket streaming | Direct push for agent tokens |
+| SSE streaming | Direct push for agent tokens |
 | Warm pool | Standby pods for <500ms chat latency |
 | Unified workflows | Agents and CI share same sandbox infrastructure |
+| Ethereum provider | HTTP-only JSON-RPC (no WebSocket subscriptions) |
 
 ### Key Benefits
 
 1. **Simpler** — fewer moving parts, easier to debug
-2. **Faster** — WebSocket is lower latency than sync
+2. **Faster** — SSE is lower latency than sync, simpler than WebSocket
 3. **Cheaper** — no idle Electric service, scale-to-zero runners
 4. **More secure** — gVisor sandboxing for all code execution
 5. **More powerful** — unified model for CI and agents

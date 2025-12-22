@@ -51,7 +51,7 @@ This document provides a step-by-step migration plan from the current architectu
 │  │   - SQLite cache          │  │    │  - /shape proxy (BROKEN)        │
 │  │   - Electric sync         │  │    │  - Auth (SIWE, JWT)             │
 │  │   - Merkle validation     │  │    │  - Git operations (jj-lib)      │
-│  │   - Git cache (UNUSED)    │  │    │  - WebSocket/PTY                │
+│  │   - Git cache (UNUSED)    │  │    │  - SSE streaming                │
 │  └───────────────────────────┘  │    │  - Agent execution (IN-PROCESS) │
 └─────────────────────────────────┘    └─────────────────────────────────┘
                     │                                    │
@@ -82,10 +82,10 @@ This document provides a step-by-step migration plan from the current architectu
    - No resource isolation (CPU, memory, network)
    - Can't handle untrusted code execution
 
-4. **Streaming uses SSE instead of WebSocket**
-   - One-way only (server → client)
-   - Can't cancel or interact mid-stream
-   - State persisted only after completion
+4. **Streaming uses SSE (not WebSocket)**
+   - Server-sent events for token streaming
+   - Separate POST endpoint for abort functionality
+   - Real-time persistence of streaming state
 
 5. **Workflows and Agents are separate systems**
    - Workflow tables exist but aren't connected to agent execution
@@ -116,9 +116,10 @@ This document provides a step-by-step migration plan from the current architectu
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           ZIG SERVER                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │  REST API   │  │  WebSocket  │  │  Auth       │  │  K8s Client │    │
-│  │  - CRUD     │  │  - Streaming│  │  - SIWE/JWT │  │  - Job mgmt │    │
-│  │  - Git tree │  │  - PTY      │  │  - Sessions │  │  - Warm pool│    │
+│  │  REST API   │  │     SSE     │  │  Auth       │  │  K8s Client │    │
+│  │  - CRUD     │  │  Streaming  │  │  - SIWE/JWT │  │  - Job mgmt │    │
+│  │  - Git tree │  │  - Agent    │  │  - Sessions │  │  - Warm pool│    │
+│  │  - Abort    │  │  - Sessions │  │             │  │             │    │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
 │                              │                              │           │
 │                              ▼                              ▼           │
@@ -142,9 +143,10 @@ This document provides a step-by-step migration plan from the current architectu
 | ElectricSQL service | Direct Postgres queries |
 | Edge Durable Objects | CDN caching with proper headers |
 | In-process agent execution | K8s sandboxed pods (gVisor) |
-| SSE streaming | WebSocket streaming |
+| N/A | SSE streaming (was already in place) |
 | Separate workflow/agent systems | Unified execution model |
 | Shape proxy | SHA-based git caching |
+| Terminal/PTY feature | Removed entirely |
 
 ---
 
@@ -386,11 +388,11 @@ curl -H "If-None-Match: abc123" http://localhost:4000/api/torvalds/linux/blob/ab
 
 ---
 
-### Phase 4: WebSocket Streaming
+### Phase 4: SSE Streaming Improvements
 
-**Goal**: Replace SSE with WebSocket for bidirectional agent communication.
+**Goal**: Enhance SSE streaming with abort functionality.
 
-**Duration**: High complexity.
+**Duration**: Low complexity (already implemented).
 
 **Prerequisites**: None (can be done in parallel with Phases 1-3)
 
@@ -399,70 +401,40 @@ curl -H "If-None-Match: abc123" http://localhost:4000/api/torvalds/linux/blob/ab
 ```zig
 // server/src/routes/agent.zig
 res.content_type = .EVENTS;  // SSE
-// One-way streaming via callbacks
+// Streaming via Server-Sent Events
 ```
 
 #### Tasks
 
-1. **Add WebSocket upgrade handler**
-   - Create `server/src/websocket/agent_stream.zig`
-   - Handle `/api/sessions/:id/ws` endpoint
-   - Implement connection upgrade
+1. **Add abort endpoint**
+   - Implement `POST /api/sessions/:id/abort`
+   - Handle graceful cancellation of running agents
+   - Update session status
 
-2. **Define message protocol**
+2. **Improve SSE message protocol**
    ```typescript
-   // Client → Server
-   interface ClientMessage {
-     type: 'subscribe' | 'unsubscribe' | 'abort' | 'ping';
-     session_id?: string;
-   }
-
-   // Server → Client
-   interface ServerMessage {
-     type: 'token' | 'tool_start' | 'tool_end' | 'done' | 'error' | 'pong';
-     session_id: string;
+   // Server → Client (SSE events)
+   interface ServerEvent {
+     event: 'token' | 'tool_start' | 'tool_end' | 'done' | 'error';
      data: TokenData | ToolData | ErrorData;
    }
    ```
 
-3. **Implement subscription management**
-   - Track which clients are subscribed to which sessions
-   - Fan out messages to all subscribers
-   - Handle client disconnection cleanup
-
-4. **Update agent runner to use WebSocket**
-   - Modify `server/src/ai/agent.zig` to push via WebSocket
-   - Add abort handling for client cancellation
-   - Persist messages in real-time (not just at completion)
-
-5. **Add client-side WebSocket handling**
-   - Create `ui/lib/agent-websocket.ts`
-   - Handle reconnection logic
-   - Buffer messages during reconnection
-
-6. **Deprecate SSE endpoint**
-   - Keep `/api/sessions/:id/run` working for backwards compatibility
-   - Add deprecation warning in response headers
+3. **Add client-side abort handling**
+   - Update `ui/lib/agent-client.ts` to support abort
+   - Close EventSource on abort
+   - Show cancellation UI feedback
 
 #### Verification
 
 ```bash
-# Test WebSocket connection
-wscat -c ws://localhost:4000/api/sessions/test123/ws
+# Test SSE connection
+curl -N http://localhost:4000/api/sessions/test123/stream
 
-# Send subscribe message
-> {"type":"subscribe","session_id":"test123"}
+# Test abort in another terminal
+curl -X POST http://localhost:4000/api/sessions/test123/abort
 
-# Should receive pong
-< {"type":"pong"}
-
-# Run agent and verify streaming
-# In another terminal:
-curl -X POST http://localhost:4000/api/sessions/test123/run \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Hello"}'
-
-# WebSocket should receive token events
+# Verify stream closes gracefully
 ```
 
 ---
@@ -473,7 +445,7 @@ curl -X POST http://localhost:4000/api/sessions/test123/run \
 
 **Duration**: High complexity.
 
-**Prerequisites**: Phase 4 complete (WebSocket streaming)
+**Prerequisites**: Phase 4 complete (SSE streaming enhancements)
 
 #### Current Execution
 
@@ -1140,7 +1112,7 @@ git checkout HEAD -- docker-compose.yaml
 docker-compose up -d
 ```
 
-### Phase 4-5 Rollback (WebSocket + K8s)
+### Phase 4-5 Rollback (SSE + K8s)
 
 ```bash
 # Re-enable in-process execution
@@ -1211,14 +1183,12 @@ docker-compose up -d
 - [ ] Update UI file browser
 - [ ] Verify caching with curl
 
-### Phase 4: WebSocket Streaming
+### Phase 4: SSE Streaming Enhancements
 
-- [ ] Implement WebSocket handler
-- [ ] Define message protocol
-- [ ] Update agent runner
-- [ ] Create client-side handling
+- [x] SSE streaming already implemented
+- [ ] Add abort endpoint (POST /api/sessions/:id/abort)
+- [ ] Enhance client-side abort handling
 - [ ] Test abort functionality
-- [ ] Verify reconnection logic
 
 ### Phase 5: Sandboxed Runners
 
