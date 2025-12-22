@@ -136,7 +136,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Zig format check (acts as lint)
-    const lint_zig = b.addSystemCommand(&.{ "zig", "fmt", "--check", "server/src", "core/src" });
+    const lint_zig = b.addSystemCommand(&.{ "zig", "fmt", "--check", "server/src", "core/src", "db" });
     const lint_zig_step = b.step("lint:zig", "Check Zig formatting");
     lint_zig_step.dependOn(&lint_zig.step);
 
@@ -163,7 +163,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Zig format
-    const format_zig = b.addSystemCommand(&.{ "zig", "fmt", "server/src", "core/src" });
+    const format_zig = b.addSystemCommand(&.{ "zig", "fmt", "server/src", "core/src", "db" });
     const format_zig_step = b.step("format:zig", "Format Zig code");
     format_zig_step.dependOn(&format_zig.step);
 

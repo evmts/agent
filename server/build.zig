@@ -21,6 +21,16 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Database DAO module (from project root db/)
+    const db_module = b.createModule(.{
+        .root_source_file = .{ .cwd_relative = "../db/mod.zig" },
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "pg", .module = pg_dep.module("pg") },
+        },
+    });
+
     // Build jj-ffi Rust library
     const jj_ffi_build = b.addSystemCommand(&.{
         "cargo",
@@ -42,6 +52,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg_dep.module("pg") },
                 .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
                 .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+                .{ .name = "db", .module = db_module },
             },
         }),
     });
@@ -89,6 +100,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg_dep.module("pg") },
                 .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
                 .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+                .{ .name = "db", .module = db_module },
             },
         }),
     });
@@ -122,6 +134,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg_dep.module("pg") },
                 .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
                 .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+                .{ .name = "db", .module = db_module },
             },
         }),
     });
@@ -160,6 +173,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "pg", .module = pg_dep.module("pg") },
                 .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
                 .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+                .{ .name = "db", .module = db_module },
             },
         }),
     });
