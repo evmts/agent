@@ -3,7 +3,6 @@ const httpz = @import("httpz");
 const Context = @import("main.zig").Context;
 const middleware = @import("middleware/mod.zig");
 const rate_limit = @import("middleware/rate_limit.zig");
-const pty_routes = @import("routes/pty.zig");
 const auth_routes = @import("routes/auth.zig");
 const ssh_keys = @import("routes/ssh_keys.zig");
 const tokens = @import("routes/tokens.zig");
@@ -304,14 +303,6 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/:user/:repo/landing/:id/comments", withAuthAndCsrf(landing_queue.createLineComment), .{});
     router.patch("/api/:user/:repo/landing/:id/comments/:commentId", withAuthAndCsrf(landing_queue.updateLineComment), .{});
     router.delete("/api/:user/:repo/landing/:id/comments/:commentId", withAuthAndCsrf(landing_queue.deleteLineComment), .{});
-
-    // PTY routes - CSRF protected
-    router.post("/pty", withAuthAndCsrf(pty_routes.create), .{});
-    router.get("/pty", pty_routes.list, .{});
-    router.get("/pty/:id", pty_routes.get, .{});
-    router.delete("/pty/:id", withAuthAndCsrf(pty_routes.close), .{});
-    router.post("/pty/:id/resize", withAuthAndCsrf(pty_routes.resize), .{});
-    router.get("/pty/:id/ws", pty_routes.websocket, .{});
 
     // API routes - sessions (agent sessions) - CSRF protected
     router.get("/api/sessions", sessions.listSessions, .{});

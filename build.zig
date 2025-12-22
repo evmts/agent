@@ -111,9 +111,11 @@ pub fn build(b: *std.Build) void {
     const test_ts_step = b.step("test:ts", "Run all TypeScript tests");
     test_ts_step.dependOn(test_edge_step);
 
-    // Rust tests
-    const test_rust_jj = b.addSystemCommand(&.{ "cargo", "test", "--manifest-path", "server/jj-ffi/Cargo.toml" });
-    const test_rust_snapshot = b.addSystemCommand(&.{ "cargo", "test", "--manifest-path", "snapshot/Cargo.toml" });
+    // Rust tests - run from server/jj-ffi and snapshot directories
+    const test_rust_jj = b.addSystemCommand(&.{ "cargo", "test" });
+    test_rust_jj.setCwd(b.path("server/jj-ffi"));
+    const test_rust_snapshot = b.addSystemCommand(&.{ "cargo", "test" });
+    test_rust_snapshot.setCwd(b.path("snapshot"));
     const test_rust_step = b.step("test:rust", "Run all Rust tests");
     test_rust_step.dependOn(&test_rust_jj.step);
     test_rust_step.dependOn(&test_rust_snapshot.step);
