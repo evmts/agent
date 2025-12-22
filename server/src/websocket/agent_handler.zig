@@ -1,141 +1,56 @@
-//! Agent WebSocket Handler
+//! Agent SSE (Server-Sent Events) Handler
 //!
-//! Handles WebSocket connections for agent streaming. Clients can subscribe to
-//! sessions and receive real-time token streaming, tool calls, and results.
+//! Handles SSE connections for agent streaming. Clients connect via EventSource
+//! and receive real-time token streaming, tool calls, and results.
 //!
 //! Protocol:
-//! Client → Server: { "type": "subscribe" | "unsubscribe" | "abort" | "ping", "session_id": "..." }
-//! Server → Client: { "type": "token" | "tool_start" | "tool_end" | "done" | "error" | "pong", ... }
+//! Client → Server: HTTP GET /api/sessions/:sessionId/stream (EventSource connection)
+//! Client → Server: HTTP POST /api/sessions/:sessionId/abort (abort execution)
+//! Server → Client: SSE events: token, tool_start, tool_end, done, error
 
 const std = @import("std");
 const httpz = @import("httpz");
 const client = @import("../ai/client.zig");
 const types = @import("../ai/types.zig");
 
-const log = std.log.scoped(.agent_ws);
+const log = std.log.scoped(.agent_sse);
 
-/// WebSocket message types from client
-pub const ClientMessageType = enum {
-    subscribe,
-    unsubscribe,
-    abort,
-    ping,
-};
-
-/// WebSocket message types to client
-pub const ServerMessageType = enum {
+/// SSE event types sent to client
+pub const SSEEventType = enum {
     token,
     tool_start,
     tool_end,
     tool_result,
     done,
     @"error",
-    pong,
+    keepalive,
 };
 
-/// Context passed during WebSocket upgrade
-pub const UpgradeContext = struct {
-    session_id: ?[]const u8,
+/// Agent SSE response handler - handles per-connection state
+pub const AgentSSEResponse = struct {
+    writer: anytype,
     allocator: std.mem.Allocator,
-};
-
-/// Agent WebSocket handler - handles per-connection state
-pub const AgentWebSocket = struct {
-    conn: *httpz.websocket.Conn,
-    allocator: std.mem.Allocator,
-    session_id: ?[]const u8,
-    running: std.atomic.Value(bool),
+    session_id: []const u8,
     aborted: std.atomic.Value(bool),
 
-    /// Initialize the WebSocket handler
-    pub fn init(conn: *httpz.websocket.Conn, ctx: *const UpgradeContext) !AgentWebSocket {
-        log.info("Agent WebSocket handler initialized", .{});
+    /// Initialize the SSE response handler
+    pub fn init(writer: anytype, allocator: std.mem.Allocator, session_id: []const u8) AgentSSEResponse {
+        log.info("Agent SSE handler initialized for session: {s}", .{session_id});
 
         return .{
-            .conn = conn,
-            .allocator = ctx.allocator,
-            .session_id = if (ctx.session_id) |sid| try ctx.allocator.dupe(u8, sid) else null,
-            .running = std.atomic.Value(bool).init(true),
+            .writer = writer,
+            .allocator = allocator,
+            .session_id = session_id,
             .aborted = std.atomic.Value(bool).init(false),
         };
     }
 
-    /// Called after initialization
-    pub fn afterInit(self: *AgentWebSocket) !void {
-        log.info("Agent WebSocket connection established, session: {?s}", .{self.session_id});
-
-        // Send connection acknowledgment
-        try self.sendPong();
-    }
-
-    /// Handle incoming WebSocket messages from client
-    pub fn clientMessage(self: *AgentWebSocket, data: []const u8) !void {
-        // Parse JSON message
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, data, .{}) catch {
-            try self.sendError("Invalid JSON message");
-            return;
-        };
-        defer parsed.deinit();
-
-        const root = parsed.value.object;
-        const msg_type_str = root.get("type") orelse {
-            try self.sendError("Missing 'type' field");
-            return;
-        };
-
-        if (msg_type_str != .string) {
-            try self.sendError("'type' must be a string");
-            return;
-        }
-
-        const msg_type = msg_type_str.string;
-
-        if (std.mem.eql(u8, msg_type, "ping")) {
-            try self.sendPong();
-        } else if (std.mem.eql(u8, msg_type, "subscribe")) {
-            if (root.get("session_id")) |sid| {
-                if (sid == .string) {
-                    // Update subscription
-                    if (self.session_id) |old| {
-                        self.allocator.free(old);
-                    }
-                    self.session_id = try self.allocator.dupe(u8, sid.string);
-                    log.info("Client subscribed to session: {s}", .{self.session_id.?});
-                    try self.sendJson("{\"type\":\"subscribed\"}");
-                }
-            }
-        } else if (std.mem.eql(u8, msg_type, "unsubscribe")) {
-            if (self.session_id) |sid| {
-                log.info("Client unsubscribed from session: {s}", .{sid});
-                self.allocator.free(sid);
-                self.session_id = null;
-            }
-            try self.sendJson("{\"type\":\"unsubscribed\"}");
-        } else if (std.mem.eql(u8, msg_type, "abort")) {
-            self.aborted.store(true, .release);
-            log.info("Client requested abort for session: {?s}", .{self.session_id});
-            try self.sendJson("{\"type\":\"aborted\"}");
-        } else {
-            try self.sendError("Unknown message type");
-        }
-    }
-
-    /// Called when WebSocket connection closes
-    pub fn close(self: *AgentWebSocket) void {
-        log.info("Agent WebSocket closing, session: {?s}", .{self.session_id});
-        self.running.store(false, .release);
-
-        if (self.session_id) |sid| {
-            self.allocator.free(sid);
-        }
-    }
-
     // =========================================================================
-    // Server → Client message sending
+    // Server → Client SSE event sending
     // =========================================================================
 
     /// Send a token event (text delta from Claude)
-    pub fn sendToken(self: *AgentWebSocket, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) !void {
+    pub fn sendToken(self: *AgentSSEResponse, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) !void {
         var buf: [8192]u8 = undefined;
         const escaped = escapeJsonString(&buf, text);
         var msg_buf: [16384]u8 = undefined;
@@ -145,11 +60,11 @@ pub const AgentWebSocket = struct {
             escaped,
             token_index,
         }) catch return error.BufferTooSmall;
-        try self.sendJson(msg);
+        try self.sendSSE("token", msg);
     }
 
     /// Send a tool start event
-    pub fn sendToolStart(self: *AgentWebSocket, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) !void {
+    pub fn sendToolStart(self: *AgentSSEResponse, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) !void {
         var buf: [4096]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"tool_start\",\"session_id\":\"{s}\",\"message_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_name\":\"{s}\"}}", .{
             session_id,
@@ -157,11 +72,11 @@ pub const AgentWebSocket = struct {
             tool_id,
             tool_name,
         }) catch return error.BufferTooSmall;
-        try self.sendJson(msg);
+        try self.sendSSE("tool_start", msg);
     }
 
     /// Send a tool end event
-    pub fn sendToolEnd(self: *AgentWebSocket, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) !void {
+    pub fn sendToolEnd(self: *AgentSSEResponse, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) !void {
         var buf: [8192]u8 = undefined;
         var escaped_buf: [4096]u8 = undefined;
 
@@ -180,62 +95,66 @@ pub const AgentWebSocket = struct {
                 tool_state,
             }) catch return error.BufferTooSmall;
         };
-        try self.sendJson(msg);
+        try self.sendSSE("tool_end", msg);
     }
 
     /// Send a done event
-    pub fn sendDone(self: *AgentWebSocket, session_id: []const u8) !void {
+    pub fn sendDone(self: *AgentSSEResponse, session_id: []const u8) !void {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"done\",\"session_id\":\"{s}\"}}", .{session_id}) catch return error.BufferTooSmall;
-        try self.sendJson(msg);
+        try self.sendSSE("done", msg);
     }
 
     /// Send an error event
-    pub fn sendError(self: *AgentWebSocket, message: []const u8) !void {
+    pub fn sendError(self: *AgentSSEResponse, message: []const u8) !void {
         var buf: [1024]u8 = undefined;
         var escaped_buf: [512]u8 = undefined;
         const escaped = escapeJsonString(&escaped_buf, message);
         const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"message\":{s}}}", .{escaped}) catch return error.BufferTooSmall;
-        try self.sendJson(msg);
+        try self.sendSSE("error", msg);
     }
 
-    /// Send a pong response
-    fn sendPong(self: *AgentWebSocket) !void {
-        try self.sendJson("{\"type\":\"pong\"}");
+    /// Send a keepalive comment (to prevent connection timeout)
+    pub fn sendKeepalive(self: *AgentSSEResponse) !void {
+        self.writer.writeAll(": keepalive\n\n") catch |err| {
+            log.err("Failed to send SSE keepalive: {}", .{err});
+            return err;
+        };
     }
 
-    /// Send raw JSON message
-    fn sendJson(self: *AgentWebSocket, json: []const u8) !void {
-        self.conn.write(json) catch |err| {
-            log.err("Failed to send WebSocket message: {}", .{err});
+    /// Send an SSE event with event type and data
+    fn sendSSE(self: *AgentSSEResponse, event_type: []const u8, data: []const u8) !void {
+        self.writer.print("event: {s}\ndata: {s}\n\n", .{ event_type, data }) catch |err| {
+            log.err("Failed to send SSE event: {}", .{err});
             return err;
         };
     }
 
     /// Check if the connection is aborted
-    pub fn isAborted(self: *const AgentWebSocket) bool {
+    pub fn isAborted(self: *const AgentSSEResponse) bool {
         return self.aborted.load(.acquire);
     }
 
-    /// Check if the connection is still running
-    pub fn isRunning(self: *const AgentWebSocket) bool {
-        return self.running.load(.acquire);
+    /// Mark as aborted
+    pub fn abort(self: *AgentSSEResponse) void {
+        self.aborted.store(true, .release);
+        log.info("Session {s} aborted", .{self.session_id});
     }
 };
 
-/// Manager for tracking WebSocket connections per session
+/// Manager for tracking abort flags per session
+/// Since SSE is one-way, abort is handled via REST endpoint
 pub const ConnectionManager = struct {
     const Self = @This();
-    const ConnectionList = std.ArrayList(*AgentWebSocket);
 
     allocator: std.mem.Allocator,
-    sessions: std.StringHashMap(ConnectionList),
+    abort_flags: std.StringHashMap(std.atomic.Value(bool)),
     mutex: std.Thread.Mutex,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .sessions = std.StringHashMap(ConnectionList).init(allocator),
+            .abort_flags = std.StringHashMap(std.atomic.Value(bool)).init(allocator),
             .mutex = .{},
         };
     }
@@ -244,133 +163,62 @@ pub const ConnectionManager = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var it = self.sessions.valueIterator();
-        while (it.next()) |list| {
-            list.deinit(self.allocator);
-        }
-
-        var key_it = self.sessions.keyIterator();
+        var key_it = self.abort_flags.keyIterator();
         while (key_it.next()) |key| {
             self.allocator.free(key.*);
         }
 
-        self.sessions.deinit();
+        self.abort_flags.deinit();
     }
 
-    /// Register a WebSocket connection for a session
-    pub fn subscribe(self: *Self, session_id: []const u8, ws: *AgentWebSocket) !void {
+    /// Set abort flag for a session
+    pub fn abort(self: *Self, session_id: []const u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        if (self.sessions.getPtr(session_id)) |list| {
-            try list.append(self.allocator, ws);
+        if (self.abort_flags.getPtr(session_id)) |flag| {
+            flag.store(true, .release);
+            log.info("Abort flag set for session: {s}", .{session_id});
         } else {
+            // Create abort flag if it doesn't exist
             const owned_id = try self.allocator.dupe(u8, session_id);
-            var list = ConnectionList{};
-            try list.append(self.allocator, ws);
-            try self.sessions.put(owned_id, list);
+            var flag = std.atomic.Value(bool).init(true);
+            try self.abort_flags.put(owned_id, flag);
+            log.info("Abort flag created and set for session: {s}", .{session_id});
         }
     }
 
-    /// Unregister a WebSocket connection
-    pub fn unsubscribe(self: *Self, session_id: []const u8, ws: *AgentWebSocket) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        if (self.sessions.getPtr(session_id)) |list| {
-            // Find and remove the connection
-            var i: usize = 0;
-            while (i < list.items.len) {
-                if (list.items[i] == ws) {
-                    _ = list.swapRemove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
-    }
-
-    /// Broadcast a token event to all subscribers of a session
-    pub fn broadcastToken(self: *Self, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        if (self.sessions.get(session_id)) |list| {
-            for (list.items) |ws| {
-                ws.sendToken(session_id, message_id, text, token_index) catch |err| {
-                    log.err("Failed to broadcast token: {}", .{err});
-                };
-            }
-        }
-    }
-
-    /// Broadcast a tool start event
-    pub fn broadcastToolStart(self: *Self, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        if (self.sessions.get(session_id)) |list| {
-            for (list.items) |ws| {
-                ws.sendToolStart(session_id, message_id, tool_id, tool_name) catch |err| {
-                    log.err("Failed to broadcast tool_start: {}", .{err});
-                };
-            }
-        }
-    }
-
-    /// Broadcast a tool end event
-    pub fn broadcastToolEnd(self: *Self, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        if (self.sessions.get(session_id)) |list| {
-            for (list.items) |ws| {
-                ws.sendToolEnd(session_id, tool_id, tool_state, output) catch |err| {
-                    log.err("Failed to broadcast tool_end: {}", .{err});
-                };
-            }
-        }
-    }
-
-    /// Broadcast a done event
-    pub fn broadcastDone(self: *Self, session_id: []const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        if (self.sessions.get(session_id)) |list| {
-            for (list.items) |ws| {
-                ws.sendDone(session_id) catch |err| {
-                    log.err("Failed to broadcast done: {}", .{err});
-                };
-            }
-        }
-    }
-
-    /// Broadcast an error event
-    pub fn broadcastError(self: *Self, session_id: []const u8, message: []const u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        if (self.sessions.get(session_id)) |list| {
-            for (list.items) |ws| {
-                ws.sendError(message) catch |err| {
-                    log.err("Failed to broadcast error: {}", .{err});
-                };
-            }
-        }
-    }
-
-    /// Check if any subscriber has aborted
+    /// Check if session is aborted
     pub fn isAborted(self: *Self, session_id: []const u8) bool {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        if (self.sessions.get(session_id)) |list| {
-            for (list.items) |ws| {
-                if (ws.isAborted()) return true;
-            }
+        if (self.abort_flags.getPtr(session_id)) |flag| {
+            return flag.load(.acquire);
         }
         return false;
+    }
+
+    /// Clear abort flag for a session (called when starting new execution)
+    pub fn clearAbort(self: *Self, session_id: []const u8) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.abort_flags.getPtr(session_id)) |flag| {
+            flag.store(false, .release);
+            log.info("Abort flag cleared for session: {s}", .{session_id});
+        }
+    }
+
+    /// Remove session from tracking
+    pub fn removeSession(self: *Self, session_id: []const u8) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.abort_flags.fetchRemove(session_id)) |entry| {
+            self.allocator.free(entry.key);
+            log.info("Session removed from abort tracking: {s}", .{session_id});
+        }
     }
 };
 
