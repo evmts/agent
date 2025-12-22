@@ -102,14 +102,14 @@ pub fn AgentSSEResponse(comptime Writer: type) type {
     }
 
     /// Send a done event
-    pub fn sendDone(self: *AgentSSEResponse, session_id: []const u8) !void {
+    pub fn sendDone(self: *Self, session_id: []const u8) !void {
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"done\",\"session_id\":\"{s}\"}}", .{session_id}) catch return error.BufferTooSmall;
         try self.sendSSE("done", msg);
     }
 
     /// Send an error event
-    pub fn sendError(self: *AgentSSEResponse, message: []const u8) !void {
+    pub fn sendError(self: *Self, message: []const u8) !void {
         var buf: [1024]u8 = undefined;
         var escaped_buf: [512]u8 = undefined;
         const escaped = escapeJsonString(&escaped_buf, message);
@@ -118,7 +118,7 @@ pub fn AgentSSEResponse(comptime Writer: type) type {
     }
 
     /// Send a keepalive comment (to prevent connection timeout)
-    pub fn sendKeepalive(self: *AgentSSEResponse) !void {
+    pub fn sendKeepalive(self: *Self) !void {
         self.writer.writeAll(": keepalive\n\n") catch |err| {
             log.err("Failed to send SSE keepalive: {}", .{err});
             return err;
@@ -126,7 +126,7 @@ pub fn AgentSSEResponse(comptime Writer: type) type {
     }
 
     /// Send an SSE event with event type and data
-    fn sendSSE(self: *AgentSSEResponse, event_type: []const u8, data: []const u8) !void {
+    fn sendSSE(self: *Self, event_type: []const u8, data: []const u8) !void {
         self.writer.print("event: {s}\ndata: {s}\n\n", .{ event_type, data }) catch |err| {
             log.err("Failed to send SSE event: {}", .{err});
             return err;
@@ -134,16 +134,17 @@ pub fn AgentSSEResponse(comptime Writer: type) type {
     }
 
     /// Check if the connection is aborted
-    pub fn isAborted(self: *const AgentSSEResponse) bool {
+    pub fn isAborted(self: *const Self) bool {
         return self.aborted.load(.acquire);
     }
 
     /// Mark as aborted
-    pub fn abort(self: *AgentSSEResponse) void {
+    pub fn abort(self: *Self) void {
         self.aborted.store(true, .release);
         log.info("Session {s} aborted", .{self.session_id});
     }
-};
+    };
+}
 
 /// Manager for tracking abort flags per session
 /// Since SSE is one-way, abort is handled via REST endpoint
