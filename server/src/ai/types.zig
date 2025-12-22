@@ -279,10 +279,6 @@ pub const AgentConfig = struct {
         multiedit: bool = true,
         web_fetch: bool = true,
         github: bool = true,
-        unified_exec: bool = true,
-        write_stdin: bool = true,
-        close_pty_session: bool = true,
-        list_pty_sessions: bool = true,
     };
 };
 
@@ -291,7 +287,6 @@ pub const ToolContext = struct {
     session_id: ?[]const u8,
     working_dir: []const u8,
     allocator: std.mem.Allocator,
-    pty_manager: *pty.Manager,
     file_tracker: ?*FileTimeTracker = null,
 };
 
