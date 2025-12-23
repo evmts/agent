@@ -5,7 +5,7 @@
  */
 
 import { sql } from './client';
-import { parseReferences } from '../ui/lib/references';
+import { parseReferences } from './references';
 
 // =============================================================================
 // Read Operations

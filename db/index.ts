@@ -101,3 +101,24 @@ export {
   type LineComment,
   type LandingReview,
 } from './landing';
+
+// =============================================================================
+// Utilities
+// =============================================================================
+
+// References
+export {
+  parseReferences,
+  buildIssueUrl,
+  formatReference,
+  type IssueReference,
+} from './references';
+
+// Mentions
+export {
+  extractMentions,
+  getUniqueMentionedUsernames,
+  replaceMentionsWithLinks,
+  hasMentions,
+  type Mention,
+} from './mentions-utils';

@@ -5,7 +5,7 @@
  */
 
 import { sql } from './client';
-import { getUniqueMentionedUsernames } from '../ui/lib/mentions';
+import { getUniqueMentionedUsernames } from './mentions-utils';
 
 // =============================================================================
 // Read Operations
