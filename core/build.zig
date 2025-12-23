@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     // Core module
     const core_mod = b.addModule("core", .{
-        .root_source_file = b.path("src/index.zig"),
+        .root_source_file = b.path("root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
     // Tests
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/index.zig"),
+            .root_source_file = b.path("root.zig"),
             .target = target,
             .optimize = optimize,
         }),
