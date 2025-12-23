@@ -4,7 +4,7 @@ import {
   getUniqueMentionedUsernames,
   replaceMentionsWithLinks,
   hasMentions,
-} from "../mentions";
+} from "@plue/db";
 
 describe("extractMentions", () => {
   test("extracts single mention", () => {

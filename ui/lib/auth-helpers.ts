@@ -2,7 +2,7 @@
  * Authentication helper functions for API routes.
  */
 
-import { getUserBySession as dbGetUserBySession } from '../../db';
+import { getUserBySession as dbGetUserBySession } from '@plue/db';
 import type { AuthUser } from './types';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 
