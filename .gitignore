@@ -51,6 +51,7 @@ server/jj-ffi/target/
 
 # Zig build artifacts
 .zig-cache/
+zig-out/
 tools/*/zig-out/
 tools/*/.zig-cache/
 tools/*/zig-cache/
@@ -58,6 +59,10 @@ server/.zig-cache/
 server/zig-out/
 core/.zig-cache/
 core/zig-out/
+tui/.zig-cache/
+tui/zig-out/
+tui-zig/.zig-cache/
+tui-zig/zig-out/
 *.o
 
 # Reference code (not part of project)
