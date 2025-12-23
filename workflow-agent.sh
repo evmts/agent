@@ -10,51 +10,54 @@ MEMORY_FILE="docs/workflows/memories.md"
 export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:54321/plue?sslmode=disable}"
 export WATCHER_ENABLED="${WATCHER_ENABLED:-false}"
 
-# Focused prompts for phases 10-15
-CLAUDE_PROMPT='Implement Plue Workflows phases 10-15.
+# Focused prompts - verify 01-09 first, then implement 10-15
+CLAUDE_PROMPT='Implement Plue Workflows - verify then extend.
 
-CONTEXT: Phases 01-09 are COMPLETE and verified. Focus on phases 10-15.
+1. Read @docs/workflows/memories.md FIRST - see current status and phase definitions
 
-1. Read @docs/workflows/memories.md FIRST - see phase definitions and tasks
-2. Read @docs/workflows-engineering.md for architecture details
-3. Read @docs/infrastructure.md for K8s/Terraform context
-4. Work on the FIRST incomplete task from phases 10-15:
-   - Phase 10: Local runner integration (runner → executor → SSE)
+2. VERIFY PHASES 01-09 FIRST (all marked ❌ need verification):
+   - Run `zig build` and `zig build test`
+   - Start server: `WATCHER_ENABLED=false ./server/zig-out/bin/server-zig`
+   - Test CLI: `./server/zig-out/bin/plue --help`
+   - Test API: `curl POST /api/workflows/parse` with sample workflow
+   - Mark each phase ✅ in memories.md as you verify
+
+3. THEN work on phases 10-15 (in order):
+   - Phase 10: Local runner (runner → executor → SSE streaming)
    - Phase 11: Playwright E2E tests for workflows
-   - Phase 12: K8s deployment (runner pods, warm pool)
-   - Phase 13: Terraform (GKE, Cloud SQL)
-   - Phase 14: UI (workflow list, run details, SSE streaming)
-   - Phase 15: Monitoring (Prometheus, Grafana)
+   - Phase 12: K8s deployment (runner pods, warm pool, gVisor)
+   - Phase 13: Terraform (GKE, Cloud SQL, networking)
+   - Phase 14: UI completion (workflow list, run details, streaming)
+   - Phase 15: Monitoring (Prometheus, Grafana, Loki)
 
-5. After completing work:
-   - Run tests: `zig build test`
-   - For E2E: `cd e2e && bun run test`
-   - Update memories.md with progress
+4. Update memories.md with:
+   - Verification results (✅ or ❌ for each phase)
+   - Tasks completed
+   - Any blockers found
 
-PRIORITY: Phase 10 (local runner) and Phase 11 (E2E tests) are most important.
-Make workflows work end-to-end locally, then add E2E tests to verify.
+Key docs: @CLAUDE.md, @docs/workflows-engineering.md, @docs/infrastructure.md'
 
-Key context: @CLAUDE.md, @docs/architecture.md'
+CODEX_PROMPT='Review Plue Workflows implementation.
 
-CODEX_PROMPT='Review and improve Plue Workflows phases 10-15.
+1. Read @docs/workflows/memories.md FIRST
 
-CONTEXT: Phases 01-09 are complete. Focus on reviewing phases 10-15 work.
+2. VERIFY what Claude claimed:
+   - Run `zig build test` - all tests should pass
+   - Check phases marked ✅ are actually working
+   - If phases 01-09 verified, check phases 10-15 work
 
-1. Read @docs/workflows/memories.md FIRST - see phase definitions
-2. Run `zig build test` to verify nothing is broken
-3. Review recent changes for:
-   - Code quality
-   - Missing error handling
+3. Review code quality:
+   - Error handling
+   - Memory management (no leaks)
    - Test coverage
    - Documentation
-4. If E2E tests exist, run: `cd e2e && bun run test`
-5. Update memories.md with review notes
 
-FOCUS AREAS:
-- Phase 10: Is the local runner correctly wired to executor?
-- Phase 11: Are E2E tests comprehensive?
-- Phase 14: Does UI handle SSE streaming correctly?
-- Phase 12-13: Are K8s/Terraform configs valid?
+4. Run E2E tests if they exist: `cd e2e && bun run test`
+
+5. Update memories.md:
+   - Confirm or dispute verification claims
+   - Note any issues found
+   - Suggest improvements
 
 Key context: @CLAUDE.md'
 
