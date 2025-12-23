@@ -12,6 +12,7 @@ pub const registry = @import("registry.zig");
 pub const executor = @import("executor.zig");
 pub const llm_executor = @import("llm_executor.zig");
 pub const runner_pool = @import("runner_pool.zig");
+pub const local_runner = @import("local_runner.zig");
 
 // Re-export main types
 pub const WorkflowDefinition = plan.WorkflowDefinition;
@@ -42,6 +43,7 @@ pub const LlmExecutionEvent = llm_executor.LlmExecutionEvent;
 pub const RunnerPool = runner_pool.RunnerPool;
 pub const RunnerInfo = runner_pool.RunnerInfo;
 pub const PoolStats = runner_pool.PoolStats;
+pub const LocalRunner = local_runner.LocalRunner;
 
 test {
     const std = @import("std");
