@@ -1,6 +1,6 @@
 # Plue Migration Plan
 
-This document provides a step-by-step migration plan from the current architecture to the simplified architecture described in `architecture.md` and `infrastructure.md`.
+This document provides a step-by-step migration plan from the legacy Electric/Edge DO architecture to the current architecture described in `architecture.md`, `infrastructure.md`, and the workflows specs. Use this as reference for remaining cleanup; the workflows source of truth is `docs/workflows-prd.md` and `docs/workflows-engineering.md`.
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ This document provides a step-by-step migration plan from the current architectu
    - [Phase 1: Remove ElectricSQL](#phase-1-remove-electricsql)
    - [Phase 2: Simplify Edge Layer](#phase-2-simplify-edge-layer)
    - [Phase 3: Simplify Git File Serving](#phase-3-simplify-git-file-serving)
-   - [Phase 4: WebSocket Streaming](#phase-4-websocket-streaming)
+   - [Phase 4: SSE Streaming](#phase-4-sse-streaming)
    - [Phase 5: Sandboxed Runner Infrastructure](#phase-5-sandboxed-runner-infrastructure)
    - [Phase 6: Unified Workflow/Agent System](#phase-6-unified-workflowagent-system)
    - [Phase 7: Infrastructure & CI/CD](#phase-7-infrastructure--cicd)
@@ -102,7 +102,7 @@ This document provides a step-by-step migration plan from the current architectu
 │                              CLIENTS                                     │
 │   Browser ◄────────────────────────────────────────────► Browser        │
 │      │                                                       │          │
-│      │ WebSocket (streaming)              REST + Cache       │          │
+│      │ SSE (streaming)                    REST + Cache       │          │
 └──────┼───────────────────────────────────────────────────────┼──────────┘
        │                                                       │
        │                    ┌─────────────────┐                │
@@ -388,7 +388,7 @@ curl -H "If-None-Match: abc123" http://localhost:4000/api/torvalds/linux/blob/ab
 
 ---
 
-### Phase 4: SSE Streaming Improvements
+### Phase 4: SSE Streaming
 
 **Goal**: Enhance SSE streaming with abort functionality.
 
@@ -457,7 +457,7 @@ User → Zig API → runAgent() → Tools execute in-process
 
 ```
 User → Zig API → K8s Job → gVisor Pod → runAgent() → Sandboxed tools
-              ↑ stream results back via HTTP/WebSocket
+              ↑ stream results back via HTTP (SSE fanout)
 ```
 
 #### Tasks
@@ -469,51 +469,39 @@ User → Zig API → K8s Job → gVisor Pod → runAgent() → Sandboxed tools
    mkdir -p runner/src
    ```
 
-2. **Implement runner in Python/TypeScript**
-   ```python
-   # runner/src/main.py
-   class Runner:
-       def __init__(self, task_id: str, callback_url: str):
-           self.task_id = task_id
-           self.callback_url = callback_url
-           self.anthropic = Anthropic()
+2. **Implement runner in Zig**
+   ```zig
+   // runner/src/main.zig (conceptual)
+   pub fn runAgent(task_id: []const u8, callback_url: []const u8) !void {
+       var client = try AnthropicClient.init();
+       var turn: u32 = 0;
 
-       def run_agent(self, config: AgentConfig):
-           """Execute agent loop and stream results back."""
-           while not done and turns < config.max_turns:
-               response = self.anthropic.messages.create(...)
-               for block in response.content:
-                   self.stream_to_zig(block)
-                   if block.type == "tool_use":
-                       result = self.execute_tool(block)
-                       self.stream_to_zig(result)
-
-       def stream_to_zig(self, event):
-           """POST streaming events back to Zig server."""
-           requests.post(
-               f"{self.callback_url}/stream",
-               json=event.to_dict(),
-               headers={"Authorization": f"Bearer {self.task_token}"}
-           )
+       while (turn < max_turns) : (turn += 1) {
+           const response = try client.nextMessage(...);
+           for (response.blocks) |block| {
+               try streamToZig(callback_url, block);
+               if (block.is_tool_use) {
+                   const result = try executeTool(block);
+                   try streamToZig(callback_url, result);
+               }
+           }
+           if (response.done) break;
+       }
+   }
    ```
 
 3. **Create Dockerfile**
    ```dockerfile
    # runner/Dockerfile
-   FROM python:3.12-slim
+   FROM debian:bookworm-slim
 
-   WORKDIR /app
-   COPY requirements.txt .
-   RUN pip install -r requirements.txt
-
-   COPY src/ ./src/
-
+   COPY runner /usr/local/bin/runner
    USER 1000:1000
-   ENTRYPOINT ["python", "-m", "src.main"]
+   ENTRYPOINT ["/usr/local/bin/runner"]
    ```
 
 4. **Implement tool execution**
-   - Port tools from `server/src/ai/tools/` to Python
+   - Port tools from `server/src/ai/tools/` to Zig
    - Add sandboxing wrappers (subprocess limits, network filtering)
    - Implement stdout/stderr streaming
 
@@ -531,7 +519,7 @@ User → Zig API → K8s Job → gVisor Pod → runAgent() → Sandboxed tools
    // Called by runner pods to push events
    fn handleTaskStream(req, res) {
        // Validate task token
-       // Push to WebSocket subscribers
+       // Push to SSE subscribers
        // Buffer for persistence
    }
    ```
@@ -779,59 +767,45 @@ kubectl get pods -n workflows -l task-id=<task-id>
    ```
 
 2. **Update runner to handle both modes**
-   ```python
-   # runner/src/main.py
-   def run_workload(self, workload: Workload):
-       if workload.type == "agent":
-           self.run_agent(workload.agent_config)
-       elif workload.type == "workflow":
-           self.run_workflow(workload.workflow_steps)
+   ```zig
+   // runner/src/main.zig (conceptual)
+   pub fn runWorkload(workload: Workload) !void {
+       switch (workload.kind) {
+           .agent => try runAgent(workload.agent_config),
+           .workflow => try runWorkflow(workload.workflow_steps),
+       }
+   }
 
-   def run_workflow(self, steps: list[WorkflowStep]):
-       for step in steps:
-           result = self.execute_step(step)
-           self.stream_to_zig(StepResult(step=step, result=result))
+   fn runWorkflow(steps: []WorkflowStep) !void {
+       for (steps) |step| {
+           const result = try executeStep(step);
+           try streamToZig(StepResult{ .step = step, .result = result });
+       }
+   }
    ```
 
 ##### 6.3 Implement Workflow Parser
 
-1. **Parse .plue/workflows/*.yaml**
+1. **Parse .plue/workflows/*.py**
+   - Evaluate workflow files with the Zig RestrictedPython-compatible runtime.
+   - Emit a validated plan DAG that the runner executes.
+
+2. **Handle scripted + agent steps in the same plan**
    ```python
-   # runner/src/workflow_parser.py
-   def parse_workflow(path: str) -> Workflow:
-       with open(path) as f:
-           config = yaml.safe_load(f)
+   # .plue/workflows/ci.py (scripted + agent steps)
+   from plue import workflow, push, pull_request
+   from plue.prompts import CodeReview
 
-       return Workflow(
-           name=config['name'],
-           on=config['on'],
-           mode=config.get('mode', 'scripted'),
-           jobs=[parse_job(j) for j in config.get('jobs', {}).values()],
-           agent=parse_agent_config(config.get('agent')),
+   @workflow(triggers=[push(), pull_request()])
+   def ci(ctx):
+       ctx.run(name="install", cmd="bun install")
+       ctx.run(name="test", cmd="bun test")
+
+       review = CodeReview(
+           diff=ctx.git.diff(base=ctx.event.pull_request.base),
        )
-   ```
 
-2. **Handle both scripted and agent modes**
-   ```yaml
-   # Scripted mode (traditional CI)
-   name: CI
-   on: [push, pull_request]
-   mode: scripted
-   jobs:
-     test:
-       steps:
-         - run: bun install
-         - run: bun test
-
-   # Agent mode (AI-powered)
-   name: Code Review
-   on: [pull_request]
-   mode: agent
-   agent:
-     model: claude-sonnet-4-20250514
-     system: "You are a code reviewer..."
-     tools: [read_file, pr_diff, pr_comment]
-     max_turns: 20
+       return ctx.success(approved=review.approved)
    ```
 
 ##### 6.4 Implement Event Triggers
@@ -863,14 +837,13 @@ kubectl get pods -n workflows -l task-id=<task-id>
 
 ```bash
 # Create test workflow
-cat > test-repo/.plue/workflows/ci.yaml << EOF
-name: CI
-on: [push]
-mode: scripted
-jobs:
-  test:
-    steps:
-      - run: echo "Hello from CI"
+cat > test-repo/.plue/workflows/ci.py << 'EOF'
+from plue import workflow, push
+
+@workflow(triggers=[push()])
+def ci(ctx):
+    ctx.run(name="hello", cmd='echo "Hello from CI"')
+    return ctx.success()
 EOF
 
 # Push and verify workflow runs
@@ -1081,7 +1054,7 @@ curl https://$USER.staging.plue.dev/api/health
 |------|--------|------------|
 | Agent migration breaks existing sessions | Users lose chat history | Keep in-process execution available via feature flag; migrate data in phases |
 | gVisor performance overhead | Slower agent execution | Benchmark before/after; consider containerd as fallback |
-| WebSocket reliability | Lost messages during reconnection | Implement message buffering; persist before acknowledging |
+| SSE reconnection gaps | Lost messages during reconnection | Use last-event-id + buffering; persist before acknowledging |
 
 ### Medium Risk
 
@@ -1193,7 +1166,7 @@ docker-compose up -d
 ### Phase 5: Sandboxed Runners
 
 - [ ] Create runner container
-- [ ] Port tools to Python
+- [ ] Port tools to Zig
 - [ ] Add K8s client to Zig
 - [ ] Create pod templates
 - [ ] Implement network policies
@@ -1245,17 +1218,16 @@ edge/src/durable-objects/data-sync.test.ts
 ```
 runner/
 ├── Dockerfile
-├── requirements.txt
 ├── src/
-│   ├── main.py
-│   ├── agent.py
-│   ├── workflow.py
+│   ├── main.zig
+│   ├── agent.zig
+│   ├── workflow.zig
 │   ├── tools/
-│   │   ├── grep.py
-│   │   ├── read_file.py
-│   │   ├── write_file.py
+│   │   ├── grep.zig
+│   │   ├── read_file.zig
+│   │   ├── write_file.zig
 │   │   └── ...
-│   └── streaming.py
+│   └── streaming.zig
 └── k8s/
     ├── pod-template.yaml
     ├── network-policy.yaml

@@ -20,23 +20,26 @@ This document describes the Plue architecture, the decisions behind it, and guid
 
 ## Executive Summary
 
-Plue is a brutalist GitHub clone with integrated AI agent capabilities. This document describes a significant architectural simplification that:
+Plue is a brutalist GitHub clone with integrated AI agent capabilities. Current architecture centers on:
 
-- **Removes ElectricSQL** — wasn't providing value for our use case
-- **Removes Edge SQLite (Durable Objects)** — over-engineered for our needs
-- **Unifies Workflows and Agents** — same sandbox, same abstraction
-- **Simplifies Git file serving** — leverage Git's content-addressable nature
-- **Adopts SSE for streaming** — direct push, no sync layer
+- **Zig service** — API + workflow runtime + prompt parsing (Rust/C helpers)
+- **Postgres** — source of truth for app and workflow state
+- **SSH server** — standard git-upload-pack/receive-pack transport
+- **K8s runner pods** — sandboxed workflow/agent execution
+- **Astro frontend** — UI served behind Cloudflare
+- **Cloudflare cache** — static assets + API caching
 
-### Before vs After
+Workflows/agents details live in `docs/workflows-prd.md` and `docs/workflows-engineering.md`. The "Previous Architecture" section below is historical context.
+
+### Legacy vs Current (historical)
 
 ```
-BEFORE                                  AFTER
+LEGACY                                  CURRENT
 ──────                                  ─────
-Postgres ──► Electric ──► Edge DO       Postgres ◄──► Zig Server
+Postgres ──► Electric ──► Edge DO       Postgres ◄──► Zig + SSH
                 │            │                            │
                 ▼            ▼                            ▼
-            Zig Proxy    SQLite Cache              CDN + SSE
+            Zig Proxy    SQLite Cache             Astro + CDN + SSE
                 │                                        │
                 ▼                                        ▼
              Client                                   Client
@@ -213,13 +216,19 @@ Plue's reality:
 └─────────────────────────────────┘  └─────────────────────────────────┘
 ```
 
+Notes:
+- HTTP traffic goes through Cloudflare to Astro (SSR + static) and the Zig API.
+- Git traffic uses the SSH server (standard git-upload-pack/receive-pack) and shares repo storage/auth with the Zig service.
+
 ### Key Principles
 
 1. **Postgres is the source of truth** — all state lives here
-2. **Zig is the application server** — API, auth, git ops, orchestration
+2. **Zig is the application server** — API, auth, workflow runtime, orchestration
 3. **CDN for caching** — not replication, just HTTP caching
 4. **SSE for real-time streaming** — direct push, no sync layer
 5. **K8s for sandboxed execution** — workflows and agents are the same thing
+6. **SSH for Git transport** — standard Git clients, simple auth + hooks
+7. **Astro for UI** — SSR + static assets behind Cloudflare
 
 ### Edge Caching Architecture
 
@@ -425,8 +434,10 @@ Workflows and agents are fundamentally the same:
 | Capabilities | Shell, files, git | Shell, files, git | **Same tools** |
 
 The only difference is **who decides the steps**:
-- Workflow: Code/YAML defines steps upfront
+- Workflow: Python workflow code defines steps upfront
 - Agent: LLM decides steps dynamically
+
+Workflow evaluation and prompt rendering run inside the Zig service (RestrictedPython-compatible runtime + Rust/C Jinja2 engine). See `docs/workflows-engineering.md` for details.
 
 #### Unified Event Model
 
@@ -450,47 +461,32 @@ events = [
 #### Workflow Definition Examples
 
 **Scripted Mode (Traditional CI):**
-```yaml
-# .plue/workflows/ci.yaml
-name: CI
-on: [push, pull_request]
-mode: scripted
+```python
+# .plue/workflows/ci.py
+from plue import workflow, push, pull_request
 
-jobs:
-  test:
-    runs-on: sandbox
-    steps:
-      - name: Checkout
-        run: jj workspace update-stale
-      - name: Install
-        run: bun install
-      - name: Test
-        run: bun test
-      - name: Build
-        run: bun run build
+@workflow(triggers=[push(), pull_request()])
+def ci(ctx):
+    ctx.run(name="install", cmd="bun install")
+    ctx.run(name="test", cmd="bun test")
+    ctx.run(name="build", cmd="bun run build")
+    return ctx.success()
 ```
 
-**Agent Mode (AI-powered):**
-```yaml
-# .plue/workflows/code-review.yaml
-name: AI Code Review
-on: [pull_request]
-mode: agent
+**Agent Step in a Workflow:**
+```python
+# .plue/workflows/code-review.py
+from plue import workflow, pull_request
+from plue.prompts import CodeReview
 
-agent:
-  model: claude-sonnet-4-20250514
-  system: |
-    You are a code reviewer for this repository.
-    Review the PR diff for bugs, security issues, and style.
-    Leave inline comments and approve or request changes.
-  tools:
-    - read_file
-    - search_code
-    - pr_diff
-    - pr_comment
-    - pr_review
-  max_turns: 20
-  timeout: 600  # 10 minutes
+@workflow(triggers=[pull_request()])
+def code_review(ctx):
+    review = CodeReview(
+        diff=ctx.git.diff(base=ctx.event.pull_request.base),
+    )
+    if not review.approved:
+        return ctx.fail("Review failed")
+    return ctx.success()
 ```
 
 **Agent Mode (Issue Helper):**

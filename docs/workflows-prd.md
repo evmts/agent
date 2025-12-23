@@ -10,12 +10,12 @@ Infrastructure-as-code workflows with first-class AI agent support.
 
 A workflow system that replaces YAML-based CI/CD with a proper programming model. Plue Workflows combines:
 
-- **Restricted Python** — Python syntax with decorators, sandboxed via RestrictedPython
+- **Restricted Python** — Python syntax with decorators, evaluated by the Zig service with RestrictedPython-compatible rules (no separate Python service)
 - **Starlark-like builtins** — `schema()`, `enum()`, `list()`, `optional()` for type definitions
-- **Jinja2 Prompts** — Markdown documents with Jinja2 templating for AI agents
+- **Jinja2 Prompts** — Markdown documents with Jinja2-compatible templating implemented via Rust/C
 - **Unified Execution** — Traditional CI steps and AI agents share the same sandboxed Docker runtime
 
-**Key Insight: Python produces a plan.** The workflow code doesn't execute directly — it generates a DAG of steps that the runtime executes later. RestrictedPython ensures the plan phase is safe and deterministic.
+**Key Insight: Python produces a plan.** The workflow code doesn't execute directly — it generates a DAG of steps that the runtime executes later. The Zig runtime enforces deterministic, RestrictedPython-compatible plan evaluation.
 
 ### 1.2 The Plue Approach
 
@@ -72,7 +72,7 @@ repo/
 
 ### 2.2 RestrictedPython Sandbox
 
-Workflow files are executed with RestrictedPython. The following are **blocked**:
+Workflow files are evaluated by the Zig runtime with RestrictedPython-compatible rules. The following are **blocked**:
 
 - `import` (except whitelisted `plue` modules)
 - File I/O (`open`, `os`, `pathlib`)
@@ -237,6 +237,8 @@ ctx.fail(reason)            # Fail with message (like exit 1)
 ---
 
 ## 3) Prompt Specification (Jinja2 + Markdown)
+
+Note: Prompt rendering is handled inside the Zig service using a Jinja2-compatible Rust/C implementation (no separate Python service).
 
 ### 3.1 File Format
 
@@ -465,8 +467,8 @@ Available to all agents (similar to actions/checkout, actions/setup-node):
 
 | Tool        | Description                 | GitHub Actions Equivalent |
 | ----------- | --------------------------- | ------------------------- |
-| `readfile`  | Read file contents          | N/A (agents only)         |
-| `writefile` | Write content to file       | N/A (agents only)         |
+| `read_file` | Read file contents          | N/A (agents only)         |
+| `write_file` | Write content to file       | N/A (agents only)         |
 | `shell`     | Execute shell command       | `run:` step               |
 | `glob`      | Find files matching pattern | N/A                       |
 | `grep`      | Search file contents        | N/A                       |
@@ -477,7 +479,7 @@ Available to all agents (similar to actions/checkout, actions/setup-node):
 Tools can be scoped to specific repo refs (like checkout@v4):
 
 ```python
-from plue.tools import readfile, grep, glob, websearch
+from plue.tools import read_file, grep, glob, websearch
 
 @workflow(triggers=[pull_request()])
 def review(ctx):
@@ -485,7 +487,7 @@ def review(ctx):
         diff=ctx.git.diff(base=ctx.event.pull_request.base),
         tools=[
             # Tools scoped to PR head commit
-            readfile(repo=ctx.repo, ref=ctx.event.pull_request.head),
+            read_file(repo=ctx.repo, ref=ctx.event.pull_request.head),
             grep(repo=ctx.repo, ref=ctx.event.pull_request.head),
             glob(repo=ctx.repo, ref=ctx.event.pull_request.head),
             websearch(),
@@ -767,7 +769,7 @@ def ci(ctx):
 
 from plue import workflow, pull_request
 from plue.prompts import CodeReview
-from plue.tools import readfile, grep, glob, websearch
+from plue.tools import read_file, grep, glob, websearch
 
 
 # Define review focus areas (like matrix strategy in GitHub Actions)
@@ -818,7 +820,7 @@ def review(ctx):
             focus_description=focus["description"],
             checks=focus["checks"],
             tools=[
-                readfile(repo=ctx.repo, ref=ctx.event.pull_request.head),
+                read_file(repo=ctx.repo, ref=ctx.event.pull_request.head),
                 grep(repo=ctx.repo, ref=ctx.event.pull_request.head),
                 glob(repo=ctx.repo, ref=ctx.event.pull_request.head),
                 websearch(),

@@ -1,6 +1,6 @@
 # Plue Workflows: Engineering Design
 
-Technical specification for implementing Python + Jinja2 workflow system with AI-first features.
+Technical specification for implementing a Python-syntax workflow system with a Jinja2-compatible prompt format, executed by the Zig service with Rust/C helpers.
 
 ---
 
@@ -39,8 +39,8 @@ Technical specification for implementing Python + Jinja2 workflow system with AI
 │                              ZIG SERVER                                       │
 │                                                                               │
 │  ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────────────┐ │
-│  │   Workflow API    │  │  Python Runtime   │  │    Jinja2 Parser          │ │
-│  │                   │  │  (RestrictedPython)│  │                           │ │
+│  │   Workflow API    │  │ Workflow Runtime │  │   Prompt Parser           │ │
+│  │                   │  │ (RestrictedPython)│  │   (Rust/C + Jinja2)       │ │
 │  │  POST /run        │  │                   │  │  - Frontmatter (YAML)     │ │
 │  │  GET /status      │  │  Sandboxed eval   │  │  - Body (Jinja2)          │ │
 │  │  SSE /stream      │  │  Plan generation  │  │  - Schema validation      │ │
@@ -88,10 +88,10 @@ Technical specification for implementing Python + Jinja2 workflow system with AI
 | Component | Language | Responsibility |
 |-----------|----------|----------------|
 | Zig Server | Zig | HTTP API, orchestration, SSE streaming |
-| Python Runtime | Python (embedded) | RestrictedPython plan generation |
-| Jinja2 Parser | Python | Parse .prompt.md files, render templates |
+| Workflow Runtime | Zig | RestrictedPython-compatible plan generation |
+| Prompt Parser | Rust/C (via Zig FFI) | Parse .prompt.md files, render templates |
 | Execution Engine | Zig | Execute DAG, dispatch to runners |
-| Runner | Python | Execute steps, Claude Code SDK for agents |
+| Runner | Zig | Execute steps, Claude Code SDK for agents |
 | Postgres | SQL | Persist definitions, runs, logs, LLM usage |
 
 ---
@@ -100,81 +100,33 @@ Technical specification for implementing Python + Jinja2 workflow system with AI
 
 ### Integration with Zig
 
-Two options for running RestrictedPython from Zig:
+Workflow plan generation runs inside the Zig service. We preserve RestrictedPython semantics, but the evaluator is embedded and invoked by Zig (no separate Python service). The interpreter can be implemented as:
 
-**Option A: Embedded Python (PyO3-style)**
-```
-Zig Server ──► libpython ──► RestrictedPython
-                  │
-                  └─► Python C API
-```
+- a restricted Python subset using RustPython (via FFI), or
+- a custom AST evaluator that accepts the Plue DSL and enforces the same sandbox rules.
 
-**Option B: Subprocess (simpler)**
-```
-Zig Server ──► spawn ──► python3 plue_eval.py workflow.py
-                              │
-                              └─► JSON plan on stdout
-```
+### Plan Evaluator (Zig service)
 
-We recommend **Option B** for simplicity. The plan phase is not performance-critical.
+```zig
+// workflow_eval.zig (conceptual)
+pub fn evaluateWorkflow(source_path: []const u8) !PlanSet {
+    const source = try fs.readFileAlloc(allocator, source_path, max_size);
 
-### Plan Evaluator Script
+    const module = try restricted.compile(source); // RestrictedPython-compatible
+    var globals = try plueBuiltins(); // registered decorators + helpers
 
-```python
-# plue_eval.py - Invoked by Zig server
+    try restricted.exec(module, &globals);
 
-import sys
-import json
-from RestrictedPython import compile_restricted, safe_globals
-from RestrictedPython.Guards import safe_builtins, guarded_iter_unpack_sequence
-
-from plue_builtins import create_plue_globals
-
-def evaluate_workflow(source_path: str) -> dict:
-    """
-    Evaluate a workflow file and return the plan as JSON.
-    """
-    with open(source_path) as f:
-        source = f.read()
-
-    # Compile with restrictions
-    bytecode = compile_restricted(
-        source,
-        filename=source_path,
-        mode='exec',
-    )
-
-    # Create restricted globals with only Plue builtins
-    restricted_globals = create_plue_globals()
-
-    # Execute
-    exec(bytecode, restricted_globals)
-
-    # Extract registered workflows
-    workflows = restricted_globals['__plue_workflows__']
-
-    # Convert to JSON-serializable plan
-    plans = {}
-    for name, workflow_def in workflows.items():
-        plans[name] = workflow_def.to_plan()
-
-    return plans
-
-
-if __name__ == '__main__':
-    source_path = sys.argv[1]
-    try:
-        plans = evaluate_workflow(source_path)
-        print(json.dumps({"ok": True, "plans": plans}))
-    except Exception as e:
-        print(json.dumps({"ok": False, "error": str(e)}))
-        sys.exit(1)
+    return try extractPlans(globals);
+}
 ```
 
 ### Plue Builtins Module
 
+The builtins below are reference shapes; the production implementation lives in Zig with equivalent structs and APIs.
+
 ```python
-# plue_builtins.py
+# plue_builtins (conceptual)
 
 from RestrictedPython import safe_builtins
 from typing import Any, Callable, Dict, List, Optional
@@ -496,252 +448,42 @@ def create_plue_globals() -> dict:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Parser Implementation
+### Parser Implementation (Zig + Rust/C)
 
-```python
-# prompt_parser.py
+The prompt parser runs inside the Zig service and uses a Rust/C Jinja2-compatible engine (for example, minijinja) via FFI. YAML frontmatter is parsed with a Rust or C YAML library, and templates are cached by path + mtime.
 
-import yaml
-import re
-from dataclasses import dataclass
-from typing import Dict, List, Any, Optional
-from jinja2 import Environment, BaseLoader, select_autoescape
+High-level steps:
+1. Read file and split frontmatter/body.
+2. Parse YAML frontmatter into a PromptDefinition.
+3. Compile the Jinja2 template body.
+4. Render with inputs + injected output schema.
 
+```rust
+// prompt_parser.rs (conceptual, called from Zig)
+fn parse_prompt(path: &Path) -> PromptDefinition {
+    let (frontmatter, body) = split_frontmatter(read_to_string(path));
+    let fm: Frontmatter = serde_yaml::from_str(&frontmatter)?;
+    let template = minijinja::Environment::new().template_from_str(&body)?;
 
-@dataclass
-class PromptDefinition:
-    name: str
-    client: str
-    prompt_type: str  # "llm" or "agent"
-    inputs: Dict[str, Any]
-    output: Dict[str, Any]
-    tools: Optional[List[str]]
-    max_turns: Optional[int]
-    body_template: str
-    extends: Optional[str]
-
-
-class PromptParser:
-    FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n---\s*\n', re.DOTALL)
-
-    def __init__(self, prompt_dir: str):
-        self.prompt_dir = prompt_dir
-        self.jinja_env = Environment(
-            loader=PromptLoader(prompt_dir),
-            autoescape=select_autoescape(['html', 'xml']),
-        )
-        self._cache: Dict[str, PromptDefinition] = {}
-
-    def parse(self, file_path: str) -> PromptDefinition:
-        """Parse a .prompt.md file."""
-        if file_path in self._cache:
-            return self._cache[file_path]
-
-        with open(file_path) as f:
-            content = f.read()
-
-        # Extract frontmatter
-        match = self.FRONTMATTER_PATTERN.match(content)
-        if not match:
-            raise ValueError(f"No frontmatter found in {file_path}")
-
-        frontmatter_str = match.group(1)
-        body = content[match.end():]
-
-        # Parse YAML frontmatter
-        frontmatter = yaml.safe_load(frontmatter_str)
-
-        definition = PromptDefinition(
-            name=frontmatter['name'],
-            client=frontmatter.get('client', 'anthropic/claude-sonnet'),
-            prompt_type=frontmatter.get('type', 'llm'),
-            inputs=self._parse_schema(frontmatter.get('inputs', {})),
-            output=self._parse_schema(frontmatter.get('output', {})),
-            tools=frontmatter.get('tools'),
-            max_turns=frontmatter.get('max_turns', 10),
-            body_template=body.strip(),
-            extends=frontmatter.get('extends'),
-        )
-
-        self._cache[file_path] = definition
-        return definition
-
-    def _parse_schema(self, schema_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse YAML schema into internal representation."""
-        result = {}
-        for name, type_def in schema_dict.items():
-            result[name] = self._parse_type(type_def)
-        return result
-
-    def _parse_type(self, type_def: Any) -> Dict[str, Any]:
-        """Parse a type definition."""
-        if isinstance(type_def, str):
-            # Handle optional (string?)
-            if type_def.endswith('?'):
-                return {"type": "optional", "inner": self._parse_type(type_def[:-1])}
-
-            # Handle array (string[])
-            if type_def.endswith('[]'):
-                return {"type": "array", "items": self._parse_type(type_def[:-2])}
-
-            # Handle enum (a | b | c)
-            if ' | ' in type_def:
-                values = [v.strip() for v in type_def.split(' | ')]
-                return {"type": "enum", "values": values}
-
-            # Primitive types
-            return {"type": type_def}
-
-        elif isinstance(type_def, list):
-            # Array of objects
-            if len(type_def) == 1 and isinstance(type_def[0], dict):
-                return {"type": "array", "items": {"type": "object", "fields": self._parse_schema(type_def[0])}}
-
-        elif isinstance(type_def, dict):
-            # Nested object
-            return {"type": "object", "fields": self._parse_schema(type_def)}
-
-        raise ValueError(f"Unknown type definition: {type_def}")
-
-    def render(
-        self,
-        definition: PromptDefinition,
-        inputs: Dict[str, Any],
-    ) -> str:
-        """Render a prompt with inputs."""
-        template = self.jinja_env.from_string(definition.body_template)
-
-        # Generate output schema description
-        output_schema = self._generate_output_schema(definition.output)
-
-        return template.render(
-            **inputs,
-            output_schema=output_schema,
-        )
-
-    def _generate_output_schema(self, output: Dict[str, Any]) -> str:
-        """Generate output format instructions for LLM."""
-        json_schema = self._to_json_schema(output)
-
-        return f"""
-Respond with a JSON object matching this schema:
-
-```json
-{self._generate_example(output)}
-```
-
-Important:
-- Return ONLY the JSON object, no other text
-- Ensure all required fields are present
-- Use the exact field names shown
-"""
-
-    def _to_json_schema(self, schema: Dict[str, Any]) -> dict:
-        """Convert internal schema to JSON Schema."""
-        properties = {}
-        required = []
-
-        for name, type_info in schema.items():
-            properties[name] = self._type_to_json_schema(type_info)
-            if type_info.get("type") != "optional":
-                required.append(name)
-
-        return {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }
-
-    def _type_to_json_schema(self, type_info: dict) -> dict:
-        """Convert type info to JSON Schema."""
-        t = type_info["type"]
-
-        if t == "string":
-            return {"type": "string"}
-        elif t == "integer":
-            return {"type": "integer"}
-        elif t == "float":
-            return {"type": "number"}
-        elif t == "boolean":
-            return {"type": "boolean"}
-        elif t == "optional":
-            inner = self._type_to_json_schema(type_info["inner"])
-            return {"anyOf": [inner, {"type": "null"}]}
-        elif t == "array":
-            return {"type": "array", "items": self._type_to_json_schema(type_info["items"])}
-        elif t == "enum":
-            return {"type": "string", "enum": type_info["values"]}
-        elif t == "object":
-            return self._to_json_schema(type_info["fields"])
-
-        raise ValueError(f"Unknown type: {t}")
-
-    def _generate_example(self, schema: Dict[str, Any], indent: int = 0) -> str:
-        """Generate example JSON for output schema."""
-        lines = ["{"]
-        items = list(schema.items())
-
-        for i, (name, type_info) in enumerate(items):
-            comma = "," if i < len(items) - 1 else ""
-            value = self._example_value(type_info)
-            lines.append(f'  "{name}": {value}{comma}')
-
-        lines.append("}")
-        return "\n".join(lines)
-
-    def _example_value(self, type_info: dict) -> str:
-        """Generate example value for a type."""
-        t = type_info["type"]
-
-        if t == "string":
-            return '"<string>"'
-        elif t == "integer":
-            return "<integer>"
-        elif t == "float":
-            return "<number>"
-        elif t == "boolean":
-            return "<true|false>"
-        elif t == "optional":
-            return self._example_value(type_info["inner"])
-        elif t == "array":
-            inner = self._example_value(type_info["items"])
-            return f"[{inner}, ...]"
-        elif t == "enum":
-            return f'"<{"|".join(type_info["values"])}>"'
-        elif t == "object":
-            return self._generate_example(type_info["fields"])
-
-        return '"<unknown>"'
-
-
-class PromptLoader(BaseLoader):
-    """Jinja2 loader for prompt templates."""
-
-    def __init__(self, prompt_dir: str):
-        self.prompt_dir = prompt_dir
-
-    def get_source(self, environment, template):
-        import os
-        path = os.path.join(self.prompt_dir, template)
-
-        if not os.path.exists(path):
-            raise TemplateNotFound(template)
-
-        with open(path) as f:
-            content = f.read()
-
-        # Strip frontmatter for includes
-        match = PromptParser.FRONTMATTER_PATTERN.match(content)
-        if match:
-            content = content[match.end():]
-
-        mtime = os.path.getmtime(path)
-        return content, path, lambda: mtime == os.path.getmtime(path)
+    PromptDefinition {
+        name: fm.name,
+        client: fm.client.unwrap_or("anthropic/claude-sonnet"),
+        prompt_type: fm.prompt_type.unwrap_or("llm"),
+        inputs: parse_schema(fm.inputs),
+        output: parse_schema(fm.output),
+        tools: fm.tools,
+        max_turns: fm.max_turns.unwrap_or(10),
+        body_template: template,
+        extends: fm.extends,
+    }
+}
 ```
 
 ---
 
 ## AI-First Features
+
+Note: Code samples below are pseudocode for readability. The production implementation is Zig (runner + server) with Rust/C helpers where needed.
 
 ### LLM Step in Plan
 
@@ -750,7 +492,7 @@ When a prompt is called in a workflow, it registers as an LLM step (like a GitHu
 ```python
 # In workflow
 from plue.prompts import CodeReview
-from plue.tools import readfile, grep, glob, websearch
+from plue.tools import read_file, grep, glob, websearch
 
 @workflow(triggers=[pull_request()])
 def review(ctx):
@@ -762,7 +504,7 @@ def review(ctx):
         focus_description="Security vulnerabilities",
         checks=["XSS", "SQL injection", "Auth bypass"],
         tools=[
-            readfile(repo=ctx.repo, ref=ctx.event.pull_request.head),
+            read_file(repo=ctx.repo, ref=ctx.event.pull_request.head),
             grep(repo=ctx.repo, ref=ctx.event.pull_request.head),
             glob(repo=ctx.repo, ref=ctx.event.pull_request.head),
             websearch(),
@@ -781,7 +523,7 @@ The generated plan includes (similar to GitHub Actions job steps):
       "name": "CodeReview",
       "type": "agent",
       "config": {
-        "prompt_path": "prompts/CodeReview.prompt.md",
+        "prompt_path": ".plue/prompts/CodeReview.prompt.md",
         "inputs": {
           "diff": "{{ git.diff(base=event.pull_request.base) }}",
           "focus": "security",
@@ -790,7 +532,7 @@ The generated plan includes (similar to GitHub Actions job steps):
         },
         "client": "anthropic/claude-sonnet",
         "tools": [
-          {"name": "readfile", "repo": "{{ repo }}", "ref": "{{ event.pull_request.head }}"},
+          {"name": "read_file", "repo": "{{ repo }}", "ref": "{{ event.pull_request.head }}"},
           {"name": "grep", "repo": "{{ repo }}", "ref": "{{ event.pull_request.head }}"},
           {"name": "glob", "repo": "{{ repo }}", "ref": "{{ event.pull_request.head }}"},
           {"name": "websearch"}
@@ -812,7 +554,7 @@ Agent steps include tool definitions:
   "name": "FixBuildErrors",
   "type": "agent",
   "config": {
-    "prompt_path": "prompts/fix-errors.prompt.md",
+    "prompt_path": ".plue/prompts/fix-errors.prompt.md",
     "inputs": {
       "goal": "Fix the build",
       "errors": "{{ steps.build.stderr }}"
@@ -958,8 +700,8 @@ Tools mirror GitHub Actions patterns where applicable:
 
 | Tool | Description | Scoped to Ref? |
 |------|-------------|----------------|
-| `readfile` | Read file from repo | Yes |
-| `writefile` | Write file to workspace | No |
+| `read_file` | Read file from repo | Yes |
+| `write_file` | Write file to workspace | No |
 | `shell` | Execute command | No |
 | `glob` | Find files by pattern | Yes |
 | `grep` | Search file contents | Yes |
@@ -1110,8 +852,8 @@ class ToolLoader:
         self.workspace = workspace
         self.prompt_parser = prompt_parser
         self.builtins = {
-            "readfile": ReadFileTool(),
-            "writefile": WriteFileTool(),
+            "read_file": ReadFileTool(),
+            "write_file": WriteFileTool(),
             "shell": ShellTool(),
             "glob": GlobTool(),
             "grep": GrepTool(),
@@ -1474,14 +1216,14 @@ pub fn streamRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
 
 ## Implementation Order
 
-1. **RestrictedPython Integration**
-   - `plue_eval.py` script
-   - `plue_builtins.py` with decorators and type system
-   - Zig subprocess spawning
+1. **RestrictedPython-Compatible Runtime (Zig)**
+   - Zig workflow evaluator with restricted semantics
+   - Plue builtins implemented in Zig
+   - Deterministic plan generation (no I/O/network)
 
-2. **Jinja2 Prompt Parser**
-   - Frontmatter parsing
-   - Template rendering
+2. **Jinja2-Compatible Prompt Parser (Rust/C)**
+   - Frontmatter parsing (YAML)
+   - Template rendering via Rust/C engine (e.g., minijinja)
    - Output schema generation
 
 3. **Plan Execution**

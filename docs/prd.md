@@ -1,3 +1,5 @@
+NOTE: Legacy document. This PRD predates the current Zig + workflows architecture. For current sources of truth, see `docs/workflows-prd.md` and `docs/workflows-engineering.md`.
+
 Below is a full end-to-end specification for a **single-project, self-hosted Git forge** (a minimal “Gitea-like” backend) built in **TypeScript**, with **local-first metadata** via **ElectricSQL**, and **standard Git clients** for clone/fetch/push over SSH.
 
 This spec is written so you can implement it incrementally while keeping the architecture coherent.
