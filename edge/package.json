@@ -1,19 +1,19 @@
 {
-  "name": "plue-edge",
+  "name": "@plue/edge",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --env dev",
+    "deploy": "wrangler deploy --env production --var BUILD_VERSION:$(git rev-parse --short HEAD)",
+    "deploy:dev": "wrangler deploy --env dev",
     "tail": "wrangler tail",
-    "test": "vitest"
+    "test": "vitest",
+    "purge": "bun purge.ts all",
+    "purge:tags": "bun purge.ts tags"
   },
-  "dependencies": {
-    "hono": "^4.6.0",
-    "jose": "^5.9.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.11.1",
     "@cloudflare/workers-types": "^4.20241127.0",

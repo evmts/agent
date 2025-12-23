@@ -1,18 +1,20 @@
 # Plue Edge Worker Configuration
 name = "plue-edge"
-main = "src/index.ts"
+main = "index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Environment variables (set via wrangler secret or dashboard)
 [vars]
 ORIGIN_HOST = "origin.internal"
+BUILD_VERSION = "dev"
 
 # Development overrides
 [env.dev]
 name = "plue-edge-dev"
 [env.dev.vars]
-ORIGIN_HOST = "localhost:5173"
+ORIGIN_HOST = "localhost:4321"
+BUILD_VERSION = "dev"
 
 # Production
 [env.production]
@@ -20,3 +22,5 @@ name = "plue-edge"
 routes = [
   { pattern = "plue.dev/*", zone_name = "plue.dev" }
 ]
+# BUILD_VERSION is set during deploy via --var flag:
+# wrangler deploy --var BUILD_VERSION:$(git rev-parse --short HEAD)
