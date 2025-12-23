@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { activateUser } from '../../../../db';
+import { activateUser } from '@plue/db';
 
 export const POST: APIRoute = async ({ request }) => {
   try {

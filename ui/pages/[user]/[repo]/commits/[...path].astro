@@ -8,7 +8,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import CommitList from "../../../../components/CommitList.astro";
-import { sql } from "../../../../../db";
+import { sql } from '@plue/db';
 import { getFileHistory, getDefaultBookmark } from "../../../../lib/jj";
 import type { User, Repository } from "../../../../lib/types";
 import type { Change } from "../../../../lib/jj-types";

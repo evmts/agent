@@ -10,7 +10,7 @@ import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
 import Reactions from "../../../../components/Reactions.astro";
 import ActivityItem from "../../../../components/ActivityItem.astro";
-import { sql } from "../../../../../db";
+import { sql } from '@plue/db';
 import {
   getIssue,
   getComments,
@@ -28,7 +28,7 @@ import {
   getIssueEvents,
   listIssues,
 } from "../../../../lib/git-issues";
-import { saveMentionsForComment } from "../../../../../db";
+import { saveMentionsForComment } from '@plue/db';
 import type { User, Repository, ReactionGroup } from "../../../../lib/types";
 
 const { user: username, repo: reponame, number: issueNumber } = Astro.params;

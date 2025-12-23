@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { randomBytes } from 'crypto';
-import { siwe } from '../../../../../db';
+import { siwe } from '@plue/db';
 
 export const GET: APIRoute = async () => {
   try {

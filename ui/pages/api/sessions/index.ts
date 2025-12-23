@@ -7,7 +7,7 @@
 
 import type { APIRoute } from 'astro';
 import { getUserBySession } from '../../../lib/auth-helpers';
-import { sessions } from '../../../../db';
+import { sessions } from '@plue/db';
 import { randomBytes } from 'crypto';
 
 export const GET: APIRoute = async ({ request }) => {

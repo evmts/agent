@@ -2,7 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
-import { sql, saveMentionsForIssue } from "../../../../../db";
+import { sql, saveMentionsForIssue } from '@plue/db';
 import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
 import type { User, Repository } from "../../../../lib/types";
 

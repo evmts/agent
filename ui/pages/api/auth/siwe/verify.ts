@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { parseSiweMessage, verifySiweMessage } from 'viem/siwe';
 import { Porto } from 'porto';
 import { RelayClient } from 'porto/viem';
-import { siwe } from '../../../../../db';
+import { siwe } from '@plue/db';
 import { createSessionCookie } from '../../../../lib/auth-helpers';
 
 // Porto instance for signature verification

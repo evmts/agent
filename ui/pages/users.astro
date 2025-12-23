@@ -8,7 +8,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import Avatar from "../components/Avatar.astro";
 import Pagination from "../components/Pagination.astro";
-import { sql } from "../../db";
+import { sql } from '@plue/db';
 
 // Get search query
 const query = Astro.url.searchParams.get('q') || '';

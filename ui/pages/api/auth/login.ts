@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByUsernameOrEmail, createSession } from '../../../../db';
+import { getUserByUsernameOrEmail, createSession } from '@plue/db';
 import {
   createSessionCookie,
   validateCsrfToken,

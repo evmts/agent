@@ -7,7 +7,7 @@
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
 import Avatar from "../../../components/Avatar.astro";
-import { sql } from "../../../../db";
+import { sql } from '@plue/db';
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { User, Repository } from "../../../lib/types";

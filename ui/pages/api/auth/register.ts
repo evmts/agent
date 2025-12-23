@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { createUser } from '../../../../db';
+import { createUser } from '@plue/db';
 import { hash } from '@node-rs/argon2';
 import { randomBytes } from 'crypto';
 import {

@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByUsername } from '../../../../db';
+import { getUserByUsername } from '@plue/db';
 
 export const GET: APIRoute = async ({ params }) => {
   try {
