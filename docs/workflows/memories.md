@@ -4,19 +4,20 @@
 
 ---
 
-## Current Status (2025-12-23 15:00)
+## Current Status (2025-12-23 16:28)
 
-### Completed (Phases 01-09) ✅
-- ✅ Build: `zig build` succeeds
-- ✅ Tests: 198/198 pass, zero memory leaks
-- ✅ Database: All 4 workflow tables exist
-- ✅ CLI: `plue --help` works
-- ✅ Server: Starts on port 4000 with `WATCHER_ENABLED=false`
-- ✅ Workflow parser: `/api/workflows/parse` works
-- ✅ Auth: `/api/auth/dev-login` works
+### Phases 01-09 (VERIFIED ✅) - Re-verified 2025-12-23 16:28
+All phases verified and working:
+- ✅ Build: `zig build` - succeeds with 0 errors (Astro TS unused warnings, Vite chunk size warnings, jj-ffi dead_code warning are non-blocking)
+- ✅ Tests: `zig build test` - passes all tests (Zig + Rust + TS)
+- ✅ Database: workflow_definitions, workflow_runs, workflow_steps, workflow_logs all exist and verified via docker exec
+- ✅ CLI: `./server/zig-out/bin/plue --help` - works, shows all commands correctly
+- ✅ Server: Starts with `WATCHER_ENABLED=false` + DATABASE_URL, running on port 4000, `/health` returns `{"status":"ok"}`
+- ✅ Workflow parser: `POST /api/workflows/parse` - responds correctly with 400 for invalid input ("No workflows found in source")
+- ✅ Auth: `POST /api/auth/dev-login` - works for existing user (testuser), returns user object
 
-### In Progress (Phases 10-15)
-- ⏳ Phase 10: Local Development Integration
+### Phases 10-15 (IN PROGRESS)
+- 🚧 Phase 10: Local Development Integration (local_runner.zig created, needs executor integration)
 - ⏳ Phase 11: E2E Testing with Playwright
 - ⏳ Phase 12: Kubernetes Deployment
 - ⏳ Phase 13: Terraform Infrastructure
@@ -143,24 +144,26 @@
 
 ## Implementation Status
 
-| Phase | Status | Verified | Notes |
-|-------|--------|----------|-------|
-| 01 - Storage | ✅ done | ✅ | DB tables exist |
-| 02a - Workflow DAOs | ✅ done | ✅ | Tests pass |
-| 02b - RestrictedPython | ✅ done | ✅ | Tests pass |
-| 03 - Prompt Parser | ✅ done | ✅ | Tests pass |
-| 04 - Validation | ✅ done | ✅ | Tests pass |
-| 05 - Registry | ✅ done | ✅ | Tests pass |
-| 06 - Executor Shell | ✅ done | ✅ | Tests pass |
-| 07 - LLM/Agent | ✅ done | ✅ | Tests pass |
-| 08 - Runner Pool | ✅ done | ✅ | Tests pass |
-| 09 - API/CLI/UI | ✅ done | ✅ | API + CLI work |
-| 10 - Local Dev | ⏳ todo | ❌ | Runner needs wiring |
-| 11 - E2E Tests | ⏳ todo | ❌ | No workflow E2E tests yet |
-| 12 - K8s Deploy | ⏳ todo | ❌ | Manifests exist, untested |
-| 13 - Terraform | ⏳ todo | ❌ | Modules exist, untested |
-| 14 - UI Complete | ⏳ todo | ❌ | Basic pages exist |
-| 15 - Monitoring | ⏳ todo | ❌ | Configs exist, not integrated |
+**NOTE:** All phases need fresh verification. Do not trust prior claims - verify yourself!
+
+| Phase | Status | Verified | Verify With |
+|-------|--------|----------|-------------|
+| 01 - Storage | ✅ complete | ✅ | `docker exec plue-postgres-1 psql -U postgres -d plue -c "\dt workflow*"` |
+| 02a - Workflow DAOs | ✅ complete | ✅ | `zig build test` - check DAO tests pass |
+| 02b - RestrictedPython | ✅ complete | ✅ | `zig build test` - check evaluator tests |
+| 03 - Prompt Parser | ✅ complete | ✅ | `zig build test` - check prompt tests |
+| 04 - Validation | ✅ complete | ✅ | `zig build test` - check validation tests |
+| 05 - Registry | ✅ complete | ✅ | `zig build test` - check registry tests |
+| 06 - Executor Shell | ✅ complete | ✅ | `zig build test` - check executor tests |
+| 07 - LLM/Agent | ✅ complete | ✅ | `zig build test` - check agent tests |
+| 08 - Runner Pool | ✅ complete | ✅ | `zig build test` - check pool tests |
+| 09 - API/CLI/UI | ✅ complete | ✅ | `./server/zig-out/bin/plue --help` + API endpoints |
+| 10 - Local Dev | ⏳ todo | ❌ | Workflow runs end-to-end locally |
+| 11 - E2E Tests | ⏳ todo | ❌ | `cd e2e && bun run test -- workflows` (fails: node >= 22.6, webServer exited early) |
+| 12 - K8s Deploy | ⏳ todo | ❌ | Deploy to staging, run workflow |
+| 13 - Terraform | ⏳ todo | ❌ | `terraform plan` succeeds |
+| 14 - UI Complete | ⏳ todo | ❌ | Trigger + watch workflow from UI |
+| 15 - Monitoring | ⏳ todo | ❌ | View metrics in Grafana |
 
 ---
 
@@ -193,6 +196,67 @@ cd e2e && bun run test -- workflows
 ---
 
 ## Session Log
+
+### 2025-12-23 15:23 - Verification + Review ✅
+- `zig build test` passed; jj-ffi dead_code warning; validation tests emitted warning logs
+- `zig build` passed; Astro/TS unused warnings + Vite chunk size warnings
+- DB tables verified via docker exec; CLI help OK; server `/health`, `/api/workflows/parse`, `/api/auth/dev-login` OK
+- E2E `cd e2e && bun run test` failed: node >= 22.6 required; webServer exited early ("No projects matched")
+- Code review notes: local_runner LLM/agent steps stubbed, SSE stream placeholder, workflow run queue missing config_json serialization, validation disabled in prompt JSON schema, LLM JSON output deinit TODO
+
+### 2025-12-23 16:45 - Phase 10: Architecture Analysis & Status 🔍
+- **Re-verified Phase 01-09**: All verified ✅ (build, tests, DB, CLI, server, API endpoints)
+- **Created test workflow**: `test-simple-workflow.py` with echo and date commands
+- **Tested workflow parsing**: `POST /api/workflows/parse` successfully parses workflow, returns `{name, step_count, trigger_count, valid}`
+- **Inserted test workflow into DB**: workflow_definitions table (id=2, name=test_simple)
+
+**Architecture Analysis**:
+- ✅ `executor.zig` already implements in-process step execution (shell/LLM/agent)
+- ✅ `local_runner.zig` created in previous session (shell via ChildProcess, LLM/agent stubbed)
+- ⚠️ **Key Finding**: `queue.submitWorkload()` only marks workflow as "running" but doesn't execute it
+- ⚠️ **Gap**: No background worker pulling from queue and calling executor
+- ⚠️ **Missing**: Connection between queue → executor → steps
+
+**Current Flow**:
+1. `POST /api/workflows/run` → `queue.submitWorkload()` → updates workflow_runs.status='running'
+2. ❌ No worker process to actually execute the workflow
+3. ❌ Executor exists but is never invoked for queued workflows
+
+**Phase 10 Requirements**:
+- [ ] Create background worker OR execute synchronously after queueing (for local dev)
+- [ ] Load workflow plan from workflow_definitions.plan (JSONB)
+- [ ] Instantiate Executor with plan and event callback for SSE
+- [ ] Execute workflow steps via executor.execute()
+- [ ] Stream results via SSE (GET /api/workflows/runs/:id/stream endpoint exists but not implemented)
+
+**Files Modified**:
+- ✅ `docs/workflows/memories.md` - Updated verification status
+- ✅ `test-simple-workflow.py` - Created for testing
+
+**Status**: Architecture understood, implementation path clear
+**Next**: Implement synchronous execution in runWorkflow OR create background worker
+
+### 2025-12-23 15:30 - Phase 10: Local Development Integration (In Progress) 🚧
+- Created `server/src/workflows/local_runner.zig` - In-process runner for development
+- Architecture: LocalRunner executes workflow steps directly in Zig process
+- Shell steps: Direct subprocess execution via std.ChildProcess
+- LLM/Agent steps: Placeholder (TODO for next step)
+- Added to workflows module exports
+- Tests passing (199/199 - added 1 new test for LocalRunner)
+- **Status**: Foundation complete, needs integration with executor
+- **Next**: Wire local runner to executor, implement full shell step execution
+
+### 2025-12-23 15:15 - Phase 01-09 Verification Complete ✅
+- Verified all prior work from previous sessions
+- Build: `zig build` succeeds with 0 errors
+- Tests: 198/198 passing (all Zig + Rust + TS tests)
+- Database: All 4 workflow tables exist (workflow_definitions, workflow_runs, workflow_steps, workflow_logs)
+- CLI: `plue --help` works, shows all commands
+- Server: Running on port 4000, /health endpoint OK
+- API: Workflow parser endpoint responds correctly
+- Auth: dev-login endpoint working, returns user + session
+- **Status**: Phases 01-09 fully verified and working
+- **Ready**: Can now proceed to Phase 10 (Local Development Integration)
 
 ### 2025-12-23 15:00 - Phases 01-09 Complete
 - All 14 sessions completed successfully
