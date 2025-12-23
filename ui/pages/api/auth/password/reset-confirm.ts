@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByResetToken, updateUserPassword, deletePasswordResetToken, deleteAllUserSessions } from '../../../../lib/auth-db';
+import { getUserByResetToken, updateUserPassword, deletePasswordResetToken, deleteAllUserSessions } from '../../../../../db';
 import { hash } from '@node-rs/argon2';
 
 export const POST: APIRoute = async ({ request }) => {

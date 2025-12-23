@@ -5,7 +5,7 @@ import {
   csrfErrorResponse,
   validateTextInput
 } from '../../../lib/auth-helpers';
-import { getUserById, updateUserProfile as dbUpdateUserProfile } from '../../../lib/auth-db';
+import { getUserById, updateUserProfile as dbUpdateUserProfile } from '../../../../db';
 
 export const GET: APIRoute = async ({ request }) => {
   try {

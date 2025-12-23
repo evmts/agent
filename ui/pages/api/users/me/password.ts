@@ -6,7 +6,7 @@ import {
   csrfErrorResponse,
   validatePassword
 } from '../../../../lib/auth-helpers';
-import { getUserById, updateUserPassword, deleteAllUserSessions } from '../../../../lib/auth-db';
+import { getUserById, updateUserPassword, deleteAllUserSessions } from '../../../../../db';
 import { hash, verify } from '@node-rs/argon2';
 
 export const PUT: APIRoute = async ({ request }) => {

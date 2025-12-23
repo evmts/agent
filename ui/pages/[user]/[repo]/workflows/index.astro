@@ -7,7 +7,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import WorkflowRunCard from "../../../../components/WorkflowRunCard.astro";
-import { sql } from "../../../../lib/db";
+import { sql } from "../../../../../db";
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;

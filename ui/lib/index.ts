@@ -7,6 +7,6 @@ export * from './auth';
 export * from './client-auth';
 export * from './auth-helpers';
 export * from './types';
-export * from './db';
+// Database exports are now in ../../db - import from there directly
 export * from './jj';
 export * from './markdown';

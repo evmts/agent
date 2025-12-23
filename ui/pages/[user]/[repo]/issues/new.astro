@@ -2,9 +2,8 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
-import { sql } from "../../../../lib/db";
+import { sql, saveMentionsForIssue } from "../../../../../db";
 import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
-import { saveMentionsForIssue } from "../../../../lib/mentions-db";
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;

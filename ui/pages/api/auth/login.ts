@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getUserByUsernameOrEmail, createSession } from '../../../lib/auth-db';
+import { getUserByUsernameOrEmail, createSession } from '../../../../db';
 import {
   createSessionCookie,
   validateCsrfToken,
@@ -61,7 +61,7 @@ export const POST: APIRoute = async ({ request }) => {
     const sessionId = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
 
-    await createSession(Number(user.id), sessionId, expiresAt);
+    await createSession(Number(user.id), sessionId, user.username as string, user.is_admin as boolean, expiresAt);
 
     // Generate new CSRF token for the session
     const csrfToken = generateCsrfToken();

@@ -7,7 +7,7 @@
 
 import type { APIRoute } from 'astro';
 import { getUserBySession } from '../../../lib/auth-helpers';
-import sql from '../../../lib/db';
+import { sessions } from '../../../../db';
 import { randomBytes } from 'crypto';
 
 export const GET: APIRoute = async ({ request }) => {
@@ -24,29 +24,9 @@ export const GET: APIRoute = async ({ request }) => {
     // Fetch sessions for the user
     // Note: Sessions table may not have user_id yet, so we fetch all sessions
     // In production, this should be filtered by user_id
-    const sessions = await sql`
-      SELECT
-        id,
-        title,
-        directory,
-        model,
-        time_created as "createdAt",
-        time_updated as "updatedAt",
-        time_archived IS NOT NULL as archived,
-        token_count as "tokenCount"
-      FROM sessions
-      ORDER BY time_updated DESC
-      LIMIT 50
-    `;
+    const sessionList = await sessions.listSessions(50);
 
-    // Convert timestamps from Unix ms to ISO strings
-    const formattedSessions = sessions.map((s: any) => ({
-      ...s,
-      createdAt: s.createdAt ? new Date(Number(s.createdAt)).toISOString() : null,
-      updatedAt: s.updatedAt ? new Date(Number(s.updatedAt)).toISOString() : null,
-    }));
-
-    return new Response(JSON.stringify({ sessions: formattedSessions }), {
+    return new Response(JSON.stringify({ sessions: sessionList }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
@@ -81,41 +61,15 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     const sessionId = randomBytes(16).toString('hex');
-    const now = Date.now();
 
-    const [session] = await sql`
-      INSERT INTO sessions (
-        id,
-        title,
-        directory,
-        model,
-        time_created,
-        time_updated
-      )
-      VALUES (
-        ${sessionId},
-        ${title},
-        ${directory || '/'},
-        ${model || 'claude-sonnet-4-20250514'},
-        ${now},
-        ${now}
-      )
-      RETURNING
-        id,
-        title,
-        directory,
-        model,
-        time_created as "createdAt",
-        time_updated as "updatedAt"
-    `;
+    const session = await sessions.createAgentSession({
+      id: sessionId,
+      title,
+      directory,
+      model,
+    });
 
-    return new Response(JSON.stringify({
-      session: {
-        ...session,
-        createdAt: new Date(Number(session.createdAt)).toISOString(),
-        updatedAt: new Date(Number(session.updatedAt)).toISOString(),
-      }
-    }), {
+    return new Response(JSON.stringify({ session }), {
       status: 201,
       headers: { 'Content-Type': 'application/json' }
     });

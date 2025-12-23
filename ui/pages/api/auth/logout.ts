@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { deleteSession } from '../../../lib/auth-db';
+import { deleteSession } from '../../../../db';
 import { getSessionIdFromRequest, clearSessionCookie } from '../../../lib/auth-helpers';
 
 export const POST: APIRoute = async ({ request }) => {

@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { parseSiweMessage, verifySiweMessage } from 'viem/siwe';
 import { Porto } from 'porto';
 import { RelayClient } from 'porto/viem';
-import sql from '../../../../lib/db';
+import { siwe } from '../../../../../db';
 import { createSessionCookie } from '../../../../lib/auth-helpers';
 
 // Porto instance for signature verification
@@ -45,11 +45,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Validate nonce exists and is not expired/used
-    const [nonceRecord] = await sql`
-      SELECT nonce, used_at
-      FROM siwe_nonces
-      WHERE nonce = ${siweMessage.nonce} AND expires_at > NOW()
-    `;
+    const nonceRecord = await siwe.validateNonce(siweMessage.nonce);
 
     if (!nonceRecord) {
       return new Response(JSON.stringify({ error: 'Invalid or expired nonce' }), {
@@ -90,29 +86,10 @@ export const POST: APIRoute = async ({ request }) => {
     const walletAddress = siweMessage.address.toLowerCase();
 
     // Mark nonce as used
-    await sql`
-      UPDATE siwe_nonces SET used_at = NOW(), wallet_address = ${walletAddress}
-      WHERE nonce = ${siweMessage.nonce}
-    `;
+    await siwe.markNonceUsed(siweMessage.nonce, walletAddress);
 
     // Check if user exists, auto-create if not
-    let [user] = await sql`
-      SELECT id, username, email, display_name, is_admin, is_active, prohibit_login, wallet_address
-      FROM users
-      WHERE wallet_address = ${walletAddress}
-    `;
-
-    if (!user) {
-      // Generate username from wallet address
-      const username = walletAddress.slice(0, 6) + walletAddress.slice(-4);
-
-      // Create user
-      [user] = await sql`
-        INSERT INTO users (username, lower_username, wallet_address, is_active)
-        VALUES (${username}, ${username.toLowerCase()}, ${walletAddress}, true)
-        RETURNING id, username, email, display_name, is_admin, is_active, prohibit_login, wallet_address
-      `;
-    }
+    const user = await siwe.getOrCreateUserByWallet(walletAddress);
 
     if (user.prohibit_login) {
       return new Response(JSON.stringify({ error: 'Account is disabled' }), {
@@ -125,13 +102,10 @@ export const POST: APIRoute = async ({ request }) => {
     const sessionId = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-    await sql`
-      INSERT INTO auth_sessions (session_key, user_id, username, is_admin, expires_at)
-      VALUES (${sessionId}, ${user.id}, ${user.username}, ${user.is_admin || false}, ${expiresAt})
-    `;
+    await siwe.createAuthSession(user.id, sessionId, user.username, user.is_admin || false, expiresAt);
 
     // Update last login
-    await sql`UPDATE users SET last_login_at = NOW() WHERE id = ${user.id}`;
+    await siwe.updateLastLogin(user.id);
 
     const responseData = {
       message: 'Login successful',

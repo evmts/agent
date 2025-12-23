@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { activateUser } from '../../../lib/auth-db';
+import { activateUser } from '../../../../db';
 
 export const POST: APIRoute = async ({ request }) => {
   try {

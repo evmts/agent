@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import RepoCard from "../components/RepoCard.astro";
 import TopicBadge from "../components/TopicBadge.astro";
-import { sql } from "../lib/db";
+import { sql } from "../../db";
 import type { Repository } from "../lib/types";
 
 const searchQuery = Astro.url.searchParams.get("q") || "";

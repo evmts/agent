@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { parseFrontmatter, stringifyFrontmatter } from "./frontmatter";
-import { sql } from "./db";
+import { sql } from "../../db";
 import type {
   GitIssue,
   GitComment,

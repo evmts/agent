@@ -2,7 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MilestoneCard from "../../../../components/MilestoneCard.astro";
-import { sql } from "../../../../lib/db";
+import { sql } from "../../../../../db";
 import type { User, Repository, Milestone } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
