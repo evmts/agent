@@ -10,7 +10,7 @@ services:
     ports:
       - '54321:5432'
     volumes:
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - ../../db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
       - postgres_data:/var/lib/postgresql/data
     command:
       - -c
@@ -101,7 +101,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.48.0
     volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -129,8 +129,8 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
       - '3001:3000'
@@ -147,7 +147,7 @@ services:
   loki:
     image: grafana/loki:2.9.0
     volumes:
-      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - ../monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     ports:
@@ -162,7 +162,7 @@ services:
   promtail:
     image: grafana/promtail:2.9.0
     volumes:
-      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - ../monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: -config.file=/etc/promtail/config.yml

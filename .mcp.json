@@ -2,16 +2,16 @@
   "mcpServers": {
     "prometheus": {
       "command": "bun",
-      "args": ["run", "mcp/prometheus-mcp/src/index.ts"],
+      "args": ["run", "infra/monitoring/prometheus.ts"],
       "env": {
         "PROMETHEUS_URL": "http://localhost:9090"
       }
     },
     "playwright": {
       "command": "bun",
-      "args": ["run", "mcp/playwright-mcp/src/index.ts"],
+      "args": ["run", "infra/monitoring/playwright.ts"],
       "env": {
-        "PROJECT_ROOT": "/Users/williamcory/agent"
+        "PROJECT_ROOT": "/Users/williamcory/plue"
       }
     }
   }
