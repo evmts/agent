@@ -1,7 +1,7 @@
 packages:
   - "db"
+  - "e2e"
   - "edge"
   - "snapshot"
-  - "mcp/*"
   - "server/voltaire"
   - "gitea"

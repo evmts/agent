@@ -6,6 +6,7 @@ import mkcert from 'vite-plugin-mkcert';
 
 export default defineConfig({
   srcDir: './ui',
+  publicDir: './ui/public',
   output: 'server',
   adapter: node({
     mode: 'standalone'
