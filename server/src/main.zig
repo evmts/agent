@@ -10,6 +10,7 @@ const repo_watcher = @import("services/repo_watcher.zig");
 const session_cleanup = @import("services/session_cleanup.zig");
 const edge_notifier = @import("services/edge_notifier.zig");
 const agent_handler = @import("websocket/agent_handler.zig");
+const workflows = @import("workflows/mod.zig");
 
 const log = std.log.scoped(.server);
 
@@ -166,7 +167,7 @@ pub const Context = struct {
 };
 
 pub const User = struct {
-    id: i64,
+    id: i32, // Changed from i64 to match Postgres INTEGER type (db/schema.sql:users.id)
     username: []const u8,
     email: ?[]const u8,
     display_name: ?[]const u8,

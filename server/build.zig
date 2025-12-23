@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
 
     // Database DAO module (from project root db/)
     const db_module = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = "../db/mod.zig" },
+        .root_source_file = .{ .cwd_relative = "../db/root.zig" },
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -38,6 +38,15 @@ pub fn build(b: *std.Build) void {
         "--release",
         "--manifest-path",
         "jj-ffi/Cargo.toml",
+    });
+
+    // Build prompt-parser Rust library
+    const prompt_parser_build = b.addSystemCommand(&.{
+        "cargo",
+        "build",
+        "--release",
+        "--manifest-path",
+        "prompt-parser/Cargo.toml",
     });
 
     // Main executable
@@ -64,6 +73,11 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("jj_ffi");
     exe.linkLibC();
 
+    // Link prompt-parser library
+    exe.step.dependOn(&prompt_parser_build.step);
+    exe.addLibraryPath(b.path("prompt-parser/target/release"));
+    exe.linkSystemLibrary("prompt_parser");
+
     // Link system libraries required by jj-lib
     if (target.result.os.tag == .macos) {
         exe.linkFramework("Security");
@@ -89,6 +103,59 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the server");
     run_step.dependOn(&run_cmd.step);
 
+    // CLI executable
+    const cli_exe = b.addExecutable(.{
+        .name = "plue",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/plue_cli.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "httpz", .module = httpz_dep.module("httpz") },
+                .{ .name = "pg", .module = pg_dep.module("pg") },
+                .{ .name = "primitives", .module = voltaire_dep.module("primitives") },
+                .{ .name = "crypto", .module = voltaire_dep.module("crypto") },
+                .{ .name = "db", .module = db_module },
+            },
+        }),
+    });
+
+    // Link jj-ffi library
+    cli_exe.step.dependOn(&jj_ffi_build.step);
+    cli_exe.addIncludePath(b.path("jj-ffi"));
+    cli_exe.addLibraryPath(b.path("jj-ffi/target/release"));
+    cli_exe.linkSystemLibrary("jj_ffi");
+    cli_exe.linkLibC();
+
+    // Link prompt-parser library
+    cli_exe.step.dependOn(&prompt_parser_build.step);
+    cli_exe.addLibraryPath(b.path("prompt-parser/target/release"));
+    cli_exe.linkSystemLibrary("prompt_parser");
+
+    // Link system libraries
+    if (target.result.os.tag == .macos) {
+        cli_exe.linkFramework("Security");
+        cli_exe.linkFramework("CoreFoundation");
+        cli_exe.linkSystemLibrary("resolv");
+    }
+
+    if (target.result.os.tag == .linux) {
+        cli_exe.linkSystemLibrary("gcc_s");
+    }
+
+    b.installArtifact(cli_exe);
+
+    // CLI run command
+    const cli_run_cmd = b.addRunArtifact(cli_exe);
+    cli_run_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        cli_run_cmd.addArgs(args);
+    }
+
+    const cli_run_step = b.step("cli", "Run the plue CLI tool");
+    cli_run_step.dependOn(&cli_run_cmd.step);
+
     // Tests
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -111,6 +178,11 @@ pub fn build(b: *std.Build) void {
     unit_tests.addLibraryPath(b.path("jj-ffi/target/release"));
     unit_tests.linkSystemLibrary("jj_ffi");
     unit_tests.linkLibC();
+
+    // Link prompt-parser library for tests
+    unit_tests.step.dependOn(&prompt_parser_build.step);
+    unit_tests.addLibraryPath(b.path("prompt-parser/target/release"));
+    unit_tests.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib for tests
     if (target.result.os.tag == .macos) {
@@ -145,6 +217,11 @@ pub fn build(b: *std.Build) void {
     integration_tests.addLibraryPath(b.path("jj-ffi/target/release"));
     integration_tests.linkSystemLibrary("jj_ffi");
     integration_tests.linkLibC();
+
+    // Link prompt-parser library for integration tests
+    integration_tests.step.dependOn(&prompt_parser_build.step);
+    integration_tests.addLibraryPath(b.path("prompt-parser/target/release"));
+    integration_tests.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib for integration tests
     if (target.result.os.tag == .macos) {
@@ -183,6 +260,11 @@ pub fn build(b: *std.Build) void {
     agent_tests.addLibraryPath(b.path("jj-ffi/target/release"));
     agent_tests.linkSystemLibrary("jj_ffi");
     agent_tests.linkLibC();
+
+    // Link prompt-parser library for agent tests
+    agent_tests.step.dependOn(&prompt_parser_build.step);
+    agent_tests.addLibraryPath(b.path("prompt-parser/target/release"));
+    agent_tests.linkSystemLibrary("prompt_parser");
 
     if (target.result.os.tag == .macos) {
         agent_tests.linkFramework("Security");

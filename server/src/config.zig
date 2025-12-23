@@ -43,7 +43,7 @@ pub fn load() Config {
             const port_str = std.posix.getenv("PORT") orelse "4000";
             break :blk std.fmt.parseInt(u16, port_str, 10) catch 4000;
         },
-        .database_url = std.posix.getenv("DATABASE_URL") orelse "postgresql://postgres:password@localhost:54321/electric",
+        .database_url = std.posix.getenv("DATABASE_URL") orelse "postgresql://postgres:password@localhost:54321/plue",
         .jwt_secret = jwt_secret,
         .cors_origins = &.{
             "http://localhost:4321",

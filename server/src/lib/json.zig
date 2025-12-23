@@ -191,9 +191,79 @@ pub fn parse(allocator: std.mem.Allocator, json_str: []const u8) !std.json.Parse
     return try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
 }
 
+/// Convert a std.json.Value to a JSON string.
+/// This recursively walks the value tree and constructs JSON.
+pub fn valueToString(allocator: std.mem.Allocator, value: std.json.Value) ![]const u8 {
+    var list = try std.ArrayList(u8).initCapacity(allocator, 256);
+    errdefer list.deinit(allocator);
+
+    const writer = list.writer(allocator);
+    try writeJsonValue(writer, value);
+
+    return try list.toOwnedSlice(allocator);
+}
+
+fn writeJsonValue(writer: anytype, value: std.json.Value) !void {
+    switch (value) {
+        .null => try writer.writeAll("null"),
+        .bool => |b| try writer.writeAll(if (b) "true" else "false"),
+        .integer => |n| try writer.print("{d}", .{n}),
+        .float => |f| try writer.print("{d}", .{f}),
+        .number_string => |s| try writer.writeAll(s),
+        .string => |s| {
+            try writer.writeByte('"');
+            // Escape the string
+            for (s) |c| {
+                switch (c) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => try writer.writeByte(c),
+                }
+            }
+            try writer.writeByte('"');
+        },
+        .array => |arr| {
+            try writer.writeByte('[');
+            for (arr.items, 0..) |item, i| {
+                if (i > 0) try writer.writeByte(',');
+                try writeJsonValue(writer, item);
+            }
+            try writer.writeByte(']');
+        },
+        .object => |obj| {
+            try writer.writeByte('{');
+            var iter = obj.iterator();
+            var first = true;
+            while (iter.next()) |entry| {
+                if (!first) try writer.writeByte(',');
+                first = false;
+
+                // Write key
+                try writer.writeByte('"');
+                try writer.writeAll(entry.key_ptr.*);
+                try writer.writeAll("\":");
+
+                // Write value
+                try writeJsonValue(writer, entry.value_ptr.*);
+            }
+            try writer.writeByte('}');
+        },
+    }
+}
+
 /// Stringify a value to JSON.
+/// NOTE: In Zig 0.15, std.json.stringify does not exist.
+/// This function is kept for API compatibility but marked as deprecated.
+/// Use valueToString for std.json.Value or manual JSON construction.
 pub fn stringify(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
-    return try std.json.stringifyAlloc(allocator, value, .{});
+    _ = allocator;
+    _ = value;
+    // TODO: Implement manual JSON construction for arbitrary types
+    // For now, return error to indicate this function needs manual implementation
+    return error.NotImplemented;
 }
 
 // =============================================================================
