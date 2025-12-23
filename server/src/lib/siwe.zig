@@ -6,7 +6,7 @@
 const std = @import("std");
 const primitives = @import("primitives");
 const crypto_pkg = @import("crypto");
-const db = @import("db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.siwe);
 

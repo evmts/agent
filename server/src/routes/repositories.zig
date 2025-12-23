@@ -1244,10 +1244,12 @@ pub fn getChange(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     };
 
     var writer = res.writer();
+    const commit_id = change.commit_id orelse "";
+    const description = change.description orelse "";
     try writer.print("{{\"change\":{{\"changeId\":\"{s}\",\"commitId\":\"{s}\",\"description\":\"{s}\"}}}}", .{
         change.change_id,
-        change.commit_id,
-        change.description,
+        commit_id,
+        description,
     });
 }
 

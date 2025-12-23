@@ -12,22 +12,6 @@ const db = @import("db");
 
 const log = std.log.scoped(.tokens);
 
-/// Generate a secure random token (32 bytes = 64 hex characters)
-fn generateToken(allocator: std.mem.Allocator) ![]const u8 {
-    var token_bytes: [32]u8 = undefined;
-    std.crypto.random.bytes(&token_bytes);
-    const hex = std.fmt.bytesToHex(token_bytes, .lower);
-    return allocator.dupe(u8, &hex);
-}
-
-/// Calculate SHA256 hash of token
-fn hashToken(allocator: std.mem.Allocator, token: []const u8) ![]const u8 {
-    var hash: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(token, &hash, .{});
-    const hex = std.fmt.bytesToHex(hash, .lower);
-    return allocator.dupe(u8, &hex);
-}
-
 /// GET /api/user/tokens - List user's access tokens
 pub fn list(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
@@ -173,15 +157,6 @@ pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         }
     }
 
-    // Generate token
-    const token = try generateToken(ctx.allocator);
-    defer ctx.allocator.free(token);
-
-    const token_hash = try hashToken(ctx.allocator, token);
-    defer ctx.allocator.free(token_hash);
-
-    const token_last_eight = if (token.len >= 8) token[token.len - 8 ..] else token;
-
     // Join scopes with comma
     var scopes_str = std.ArrayList(u8){};
     defer scopes_str.deinit(ctx.allocator);
@@ -191,26 +166,29 @@ pub fn create(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         try scopes_str.appendSlice(ctx.allocator, scope);
     }
 
-    // Insert token into database
-    const token_id = db.createAccessToken(
+    // Create token (generates, hashes, stores, returns raw token)
+    const token = db.createAccessToken(
         ctx.pool,
+        ctx.allocator,
         user.id,
         name,
-        token_hash,
-        token_last_eight,
         scopes_str.items,
     ) catch {
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to create access token\"}");
         return;
     };
+    defer ctx.allocator.free(token);
+
+    // Get last 8 chars for display
+    const token_last_eight = if (token.len >= 8) token[token.len - 8 ..] else token;
 
     // Return created token with FULL token (only time it's shown)
     res.status = 201;
     var writer = res.writer();
     try writer.print(
-        \\{{"token":{{"id":{d},"name":"{s}","tokenLastEight":"{s}","scopes":"{s}"}},"fullToken":"{s}","message":"Token created successfully. Save it now - you won't be able to see it again!"}}
-    , .{ token_id, name, token_last_eight, scopes_str.items, token });
+        \\{{"token":{{"name":"{s}","tokenLastEight":"{s}","scopes":"{s}"}},"fullToken":"{s}","message":"Token created successfully. Save it now - you won't be able to see it again!"}}
+    , .{ name, token_last_eight, scopes_str.items, token });
 }
 
 /// DELETE /api/user/tokens/:id - Revoke access token
