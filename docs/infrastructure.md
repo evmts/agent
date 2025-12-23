@@ -533,7 +533,13 @@ autoscaling:
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │                        Cloudflare                                │   │
 │   │                                                                  │   │
-│   │   - CDN (git blobs, static assets)                              │   │
+│   │   Edge Worker (@plue/edge):                                     │   │
+│   │   - Caching proxy with version-based invalidation              │   │
+│   │   - Cache-Tag support for targeted purging                     │   │
+│   │   - Session-aware (bypasses cache for logged-in users)         │   │
+│   │                                                                  │   │
+│   │   CDN:                                                          │   │
+│   │   - Static assets, git blobs (immutable)                       │   │
 │   │   - DDoS protection                                              │   │
 │   │   - SSL termination                                              │   │
 │   │   - plue.dev → GKE                                              │   │
@@ -1736,6 +1742,56 @@ jobs:
 │   4. Merge to main → auto-deploys to production                         │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Edge Worker Deployment
+
+The Cloudflare Edge Worker (`@plue/edge`) is deployed separately from the main application.
+
+### Deployment Commands
+
+```bash
+# Development (local)
+cd edge && pnpm dev
+
+# Deploy to production (includes BUILD_VERSION for cache invalidation)
+cd edge && pnpm deploy
+
+# Purge entire cache after deploy
+CF_ZONE_ID=xxx CF_API_TOKEN=xxx pnpm purge
+
+# Purge specific cache tags
+CF_ZONE_ID=xxx CF_API_TOKEN=xxx pnpm purge:tags user:123 repo:456
+```
+
+### Environment Variables
+
+| Variable | Purpose | Where Set |
+|----------|---------|-----------|
+| `ORIGIN_HOST` | Backend server hostname | wrangler.toml |
+| `BUILD_VERSION` | Cache key version (git SHA) | Set during `pnpm deploy` |
+| `CF_ZONE_ID` | Cloudflare zone for cache purge | Environment/CI secrets |
+| `CF_API_TOKEN` | Cloudflare API token | Environment/CI secrets |
+
+### Caching Strategy
+
+The edge worker implements intelligent caching:
+
+1. **Anonymous users**: Cached responses based on `Cache-Control` headers from Astro
+2. **Authenticated users**: Cache bypassed (session cookie detected)
+3. **Deploy invalidation**: `BUILD_VERSION` in cache key means new deploys get fresh cache
+4. **Targeted purge**: `Cache-Tag` headers enable purging specific content (e.g., user profiles)
+
+### Setting Cache Headers in Astro
+
+```typescript
+// ui/lib/cache.ts provides utilities:
+cacheStatic(Astro);      // Forever (login, register, landing)
+cacheWithTags(Astro, ['user:123']);  // With tags for purging
+cacheShort(Astro, [], 60);  // Short TTL for dynamic lists
+noCache(Astro);          // No cache (dashboard, personalized)
 ```
 
 ---

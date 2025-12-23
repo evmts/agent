@@ -221,6 +221,73 @@ Plue's reality:
 4. **SSE for real-time streaming** — direct push, no sync layer
 5. **K8s for sandboxed execution** — workflows and agents are the same thing
 
+### Edge Caching Architecture
+
+The Cloudflare Edge Worker (`edge/`) acts as a caching proxy in front of the origin server.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          EDGE CACHING FLOW                               │
+│                                                                          │
+│   Request ──► Has session cookie? ──► YES ──► BYPASS cache ──► Origin   │
+│                      │                                                   │
+│                      NO                                                  │
+│                      │                                                   │
+│                      ▼                                                   │
+│               Check Workers Cache                                        │
+│                      │                                                   │
+│              ┌───────┴───────┐                                          │
+│              │               │                                          │
+│            HIT             MISS                                          │
+│              │               │                                          │
+│              ▼               ▼                                          │
+│         Return cached    Fetch from origin                              │
+│                               │                                          │
+│                               ▼                                          │
+│                      Cache if public + max-age                          │
+│                               │                                          │
+│                               ▼                                          │
+│                         Return response                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Cache Invalidation Strategies
+
+| Strategy | Use Case | How |
+|----------|----------|-----|
+| **Deploy version** | Invalidate all on deploy | `BUILD_VERSION` in cache key |
+| **Cache-Tag purge** | Targeted invalidation | `Cache-Tag` header + API purge |
+| **TTL expiry** | Time-based refresh | `Cache-Control: max-age` |
+
+#### Setting Cache Headers in Astro
+
+```typescript
+// ui/lib/cache.ts
+import { cacheStatic, cacheWithTags, cacheShort, noCache, CacheTags } from '../lib/cache';
+
+// Static pages - cache forever until deploy
+cacheStatic(Astro);  // Cache-Control: public, max-age=31536000, immutable
+
+// DB-dependent pages - cache with tags for targeted invalidation
+cacheWithTags(Astro, [CacheTags.user(123), CacheTags.repo('owner', 'name')]);
+
+// Frequently changing content - short TTL
+cacheShort(Astro, [CacheTags.issues(456)], 60, 3600);
+
+// Personalized/dynamic content - no cache
+noCache(Astro);
+```
+
+#### Cache Purge Commands
+
+```bash
+# Purge everything (on deploy)
+pnpm --filter @plue/edge purge
+
+# Purge by tags (on data change)
+CF_ZONE_ID=xxx CF_API_TOKEN=xxx pnpm --filter @plue/edge purge:tags user:123 repo:456
+```
+
 ---
 
 ## Component Deep Dives

@@ -19,8 +19,27 @@ plue/
 │   ├── src/routes/    # API handlers
 │   └── jj-ffi/        # Rust FFI for jj-lib
 ├── ui/                # Astro SSR frontend
-├── edge/              # Cloudflare Workers proxy
-├── db/schema.sql      # PostgreSQL schema
+│   ├── pages/         # Astro pages
+│   ├── components/    # UI components
+│   └── lib/           # Utilities (auth, cache, git, etc.)
+├── edge/              # Cloudflare Workers caching proxy
+│   ├── index.ts       # Main worker (proxy + cache)
+│   ├── purge.ts       # Cache purge utilities
+│   └── types.ts       # Environment bindings
+├── core/              # Zig agent core library
+│   ├── root.zig       # Module entry point
+│   ├── models/        # Domain entities (Session, Message, Part)
+│   ├── state.zig      # Runtime state tracking
+│   └── events.zig     # Event bus
+├── db/                # Database layer (@plue/db)
+│   ├── root.zig       # Zig module entry
+│   ├── daos/          # Data Access Objects (Zig)
+│   ├── schema.sql     # PostgreSQL schema
+│   └── *.ts           # TypeScript DB utilities
+├── e2e/               # End-to-end tests (@plue/e2e)
+│   ├── cases/         # Test spec files
+│   ├── fixtures.ts    # Test fixtures
+│   └── playwright.config.ts
 ├── docs/              # Architecture & infrastructure docs
 ├── infra/             # All deployment infrastructure
 │   ├── terraform/     # Infrastructure as code
@@ -50,8 +69,11 @@ plue/
 | API routes | `server/src/routes/` |
 | Agent tools | `server/src/ai/tools/` |
 | Database schema | `db/schema.sql` |
+| Database DAOs | `db/daos/` |
 | Frontend pages | `ui/pages/` |
-| Edge router | `edge/src/router.ts` |
+| Cache utilities | `ui/lib/cache.ts` |
+| Edge worker | `edge/index.ts` |
+| E2E tests | `e2e/cases/` |
 
 ## Documentation
 
