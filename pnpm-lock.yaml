@@ -26,8 +26,11 @@ importers:
       '@node-rs/argon2':
         specifier: ^1.8.3
         version: 1.8.3
+      '@plue/db':
+        specifier: workspace:*
+        version: link:db
       '@plue/snapshot':
-        specifier: ./snapshot
+        specifier: workspace:*
         version: link:snapshot
       '@toast-ui/editor':
         specifier: ^3.2.2
@@ -105,6 +108,12 @@ importers:
       vite-plugin-mkcert:
         specifier: ^1.17.9
         version: 1.17.9(vite@6.4.1(@types/node@20.19.27)(jiti@1.21.7)(stylus@0.57.0)(terser@5.44.1)(yaml@2.8.2))
+
+  db:
+    dependencies:
+      postgres:
+        specifier: ^3.4.0
+        version: 3.4.7
 
   edge:
     dependencies:

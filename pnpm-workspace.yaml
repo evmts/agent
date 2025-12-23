@@ -1,4 +1,5 @@
 packages:
+  - "db"
   - "edge"
   - "snapshot"
   - "mcp/*"
