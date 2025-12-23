@@ -1,0 +1,6 @@
+packages:
+  - "edge"
+  - "snapshot"
+  - "mcp/*"
+  - "server/voltaire"
+  - "gitea"
