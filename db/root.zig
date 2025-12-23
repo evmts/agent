@@ -35,20 +35,20 @@ pub const EMAIL_VERIFICATION_TOKEN_DURATION_MS: i64 = 24 * 60 * 60 * 1000;
 // Domain DAOs
 // =============================================================================
 
-pub const users = @import("users.zig");
-pub const sessions = @import("sessions.zig");
-pub const tokens = @import("tokens.zig");
-pub const ssh_keys = @import("ssh_keys.zig");
-pub const repositories = @import("repositories.zig");
-pub const issues = @import("issues.zig");
-pub const labels = @import("labels.zig");
-pub const reactions = @import("reactions.zig");
-pub const milestones = @import("milestones.zig");
-pub const workflows = @import("workflows.zig");
-pub const changes = @import("changes.zig");
-pub const agent = @import("agent.zig");
-pub const stars = @import("stars.zig");
-pub const landing = @import("landing.zig");
+pub const users = @import("daos/users.zig");
+pub const sessions = @import("daos/sessions.zig");
+pub const tokens = @import("daos/tokens.zig");
+pub const ssh_keys = @import("daos/ssh_keys.zig");
+pub const repositories = @import("daos/repositories.zig");
+pub const issues = @import("daos/issues.zig");
+pub const labels = @import("daos/labels.zig");
+pub const reactions = @import("daos/reactions.zig");
+pub const milestones = @import("daos/milestones.zig");
+pub const workflows = @import("daos/workflows.zig");
+pub const changes = @import("daos/changes.zig");
+pub const agent = @import("daos/agent.zig");
+pub const stars = @import("daos/stars.zig");
+pub const landing = @import("daos/landing.zig");
 
 // =============================================================================
 // Convenience re-exports for common types
