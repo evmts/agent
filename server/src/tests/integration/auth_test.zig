@@ -10,7 +10,7 @@
 const std = @import("std");
 const testing = std.testing;
 const mod = @import("mod.zig");
-const db = @import("../../lib/db.zig");
+const db = @import("db");
 
 const log = std.log.scoped(.auth_test);
 
