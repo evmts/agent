@@ -120,3 +120,17 @@ pub fn delete(pool: *Pool, repo_id: i64) !void {
         \\DELETE FROM repositories WHERE id = $1
     , .{repo_id});
 }
+
+/// Get repository ID by username and repository name (case-insensitive)
+pub fn getId(pool: *Pool, username: []const u8, repo_name: []const u8) !?i64 {
+    const row = try pool.row(
+        \\SELECT r.id FROM repositories r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE u.lower_username = lower($1) AND lower(r.name) = lower($2)
+    , .{ username, repo_name });
+
+    if (row) |r| {
+        return r.get(i64, 0);
+    }
+    return null;
+}

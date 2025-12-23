@@ -65,9 +65,12 @@ pub const PartRecord = struct {
 // =============================================================================
 
 pub fn getAllSessions(pool: *Pool, allocator: std.mem.Allocator) !std.ArrayList(SessionRecord) {
+    var conn = try pool.acquire();
+    defer conn.release();
+
     var sessions = try std.ArrayList(SessionRecord).initCapacity(allocator, 0);
 
-    var result = try pool.query(
+    var result = try conn.query(
         \\SELECT id, project_id, directory, title, version, time_created, time_updated,
         \\       time_archived, parent_id, fork_point, summary::text, revert::text,
         \\       compaction::text, token_count, bypass_mode, model, reasoning_effort,

@@ -8,6 +8,9 @@ const users = @import("users.zig");
 
 pub const Pool = pg.Pool;
 
+// Token prefix for API tokens (like GitHub's "ghp_")
+const TOKEN_PREFIX = "plt_";
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -32,6 +35,41 @@ pub const TokenValidationResult = struct {
 // Access Token Operations
 // =============================================================================
 
+/// Generate a new access token, store it in the database, and return the raw token.
+/// The raw token should be shown to the user once and never stored.
+/// Caller owns the returned slice and must free it.
+pub fn createAccessToken(
+    pool: *Pool,
+    allocator: std.mem.Allocator,
+    user_id: i64,
+    name: []const u8,
+    scopes: []const u8,
+) ![]const u8 {
+    // Generate 32 random bytes for the token
+    var token_bytes: [32]u8 = undefined;
+    std.crypto.random.bytes(&token_bytes);
+
+    // Encode as hex and add prefix
+    const hex_buf = std.fmt.bytesToHex(token_bytes, .lower);
+
+    const raw_token = try std.fmt.allocPrint(allocator, "{s}{s}", .{ TOKEN_PREFIX, hex_buf });
+    errdefer allocator.free(raw_token);
+
+    // Hash the token for storage (SHA-256)
+    var hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(raw_token, &hash, .{});
+    const hash_hex = std.fmt.bytesToHex(hash, .lower);
+
+    // Get last 8 characters of raw token for display
+    const token_last_eight = raw_token[raw_token.len - 8 ..];
+
+    // Store in database
+    _ = try create(pool, user_id, name, &hash_hex, token_last_eight, scopes);
+
+    return raw_token;
+}
+
+/// Low-level create that stores pre-hashed token
 pub fn create(
     pool: *Pool,
     user_id: i64,
@@ -59,6 +97,9 @@ pub fn delete(pool: *Pool, token_id: i64, user_id: i64) !bool {
     return affected != null and affected.? > 0;
 }
 
+/// Validate a token hash and return the associated user and scopes.
+/// The token_hash should already be SHA-256 hashed (by auth middleware).
+/// Note: scopes slice points to internal memory and should be copied if needed beyond immediate use.
 pub fn validate(pool: *Pool, token_hash: []const u8) !?TokenValidationResult {
     // Update last_used_at and return user_id + scopes
     const row = try pool.row(

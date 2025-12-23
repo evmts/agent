@@ -1,0 +1,81 @@
+/**
+ * TypeScript Database Access Layer
+ *
+ * Central module re-exporting all TypeScript DAOs and shared types.
+ */
+
+// =============================================================================
+// Database Client
+// =============================================================================
+
+export { sql, sql as default } from './client';
+
+// =============================================================================
+// Domain DAOs
+// =============================================================================
+
+export * as auth from './auth';
+export * as siwe from './siwe';
+export * as sessions from './sessions';
+export * as mentions from './mentions';
+export * as issueReferences from './issue-references';
+export * as landing from './landing';
+
+// =============================================================================
+// Re-exports for convenience
+// =============================================================================
+
+// Auth
+export {
+  getUserBySession,
+  getUserByUsernameOrEmail,
+  getUserById,
+  getUserByUsername,
+  getUserByEmail,
+  getUserByActivationToken,
+  createUser,
+  createSession,
+  deleteSession,
+  deleteAllUserSessions,
+  activateUser,
+  createPasswordResetToken,
+  getUserByResetToken,
+  updateUserPassword,
+  deletePasswordResetToken,
+  updateUserProfile,
+  type CreateSessionResult,
+} from './auth';
+
+// SIWE
+export {
+  createNonce,
+  validateNonce,
+  markNonceUsed,
+  getOrCreateUserByWallet,
+  createAuthSession,
+  updateLastLogin,
+} from './siwe';
+
+// Sessions
+export {
+  listSessions,
+  createAgentSession,
+} from './sessions';
+
+// Mentions
+export {
+  saveMentionsForIssue,
+  saveMentionsForComment,
+  getMentionedUsersForIssue,
+  getMentionsForUser,
+} from './mentions';
+
+// Issue References
+export {
+  trackIssueReferences,
+  trackCommentReferences,
+  getReferencingIssues,
+  getReferencedIssues,
+  deleteCommentReferences,
+  deleteIssueReferences,
+} from './issue-references';

@@ -80,7 +80,7 @@ pub const cleanupExpiredNonces = sessions.cleanupExpiredNonces;
 // Token types
 pub const AccessTokenRecord = tokens.AccessTokenRecord;
 pub const TokenValidationResult = tokens.TokenValidationResult;
-pub const createAccessToken = tokens.create;
+pub const createAccessToken = tokens.createAccessToken;
 pub const deleteAccessToken = tokens.delete;
 pub const validateAccessToken = tokens.validate;
 
@@ -97,6 +97,7 @@ pub const getRepositoryByUserAndName = repositories.getByUserAndName;
 pub const createRepository = repositories.create;
 pub const repositoryExists = repositories.exists;
 pub const updateRepositoryTopics = repositories.updateTopics;
+pub const getRepositoryId = repositories.getId;
 
 // Agent session types
 pub const AgentSessionRecord = agent.SessionRecord;
@@ -243,25 +244,10 @@ pub const deleteBookmark = changes.deleteBookmark;
 pub const setDefaultBookmark = changes.setDefaultBookmark;
 pub const getChangeById = changes.getChangeById;
 
-// =============================================================================
-// Repository operations
-// =============================================================================
-
-pub fn getRepositoryId(pool: *Pool, username: []const u8, repo_name: []const u8) !?i64 {
-    const row = try pool.row(
-        \\SELECT r.id FROM repositories r
-        \\JOIN users u ON r.user_id = u.id
-        \\WHERE u.lower_username = lower($1) AND lower(r.name) = lower($2)
-    , .{ username, repo_name });
-
-    if (row) |r| {
-        return r.get(i64, 0);
-    }
-    return null;
-}
 
 // =============================================================================
 // Workflow operations (backward-compatible)
+// TODO: Migrate routes to use workflows.zig types, then remove these legacy types
 // =============================================================================
 
 pub const WorkflowRunLegacy = struct {
