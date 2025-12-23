@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect } from '../fixtures';
 
 /**
  * Bug Validation Tests - 2025-12-20

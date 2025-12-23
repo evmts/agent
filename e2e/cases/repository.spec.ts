@@ -1,4 +1,4 @@
-import { test, expect, selectors, TEST_DATA } from './fixtures';
+import { test, expect, selectors, TEST_DATA } from '../fixtures';
 
 const { user, repo } = TEST_DATA;
 

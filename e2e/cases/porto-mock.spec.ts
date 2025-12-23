@@ -5,7 +5,7 @@
  * for headless E2E testing without real passkey interaction.
  */
 
-import { test, expect } from './fixtures';
+import { test, expect } from '../fixtures';
 
 test.describe('Porto Mock Passkey', () => {
   test('should detect E2E test environment', async ({ page }) => {
