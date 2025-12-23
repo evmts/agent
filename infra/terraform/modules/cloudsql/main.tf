@@ -1,7 +1,7 @@
 # =============================================================================
 # Cloud SQL PostgreSQL Module
 # =============================================================================
-# Creates a PostgreSQL 16 instance with logical replication for ElectricSQL.
+# Creates a PostgreSQL 16 instance with logical replication support.
 
 terraform {
   required_version = ">= 1.5.0"
@@ -66,7 +66,7 @@ resource "google_sql_database_instance" "postgres" {
       }
     }
 
-    # Database flags for ElectricSQL logical replication
+    # Database flags for logical replication
     database_flags {
       name  = "cloudsql.logical_decoding"
       value = "on"
@@ -113,8 +113,8 @@ resource "google_sql_database_instance" "postgres" {
 # Database
 # -----------------------------------------------------------------------------
 
-resource "google_sql_database" "electric" {
-  name     = "electric"
+resource "google_sql_database" "plue" {
+  name     = "plue"
   project  = var.project_id
   instance = google_sql_database_instance.postgres.name
 }
@@ -164,5 +164,5 @@ resource "google_secret_manager_secret" "database_url" {
 
 resource "google_secret_manager_secret_version" "database_url" {
   secret      = google_secret_manager_secret.database_url.id
-  secret_data = "postgresql://postgres:${random_password.db_password.result}@${google_sql_database_instance.postgres.private_ip_address}:5432/electric"
+  secret_data = "postgresql://postgres:${random_password.db_password.result}@${google_sql_database_instance.postgres.private_ip_address}:5432/plue"
 }

@@ -10,9 +10,9 @@ Deploy Plue to Google Cloud Platform with GKE, Cloud SQL, and Cloudflare DNS.
                     [GKE LoadBalancer]
                            |
               +------------+------------+
-              |            |            |
-          [Web:5173]  [API:4000]  [Electric:3000]
-              |            |            |
+              |                         |
+          [Web:5173]              [API:4000]
+              |                         |
               +------------+------------+
                            |
                    [Cloud SQL PostgreSQL]
@@ -152,8 +152,8 @@ terraform/
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Compute | GKE Standard | WebSocket support, persistent volumes, Workload Identity |
-| Database | Cloud SQL PostgreSQL 16 | Managed, HA, logical replication for ElectricSQL |
-| Storage | SSD Persistent Disks | Fast I/O for Electric and git repos |
+| Database | Cloud SQL PostgreSQL 16 | Managed, HA, logical replication support |
+| Storage | SSD Persistent Disks | Fast I/O for git repos |
 | Ingress | nginx-ingress | Better WebSocket support than GCE Ingress |
 | DNS/CDN | Cloudflare | DDoS protection, edge caching, easy SSL |
 | Secrets | Secret Manager | Audit logging, rotation, IAM integration |
@@ -188,7 +188,6 @@ $(terraform output -raw gke_get_credentials_command)
 kubectl get pods -n plue
 kubectl logs -n plue deployment/api
 kubectl logs -n plue deployment/web
-kubectl logs -n plue deployment/electric
 ```
 
 ### Check ingress
@@ -206,7 +205,7 @@ terraform output cloudsql_connection_name
 
 # Use Cloud SQL Proxy for local access
 cloud-sql-proxy PROJECT:REGION:INSTANCE --port 5433
-psql -h localhost -p 5433 -U postgres -d electric
+psql -h localhost -p 5433 -U postgres -d plue
 ```
 
 ## Cleanup

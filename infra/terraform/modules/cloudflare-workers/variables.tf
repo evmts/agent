@@ -41,12 +41,6 @@ variable "origin_host" {
   default     = "origin.internal"
 }
 
-variable "electric_url" {
-  type        = string
-  description = "ElectricSQL endpoint URL (via tunnel)"
-  default     = "http://electric.internal:3000"
-}
-
 variable "push_secret" {
   description = "Shared secret for K8s to authenticate push invalidations to Workers"
   type        = string

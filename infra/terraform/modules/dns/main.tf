@@ -42,18 +42,6 @@ resource "cloudflare_record" "api" {
   comment = "Plue API service"
 }
 
-# Electric (real-time sync) subdomain
-resource "cloudflare_record" "electric" {
-  zone_id = var.cloudflare_zone_id
-  name    = var.subdomain != "" ? "electric.${var.subdomain}" : "electric"
-  content = var.load_balancer_ip
-  type    = "A"
-  proxied = var.enable_proxy
-  ttl     = var.enable_proxy ? 1 : 300
-
-  comment = "Plue ElectricSQL sync service"
-}
-
 # Adminer (database admin) - optional
 resource "cloudflare_record" "adminer" {
   count = var.enable_adminer_dns ? 1 : 0

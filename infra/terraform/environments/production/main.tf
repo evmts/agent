@@ -227,7 +227,6 @@ module "kubernetes" {
   image_tag                   = var.image_tag
   domain                      = var.domain
   api_replicas                = var.api_replicas
-  electric_storage_size       = var.electric_storage_size
   repos_storage_size          = var.repos_storage_size
 
   # Cloudflare Tunnel configuration (for edge deployment)
@@ -280,7 +279,6 @@ module "cloudflare_tunnel" {
   # Internal service URLs (resolved within GKE cluster)
   origin_web_service     = "http://web:5173"
   origin_api_service     = "http://api:4000"
-  origin_electric_service = "http://electric:3000"
 }
 
 # Random secret for tunnel authentication
@@ -319,7 +317,6 @@ module "cloudflare_workers" {
 
   # Internal hostnames (resolved via Cloudflare Tunnel)
   origin_host  = "origin.internal"
-  electric_url = "http://electric.internal:3000"
 
   jwt_secret   = random_password.jwt_secret[0].result
   push_secret  = random_password.edge_push_secret[0].result

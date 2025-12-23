@@ -44,7 +44,7 @@ resource "kubernetes_network_policy" "default_deny" {
 # =============================================================================
 # API server needs:
 #   Ingress: from ingress-nginx, web service, cloudflared
-#   Egress: to database, electric, external APIs (Claude API, webhooks)
+#   Egress: to database, external APIs (Claude API, webhooks)
 
 resource "kubernetes_network_policy" "api_policy" {
   metadata {
@@ -126,21 +126,6 @@ resource "kubernetes_network_policy" "api_policy" {
       }
     }
 
-    # Allow egress to ElectricSQL
-    egress {
-      to {
-        pod_selector {
-          match_labels = {
-            app = "electric"
-          }
-        }
-      }
-      ports {
-        port     = "3000"
-        protocol = "TCP"
-      }
-    }
-
     # Allow egress to external APIs (Claude API, webhooks, etc.)
     # Note: This allows ALL external HTTPS traffic. For stricter security,
     # consider using Istio/Linkerd to restrict by domain.
@@ -194,7 +179,7 @@ resource "kubernetes_network_policy" "api_policy" {
 # =============================================================================
 # Web frontend needs:
 #   Ingress: from ingress-nginx, cloudflared
-#   Egress: to API service, electric service, database (for SSR)
+#   Egress: to API service, database (for SSR)
 
 resource "kubernetes_network_policy" "web_policy" {
   metadata {
@@ -261,21 +246,6 @@ resource "kubernetes_network_policy" "web_policy" {
       }
     }
 
-    # Allow egress to ElectricSQL (for SSR)
-    egress {
-      to {
-        pod_selector {
-          match_labels = {
-            app = "electric"
-          }
-        }
-      }
-      ports {
-        port     = "3000"
-        protocol = "TCP"
-      }
-    }
-
     # Allow egress to database (for SSR queries)
     egress {
       to {
@@ -316,7 +286,7 @@ resource "kubernetes_network_policy" "web_policy" {
 # Database Network Policy (PostgreSQL)
 # =============================================================================
 # Database needs:
-#   Ingress: from API, web, electric, adminer, db-migrate job
+#   Ingress: from API, web, adminer, db-migrate job
 #   Egress: none (database doesn't initiate connections)
 
 resource "kubernetes_network_policy" "database_policy" {
@@ -369,21 +339,6 @@ resource "kubernetes_network_policy" "database_policy" {
       }
     }
 
-    # Allow ingress from ElectricSQL
-    ingress {
-      from {
-        pod_selector {
-          match_labels = {
-            app = "electric"
-          }
-        }
-      }
-      ports {
-        port     = "5432"
-        protocol = "TCP"
-      }
-    }
-
     # Allow ingress from Adminer (for admin access)
     ingress {
       from {
@@ -416,129 +371,6 @@ resource "kubernetes_network_policy" "database_policy" {
 
     # Database doesn't initiate outbound connections
     # No egress rules defined (implicitly denied by default policy)
-  }
-}
-
-# =============================================================================
-# ElectricSQL Network Policy
-# =============================================================================
-# ElectricSQL needs:
-#   Ingress: from ingress-nginx, API service, web service, cloudflared
-#   Egress: to database only
-
-resource "kubernetes_network_policy" "electric_policy" {
-  metadata {
-    name      = "electric-network-policy"
-    namespace = var.namespace
-
-    labels = {
-      app        = "electric"
-      managed-by = "terraform"
-    }
-  }
-
-  spec {
-    pod_selector {
-      match_labels = {
-        app = "electric"
-      }
-    }
-
-    policy_types = ["Ingress", "Egress"]
-
-    # Allow ingress from ingress-nginx controller
-    ingress {
-      from {
-        namespace_selector {
-          match_labels = {
-            name = "ingress-nginx"
-          }
-        }
-      }
-      ports {
-        port     = "3000"
-        protocol = "TCP"
-      }
-    }
-
-    # Allow ingress from API service
-    ingress {
-      from {
-        pod_selector {
-          match_labels = {
-            app = "api"
-          }
-        }
-      }
-      ports {
-        port     = "3000"
-        protocol = "TCP"
-      }
-    }
-
-    # Allow ingress from web service
-    ingress {
-      from {
-        pod_selector {
-          match_labels = {
-            app = "web"
-          }
-        }
-      }
-      ports {
-        port     = "3000"
-        protocol = "TCP"
-      }
-    }
-
-    # Allow ingress from cloudflared (if enabled)
-    ingress {
-      from {
-        pod_selector {
-          match_labels = {
-            app = "cloudflared"
-          }
-        }
-      }
-      ports {
-        port     = "3000"
-        protocol = "TCP"
-      }
-    }
-
-    # Allow egress to database
-    egress {
-      to {
-        pod_selector {
-          match_labels = {
-            app = "postgres"
-          }
-        }
-      }
-      ports {
-        port     = "5432"
-        protocol = "TCP"
-      }
-    }
-
-    # Allow DNS resolution
-    egress {
-      to {
-        namespace_selector {
-          match_labels = {
-            name = "kube-system"
-          }
-        }
-      }
-      ports {
-        port     = "53"
-        protocol = "UDP"
-      }
-      ports {
-        port     = "53"
-        protocol = "TCP"
-      }
-    }
   }
 }
 

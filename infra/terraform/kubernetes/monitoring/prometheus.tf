@@ -200,35 +200,6 @@ resource "kubernetes_config_map" "prometheus" {
               replacement  = "/metrics"
             }
           ]
-        },
-
-        # Electric Service
-        {
-          job_name = "electric"
-          kubernetes_sd_configs = [{
-            role      = "pod"
-            namespaces = {
-              names = [var.namespace]
-            }
-          }]
-          relabel_configs = [
-            {
-              source_labels = ["__meta_kubernetes_pod_label_app"]
-              action        = "keep"
-              regex         = "electric"
-            },
-            {
-              source_labels = ["__meta_kubernetes_pod_ip"]
-              action        = "replace"
-              target_label  = "__address__"
-              replacement   = "$1:3000"
-            },
-            {
-              action       = "replace"
-              target_label = "__metrics_path__"
-              replacement  = "/metrics"
-            }
-          ]
         }
       ]
     })

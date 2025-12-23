@@ -145,20 +145,10 @@ resource "kubernetes_deployment" "web" {
             value = "http://api:4000"
           }
 
-          env {
-            name  = "PUBLIC_ELECTRIC_URL"
-            value = "http://electric:3000"
-          }
-
           # External URLs (browser)
           env {
             name  = "PUBLIC_CLIENT_API_URL"
             value = "https://api.${var.domain}"
-          }
-
-          env {
-            name  = "PUBLIC_CLIENT_ELECTRIC_URL"
-            value = "https://electric.${var.domain}"
           }
 
           env {

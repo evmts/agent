@@ -39,7 +39,6 @@ cloudflare_zone_id   = "xxxxx"            # Cloudflare Zone ID
 # -----------------------------------------------------------------------------
 # image_tag             = "v1.0.0"
 # api_replicas          = 2
-# electric_storage_size = "50Gi"
 # repos_storage_size    = "100Gi"
 
 # -----------------------------------------------------------------------------

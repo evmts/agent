@@ -1,7 +1,7 @@
 # =============================================================================
 # Cloudflare Workers Module
 # =============================================================================
-# Deploys the Plue edge worker with Durable Objects for Electric-synced SQLite.
+# Deploys the Plue edge worker for caching and routing.
 
 terraform {
   required_providers {
@@ -47,11 +47,6 @@ resource "cloudflare_workers_script" "edge" {
   plain_text_binding {
     name = "ORIGIN_HOST"
     text = var.origin_host
-  }
-
-  plain_text_binding {
-    name = "ELECTRIC_URL"
-    text = var.electric_url
   }
 
   # Secrets

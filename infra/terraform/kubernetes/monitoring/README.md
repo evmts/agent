@@ -16,7 +16,6 @@ Prometheus, AlertManager, and Grafana stack for comprehensive monitoring of the 
 - All pods with `prometheus.io/scrape: "true"` annotation
 - API service (port 4000, /metrics)
 - Web service (port 5173, /metrics)
-- Electric service (port 3000, /metrics)
 
 ### AlertManager
 - **Purpose**: Alert routing and notification management
@@ -280,11 +279,6 @@ curl -u admin:password http://localhost:3000/api/search | jq -r '.[] | .uid' | \
 │  ┌──────────┐     ┌──────────┐          │             │
 │  │   Web    │────▶│  Metrics │──────────┤             │
 │  │ Service  │     │ Endpoint │          │             │
-│  └──────────┘     └──────────┘          │             │
-│                                          │             │
-│  ┌──────────┐     ┌──────────┐          │             │
-│  │ Electric │────▶│  Metrics │──────────┤             │
-│  │ Service  │     │ Endpoint │          │             │
 │  └──────────┘     └──────────┘          ▼             │
 │                                    ┌──────────┐        │
 │                                    │  Alert   │        │
@@ -309,7 +303,7 @@ curl -u admin:password http://localhost:3000/api/search | jq -r '.[] | .uid' | \
 
 ## Next Steps
 
-1. **Enable metrics endpoints** in API, Web, and Electric services
+1. **Enable metrics endpoints** in API and Web services
 2. **Configure Slack/PagerDuty** notification channels
 3. **Create custom dashboards** for business metrics
 4. **Set up Ingress** with authentication for external access

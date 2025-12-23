@@ -12,11 +12,6 @@ output "api_hostname" {
   value       = local.api_hostname
 }
 
-output "electric_hostname" {
-  description = "Hostname for ElectricSQL service"
-  value       = var.subdomain != "" ? "electric.${var.subdomain}.${var.domain}" : "electric.${var.domain}"
-}
-
 output "adminer_hostname" {
   description = "Hostname for Adminer"
   value       = var.enable_adminer_dns ? (var.subdomain != "" ? "adminer.${var.subdomain}.${var.domain}" : "adminer.${var.domain}") : null

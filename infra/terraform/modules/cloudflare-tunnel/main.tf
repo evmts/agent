@@ -61,17 +61,6 @@ resource "cloudflare_tunnel_config" "origin" {
       }
     }
 
-    # ElectricSQL service
-    ingress_rule {
-      hostname = "electric.internal"
-      service  = var.origin_electric_service
-
-      origin_request {
-        # SECURITY NOTE: TLS verification disabled (see web service above for details)
-        no_tls_verify = true
-      }
-    }
-
     # Catch-all (required)
     ingress_rule {
       service = "http_status:404"

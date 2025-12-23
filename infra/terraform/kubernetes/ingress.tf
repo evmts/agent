@@ -1,7 +1,7 @@
 # =============================================================================
 # Ingress Configuration
 # =============================================================================
-# Routes traffic to web, api, electric, and adminer services.
+# Routes traffic to web, api, and adminer services.
 
 resource "kubernetes_ingress_v1" "plue" {
   metadata {
@@ -43,7 +43,6 @@ resource "kubernetes_ingress_v1" "plue" {
       hosts = [
         var.domain,
         "api.${var.domain}",
-        "electric.${var.domain}",
       ]
       # Note: When using Cloudflare proxy, Cloudflare handles SSL
       # If using cert-manager, uncomment:
@@ -92,27 +91,6 @@ resource "kubernetes_ingress_v1" "plue" {
       }
     }
 
-    # ElectricSQL service
-    rule {
-      host = "electric.${var.domain}"
-
-      http {
-        path {
-          path      = "/"
-          path_type = "Prefix"
-
-          backend {
-            service {
-              name = kubernetes_service.electric.metadata[0].name
-              port {
-                number = 3000
-              }
-            }
-          }
-        }
-      }
-    }
-
     # SECURITY: Adminer removed from public ingress to prevent unauthorized database access.
     # For admin access to the database, use kubectl port-forward:
     # kubectl port-forward -n plue svc/adminer 8080:8080
@@ -123,7 +101,6 @@ resource "kubernetes_ingress_v1" "plue" {
     helm_release.ingress_nginx,
     kubernetes_deployment.web,
     kubernetes_deployment.api,
-    kubernetes_deployment.electric,
     kubernetes_deployment.adminer,
   ]
 }

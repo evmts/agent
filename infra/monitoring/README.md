@@ -7,13 +7,13 @@ Comprehensive monitoring, logging, and debugging infrastructure for the Plue pla
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Data Sources                                    │
-├─────────────┬─────────────┬─────────────┬─────────────┬─────────────────────┤
-│  Zig API    │  Astro Web  │  PostgreSQL │  Electric   │  Docker Containers  │
-│  /metrics   │  Telemetry  │  Exporter   │  /metrics   │  cAdvisor          │
-└──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴──────────┬──────────┘
-       │             │             │             │                  │
-       │             │             │             │                  │
-       ▼             ▼             ▼             ▼                  ▼
+├─────────────┬─────────────┬─────────────┬─────────────────────────────────────┤
+│  Zig API    │  Astro Web  │  PostgreSQL │  Docker Containers                  │
+│  /metrics   │  Telemetry  │  Exporter   │  cAdvisor                           │
+└──────┬──────┴──────┬──────┴──────┬──────┴──────────────┬─────────────────────┘
+       │             │             │                      │
+       │             │             │                      │
+       ▼             ▼             ▼                      ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                           Prometheus (Port 9090)                             │
 │                        - Metrics scraping & storage                          │
@@ -49,10 +49,10 @@ Comprehensive monitoring, logging, and debugging infrastructure for the Plue pla
 
 ```bash
 # Start all services including monitoring
-docker-compose up -d
+docker-compose -f infra/docker/docker-compose.yaml up -d
 
 # Or start just the monitoring stack
-docker-compose up -d prometheus grafana loki promtail postgres-exporter cadvisor
+docker-compose -f infra/docker/docker-compose.yaml up -d prometheus grafana loki promtail postgres-exporter cadvisor
 ```
 
 ### Access Points
@@ -75,7 +75,6 @@ Scrapes metrics from all services at configured intervals.
 - `api:4000/metrics` - Zig API server
 - `web:5173/metrics` - Astro web server
 - `postgres-exporter:9187` - PostgreSQL metrics
-- `electric:3000/metrics` - Electric SQL
 - `cadvisor:8080` - Docker container metrics
 
 ### 2. Grafana (Visualization)

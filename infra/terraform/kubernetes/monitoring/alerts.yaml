@@ -95,7 +95,7 @@ groups:
     interval: 30s
     rules:
       - alert: ServiceDown
-        expr: up{job=~"api|web|electric"} == 0
+        expr: up{job=~"api|web"} == 0
         for: 2m
         labels:
           severity: critical

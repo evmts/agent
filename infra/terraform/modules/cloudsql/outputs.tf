@@ -19,7 +19,7 @@ output "private_ip" {
 
 output "database_name" {
   description = "The database name"
-  value       = google_sql_database.electric.name
+  value       = google_sql_database.plue.name
 }
 
 output "database_user" {

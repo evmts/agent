@@ -42,13 +42,6 @@ scrape_configs:
       - targets: ['postgres-exporter:9187']
     scrape_interval: 30s
 
-  # Electric SQL
-  - job_name: 'electric'
-    static_configs:
-      - targets: ['electric:3000']
-    metrics_path: '/metrics'
-    scrape_interval: 15s
-
   # Docker container metrics (via cAdvisor)
   - job_name: 'cadvisor'
     static_configs:

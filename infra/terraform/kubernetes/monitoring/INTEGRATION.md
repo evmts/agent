@@ -151,32 +151,6 @@ resource "kubernetes_deployment" "web" {
 }
 ```
 
-### Electric Service Example
-
-```hcl
-# In terraform/kubernetes/services/electric.tf
-resource "kubernetes_deployment" "electric" {
-  # ... existing config ...
-
-  spec {
-    template {
-      metadata {
-        labels = {
-          app = "electric"
-        }
-        # Add Prometheus annotations
-        annotations = {
-          "prometheus.io/scrape" = "true"
-          "prometheus.io/port"   = "3000"
-          "prometheus.io/path"   = "/metrics"
-        }
-      }
-      # ... rest of spec ...
-    }
-  }
-}
-```
-
 ## Add Grafana Ingress (Optional)
 
 If you want to expose Grafana externally, add an ingress rule to `terraform/kubernetes/ingress.tf`:

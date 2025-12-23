@@ -82,11 +82,6 @@ resource "kubernetes_deployment" "api" {
           }
 
           env {
-            name  = "ELECTRIC_URL"
-            value = "http://electric:3000"
-          }
-
-          env {
             name = "ANTHROPIC_API_KEY"
             value_from {
               secret_key_ref {

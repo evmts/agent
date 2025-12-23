@@ -30,9 +30,3 @@ variable "origin_api_service" {
   description = "Internal URL for the API service"
   default     = "http://api:4000"
 }
-
-variable "origin_electric_service" {
-  type        = string
-  description = "Internal URL for the ElectricSQL service"
-  default     = "http://electric:3000"
-}

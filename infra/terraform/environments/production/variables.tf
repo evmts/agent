@@ -138,7 +138,7 @@ variable "cloudflare_account_id" {
 }
 
 variable "enable_edge" {
-  description = "Enable Cloudflare Workers edge deployment with Electric caching"
+  description = "Enable Cloudflare Workers edge deployment"
   type        = bool
   default     = false
 }
@@ -164,12 +164,6 @@ variable "api_replicas" {
   description = "Number of API replicas"
   type        = number
   default     = 2
-}
-
-variable "electric_storage_size" {
-  description = "Storage size for ElectricSQL"
-  type        = string
-  default     = "50Gi"
 }
 
 variable "repos_storage_size" {

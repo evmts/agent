@@ -50,12 +50,6 @@ variable "api_replicas" {
   default     = 2
 }
 
-variable "electric_storage_size" {
-  description = "Storage size for ElectricSQL"
-  type        = string
-  default     = "50Gi"
-}
-
 variable "repos_storage_size" {
   description = "Storage size for git repos"
   type        = string
