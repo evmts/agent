@@ -11,6 +11,8 @@ const sessions = @import("routes/sessions.zig");
 const messages = @import("routes/messages.zig");
 const repo_routes = @import("routes/repositories.zig");
 const workflows = @import("routes/workflows.zig");
+const workflows_v2 = @import("routes/workflows_v2.zig");
+const prompts = @import("routes/prompts.zig");
 const runners = @import("routes/runners.zig");
 const issues = @import("routes/issues.zig");
 const milestones = @import("routes/milestones.zig");
@@ -48,8 +50,8 @@ fn validateCsrf(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !bool 
         }
     }
 
-    // Get CSRF token from request header
-    const token = req.headers.get("X-CSRF-Token") orelse {
+    // Get CSRF token from request header (httpz normalizes headers to lowercase)
+    const token = req.headers.get("x-csrf-token") orelse {
         res.status = 403;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"CSRF token missing\"}");
@@ -164,6 +166,7 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/auth/logout", withAuthAndCsrf(auth_routes.logout), .{});
     router.get("/api/auth/me", auth_routes.me, .{});
     router.post("/api/auth/refresh", withAuthAndCsrf(auth_routes.refresh), .{});
+    router.post("/api/auth/dev-login", auth_routes.devLogin, .{}); // Development-only login bypass
 
     // API routes - users
     router.get("/api/users/search", users.search, .{});
@@ -344,7 +347,7 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/agents/:name", agent_routes.getAgentHandler, .{});
     router.get("/api/tools", agent_routes.listToolsHandler, .{});
 
-    // API routes - workflows - CSRF protected
+    // API routes - workflows (old system) - CSRF protected
     router.get("/api/:user/:repo/workflows/runs", workflows.listRuns, .{});
     router.get("/api/:user/:repo/workflows/runs/:runId", workflows.getRun, .{});
     router.post("/api/:user/:repo/workflows/runs", withAuthAndCsrf(workflows.createRun), .{});
@@ -352,6 +355,19 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/:user/:repo/workflows/runs/:runId/cancel", withAuthAndCsrf(workflows.cancelRun), .{});
     router.get("/api/:user/:repo/workflows/runs/:runId/jobs", workflows.getJobs, .{});
     router.get("/api/:user/:repo/workflows/runs/:runId/logs", workflows.getLogs, .{});
+
+    // API routes - workflows v2 (Phase 09) - CSRF protected
+    router.post("/api/workflows/parse", workflows_v2.parse, .{});
+    router.post("/api/workflows/run", withAuthAndCsrf(workflows_v2.runWorkflow), .{});
+    router.get("/api/workflows/runs", workflows_v2.listRuns, .{});
+    router.get("/api/workflows/runs/:id", workflows_v2.getRun, .{});
+    router.get("/api/workflows/runs/:id/stream", workflows_v2.streamRun, .{});
+    router.post("/api/workflows/runs/:id/cancel", withAuthAndCsrf(workflows_v2.cancelRun), .{});
+
+    // API routes - prompts (Phase 09) - CSRF protected
+    router.post("/api/prompts/parse", prompts.parse, .{});
+    router.post("/api/prompts/render", prompts.render, .{});
+    router.post("/api/prompts/test", withAuthAndCsrf(prompts.testPrompt), .{});
 
     // API routes - runners - CSRF protected
     router.post("/api/runners/register", withAuthAndCsrf(runners.register), .{});

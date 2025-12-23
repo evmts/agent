@@ -70,37 +70,34 @@ pub fn submitWorkload(
         @intFromEnum(request.priority),
     });
 
-    // Insert into workflow_tasks table
+    // TODO(workflows): Implement proper task queue with workflow_tasks table
+    // For MVP, we just update the workflow_run status to indicate it's queued
+    // In production, this would:
+    // 1. Create workflow_tasks records for each step in the workflow plan
+    // 2. Assign to warm pool runners or create K8s Jobs
+    // 3. Return the task_id for tracking
+
+    const run_id = request.workflow_run_id orelse return error.MissingWorkflowRunId;
+
+    // Update workflow_run to "running" status
     const query =
-        \\INSERT INTO workflow_tasks (
-        \\    job_id, status, priority, workload_type,
-        \\    session_id, config_json, created_at
-        \\) VALUES (
-        \\    (SELECT id FROM workflow_jobs WHERE run_id = $1 LIMIT 1),
-        \\    'waiting', $2, $3, $4, $5, NOW()
-        \\)
+        \\UPDATE workflow_runs
+        \\SET status = 'running', started_at = NOW()
+        \\WHERE id = $1
         \\RETURNING id
     ;
 
-    const result = try pool.query(query, .{
-        request.workflow_run_id,
-        @intFromEnum(request.priority),
-        @tagName(request.type),
-        request.session_id,
-        request.config_json,
-    });
+    const result = try pool.query(query, .{run_id});
     defer result.deinit();
 
     if (try result.next()) |row| {
         const task_id = row.get(i32, 0);
-        log.info("Created task {d}", .{task_id});
+        log.info("Queued workflow run {d} (simulated task_id={d})", .{ run_id, task_id });
 
-        // Try to immediately assign a warm runner
-        tryAssignRunner(pool, task_id) catch |err| {
-            log.debug("No warm runner available, task queued: {}", .{err});
-        };
+        // For MVP, we don't have warm pool runners yet
+        // In production, would call: tryAssignRunner(pool, task_id)
 
-        return task_id;
+        return task_id; // Return run_id as task_id for now
     }
 
     return error.FailedToCreateTask;

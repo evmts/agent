@@ -97,7 +97,7 @@ pub fn verify(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
         // Handle potential username collision by appending a number
         var attempt: u32 = 0;
-        var user_id: i64 = 0;
+        var user_id: i32 = 0; // Changed from i64 to match Postgres INTEGER type
         while (attempt < 100) : (attempt += 1) {
             user_id = db.createUser(ctx.pool, username, username, wallet_address) catch |err| {
                 if (attempt < 99) {
@@ -319,6 +319,95 @@ pub fn me(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     } else {
         try res.writer().writeAll("{\"user\":null}");
     }
+}
+
+/// POST /auth/dev-login
+/// Development-only login endpoint that bypasses password authentication
+/// Only available when is_production = false
+pub fn devLogin(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Only allow in development mode
+    if (ctx.config.is_production) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Not found\"}");
+        return;
+    }
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        username: []const u8,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const username = parsed.value.username;
+
+    // Get user from database
+    const user = try db.getUserByUsername(ctx.pool, username);
+    if (user == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"User not found\"}");
+        return;
+    }
+
+    const u = user.?;
+    if (u.prohibit_login) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Account is disabled\"}");
+        return;
+    }
+
+    // Create session
+    const session_key = try db.createSession(ctx.pool, ctx.allocator, u.id, u.username, u.is_admin);
+    defer ctx.allocator.free(session_key);
+
+    // Generate JWT
+    const token = try jwt.create(ctx.allocator, u.id, u.username, u.is_admin, ctx.config.jwt_secret);
+    defer ctx.allocator.free(token);
+
+    // Update last login
+    try db.updateLastLogin(ctx.pool, u.id);
+
+    // Set session cookie
+    try auth_middleware.setSessionCookie(res, session_key, ctx.config.is_production);
+
+    // Generate and set CSRF token
+    const csrf_token = try ctx.csrf_store.generateToken(session_key);
+    var csrf_cookie_buf: [256]u8 = undefined;
+    const csrf_secure = if (ctx.config.is_production) "; Secure" else "";
+    const csrf_cookie = try std.fmt.bufPrint(&csrf_cookie_buf, "csrf_token={s}; Path=/; SameSite=Strict; Max-Age={d}{s}", .{
+        csrf_token,
+        24 * 60 * 60, // 24 hours in seconds
+        csrf_secure,
+    });
+    res.headers.add("Set-Cookie", csrf_cookie);
+
+    // Return user data
+    var writer = res.writer();
+    try writer.print(
+        \\{{"message":"Dev login successful","user":{{"id":{d},"username":"{s}","email":
+    , .{ u.id, u.username });
+    if (u.email) |e| {
+        try writer.print("\"{s}\"", .{e});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"isActive":{s},"isAdmin":{s}}}}}
+    , .{
+        if (u.is_active) "true" else "false",
+        if (u.is_admin) "true" else "false",
+    });
 }
 
 /// POST /auth/refresh

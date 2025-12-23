@@ -9,7 +9,7 @@ const Context = @import("../main.zig").Context;
 
 const log = std.log.scoped(.csrf);
 
-const CSRF_HEADER_NAME = "X-CSRF-Token";
+const CSRF_HEADER_NAME = "x-csrf-token";
 const CSRF_COOKIE_NAME = "csrf_token";
 const TOKEN_LENGTH = 32; // 32 bytes = 256 bits
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -162,7 +162,24 @@ fn requiresCsrfProtection(method: httpz.Method) bool {
 
 /// Extract CSRF token from request header
 fn getTokenFromHeader(req: *httpz.Request) ?[]const u8 {
-    return req.headers.get(CSRF_HEADER_NAME);
+    std.debug.print("DEBUG CSRF: Looking for header: '{s}'\n", .{CSRF_HEADER_NAME});
+
+    // Try exact match
+    const token = req.headers.get(CSRF_HEADER_NAME);
+    if (token) |t| {
+        std.debug.print("DEBUG CSRF: Found token via get(): {s}\n", .{t});
+        return t;
+    }
+
+    // Debug: Try lowercase
+    const token_lower = req.headers.get("x-csrf-token");
+    if (token_lower) |t| {
+        std.debug.print("DEBUG CSRF: Found token via lowercase: {s}\n", .{t});
+        return t;
+    }
+
+    std.debug.print("DEBUG CSRF: Token not found via get()\n", .{});
+    return null;
 }
 
 /// CSRF protection middleware
@@ -190,13 +207,17 @@ pub fn csrfMiddleware(store: *CsrfStore, config: CsrfConfig) fn (*Context, *http
             }
 
             // Get CSRF token from request header
+            std.debug.print("DEBUG CSRF MIDDLEWARE: About to get token from header\n", .{});
             const token = getTokenFromHeader(req) orelse {
+                std.debug.print("DEBUG CSRF MIDDLEWARE: Token was null, returning 403\n", .{});
                 log.warn("CSRF token missing from {s} {s}", .{ @tagName(req.method), req.url.path });
+
                 res.status = 403;
                 res.content_type = .JSON;
                 try res.writer().writeAll("{\"error\":\"CSRF token missing\"}");
                 return false;
             };
+            std.debug.print("DEBUG CSRF MIDDLEWARE: Got token: {s}\n", .{token});
 
             // Validate token against session
             if (!store.validateToken(token, ctx.session_key)) {
