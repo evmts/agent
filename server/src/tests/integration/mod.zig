@@ -47,9 +47,9 @@ pub const TestContext = struct {
     config: TestConfig,
 
     // Store created resources for cleanup
-    created_users: std.ArrayList(i64),
+    created_users: std.ArrayList(i32), // Changed from i64 to match Postgres INTEGER type
     created_sessions: std.ArrayList([]const u8),
-    created_repos: std.ArrayList(i64),
+    created_repos: std.ArrayList(i64), // TODO: Check if repos.id should also be i32
 
     /// Initialize test context with database connection and test server
     pub fn init(allocator: std.mem.Allocator, test_config: TestConfig) !*TestContext {
@@ -118,7 +118,7 @@ pub const TestContext = struct {
             .server = server,
             .app_context = app_context,
             .config = test_config,
-            .created_users = std.ArrayList(i64).init(allocator),
+            .created_users = std.ArrayList(i32).init(allocator), // Changed from i64 to match Postgres INTEGER type
             .created_sessions = std.ArrayList([]const u8).init(allocator),
             .created_repos = std.ArrayList(i64).init(allocator),
         };
@@ -198,7 +198,7 @@ pub const TestContext = struct {
     }
 
     /// Create a test user
-    pub fn createTestUser(self: *TestContext, username: []const u8, email: ?[]const u8) !i64 {
+    pub fn createTestUser(self: *TestContext, username: []const u8, email: ?[]const u8) !i32 { // Changed from i64 to match Postgres INTEGER type
         var conn = try self.pool.acquire();
         defer conn.release();
 
@@ -216,7 +216,7 @@ pub const TestContext = struct {
         defer result.deinit();
 
         if (try result.next()) |row| {
-            const user_id = row.get(i64, 0);
+            const user_id = row.get(i32, 0); // Changed from i64 to match Postgres INTEGER type
             try self.created_users.append(user_id);
             return user_id;
         }
@@ -225,7 +225,7 @@ pub const TestContext = struct {
     }
 
     /// Create a test session
-    pub fn createTestSession(self: *TestContext, user_id: i64, username: []const u8, is_admin: bool) ![]const u8 {
+    pub fn createTestSession(self: *TestContext, user_id: i32, username: []const u8, is_admin: bool) ![]const u8 { // Changed from i64 to match Postgres INTEGER type
         const session_key = try db.createSession(self.pool, self.allocator, user_id, username, is_admin);
         try self.created_sessions.append(session_key);
         return session_key;
