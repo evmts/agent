@@ -13,7 +13,7 @@ pub const Pool = pg.Pool;
 
 /// User record from the users table
 pub const UserRecord = struct {
-    id: i64,
+    id: i32,
     username: []const u8,
     email: ?[]const u8,
     display_name: ?[]const u8,
@@ -27,7 +27,7 @@ pub const UserRecord = struct {
 // Read Operations
 // =============================================================================
 
-pub fn getById(pool: *Pool, user_id: i64) !?UserRecord {
+pub fn getById(pool: *Pool, user_id: i32) !?UserRecord { // Changed from i64 to match Postgres INTEGER type
     const row = try pool.row(
         \\SELECT id, username, email, display_name, is_admin, is_active, prohibit_login, wallet_address
         \\FROM users WHERE id = $1
@@ -35,7 +35,7 @@ pub fn getById(pool: *Pool, user_id: i64) !?UserRecord {
 
     if (row) |r| {
         return UserRecord{
-            .id = r.get(i64, 0),
+            .id = r.get(i32, 0),
             .username = r.get([]const u8, 1),
             .email = r.get(?[]const u8, 2),
             .display_name = r.get(?[]const u8, 3),
@@ -56,7 +56,7 @@ pub fn getByWallet(pool: *Pool, wallet_address: []const u8) !?UserRecord {
 
     if (row) |r| {
         return UserRecord{
-            .id = r.get(i64, 0),
+            .id = r.get(i32, 0),
             .username = r.get([]const u8, 1),
             .email = r.get(?[]const u8, 2),
             .display_name = r.get(?[]const u8, 3),
@@ -77,7 +77,7 @@ pub fn getByUsername(pool: *Pool, username: []const u8) !?UserRecord {
 
     if (row) |r| {
         return UserRecord{
-            .id = r.get(i64, 0),
+            .id = r.get(i32, 0),
             .username = r.get([]const u8, 1),
             .email = r.get(?[]const u8, 2),
             .display_name = r.get(?[]const u8, 3),
@@ -99,7 +99,7 @@ pub fn create(
     username: []const u8,
     display_name: ?[]const u8,
     wallet_address: []const u8,
-) !i64 {
+) !i32 { // Changed from i64 to match Postgres INTEGER type
     const row = try pool.row(
         \\INSERT INTO users (username, lower_username, display_name, wallet_address, is_active, created_at, updated_at)
         \\VALUES ($1, lower($1), $2, $3, true, NOW(), NOW())
@@ -107,12 +107,12 @@ pub fn create(
     , .{ username, display_name orelse username, wallet_address });
 
     if (row) |r| {
-        return r.get(i64, 0);
+        return r.get(i32, 0);
     }
     return error.InsertFailed;
 }
 
-pub fn updateLastLogin(pool: *Pool, user_id: i64) !void {
+pub fn updateLastLogin(pool: *Pool, user_id: i32) !void { // Changed from i64 to match Postgres INTEGER type
     _ = try pool.exec(
         \\UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1
     , .{user_id});
@@ -120,7 +120,7 @@ pub fn updateLastLogin(pool: *Pool, user_id: i64) !void {
 
 pub fn updateProfile(
     pool: *Pool,
-    user_id: i64,
+    user_id: i32, // Changed from i64 to match Postgres INTEGER type
     display_name: ?[]const u8,
     bio: ?[]const u8,
     email: ?[]const u8,

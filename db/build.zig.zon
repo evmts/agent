@@ -1,12 +1,17 @@
 .{
     .name = .db,
     .version = "0.1.0",
-    .fingerprint = 0x7a9e965f9bd3856c,
+    .fingerprint = 0xe3f4bc28db682e6e,
     .minimum_zig_version = "0.13.0",
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "root.zig",
     },
-    .dependencies = .{},
+    .dependencies = .{
+        .pg = .{
+            .url = "https://github.com/karlseguin/pg.zig/archive/refs/heads/master.tar.gz",
+            .hash = "pg-0.0.0-Wp_7gag6BgD_QAZrPhNNEGpnUZR_LEkKT40Ura3p-4yX",
+        },
+    },
 }

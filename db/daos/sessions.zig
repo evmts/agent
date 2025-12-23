@@ -16,7 +16,7 @@ pub const SESSION_DURATION_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// Session data stored in auth_sessions table
 pub const SessionData = struct {
-    user_id: i64,
+    user_id: i32, // Changed from i64 to match Postgres INTEGER type
     username: []const u8,
     is_admin: bool,
     expires_at: i64, // Unix timestamp
@@ -29,7 +29,7 @@ pub const SessionData = struct {
 pub fn create(
     pool: *Pool,
     allocator: std.mem.Allocator,
-    user_id: i64,
+    user_id: i32, // Changed from i64 to match Postgres INTEGER type
     username: []const u8,
     is_admin: bool,
 ) ![]const u8 {
@@ -61,7 +61,7 @@ pub fn get(pool: *Pool, session_key: []const u8) !?SessionData {
 
     if (row) |r| {
         return SessionData{
-            .user_id = r.get(i64, 0),
+            .user_id = r.get(i32, 0), // Changed from i64 to match Postgres INTEGER type
             .username = r.get([]const u8, 1),
             .is_admin = r.get(bool, 2),
             .expires_at = r.get(i64, 3),

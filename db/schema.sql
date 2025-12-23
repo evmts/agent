@@ -564,211 +564,112 @@ CREATE INDEX IF NOT EXISTS idx_ssh_keys_fingerprint ON ssh_keys(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_ssh_keys_user_id ON ssh_keys(user_id);
 
 -- =============================================================================
--- Workflow System Tables
+-- Workflow System Tables (New Python-based workflow system)
 -- =============================================================================
 
--- Workflow definitions (metadata about registered workflows)
+-- Workflow definitions (parsed from .py files)
 CREATE TABLE IF NOT EXISTS workflow_definitions (
   id SERIAL PRIMARY KEY,
   repository_id INTEGER REFERENCES repositories(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
-  file_path TEXT NOT NULL,  -- e.g., .plue/workflows/ci.py
-  file_sha VARCHAR(64),     -- for change detection
-  events JSONB NOT NULL DEFAULT '[]',  -- ["push", "pull_request", "issue"]
-  is_agent_workflow BOOLEAN DEFAULT false,  -- true if this is a chat/agent workflow
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  file_path VARCHAR(500) NOT NULL,
+  triggers JSONB NOT NULL,              -- Trigger configuration from workflow decorator
+  image VARCHAR(255),                   -- Docker image
+  dockerfile VARCHAR(500),              -- Path to Dockerfile
+  plan JSONB NOT NULL,                  -- The generated DAG of steps
+  content_hash VARCHAR(64) NOT NULL,    -- SHA256 hash for change detection
+  parsed_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(repository_id, name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_definitions_repo ON workflow_definitions(repository_id);
 
--- Workflow runners (Python workers)
-CREATE TABLE IF NOT EXISTS workflow_runners (
+-- Prompt definitions (parsed from .prompt.md files)
+CREATE TABLE IF NOT EXISTS prompt_definitions (
   id SERIAL PRIMARY KEY,
+  repository_id INTEGER REFERENCES repositories(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
-  owner_id INTEGER REFERENCES users(id),
-  repository_id INTEGER REFERENCES repositories(id),
-  version VARCHAR(64),
-  labels JSONB DEFAULT '[]',  -- ["python", "linux", "self-hosted"]
-  status VARCHAR(20) DEFAULT 'offline',  -- online, offline, busy
-  last_online_at TIMESTAMP,
-  last_active_at TIMESTAMP,
-  token_hash VARCHAR(64) UNIQUE,
-  token_last_eight VARCHAR(8),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  file_path VARCHAR(500) NOT NULL,
+  client VARCHAR(100) NOT NULL,
+  prompt_type VARCHAR(20) NOT NULL,     -- llm, agent
+  inputs_schema JSONB NOT NULL,
+  output_schema JSONB NOT NULL,
+  tools JSONB,
+  max_turns INTEGER,
+  body_template TEXT NOT NULL,
+  content_hash VARCHAR(64) NOT NULL,
+  parsed_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(repository_id, name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_runners_owner ON workflow_runners(owner_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_runners_repo ON workflow_runners(repository_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_runners_status ON workflow_runners(status);
+CREATE INDEX IF NOT EXISTS idx_prompt_definitions_repo ON prompt_definitions(repository_id);
 
--- Workflow runs (equivalent to Gitea's ActionRun)
--- Status values: 0=unknown, 1=success, 2=failure, 3=cancelled, 4=skipped, 5=waiting, 6=running, 7=blocked
+-- Workflow runs
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id SERIAL PRIMARY KEY,
-  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   workflow_definition_id INTEGER REFERENCES workflow_definitions(id) ON DELETE SET NULL,
-  run_number INTEGER NOT NULL,  -- sequential per repo
-  title VARCHAR(512) NOT NULL,
-
-  -- Trigger info
-  trigger_event VARCHAR(64) NOT NULL,  -- push, pull_request, manual, issue, chat
-  trigger_user_id INTEGER REFERENCES users(id),
-  event_payload JSONB,
-
-  -- Git context
-  ref VARCHAR(255),         -- branch/tag
-  commit_sha VARCHAR(64),
-
-  -- Status (0=unknown, 1=success, 2=failure, 3=cancelled, 4=skipped, 5=waiting, 6=running, 7=blocked)
-  status INTEGER NOT NULL DEFAULT 5,
-
-  -- Concurrency
-  concurrency_group VARCHAR(255),
-  concurrency_cancel BOOLEAN DEFAULT false,
-
-  -- Timing
+  trigger_type VARCHAR(50) NOT NULL,
+  trigger_payload JSONB NOT NULL,
+  inputs JSONB,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
   started_at TIMESTAMP,
-  stopped_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-
-  -- Link to agent session if this is a chat workflow
-  session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE SET NULL,
-
-  UNIQUE(repository_id, run_number)
+  completed_at TIMESTAMP,
+  outputs JSONB,
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_repo ON workflow_runs(repository_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_definition_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_session ON workflow_runs(session_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_concurrency ON workflow_runs(repository_id, concurrency_group);
 
--- Workflow jobs (equivalent to Gitea's ActionRunJob)
-CREATE TABLE IF NOT EXISTS workflow_jobs (
-  id SERIAL PRIMARY KEY,
-  run_id INTEGER NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-
-  name VARCHAR(255) NOT NULL,
-  job_id VARCHAR(255) NOT NULL,  -- job ID from workflow definition
-
-  -- Dependencies
-  needs JSONB DEFAULT '[]',  -- array of job_ids this depends on
-  runs_on JSONB DEFAULT '[]',  -- runner labels
-
-  -- Status (0=unknown, 1=success, 2=failure, 3=cancelled, 4=skipped, 5=waiting, 6=running, 7=blocked)
-  status INTEGER NOT NULL DEFAULT 5,
-  attempt INTEGER DEFAULT 1,
-
-  -- Concurrency
-  raw_concurrency VARCHAR(255),
-  concurrency_group VARCHAR(255),
-  concurrency_cancel BOOLEAN DEFAULT false,
-
-  -- Timing
-  started_at TIMESTAMP,
-  stopped_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_jobs_run ON workflow_jobs(run_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_jobs_status ON workflow_jobs(status);
-
--- Workflow tasks (actual execution on a runner - equivalent to Gitea's ActionTask)
-CREATE TABLE IF NOT EXISTS workflow_tasks (
-  id SERIAL PRIMARY KEY,
-  job_id INTEGER NOT NULL REFERENCES workflow_jobs(id) ON DELETE CASCADE,
-  runner_id INTEGER REFERENCES workflow_runners(id),
-
-  attempt INTEGER NOT NULL DEFAULT 1,
-  status INTEGER NOT NULL DEFAULT 5,
-
-  -- Repository context
-  repository_id INTEGER NOT NULL REFERENCES repositories(id),
-  commit_sha VARCHAR(64),
-
-  -- Workflow content for execution
-  workflow_content TEXT,  -- Python source
-  workflow_path TEXT,     -- File path
-
-  -- Auth
-  token_hash VARCHAR(64) UNIQUE,
-  token_last_eight VARCHAR(8),
-
-  -- Logging
-  log_filename VARCHAR(512),
-  log_size INTEGER DEFAULT 0,
-
-  -- Timing
-  started_at TIMESTAMP,
-  stopped_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_tasks_job ON workflow_tasks(job_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_tasks_runner ON workflow_tasks(runner_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_tasks_status ON workflow_tasks(status);
-CREATE INDEX IF NOT EXISTS idx_workflow_tasks_token ON workflow_tasks(token_hash);
-
--- Workflow steps (equivalent to Gitea's ActionTaskStep)
+-- Individual steps within a run
 CREATE TABLE IF NOT EXISTS workflow_steps (
   id SERIAL PRIMARY KEY,
-  task_id INTEGER NOT NULL REFERENCES workflow_tasks(id) ON DELETE CASCADE,
-
+  run_id INTEGER REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  step_id VARCHAR(100) NOT NULL,
   name VARCHAR(255) NOT NULL,
-  step_index INTEGER NOT NULL,
-
-  status INTEGER NOT NULL DEFAULT 5,
-
-  -- Logging
-  log_index INTEGER DEFAULT 0,  -- starting line in log
-  log_length INTEGER DEFAULT 0,
-
-  -- For step output/result
-  output JSONB,
-
-  -- Timing
+  step_type VARCHAR(20) NOT NULL,       -- shell, llm, agent, parallel
+  config JSONB NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
   started_at TIMESTAMP,
-  stopped_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW()
+  completed_at TIMESTAMP,
+  exit_code INTEGER,
+  output JSONB,
+  error_message TEXT,
+
+  -- Agent-specific
+  turns_used INTEGER,
+  tokens_in INTEGER,
+  tokens_out INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_steps_task ON workflow_steps(task_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_run ON workflow_steps(run_id);
 
--- Workflow logs (store log lines)
+-- Step logs (streaming output)
 CREATE TABLE IF NOT EXISTS workflow_logs (
   id SERIAL PRIMARY KEY,
-  task_id INTEGER NOT NULL REFERENCES workflow_tasks(id) ON DELETE CASCADE,
-  step_index INTEGER NOT NULL,
-  line_number INTEGER NOT NULL,
+  step_id INTEGER REFERENCES workflow_steps(id) ON DELETE CASCADE,
+  log_type VARCHAR(20) NOT NULL,        -- stdout, stderr, token, tool_call, tool_result
   content TEXT NOT NULL,
-  timestamp TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_logs_task ON workflow_logs(task_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_logs_step ON workflow_logs(task_id, step_index);
-
--- Workflow artifacts (build outputs, logs, etc.)
-CREATE TABLE IF NOT EXISTS workflow_artifacts (
-  id SERIAL PRIMARY KEY,
-  run_id INTEGER NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  task_id INTEGER REFERENCES workflow_tasks(id) ON DELETE SET NULL,
-
-  name VARCHAR(255) NOT NULL,
-  file_size BIGINT NOT NULL DEFAULT 0,
-  file_path TEXT NOT NULL,  -- storage path
-  content_type VARCHAR(255),
-
-  expires_at TIMESTAMP,
+  sequence INTEGER NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_run ON workflow_artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_logs_step ON workflow_logs(step_id, sequence);
+
+-- LLM usage tracking
+CREATE TABLE IF NOT EXISTS llm_usage (
+  id SERIAL PRIMARY KEY,
+  step_id INTEGER REFERENCES workflow_steps(id) ON DELETE CASCADE,
+  prompt_name VARCHAR(255),
+  model VARCHAR(100) NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  latency_ms INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_step ON llm_usage(step_id);
 
 -- Commit statuses (CI/workflow check results)
 CREATE TABLE IF NOT EXISTS commit_statuses (
@@ -1139,32 +1040,3 @@ CREATE TABLE IF NOT EXISTS landing_line_comments (
 
 CREATE INDEX IF NOT EXISTS idx_landing_line_comments_landing ON landing_line_comments(landing_id);
 CREATE INDEX IF NOT EXISTS idx_landing_line_comments_file ON landing_line_comments(landing_id, file_path);
-
--- Add workload_type and config columns to workflow_tasks if not exists
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'workflow_tasks' AND column_name = 'workload_type') THEN
-    ALTER TABLE workflow_tasks ADD COLUMN workload_type VARCHAR(20) DEFAULT 'workflow';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'workflow_tasks' AND column_name = 'config_json') THEN
-    ALTER TABLE workflow_tasks ADD COLUMN config_json TEXT;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'workflow_tasks' AND column_name = 'priority') THEN
-    ALTER TABLE workflow_tasks ADD COLUMN priority INTEGER DEFAULT 1;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'workflow_tasks' AND column_name = 'session_id') THEN
-    ALTER TABLE workflow_tasks ADD COLUMN session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE SET NULL;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'workflow_tasks' AND column_name = 'assigned_at') THEN
-    ALTER TABLE workflow_tasks ADD COLUMN assigned_at TIMESTAMP;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'workflow_tasks' AND column_name = 'completed_at') THEN
-    ALTER TABLE workflow_tasks ADD COLUMN completed_at TIMESTAMP;
-  END IF;
-END $$;

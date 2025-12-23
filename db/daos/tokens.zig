@@ -110,7 +110,7 @@ pub fn validate(pool: *Pool, token_hash: []const u8) !?TokenValidationResult {
     , .{token_hash});
 
     if (row) |r| {
-        const user_id = r.get(i64, 0);
+        const user_id = r.get(i32, 0); // Changed from i64 to match Postgres INTEGER type
         const scopes = r.get([]const u8, 1);
         const user = try users.getById(pool, user_id) orelse return null;
         return TokenValidationResult{
