@@ -2,6 +2,7 @@
 Grep tool for searching file contents.
 """
 
+import os
 import subprocess
 from typing import Dict, Any
 
@@ -51,6 +52,17 @@ def grep_tool(input_data: Dict[str, Any]) -> str:
     if not pattern:
         return "Error: pattern is required"
 
+    # SECURITY: Prevent path traversal attacks
+    # Normalize the path and ensure it stays within /workspace
+    full_path = os.path.realpath(os.path.join("/workspace", path))
+    if not full_path.startswith("/workspace"):
+        return "Error: path traversal not allowed"
+
+    # Use the normalized path relative to workspace
+    safe_path = os.path.relpath(full_path, "/workspace")
+    if safe_path.startswith(".."):
+        return "Error: path traversal not allowed"
+
     # Build grep command
     cmd = ["grep", "-rn"]
 
@@ -60,7 +72,8 @@ def grep_tool(input_data: Dict[str, Any]) -> str:
     if include:
         cmd.extend(["--include", include])
 
-    cmd.extend([pattern, path])
+    # Use the safe normalized path
+    cmd.extend([pattern, safe_path])
 
     try:
         result = subprocess.run(

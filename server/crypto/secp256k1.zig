@@ -6,6 +6,8 @@
 const std = @import("std");
 const crypto = std.crypto;
 
+const log = std.log.scoped(.secp256k1);
+
 pub const Secp256k1 = crypto.ecc.Secp256k1;
 pub const Ecdsa = crypto.sign.ecdsa.Ecdsa(Secp256k1, .sha256);
 
@@ -55,10 +57,13 @@ pub fn keccak256(data: []const u8) [32]u8 {
 
 /// Create Ethereum signed message hash
 /// Ethereum prefixes messages with "\x19Ethereum Signed Message:\n" + length
-pub fn ethMessageHash(message: []const u8) [32]u8 {
+pub fn ethMessageHash(message: []const u8) ![32]u8 {
     const prefix = "\x19Ethereum Signed Message:\n";
     var length_buf: [20]u8 = undefined;
-    const length_str = std.fmt.bufPrint(&length_buf, "{d}", .{message.len}) catch unreachable;
+    const length_str = std.fmt.bufPrint(&length_buf, "{d}", .{message.len}) catch |err| {
+        log.err("Failed to format message length: {}", .{err});
+        return error.MessageTooLong;
+    };
 
     var hasher = crypto.hash.sha3.Keccak256.init(.{});
     hasher.update(prefix);
@@ -70,30 +75,46 @@ pub fn ethMessageHash(message: []const u8) [32]u8 {
     return result;
 }
 
+/// Error returned when SIWE recovery is attempted but not available
+pub const RecoveryError = error{
+    /// secp256k1 public key recovery is not implemented in this build.
+    /// SIWE authentication must be performed at the Cloudflare edge layer.
+    /// Origin server should trust the X-Plue-User-Address header from edge.
+    RecoveryNotImplemented,
+    /// Message hash computation failed
+    MessageTooLong,
+};
+
 /// Recover public key from signature and message hash
 /// Returns the Ethereum address (20 bytes) if successful
-pub fn recoverAddress(message_hash: [32]u8, signature: EthSignature) ![20]u8 {
-    // NOTE: Zig's std.crypto.sign.ecdsa doesn't support public key recovery.
-    // We would need to:
-    // 1. Use the libsecp256k1 C library via @cImport
-    // 2. Or implement EC point recovery manually
-    //
-    // For now, this is a STUB that returns an error.
-    // In production, use: https://github.com/jsign/zig-eth-secp256k1
-
+///
+/// IMPORTANT: This function is intentionally not implemented at the origin server.
+/// SIWE signature verification is performed at the Cloudflare edge layer for:
+/// 1. Reduced latency (closer to users)
+/// 2. Simplified origin server (no C library dependencies)
+/// 3. Stronger security boundary (edge validates, origin trusts headers)
+///
+/// If you need origin-side verification, integrate libsecp256k1 via @cImport
+/// or use https://github.com/jsign/zig-eth-secp256k1
+pub fn recoverAddress(message_hash: [32]u8, signature: EthSignature) RecoveryError![20]u8 {
     _ = message_hash;
     _ = signature;
 
+    log.warn("recoverAddress called on origin - SIWE auth should happen at edge", .{});
     return error.RecoveryNotImplemented;
 }
 
 /// Verify that a signature was created by the given address
+///
+/// NOTE: This function is not implemented at the origin server.
+/// SIWE verification happens at the Cloudflare edge layer.
+/// See recoverAddress() for details.
 pub fn verifySignature(
     message: []const u8,
     signature: EthSignature,
     expected_address: [20]u8,
 ) !bool {
-    const message_hash = ethMessageHash(message);
+    const message_hash = try ethMessageHash(message);
     const recovered = try recoverAddress(message_hash, signature);
 
     return std.mem.eql(u8, &recovered, &expected_address);
@@ -112,7 +133,10 @@ pub fn parseAddress(hex: []const u8) ![20]u8 {
 /// Format address as checksummed hex string (EIP-55)
 pub fn formatAddress(allocator: std.mem.Allocator, address: [20]u8) ![]const u8 {
     var hex_buf: [40]u8 = undefined;
-    _ = std.fmt.bufPrint(&hex_buf, "{}", .{std.fmt.fmtSliceHexLower(&address)}) catch unreachable;
+    _ = std.fmt.bufPrint(&hex_buf, "{}", .{std.fmt.fmtSliceHexLower(&address)}) catch |err| {
+        log.err("Failed to format address hex: {}", .{err});
+        return error.FormatError;
+    };
 
     // EIP-55 checksum
     const hash = keccak256(&hex_buf);

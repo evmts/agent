@@ -20,7 +20,7 @@ import os
 import sys
 import json
 import signal
-from typing import Optional
+from typing import Optional, Any, Dict, List
 
 from .agent import AgentRunner
 from .workflow import WorkflowRunner
@@ -34,6 +34,90 @@ configure_logging(
     request_id=os.environ.get("REQUEST_ID"),
 )
 logger = get_logger(__name__)
+
+
+# SECURITY: Whitelist of allowed tools
+ALLOWED_TOOLS = {
+    "read_file",
+    "write_file",
+    "list_files",
+    "grep",
+    "shell",
+}
+
+# SECURITY: Whitelist of allowed models
+ALLOWED_MODELS = {
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+}
+
+
+def validate_task_config(config: Dict[str, Any]) -> None:
+    """
+    Validate task configuration to prevent injection attacks.
+
+    SECURITY: This function validates all user-controllable config fields
+    to ensure they match expected schemas and don't contain malicious values.
+
+    Raises:
+        ValueError: If config is invalid
+    """
+    if not isinstance(config, dict):
+        raise ValueError("Config must be a dictionary")
+
+    task_type = config.get("type", "agent")
+    if task_type not in ("agent", "workflow"):
+        raise ValueError(f"Invalid task type: {task_type}")
+
+    # Validate agent-specific config
+    if task_type == "agent":
+        # Validate model
+        model = config.get("model", "claude-sonnet-4-20250514")
+        if model not in ALLOWED_MODELS:
+            raise ValueError(f"Invalid or disallowed model: {model}")
+
+        # Validate tools whitelist
+        tools = config.get("tools", [])
+        if not isinstance(tools, list):
+            raise ValueError("Tools must be a list")
+        for tool in tools:
+            if not isinstance(tool, str):
+                raise ValueError("Tool names must be strings")
+            if tool not in ALLOWED_TOOLS:
+                raise ValueError(f"Disallowed tool: {tool}")
+
+        # Validate max_turns
+        max_turns = config.get("max_turns", 20)
+        if not isinstance(max_turns, int) or max_turns < 1 or max_turns > 100:
+            raise ValueError("max_turns must be an integer between 1 and 100")
+
+        # Validate messages structure
+        messages = config.get("messages", [])
+        if not isinstance(messages, list):
+            raise ValueError("Messages must be a list")
+        for msg in messages:
+            if not isinstance(msg, dict):
+                raise ValueError("Each message must be a dictionary")
+            if "role" not in msg:
+                raise ValueError("Each message must have a 'role' field")
+            if msg["role"] not in ("user", "assistant"):
+                raise ValueError(f"Invalid message role: {msg['role']}")
+
+        # System prompt is optional but must be a string if provided
+        system_prompt = config.get("system_prompt")
+        if system_prompt is not None and not isinstance(system_prompt, str):
+            raise ValueError("system_prompt must be a string")
+
+    # Validate workflow-specific config
+    elif task_type == "workflow":
+        steps = config.get("steps", [])
+        if not isinstance(steps, list):
+            raise ValueError("Workflow steps must be a list")
+        for i, step in enumerate(steps):
+            if not isinstance(step, dict):
+                raise ValueError(f"Step {i} must be a dictionary")
 
 
 class Runner:
@@ -218,10 +302,25 @@ def main():
         # Read task config from stdin or environment
         config_json = os.environ.get("TASK_CONFIG")
         if config_json:
-            config = json.loads(config_json)
+            try:
+                config = json.loads(config_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in TASK_CONFIG: {e}")
+                sys.exit(1)
         else:
             # Try reading from stdin
-            config = json.load(sys.stdin)
+            try:
+                config = json.load(sys.stdin)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON from stdin: {e}")
+                sys.exit(1)
+
+        # SECURITY: Validate config before execution
+        try:
+            validate_task_config(config)
+        except ValueError as e:
+            logger.error(f"Invalid task configuration: {e}")
+            sys.exit(1)
 
         runner = Runner(
             task_id=task_id,

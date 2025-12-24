@@ -28,6 +28,9 @@ pub const Config = struct {
     edge_url: []const u8,
     edge_push_secret: []const u8,
 
+    // Internal API Authentication
+    internal_api_token: []const u8,
+
     // mTLS Configuration
     // When enabled, the server requires client certificates signed by the CA
     // at mtls_ca_path. This ensures only Cloudflare can connect to the origin.
@@ -108,6 +111,7 @@ pub fn load() Config {
         },
         .edge_url = std.posix.getenv("EDGE_URL") orelse "",
         .edge_push_secret = std.posix.getenv("EDGE_PUSH_SECRET") orelse "",
+        .internal_api_token = std.posix.getenv("PLUE_INTERNAL_API_TOKEN") orelse "",
         .mtls_enabled = blk: {
             const enabled = std.posix.getenv("PLUE_MTLS_ENABLED") orelse "false";
             break :blk std.mem.eql(u8, enabled, "true") or std.mem.eql(u8, enabled, "1");
