@@ -27,8 +27,68 @@ const RESULTS_PATH = join(PROJECT_ROOT, "test-results");
 const REPORT_PATH = join(PROJECT_ROOT, "playwright-report");
 const RESULTS_JSON = join(RESULTS_PATH, "results.json");
 
-// Types for Playwright JSON report
-interface TestResult {
+// Types for Playwright JSON report (actual structure from Playwright 1.57+)
+interface TestResultDetail {
+  status: "passed" | "failed" | "timedOut" | "skipped";
+  duration: number;
+  error?: { message: string; stack?: string };
+  attachments?: Array<{
+    name: string;
+    path?: string;
+    contentType: string;
+    body?: string;
+  }>;
+  retry: number;
+}
+
+interface TestCase {
+  timeout: number;
+  annotations: Array<{ type: string; description?: string }>;
+  expectedStatus: string;
+  projectId: string;
+  projectName: string;
+  results: TestResultDetail[];
+  status: "passed" | "failed" | "timedOut" | "skipped" | "expected";
+}
+
+interface TestSpec {
+  title: string;
+  ok: boolean;
+  tags: string[];
+  tests: TestCase[];
+  id: string;
+  file: string;
+  line: number;
+  column: number;
+}
+
+interface TestSuite {
+  title: string;
+  file: string;
+  line?: number;
+  column?: number;
+  specs?: TestSpec[];
+  suites?: TestSuite[];
+}
+
+interface PlaywrightReport {
+  config: {
+    rootDir: string;
+    testDir: string;
+  };
+  suites: TestSuite[];
+  stats?: {
+    startTime: string;
+    duration: number;
+    expected: number;
+    unexpected: number;
+    flaky: number;
+    skipped: number;
+  };
+}
+
+// Flattened test result for display
+interface FlatTestResult {
   title: string;
   fullTitle: string;
   file: string;
@@ -44,29 +104,6 @@ interface TestResult {
     body?: string;
   }>;
   retry: number;
-}
-
-interface TestSuite {
-  title: string;
-  file: string;
-  tests: TestResult[];
-  suites: TestSuite[];
-}
-
-interface PlaywrightReport {
-  config: {
-    rootDir: string;
-    testDir: string;
-  };
-  suites: TestSuite[];
-  stats: {
-    startTime: string;
-    duration: number;
-    expected: number;
-    unexpected: number;
-    flaky: number;
-    skipped: number;
-  };
 }
 
 // Tool definitions
@@ -197,15 +234,65 @@ function loadResults(): PlaywrightReport | null {
   }
 }
 
-// Helper to flatten test suites
-function flattenTests(suites: TestSuite[]): TestResult[] {
-  const tests: TestResult[] = [];
-  for (const suite of suites) {
-    tests.push(...suite.tests);
+// Helper to flatten test suites into displayable results
+function flattenTests(suites: TestSuite[], parentTitle = ""): FlatTestResult[] {
+  const tests: FlatTestResult[] = [];
+
+  for (const suite of suites || []) {
+    const currentTitle = parentTitle ? `${parentTitle} › ${suite.title}` : suite.title;
+
+    // Process specs (actual test definitions)
+    if (suite.specs) {
+      for (const spec of suite.specs) {
+        // Each spec can have multiple test runs (for different projects/retries)
+        for (const testCase of spec.tests || []) {
+          // Get the last result (final status after retries)
+          const lastResult = testCase.results?.[testCase.results.length - 1];
+          const retryCount = (testCase.results?.length || 1) - 1;
+
+          // Determine final status
+          let status: "passed" | "failed" | "timedOut" | "skipped" = "skipped";
+          if (lastResult) {
+            status = lastResult.status;
+          } else if (testCase.status === "expected" || testCase.status === "passed") {
+            status = "passed";
+          } else if (testCase.status) {
+            status = testCase.status as typeof status;
+          }
+
+          // Collect errors from all results
+          const errors: Array<{ message: string; stack?: string }> = [];
+          for (const result of testCase.results || []) {
+            if (result.error) {
+              errors.push(result.error);
+            }
+          }
+
+          // Collect attachments from last result
+          const attachments = lastResult?.attachments || [];
+
+          tests.push({
+            title: spec.title,
+            fullTitle: `${currentTitle} › ${spec.title}`,
+            file: spec.file || suite.file,
+            line: spec.line || 0,
+            column: spec.column || 0,
+            status,
+            duration: testCase.results?.reduce((sum, r) => sum + (r.duration || 0), 0) || 0,
+            errors,
+            attachments,
+            retry: retryCount,
+          });
+        }
+      }
+    }
+
+    // Recursively process nested suites
     if (suite.suites) {
-      tests.push(...flattenTests(suite.suites));
+      tests.push(...flattenTests(suite.suites, currentTitle));
     }
   }
+
   return tests;
 }
 
@@ -353,7 +440,7 @@ Retry:    ${test.retry}`;
       }
 
       // Group by error message pattern
-      const patterns = new Map<string, TestResult[]>();
+      const patterns = new Map<string, FlatTestResult[]>();
       for (const test of failures) {
         const error = test.errors[0]?.message?.split("\n")[0] || "Unknown error";
         // Normalize error message (remove specific values)

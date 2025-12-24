@@ -1,7 +1,7 @@
 # =============================================================================
-# Plue Production Environment
+# Plue Staging Environment
 # =============================================================================
-# Root module that composes all infrastructure for Plue deployment.
+# Staging environment for testing before production deployment.
 #
 # Deploy order:
 # 1. terraform init
@@ -12,7 +12,6 @@
 # 6. Build and push Docker images to Artifact Registry
 # 7. Add ANTHROPIC_API_KEY to Secret Manager manually
 # 8. terraform apply (full)
-# 9. terraform apply -target=module.dns (after LB IP is available)
 
 terraform {
   required_version = ">= 1.5.0"
@@ -89,10 +88,10 @@ data "google_client_config" "default" {}
 # -----------------------------------------------------------------------------
 
 locals {
-  name_prefix = "plue"
+  name_prefix = "plue-staging"
   labels = {
     app         = "plue"
-    environment = "production"
+    environment = "staging"
     managed-by  = "terraform"
   }
 
@@ -132,7 +131,7 @@ module "networking" {
 }
 
 # -----------------------------------------------------------------------------
-# Module: Cloud SQL
+# Module: Cloud SQL (smaller instance for staging)
 # -----------------------------------------------------------------------------
 
 module "cloudsql" {
@@ -153,7 +152,7 @@ module "cloudsql" {
 }
 
 # -----------------------------------------------------------------------------
-# Module: GKE
+# Module: GKE (with sandbox pool enabled for staging)
 # -----------------------------------------------------------------------------
 
 module "gke" {
@@ -235,15 +234,12 @@ module "kubernetes" {
   api_replicas                = var.api_replicas
   repos_storage_size          = var.repos_storage_size
 
-  # Cloudflare Tunnel configuration (for edge deployment)
-  enable_cloudflare_tunnel  = var.enable_edge
-  cloudflare_tunnel_token   = var.enable_edge ? module.cloudflare_tunnel[0].tunnel_token : ""
-  enable_external_lb        = !var.enable_edge  # Disable external LB when edge is enabled
+  # Disable edge for staging
+  enable_cloudflare_tunnel  = false
+  cloudflare_tunnel_token   = ""
+  enable_external_lb        = true
+  edge_push_secret          = ""
 
-  # Edge push secret for K8s to Workers authentication
-  edge_push_secret          = var.enable_edge ? random_password.edge_push_secret[0].result : var.edge_push_secret
-
-  # Pass through for services
   providers = {
     kubernetes = kubernetes
     helm       = helm
@@ -253,7 +249,7 @@ module "kubernetes" {
 }
 
 # -----------------------------------------------------------------------------
-# Module: DNS (Cloudflare)
+# Module: DNS (Cloudflare - staging subdomain)
 # -----------------------------------------------------------------------------
 
 module "dns" {
@@ -262,70 +258,62 @@ module "dns" {
   cloudflare_zone_id = var.cloudflare_zone_id
   domain             = var.domain
   subdomain          = var.subdomain
-  # When edge is enabled, DNS points to Workers, not LB
-  load_balancer_ip   = var.enable_edge ? "0.0.0.0" : module.kubernetes.load_balancer_ip
+  load_balancer_ip   = module.kubernetes.load_balancer_ip
   enable_proxy       = true
-  enable_adminer_dns = !var.enable_edge # Disable adminer when edge is enabled
+  enable_adminer_dns = true
 
   depends_on = [module.kubernetes]
 }
 
 # -----------------------------------------------------------------------------
-# Module: Cloudflare Tunnel (connects Workers to private GKE)
+# Workflow Runner Namespace
 # -----------------------------------------------------------------------------
 
-module "cloudflare_tunnel" {
-  source = "../../modules/cloudflare-tunnel"
-  count  = var.enable_edge ? 1 : 0
+resource "kubernetes_namespace" "workflows" {
+  count = var.enable_sandbox_pool ? 1 : 0
 
-  account_id    = var.cloudflare_account_id
-  tunnel_name   = "${local.name_prefix}-origin-tunnel"
-  tunnel_secret = random_password.tunnel_secret[0].result
+  metadata {
+    name = "workflows"
+    labels = {
+      app         = "plue"
+      environment = "staging"
+      purpose     = "workflow-runners"
+    }
+  }
 
-  # Internal service URLs (resolved within GKE cluster)
-  origin_web_service     = "http://web:5173"
-  origin_api_service     = "http://api:4000"
+  depends_on = [module.gke]
 }
 
-# Random secret for tunnel authentication
-resource "random_password" "tunnel_secret" {
-  count   = var.enable_edge ? 1 : 0
-  length  = 64
-  special = false
+# Workflow runner service account
+resource "kubernetes_service_account" "workflow_runner" {
+  count = var.enable_sandbox_pool ? 1 : 0
+
+  metadata {
+    name      = "workflow-runner"
+    namespace = kubernetes_namespace.workflows[0].metadata[0].name
+  }
+
+  depends_on = [kubernetes_namespace.workflows]
 }
 
-# Random secret for JWT signing
-resource "random_password" "jwt_secret" {
-  count   = var.enable_edge ? 1 : 0
-  length  = 64
-  special = false
-}
+# Resource quota for workflows namespace
+resource "kubernetes_resource_quota" "workflows" {
+  count = var.enable_sandbox_pool ? 1 : 0
 
-# Random secret for edge push authentication
-resource "random_password" "edge_push_secret" {
-  count   = var.enable_edge ? 1 : 0
-  length  = 64
-  special = false
-}
+  metadata {
+    name      = "workflow-quota"
+    namespace = kubernetes_namespace.workflows[0].metadata[0].name
+  }
 
-# -----------------------------------------------------------------------------
-# Module: Cloudflare Workers (edge rendering)
-# -----------------------------------------------------------------------------
+  spec {
+    hard = {
+      "requests.cpu"    = "50"
+      "requests.memory" = "100Gi"
+      "limits.cpu"      = "100"
+      "limits.memory"   = "200Gi"
+      "pods"            = "100"
+    }
+  }
 
-module "cloudflare_workers" {
-  source = "../../modules/cloudflare-workers"
-  count  = var.enable_edge ? 1 : 0
-
-  account_id  = var.cloudflare_account_id
-  zone_id     = var.cloudflare_zone_id
-  domain      = var.domain
-  environment = "production"
-
-  # Internal hostnames (resolved via Cloudflare Tunnel)
-  origin_host  = "origin.internal"
-
-  jwt_secret   = random_password.jwt_secret[0].result
-  push_secret  = random_password.edge_push_secret[0].result
-
-  depends_on = [module.cloudflare_tunnel]
+  depends_on = [kubernetes_namespace.workflows]
 }

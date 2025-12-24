@@ -1,5 +1,5 @@
 # =============================================================================
-# Production Environment Variables
+# Staging Environment Variables
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -9,7 +9,7 @@
 variable "project_name" {
   description = "Human-readable project name"
   type        = string
-  default     = "Plue Production"
+  default     = "Plue Staging"
 }
 
 variable "project_id" {
@@ -40,19 +40,19 @@ variable "region" {
 variable "gke_subnet_cidr" {
   description = "CIDR for GKE nodes"
   type        = string
-  default     = "10.0.0.0/20"
+  default     = "10.1.0.0/20"  # Different from production
 }
 
 variable "pods_cidr" {
   description = "CIDR for GKE pods"
   type        = string
-  default     = "10.4.0.0/14"
+  default     = "10.12.0.0/14"  # Different from production
 }
 
 variable "services_cidr" {
   description = "CIDR for GKE services"
   type        = string
-  default     = "10.8.0.0/20"
+  default     = "10.16.0.0/20"  # Different from production
 }
 
 # -----------------------------------------------------------------------------
@@ -62,13 +62,13 @@ variable "services_cidr" {
 variable "gke_node_zones" {
   description = "Zones for GKE nodes"
   type        = list(string)
-  default     = ["us-west1-a", "us-west1-b", "us-west1-c"]
+  default     = ["us-west1-a"]  # Single zone for staging
 }
 
 variable "gke_machine_type" {
   description = "Machine type for GKE nodes"
   type        = string
-  default     = "e2-standard-4"
+  default     = "e2-standard-2"  # Smaller for staging
 }
 
 variable "gke_min_nodes" {
@@ -80,7 +80,7 @@ variable "gke_min_nodes" {
 variable "gke_max_nodes" {
   description = "Maximum nodes per zone"
   type        = number
-  default     = 5
+  default     = 3  # Lower limit for staging
 }
 
 # -----------------------------------------------------------------------------
@@ -90,7 +90,7 @@ variable "gke_max_nodes" {
 variable "enable_sandbox_pool" {
   description = "Enable gVisor sandbox node pool for workflow runners"
   type        = bool
-  default     = false  # Opt-in for production
+  default     = true  # Enable by default for staging
 }
 
 variable "sandbox_machine_type" {
@@ -108,7 +108,7 @@ variable "sandbox_pool_min_size" {
 variable "sandbox_pool_max_size" {
   description = "Maximum sandbox pool nodes"
   type        = number
-  default     = 10
+  default     = 5
 }
 
 # -----------------------------------------------------------------------------
@@ -118,19 +118,19 @@ variable "sandbox_pool_max_size" {
 variable "db_tier" {
   description = "Cloud SQL instance tier"
   type        = string
-  default     = "db-custom-2-8192"
+  default     = "db-f1-micro"  # Smallest for staging
 }
 
 variable "db_disk_size_gb" {
   description = "Cloud SQL disk size in GB"
   type        = number
-  default     = 50
+  default     = 10  # Minimal for staging
 }
 
 variable "db_ha_enabled" {
   description = "Enable Cloud SQL regional HA"
   type        = bool
-  default     = true
+  default     = false  # No HA for staging
 }
 
 # -----------------------------------------------------------------------------
@@ -143,9 +143,9 @@ variable "domain" {
 }
 
 variable "subdomain" {
-  description = "Subdomain (empty for root domain)"
+  description = "Subdomain (e.g., 'staging' for staging.plue.dev)"
   type        = string
-  default     = ""
+  default     = "staging"
 }
 
 variable "cloudflare_api_token" {
@@ -159,25 +159,6 @@ variable "cloudflare_zone_id" {
   type        = string
 }
 
-variable "cloudflare_account_id" {
-  description = "Cloudflare Account ID (required for Workers and Tunnels)"
-  type        = string
-  default     = ""
-}
-
-variable "enable_edge" {
-  description = "Enable Cloudflare Workers edge deployment"
-  type        = bool
-  default     = false
-}
-
-variable "edge_push_secret" {
-  description = "Shared secret for K8s to authenticate push invalidations to Workers"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 # -----------------------------------------------------------------------------
 # Application
 # -----------------------------------------------------------------------------
@@ -185,19 +166,19 @@ variable "edge_push_secret" {
 variable "image_tag" {
   description = "Container image tag"
   type        = string
-  default     = "latest"
+  default     = "staging"
 }
 
 variable "api_replicas" {
   description = "Number of API replicas"
   type        = number
-  default     = 2
+  default     = 1  # Single replica for staging
 }
 
 variable "repos_storage_size" {
   description = "Storage size for git repos"
   type        = string
-  default     = "100Gi"
+  default     = "20Gi"  # Smaller for staging
 }
 
 # -----------------------------------------------------------------------------
@@ -207,5 +188,5 @@ variable "repos_storage_size" {
 variable "deletion_protection" {
   description = "Enable deletion protection on critical resources"
   type        = bool
-  default     = true
+  default     = false  # Allow deletion in staging
 }

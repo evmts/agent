@@ -1,0 +1,25 @@
+# =============================================================================
+# Staging Environment Variables Example
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in the values.
+# terraform.tfvars is gitignored and should not be committed.
+
+# GCP Project
+project_id      = "plue-staging-xxxxx"
+org_id          = "123456789"
+billing_account = "XXXXX-XXXXX-XXXXX"
+
+# Domain (staging subdomain)
+domain               = "plue.dev"
+subdomain            = "staging"
+cloudflare_api_token = "your-cloudflare-api-token"
+cloudflare_zone_id   = "your-zone-id"
+
+# Application
+image_tag = "staging"
+
+# Sandbox pool for workflow runners
+enable_sandbox_pool   = true
+sandbox_machine_type  = "e2-standard-4"
+sandbox_pool_min_size = 1
+sandbox_pool_max_size = 5

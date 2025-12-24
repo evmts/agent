@@ -29,6 +29,13 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 10s
 
+  # Workflow Runner Pods (in K8s, use kubernetes_sd_config instead)
+  - job_name: 'workflow-runners'
+    static_configs:
+      - targets: []  # Dynamically populated by runner registration
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
   # Astro Web Server
   - job_name: 'web'
     static_configs:
