@@ -548,7 +548,7 @@ pub fn updateWorkflowStepStatus(pool: *Pool, id: i32, status: []const u8) !void 
 
 pub fn completeWorkflowStep(
     pool: *Pool,
-    id: i64,
+    id: i32,
     exit_code: ?i32,
     output: ?[]const u8, // JSONB string or null
     error_message: ?[]const u8,
@@ -636,6 +636,40 @@ pub fn listWorkflowLogs(pool: *Pool, allocator: std.mem.Allocator, step_id: i32)
         \\FROM workflow_logs WHERE step_id = $1
         \\ORDER BY sequence
     , .{step_id});
+    defer result.deinit();
+
+    var logs: std.ArrayList(WorkflowLog) = .{};
+    while (try result.next()) |row| {
+        try logs.append(allocator, WorkflowLog{
+            .id = row.get(i32, 0),
+            .step_id = row.get(i32, 1),
+            .log_type = row.get([]const u8, 2),
+            .content = row.get([]const u8, 3),
+            .sequence = row.get(i32, 4),
+            .created_at = row.get(i64, 5),
+        });
+    }
+
+    return try logs.toOwnedSlice(allocator);
+}
+
+pub fn listWorkflowLogsForRunSince(
+    pool: *Pool,
+    allocator: std.mem.Allocator,
+    run_id: i32,
+    after_id: i32,
+) ![]WorkflowLog {
+    var conn = try pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT l.id, l.step_id, l.log_type, l.content, l.sequence,
+        \\       EXTRACT(EPOCH FROM l.created_at)::bigint
+        \\FROM workflow_logs l
+        \\JOIN workflow_steps s ON l.step_id = s.id
+        \\WHERE s.run_id = $1 AND l.id > $2
+        \\ORDER BY l.id
+    , .{ run_id, after_id });
     defer result.deinit();
 
     var logs: std.ArrayList(WorkflowLog) = .{};

@@ -971,7 +971,7 @@ CREATE TABLE IF NOT EXISTS runner_pool (
   registered_at TIMESTAMP DEFAULT NOW(),
   last_heartbeat TIMESTAMP DEFAULT NOW(),
   claimed_at TIMESTAMP,
-  claimed_by_task_id INTEGER REFERENCES workflow_tasks(id) ON DELETE SET NULL
+  claimed_by_step_id INTEGER REFERENCES workflow_steps(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_runner_pool_status ON runner_pool(status);
