@@ -8,6 +8,31 @@ const pg = @import("pg");
 pub const Pool = pg.Pool;
 
 // =============================================================================
+// JSON Utility Functions
+// =============================================================================
+
+/// Write a properly escaped JSON string value to a writer
+/// Escapes: quotes, backslashes, newlines, tabs, carriage returns, and control characters
+fn writeJsonString(writer: anytype, str: []const u8) !void {
+    for (str) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            '\x08' => try writer.writeAll("\\b"), // backspace
+            '\x0C' => try writer.writeAll("\\f"), // form feed
+            0x00...0x07, 0x0B, 0x0E...0x1F => {
+                // Other control characters: escape as \uXXXX
+                try writer.print("\\u{x:0>4}", .{c});
+            },
+            else => try writer.writeByte(c),
+        }
+    }
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -401,7 +426,7 @@ pub fn updateConflicts(pool: *Pool, landing_id: i64, has_conflicts: bool, confli
     for (conflicted_files, 0..) |file, i| {
         if (i > 0) try writer.writeByte(',');
         try writer.writeByte('"');
-        try writer.writeAll(file);
+        try writeJsonString(writer, file);
         try writer.writeByte('"');
     }
     try writer.writeByte(']');

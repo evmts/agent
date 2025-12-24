@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS users (
   prohibit_login BOOLEAN NOT NULL DEFAULT false,
 
   -- Timestamps
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  last_login_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  last_login_at TIMESTAMPTZ
 );
 
 -- Indexes for performance
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS email_addresses (
   lower_email VARCHAR(255) NOT NULL,
   is_activated BOOLEAN NOT NULL DEFAULT false,
   is_primary BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(email),
   UNIQUE(lower_email)
 );
@@ -56,9 +56,9 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   username VARCHAR(255) NOT NULL,
   is_admin BOOLEAN NOT NULL DEFAULT false,
   data BYTEA, -- Legacy field for TypeScript compatibility
-  expires_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
@@ -72,9 +72,9 @@ CREATE TABLE IF NOT EXISTS access_tokens (
   token_hash VARCHAR(64) UNIQUE NOT NULL, -- sha256 hash
   token_last_eight VARCHAR(8) NOT NULL, -- for display
   scopes VARCHAR(512) NOT NULL DEFAULT 'all', -- comma-separated
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  last_used_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
@@ -87,9 +87,9 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
   email VARCHAR(255) NOT NULL,
   token_hash VARCHAR(64) UNIQUE NOT NULL, -- sha256 hash
   token_type VARCHAR(20) NOT NULL CHECK (token_type IN ('verify', 'reset')),
-  expires_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  used_at TIMESTAMP
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  used_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_id ON email_verification_tokens(user_id);
@@ -100,9 +100,9 @@ CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires ON email_verifi
 CREATE TABLE IF NOT EXISTS siwe_nonces (
   nonce VARCHAR(64) PRIMARY KEY,
   wallet_address VARCHAR(42),
-  created_at TIMESTAMP DEFAULT NOW(),
-  expires_at TIMESTAMP NOT NULL,
-  used_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_siwe_nonces_expires ON siwe_nonces(expires_at);
@@ -117,10 +117,34 @@ CREATE TABLE IF NOT EXISTS repositories (
   is_public BOOLEAN DEFAULT true,
   default_branch VARCHAR(255) DEFAULT 'main',
   topics TEXT[] DEFAULT '{}',
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  next_issue_number INTEGER NOT NULL DEFAULT 1, -- Atomic counter for issue numbers
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, name)
 );
+
+CREATE INDEX IF NOT EXISTS idx_repositories_next_issue_number ON repositories(id, next_issue_number);
+
+-- Atomic function to get next issue number (prevents race conditions)
+CREATE OR REPLACE FUNCTION get_next_issue_number(repo_id INTEGER)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  next_num INTEGER;
+BEGIN
+  UPDATE repositories
+  SET next_issue_number = next_issue_number + 1
+  WHERE id = repo_id
+  RETURNING next_issue_number - 1 INTO next_num;
+
+  IF next_num IS NULL THEN
+    RAISE EXCEPTION 'Repository % not found', repo_id;
+  END IF;
+
+  RETURN next_num;
+END;
+$$;
 
 -- Milestones
 CREATE TABLE IF NOT EXISTS milestones (
@@ -128,11 +152,11 @@ CREATE TABLE IF NOT EXISTS milestones (
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  due_date TIMESTAMP,
+  due_date TIMESTAMPTZ,
   state VARCHAR(20) DEFAULT 'open' CHECK (state IN ('open', 'closed')),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  closed_at TIMESTAMP
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  closed_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_milestones_repository ON milestones(repository_id);
@@ -148,10 +172,10 @@ CREATE TABLE IF NOT EXISTS issues (
   body TEXT,
   state VARCHAR(20) DEFAULT 'open' CHECK (state IN ('open', 'closed')),
   milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL,
-  due_date TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  closed_at TIMESTAMP,
+  due_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  closed_at TIMESTAMPTZ,
   UNIQUE(repository_id, issue_number)
 );
 
@@ -163,8 +187,8 @@ CREATE TABLE IF NOT EXISTS comments (
   issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
   author_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   body TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   edited BOOLEAN NOT NULL DEFAULT false
 );
 
@@ -175,7 +199,7 @@ CREATE TABLE IF NOT EXISTS mentions (
   issue_number INTEGER NOT NULL,
   comment_id VARCHAR(10), -- NULL for issue body, or comment ID like "001"
   mentioned_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_mentions_repo_issue ON mentions(repository_id, issue_number);
@@ -186,7 +210,7 @@ CREATE TABLE IF NOT EXISTS issue_assignees (
   id SERIAL PRIMARY KEY,
   issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  assigned_at TIMESTAMP DEFAULT NOW(),
+  assigned_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(issue_id, user_id)
 );
 
@@ -200,7 +224,7 @@ CREATE TABLE IF NOT EXISTS labels (
   name VARCHAR(255) NOT NULL,
   color VARCHAR(7) NOT NULL, -- hex color like #ff0000
   description TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, name)
 );
 
@@ -211,7 +235,7 @@ CREATE TABLE IF NOT EXISTS issue_labels (
   id SERIAL PRIMARY KEY,
   issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
-  added_at TIMESTAMP DEFAULT NOW(),
+  added_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(issue_id, label_id)
 );
 
@@ -232,10 +256,10 @@ CREATE TABLE IF NOT EXISTS branches (
   pusher_id INTEGER REFERENCES users(id),
   is_deleted BOOLEAN DEFAULT false,
   deleted_by_id INTEGER REFERENCES users(id),
-  deleted_at TIMESTAMP,
-  commit_time TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ,
+  commit_time TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, name)
 );
 
@@ -289,8 +313,8 @@ CREATE TABLE IF NOT EXISTS protected_branches (
   unprotected_file_patterns TEXT,
   block_admin_merge_override BOOLEAN DEFAULT false,
 
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, rule_name)
 );
 
@@ -303,7 +327,7 @@ CREATE TABLE IF NOT EXISTS renamed_branches (
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   from_name VARCHAR(255) NOT NULL,
   to_name VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_renamed_branches_repo ON renamed_branches(repository_id);
@@ -338,7 +362,7 @@ CREATE TABLE IF NOT EXISTS pull_requests (
 
   -- Merge information
   has_merged BOOLEAN DEFAULT false,
-  merged_at TIMESTAMP,
+  merged_at TIMESTAMPTZ,
   merged_by INTEGER REFERENCES users(id),
   merged_commit_id VARCHAR(64),
   merge_style VARCHAR(20) CHECK (merge_style IN ('merge', 'squash', 'rebase')),
@@ -354,8 +378,8 @@ CREATE TABLE IF NOT EXISTS pull_requests (
   -- Settings
   allow_maintainer_edit BOOLEAN DEFAULT true,
 
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
 
   UNIQUE(issue_id)
 );
@@ -387,8 +411,8 @@ CREATE TABLE IF NOT EXISTS reviews (
   stale BOOLEAN DEFAULT false,    -- Outdated due to new commits
   dismissed BOOLEAN DEFAULT false, -- Dismissed by maintainer
 
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_reviews_pr ON reviews(pull_request_id);
@@ -415,8 +439,8 @@ CREATE TABLE IF NOT EXISTS review_comments (
   invalidated BOOLEAN DEFAULT false, -- Line changed by subsequent commit
   resolved BOOLEAN DEFAULT false,
 
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_comments_review ON review_comments(review_id);
@@ -484,7 +508,7 @@ CREATE TABLE IF NOT EXISTS messages (
   finish VARCHAR(64),
   is_summary BOOLEAN,
   error JSONB,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -520,7 +544,7 @@ CREATE TABLE IF NOT EXISTS snapshot_history (
   session_id VARCHAR(64) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   change_id VARCHAR(255) NOT NULL,
   sort_order INTEGER NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_history_session ON snapshot_history(session_id);
@@ -531,7 +555,7 @@ CREATE TABLE IF NOT EXISTS subtasks (
   id SERIAL PRIMARY KEY,
   session_id VARCHAR(64) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   result JSONB NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_subtasks_session ON subtasks(session_id);
@@ -556,8 +580,8 @@ CREATE TABLE IF NOT EXISTS ssh_keys (
   fingerprint VARCHAR(255) NOT NULL UNIQUE, -- SHA256:... fingerprint
   public_key TEXT NOT NULL, -- Full public key content
   key_type VARCHAR(32) NOT NULL DEFAULT 'user', -- 'user' or 'deploy'
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ssh_keys_fingerprint ON ssh_keys(fingerprint);
@@ -578,7 +602,7 @@ CREATE TABLE IF NOT EXISTS workflow_definitions (
   dockerfile VARCHAR(500),              -- Path to Dockerfile
   plan JSONB NOT NULL,                  -- The generated DAG of steps
   content_hash VARCHAR(64) NOT NULL,    -- SHA256 hash for change detection
-  parsed_at TIMESTAMP DEFAULT NOW(),
+  parsed_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, name)
 );
 
@@ -598,7 +622,7 @@ CREATE TABLE IF NOT EXISTS prompt_definitions (
   max_turns INTEGER,
   body_template TEXT NOT NULL,
   content_hash VARCHAR(64) NOT NULL,
-  parsed_at TIMESTAMP DEFAULT NOW(),
+  parsed_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, name)
 );
 
@@ -612,11 +636,11 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   trigger_payload JSONB NOT NULL,
   inputs JSONB,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
-  started_at TIMESTAMP,
-  completed_at TIMESTAMP,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
   outputs JSONB,
   error_message TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_definition_id);
@@ -631,8 +655,8 @@ CREATE TABLE IF NOT EXISTS workflow_steps (
   step_type VARCHAR(20) NOT NULL,       -- shell, llm, agent, parallel
   config JSONB NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
-  started_at TIMESTAMP,
-  completed_at TIMESTAMP,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
   exit_code INTEGER,
   output JSONB,
   error_message TEXT,
@@ -652,7 +676,7 @@ CREATE TABLE IF NOT EXISTS workflow_logs (
   log_type VARCHAR(20) NOT NULL,        -- stdout, stderr, token, tool_call, tool_result
   content TEXT NOT NULL,
   sequence INTEGER NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_logs_step ON workflow_logs(step_id, sequence);
@@ -666,7 +690,7 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
   latency_ms INTEGER NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_usage_step ON llm_usage(step_id);
@@ -692,8 +716,8 @@ CREATE TABLE IF NOT EXISTS commit_statuses (
   -- Link to workflow run if created by internal workflow
   workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
 
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
 
   UNIQUE(repository_id, commit_sha, context)
 );
@@ -726,7 +750,7 @@ CREATE TABLE IF NOT EXISTS stars (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, repository_id)
 );
 
@@ -741,8 +765,8 @@ CREATE TABLE IF NOT EXISTS watches (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   level VARCHAR(20) NOT NULL DEFAULT 'all' CHECK (level IN ('all', 'releases', 'ignore')),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, repository_id)
 );
 
@@ -761,7 +785,7 @@ CREATE TABLE IF NOT EXISTS reactions (
   target_type VARCHAR(20) NOT NULL CHECK (target_type IN ('issue', 'comment')),
   target_id INTEGER NOT NULL,
   emoji VARCHAR(10) NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, target_type, target_id, emoji)
 );
 
@@ -803,7 +827,7 @@ CREATE TABLE IF NOT EXISTS issue_events (
   -- title change: {"old_title": "...", "new_title": "..."}
   metadata JSONB DEFAULT '{}',
 
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_events_repo_issue ON issue_events(repository_id, issue_number);
@@ -822,7 +846,7 @@ CREATE TABLE IF NOT EXISTS issue_dependencies (
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   blocker_issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   blocked_issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(blocker_issue_id, blocked_issue_id),
   -- Prevent self-blocking
   CHECK (blocker_issue_id != blocked_issue_id)
@@ -843,7 +867,7 @@ CREATE TABLE IF NOT EXISTS pinned_issues (
   issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
   pin_order INTEGER NOT NULL DEFAULT 0, -- 0 = first, 1 = second, 2 = third
   pinned_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, issue_id),
   UNIQUE(repository_id, pin_order),
   CHECK (pin_order >= 0 AND pin_order <= 2)
@@ -870,8 +894,8 @@ CREATE TABLE IF NOT EXISTS changes (
   has_conflict BOOLEAN DEFAULT false,
   is_empty BOOLEAN DEFAULT false,
   parent_change_ids JSONB DEFAULT '[]',
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, change_id)
 );
 
@@ -886,8 +910,8 @@ CREATE TABLE IF NOT EXISTS bookmarks (
   name VARCHAR(255) NOT NULL,
   target_change_id VARCHAR(64) NOT NULL,
   is_default BOOLEAN DEFAULT false,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, name)
 );
 
@@ -903,7 +927,7 @@ CREATE TABLE IF NOT EXISTS jj_operations (
   description TEXT,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   parent_operation_id VARCHAR(64),
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, operation_id)
 );
 
@@ -916,7 +940,7 @@ CREATE TABLE IF NOT EXISTS protected_bookmarks (
   pattern VARCHAR(255) NOT NULL,
   require_review BOOLEAN DEFAULT true,
   required_approvals INTEGER DEFAULT 1,
-  created_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(repository_id, pattern)
 );
 
@@ -932,9 +956,9 @@ CREATE TABLE IF NOT EXISTS conflicts (
   resolved BOOLEAN DEFAULT FALSE,
   resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   resolution_method TEXT, -- 'manual', 'theirs', 'ours', 'base'
-  resolved_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(change_id, file_path)
 );
 
@@ -951,8 +975,8 @@ CREATE INDEX IF NOT EXISTS idx_conflicts_file ON conflicts(file_path);
 CREATE TABLE IF NOT EXISTS rate_limits (
   key VARCHAR(255) PRIMARY KEY,
   count INTEGER NOT NULL DEFAULT 0,
-  window_start TIMESTAMP NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMP NOT NULL
+  window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
@@ -968,9 +992,9 @@ CREATE TABLE IF NOT EXISTS runner_pool (
   pod_ip VARCHAR(45) NOT NULL,
   node_name VARCHAR(255),
   status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'claimed', 'terminated')),
-  registered_at TIMESTAMP DEFAULT NOW(),
-  last_heartbeat TIMESTAMP DEFAULT NOW(),
-  claimed_at TIMESTAMP,
+  registered_at TIMESTAMPTZ DEFAULT NOW(),
+  last_heartbeat TIMESTAMPTZ DEFAULT NOW(),
+  claimed_at TIMESTAMPTZ,
   claimed_by_step_id INTEGER REFERENCES workflow_steps(id) ON DELETE SET NULL
 );
 
@@ -994,9 +1018,9 @@ CREATE TABLE IF NOT EXISTS landing_queue (
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'checking', 'ready', 'landed', 'failed', 'aborted')),
   has_conflicts BOOLEAN DEFAULT false,
   conflicted_files TEXT[],
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  landed_at TIMESTAMP,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  landed_at TIMESTAMPTZ,
   landed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   landed_change_id VARCHAR(255),
   UNIQUE(repository_id, change_id)
@@ -1014,8 +1038,8 @@ CREATE TABLE IF NOT EXISTS landing_reviews (
   reviewer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'dismissed')),
   comment TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(landing_id, reviewer_id)
 );
 
@@ -1033,9 +1057,9 @@ CREATE TABLE IF NOT EXISTS landing_line_comments (
   content TEXT NOT NULL,
   resolved BOOLEAN DEFAULT false,
   resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  resolved_at TIMESTAMP,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_landing_line_comments_landing ON landing_line_comments(landing_id);

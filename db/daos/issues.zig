@@ -132,12 +132,12 @@ pub fn create(
     title: []const u8,
     body: ?[]const u8,
 ) !IssueRecord {
-    // Get next issue number
+    // Get next issue number atomically using database function
     const num_row = try pool.row(
-        \\SELECT COALESCE(MAX(issue_number), 0) + 1 FROM issues WHERE repository_id = $1
+        \\SELECT get_next_issue_number($1)
     , .{repo_id});
 
-    const issue_number = if (num_row) |r| r.get(i64, 0) else 1;
+    const issue_number = if (num_row) |r| r.get(i64, 0) else return error.FailedToGetIssueNumber;
 
     const row = try pool.row(
         \\INSERT INTO issues (repository_id, author_id, issue_number, title, body, created_at, updated_at)
