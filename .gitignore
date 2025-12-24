@@ -65,6 +65,12 @@ tui-zig/.zig-cache/
 tui-zig/zig-out/
 *.o
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Reference code (not part of project)
 gitea/
 gitea-ref/
