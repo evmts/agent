@@ -17,7 +17,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY src/ ./src/
+COPY . ./runner/
 
 # Switch to non-root user
 USER 1000:1000
@@ -26,4 +26,4 @@ USER 1000:1000
 WORKDIR /workspace
 
 # Entry point
-ENTRYPOINT ["python", "-m", "src.main"]
+ENTRYPOINT ["python", "-m", "runner.main"]

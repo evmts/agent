@@ -9,3 +9,6 @@ pyyaml>=6.0
 
 # Type hints
 typing-extensions>=4.12.0
+
+# Testing
+pytest>=8.0.0
