@@ -5,25 +5,26 @@ description: Plue Zig API server internals. Use when working on HTTP routes, mid
 
 # Plue Server (Zig API)
 
-The main backend server built with Zig and httpz. Handles HTTP API, WebSocket streaming, SSH git operations, and agent execution.
+The main backend server built with Zig and httpz. Handles HTTP API, SSE streaming, SSH git operations, and agent execution.
 
 ## Entry Point
 
-- Main: `server/src/main.zig`
-- Routes: `server/src/routes.zig`
+- Main: `server/main.zig`
+- Routes: `server/routes.zig`
+- Config: `server/config.zig`
 
 ## Key Modules
 
 | Module | Location | Purpose |
 |--------|----------|---------|
-| Routes | `server/src/routes/` | HTTP API handlers |
-| AI/Agent | `server/src/ai/` | Agent system, Anthropic client |
-| Workflows | `server/src/workflows/` | Workflow execution engine |
-| Middleware | `server/src/middleware/` | Auth, CSRF, rate limiting, validation |
-| WebSocket | `server/src/websocket/` | Real-time agent streaming |
-| SSH | `server/src/ssh/` | Git over SSH |
-| Services | `server/src/services/` | Background services (repo watcher, cleanup) |
-| Dispatch | `server/src/dispatch/` | Task queue for runners |
+| Routes | `server/routes/` | HTTP API handlers |
+| AI/Agent | `server/ai/` | Agent system, Anthropic client |
+| Workflows | `server/workflows/` | Workflow execution engine |
+| Middleware | `server/middleware/` | Auth, CSRF, rate limiting, validation |
+| SSH | `server/ssh/` | Git over SSH server |
+| Services | `server/services/` | Background services (repo watcher, cleanup) |
+| Dispatch | `server/dispatch/` | Task queue for runners |
+| Lib | `server/lib/` | Shared utilities |
 
 ## Route Categories
 
@@ -102,7 +103,7 @@ Started in `main.zig`:
 
 ## AI Tools
 
-Located in `server/src/ai/tools/`:
+Located in `server/ai/tools/`:
 
 | Tool | File | Purpose |
 |------|------|---------|

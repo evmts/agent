@@ -98,6 +98,8 @@ function shouldCache(response: Response): boolean {
 export interface Env {
   ORIGIN_HOST: string;      // Origin server hostname
   BUILD_VERSION: string;    // For cache busting on deploy
+  AUTH_DO?: DurableObjectNamespace;  // Auth Durable Object (planned)
+  RATE_LIMIT_DO?: DurableObjectNamespace;  // Rate limit DO (planned)
 }
 ```
 
@@ -136,7 +138,7 @@ Deployed via Terraform:
 # infra/terraform/modules/cloudflare-workers/main.tf
 resource "cloudflare_worker_script" "edge" {
   name    = "plue-edge"
-  content = file("${path.module}/edge/index.js")
+  content = file("${path.module}/edge/dist/index.js")
 }
 ```
 
@@ -151,10 +153,15 @@ zig build test:edge    # Run edge worker tests
 The server notifies edge of cache invalidation:
 
 ```zig
-// server/src/services/edge_notifier.zig
+// server/services/edge_notifier.zig
 pub const EdgeNotifier = struct {
     pub fn notifyCacheInvalidation(self: *Self, paths: []const []const u8) !void {
         // POST to edge worker to purge cache
     }
 };
 ```
+
+## Related Skills
+
+- `caching` - Detailed caching strategy
+- `security` - Planned auth at edge (SIWE)

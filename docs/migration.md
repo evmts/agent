@@ -1,219 +1,30 @@
 # Plue Migration Plan
 
-This document provides a step-by-step migration plan from the legacy Electric/Edge DO architecture to the current architecture described in `architecture.md`, `infrastructure.md`, and the workflows specs. Use this as reference for remaining cleanup; the workflows source of truth is `docs/workflows-prd.md` and `docs/workflows-engineering.md`.
+This document provides implementation guidance for remaining infrastructure work. The workflows source of truth is `docs/workflows-prd.md` and `docs/workflows-engineering.md`.
 
 ## Table of Contents
 
-1. [Current State Summary](#current-state-summary)
-2. [Target State Summary](#target-state-summary)
-3. [Migration Phases](#migration-phases)
-   - [Phase 1: Remove ElectricSQL](#phase-1-remove-electricsql)
-   - [Phase 2: Simplify Edge Layer](#phase-2-simplify-edge-layer)
-   - [Phase 3: Simplify Git File Serving](#phase-3-simplify-git-file-serving)
-   - [Phase 4: SSE Streaming](#phase-4-sse-streaming)
-   - [Phase 5: Sandboxed Runner Infrastructure](#phase-5-sandboxed-runner-infrastructure)
-   - [Phase 6: Unified Workflow/Agent System](#phase-6-unified-workflowagent-system)
-   - [Phase 7: Infrastructure & CI/CD](#phase-7-infrastructure--cicd)
-4. [Risk Assessment](#risk-assessment)
-5. [Rollback Procedures](#rollback-procedures)
-
----
-
-## Current State Summary
-
-### What Exists Today
-
-| Component | Status | Location | Notes |
-|-----------|--------|----------|-------|
-| **ElectricSQL** | Partial | `docker-compose.yaml`, `edge/` | Docker service runs; Edge DO uses it; UI stubs throw errors |
-| **Edge Worker (DO)** | Complete | `edge/src/` | DataSyncDO with SQLite, Electric sync, merkle validation |
-| **Git Caching (Edge)** | Unused | `edge/src/durable-objects/data-sync.ts` | Code exists but page handlers never call it |
-| **Agent System** | In-process | `server/src/ai/` | Direct execution in Zig, 10 tools, SSE streaming |
-| **Workflow System** | Scaffolded | `db/schema.sql` | 11 tables exist but not connected to agents |
-| **Database** | Complete | `db/schema.sql` | 49 tables covering auth, repos, issues, sessions, workflows |
-| **Terraform** | Partial | `terraform/` | Production modules exist; no staging environments |
-| **CI/CD** | Missing | — | No GitHub workflows |
-| **Helm Charts** | Missing | — | Infrastructure.md describes but doesn't exist |
-
-### Current Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              CLIENTS                                     │
-└─────────────────────────────────────────────────────────────────────────┘
-                    │                                    │
-                    │ HTTP (shapes)                      │ HTTP (API)
-                    ▼                                    ▼
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│      Cloudflare Edge            │    │         Zig Server              │
-│  ┌───────────────────────────┐  │    │                                 │
-│  │   Durable Object          │  │    │  - REST API                     │
-│  │   - SQLite cache          │  │    │  - /shape proxy (BROKEN)        │
-│  │   - Electric sync         │  │    │  - Auth (SIWE, JWT)             │
-│  │   - Merkle validation     │  │    │  - Git operations (jj-lib)      │
-│  │   - Git cache (UNUSED)    │  │    │  - SSE streaming                │
-│  └───────────────────────────┘  │    │  - Agent execution (IN-PROCESS) │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-                    │                                    │
-                    │ HTTP (shapes)                      │ SQL
-                    ▼                                    ▼
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│         ElectricSQL             │    │          PostgreSQL             │
-│  - Shape definitions            │◄───│  - 49 tables                    │
-│  - Logical replication          │    │  - Sessions, messages, parts    │
-│  - Used by Edge DO only         │    │  - Workflows (unused)           │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-```
-
-### Key Problems with Current State
-
-1. **ElectricSQL adds complexity without value**
-   - UI stubs throw errors (never integrated)
-   - Shape proxy in Zig doesn't forward headers correctly
-   - Only Edge DO uses it, and that's being removed
-
-2. **Edge Durable Objects are over-engineered**
-   - Merkle-validated git caching exists but is never called
-   - Push invalidation system works but not needed without Electric
-   - CDN can handle caching more simply
-
-3. **Agent execution is unsafe**
-   - Runs in-process with full server privileges
-   - No resource isolation (CPU, memory, network)
-   - Can't handle untrusted code execution
-
-4. **Streaming uses SSE (not WebSocket)**
-   - Server-sent events for token streaming
-   - Separate POST endpoint for abort functionality
-   - Real-time persistence of streaming state
-
-5. **Workflows and Agents are separate systems**
-   - Workflow tables exist but aren't connected to agent execution
-   - Duplicate infrastructure for similar use cases
-
----
-
-## Target State Summary
-
-### Target Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              CLIENTS                                     │
-│   Browser ◄────────────────────────────────────────────► Browser        │
-│      │                                                       │          │
-│      │ SSE (streaming)                    REST + Cache       │          │
-└──────┼───────────────────────────────────────────────────────┼──────────┘
-       │                                                       │
-       │                    ┌─────────────────┐                │
-       │                    │   Cloudflare    │◄───────────────┘
-       │                    │   CDN           │
-       │                    │  - Static assets│
-       │                    │  - Git blobs    │
-       │                    └────────┬────────┘
-       │                             │ Cache miss
-       ▼                             ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           ZIG SERVER                                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │  REST API   │  │     SSE     │  │  Auth       │  │  K8s Client │    │
-│  │  - CRUD     │  │  Streaming  │  │  - SIWE/JWT │  │  - Job mgmt │    │
-│  │  - Git tree │  │  - Agent    │  │  - Sessions │  │  - Warm pool│    │
-│  │  - Abort    │  │  - Sessions │  │             │  │             │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │
-│                              │                              │           │
-│                              ▼                              ▼           │
-│                         jj-lib (FFI)                  Kubernetes        │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                    ┌──────────────┴──────────────┐
-                    ▼                             ▼
-┌─────────────────────────────────┐  ┌─────────────────────────────────┐
-│         PostgreSQL              │  │      Kubernetes (GKE)           │
-│  - All application state        │  │  ┌─────────────────────────┐   │
-│  - Sessions, messages, parts    │  │  │   Workflow/Agent Pods   │   │
-│  - Workflow queue               │  │  │   (gVisor sandbox)      │   │
-└─────────────────────────────────┘  └─────────────────────────────────┘
-```
-
-### What Changes
-
-| Removed | Added/Changed |
-|---------|---------------|
-| ElectricSQL service | Direct Postgres queries |
-| Edge Durable Objects | CDN caching with proper headers |
-| In-process agent execution | K8s sandboxed pods (gVisor) |
-| N/A | SSE streaming (was already in place) |
-| Separate workflow/agent systems | Unified execution model |
-| Shape proxy | SHA-based git caching |
-| Terminal/PTY feature | Removed entirely |
+1. [Migration Phases](#migration-phases)
+   - [Phase 1: Simplify Edge Layer](#phase-1-simplify-edge-layer)
+   - [Phase 2: Git File Serving](#phase-2-git-file-serving)
+   - [Phase 3: SSE Streaming](#phase-3-sse-streaming)
+   - [Phase 4: Sandboxed Runner Infrastructure](#phase-4-sandboxed-runner-infrastructure)
+   - [Phase 5: Unified Workflow/Agent System](#phase-5-unified-workflowagent-system)
+   - [Phase 6: Infrastructure & CI/CD](#phase-6-infrastructure--cicd)
+2. [Risk Assessment](#risk-assessment)
+3. [Rollback Procedures](#rollback-procedures)
 
 ---
 
 ## Migration Phases
 
-### Phase 1: Remove ElectricSQL
-
-**Goal**: Remove ElectricSQL service and all related code without breaking functionality.
-
-**Duration**: Low complexity, can be done in one session.
-
-**Prerequisites**: None
-
-#### Tasks
-
-1. **Stop Electric service**
-   ```bash
-   # In docker-compose.yaml, comment out or remove:
-   # - electric service (lines 27-43)
-   # - ELECTRIC_URL env vars
-   ```
-
-2. **Remove UI Electric stubs**
-   ```bash
-   rm ui/lib/electric.ts
-   ```
-   - File is 403 lines of stubs that throw errors
-   - No components import it
-
-3. **Remove Zig shape proxy**
-   - File: `server/src/routes.zig`
-   - Remove `/shape` route handler (lines 376-454)
-   - Remove `shapeProxy` function
-   - Remove `electric_url` from `server/src/config.zig` (line 49)
-
-4. **Update package.json**
-   - Remove `@electric-sql/*` from `edge/package.json`
-   - Run `bun install` to clean lock file
-
-5. **Update docker-compose.yaml**
-   - Remove `electric` service definition
-   - Remove `ELECTRIC_URL` environment variables from all services
-   - Remove Electric-related healthchecks
-
-#### Verification
-
-```bash
-# Start services without Electric
-docker-compose up -d postgres
-zig build run
-
-# Verify API still works
-curl http://localhost:4000/api/health
-
-# Run tests
-zig build test
-```
-
----
-
-### Phase 2: Simplify Edge Layer
+### Phase 1: Simplify Edge Layer
 
 **Goal**: Remove Durable Objects complexity, convert edge to simple CDN proxy.
 
 **Duration**: Medium complexity.
 
-**Prerequisites**: Phase 1 complete
+**Prerequisites**: None
 
 #### Current Edge Structure
 
@@ -296,7 +107,7 @@ curl https://staging.plue.dev/torvalds/linux
 
 ---
 
-### Phase 3: Simplify Git File Serving
+### Phase 2: Git File Serving
 
 **Goal**: Implement SHA-based caching with proper HTTP cache headers.
 
@@ -388,13 +199,13 @@ curl -H "If-None-Match: abc123" http://localhost:4000/api/torvalds/linux/blob/ab
 
 ---
 
-### Phase 4: SSE Streaming
+### Phase 3: SSE Streaming
 
 **Goal**: Enhance SSE streaming with abort functionality.
 
 **Duration**: Low complexity (already implemented).
 
-**Prerequisites**: None (can be done in parallel with Phases 1-3)
+**Prerequisites**: None (can be done in parallel with Phase 1-2)
 
 #### Current Streaming
 
@@ -439,13 +250,13 @@ curl -X POST http://localhost:4000/api/sessions/test123/abort
 
 ---
 
-### Phase 5: Sandboxed Runner Infrastructure
+### Phase 4: Sandboxed Runner Infrastructure
 
 **Goal**: Create K8s-based sandboxed execution environment for agents/workflows.
 
 **Duration**: High complexity.
 
-**Prerequisites**: Phase 4 complete (SSE streaming enhancements)
+**Prerequisites**: Phase 3 complete (SSE streaming enhancements)
 
 #### Current Execution
 
@@ -706,13 +517,13 @@ kubectl get pods -n workflows -l task-id=<task-id>
 
 ---
 
-### Phase 6: Unified Workflow/Agent System
+### Phase 5: Unified Workflow/Agent System
 
 **Goal**: Merge workflow and agent systems into single execution model.
 
 **Duration**: High complexity.
 
-**Prerequisites**: Phase 5 complete
+**Prerequisites**: Phase 4 complete
 
 #### Current State
 
@@ -855,7 +666,7 @@ curl http://localhost:4000/api/repos/test/test-repo/runs
 
 ---
 
-### Phase 7: Infrastructure & CI/CD
+### Phase 6: Infrastructure & CI/CD
 
 **Goal**: Implement per-engineer staging and automated deployment.
 
@@ -1068,24 +879,13 @@ curl https://$USER.staging.plue.dev/api/health
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| ElectricSQL removal | None (not used) | Test that UI still works without it |
 | Edge simplification | Slightly slower first request | CDN will cache; measure latency impact |
 
 ---
 
 ## Rollback Procedures
 
-### Phase 1 Rollback (ElectricSQL)
-
-```bash
-# Re-enable Electric in docker-compose
-git checkout HEAD -- docker-compose.yaml
-
-# Restart services
-docker-compose up -d
-```
-
-### Phase 4-5 Rollback (SSE + K8s)
+### Phase 3-4 Rollback (SSE + K8s)
 
 ```bash
 # Re-enable in-process execution
@@ -1130,17 +930,7 @@ docker-compose up -d
 - [ ] Document current metrics baselines
 - [ ] Notify users of maintenance window
 
-### Phase 1: Remove ElectricSQL
-
-- [ ] Remove Electric Docker service
-- [ ] Remove `ui/lib/electric.ts`
-- [ ] Remove `/shape` proxy route
-- [ ] Update environment variables
-- [ ] Run full test suite
-- [ ] Deploy to staging
-- [ ] Verify in staging for 24h
-
-### Phase 2: Simplify Edge
+### Phase 1: Simplify Edge
 
 - [ ] Remove Durable Objects
 - [ ] Simplify edge router
@@ -1148,7 +938,7 @@ docker-compose up -d
 - [ ] Deploy edge worker
 - [ ] Verify CDN caching works
 
-### Phase 3: Git File Serving
+### Phase 2: Git File Serving
 
 - [ ] Add new git routes
 - [ ] Implement cache headers
@@ -1156,14 +946,14 @@ docker-compose up -d
 - [ ] Update UI file browser
 - [ ] Verify caching with curl
 
-### Phase 4: SSE Streaming Enhancements
+### Phase 3: SSE Streaming Enhancements
 
 - [x] SSE streaming already implemented
 - [ ] Add abort endpoint (POST /api/sessions/:id/abort)
 - [ ] Enhance client-side abort handling
 - [ ] Test abort functionality
 
-### Phase 5: Sandboxed Runners
+### Phase 4: Sandboxed Runners
 
 - [ ] Create runner container
 - [ ] Port tools to Zig
@@ -1175,7 +965,7 @@ docker-compose up -d
 - [ ] Deploy to staging
 - [ ] Benchmark performance
 
-### Phase 6: Unified Workflows
+### Phase 5: Unified Workflows
 
 - [ ] Update database schema
 - [ ] Create workload abstraction
@@ -1184,7 +974,7 @@ docker-compose up -d
 - [ ] Test CI workflows
 - [ ] Test agent workflows
 
-### Phase 7: Infrastructure
+### Phase 6: Infrastructure
 
 - [ ] Create Helm charts
 - [ ] Create staging modules
@@ -1208,7 +998,6 @@ docker-compose up -d
 ### Files to Remove
 
 ```
-ui/lib/electric.ts
 edge/src/durable-objects/data-sync.ts
 edge/src/durable-objects/data-sync.test.ts
 ```
@@ -1260,9 +1049,8 @@ scripts/init-my-staging.sh
 ### Files to Modify
 
 ```
-docker-compose.yaml          # Remove Electric
-server/src/routes.zig        # Remove /shape, add new routes
-server/src/config.zig        # Remove electric_url, add runner_mode
+server/src/routes.zig        # Add new git routes
+server/src/config.zig        # Add runner_mode
 edge/src/index.ts            # Simplify to proxy
 edge/wrangler.toml           # Remove DO config
 db/schema.sql                # Add workloads, runner_pool tables

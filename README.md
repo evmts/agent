@@ -1,73 +1,119 @@
-# plue
+# Plue
 
-A minimal, brutalist GitHub competitor built with Astro SSR.
+A brutalist GitHub clone with integrated AI agent capabilities.
 
 ## Features
 
-- Repository listing and creation
-- File browser with tree view
-- README rendering (markdown)
-- Issue tracking (create, open/close, comments)
-- Real git integration (clone URLs, commits, branches)
-- Mock users (no auth required)
+- **Git Hosting** - SSH-based git push/pull with jj (Jujutsu) backend
+- **Issue Tracking** - Full issue lifecycle with labels, milestones, dependencies
+- **AI Agents** - Claude-powered agents for code review, issue triage, PR assistance
+- **Workflows** - CI/CD and agent workflows in the same execution model
+- **SIWE Authentication** - Sign-In With Ethereum wallet-based auth
 
-## Setup
-
-1. Install dependencies:
+## Quick Start
 
 ```bash
-bun install
+# Prerequisites: Docker, Zig 0.15.1+, Bun
+
+# Start the dev environment
+zig build run          # Docker + Zig API server (localhost:4000)
+zig build run:web      # Astro dev server (localhost:3000) - separate terminal
+
+# Run tests
+zig build test         # All tests (Zig + TypeScript + Rust)
 ```
 
-2. Start Postgres with Docker:
+## Architecture
 
-```bash
-docker compose up -d
+See [architecture.md](./architecture.md) for comprehensive diagrams and documentation.
+
 ```
-
-3. Run database migrations:
-
-```bash
-bun run db:migrate
+┌─────────────────────────────────────────────────────────────────────┐
+│  Browser ──► Cloudflare Edge ──► Zig API ──► PostgreSQL            │
+│                                     │                               │
+│                                     ├──► SSH Server (Git)          │
+│                                     └──► K8s Runners (gVisor)      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-
-4. Start the dev server:
-
-```bash
-bun run dev
-```
-
-Open http://localhost:5173
-
-## Usage
-
-- Create a new repository from the home page
-- Browse files, view README, check commits
-- Create and manage issues with comments
-- Clone repositories locally using the file:// URL
-
-## Stack
-
-- **Astro** - SSR framework
-- **Postgres** - Database (via Electric SQL docker-compose)
-- **Git** - Real git repos on filesystem
-- **No frameworks** - Pure CSS, minimal JS
 
 ## Project Structure
 
 ```
-src/
-├── layouts/Layout.astro     # Base layout with brutalist styles
-├── components/              # Reusable components
-├── lib/                     # Database, git, markdown utilities
-└── pages/
-    ├── index.astro          # Home - all repos
-    ├── new.astro            # Create repo
-    ├── [user]/              # User profile
-    └── [user]/[repo]/       # Repo pages
-        ├── index.astro      # Repo home
-        ├── tree/            # File browser
-        ├── blob/            # File viewer
-        ├── commits/         # Commit history
-        └── issues/          # Issue tracker
+plue/
+├── server/            # Zig API server (httpz)
+│   ├── routes/        # HTTP API handlers
+│   ├── ai/            # Agent system + tools
+│   ├── workflows/     # Workflow execution engine
+│   ├── ssh/           # Git over SSH
+│   └── middleware/    # Auth, CSRF, rate limiting
+├── ui/                # Astro SSR frontend
+│   ├── pages/         # File-based routing
+│   ├── components/    # UI components
+│   └── lib/           # Auth, API client, cache
+├── edge/              # Cloudflare Workers caching proxy
+├── runner/            # Python agent execution (K8s pods)
+├── db/                # PostgreSQL schema + DAOs
+├── core/              # Zig agent core library
+├── e2e/               # Playwright E2E tests
+├── infra/             # Terraform, Helm, K8s, Docker
+└── docs/              # Architecture & infrastructure docs
 ```
+
+## Documentation
+
+- **[Architecture](./architecture.md)** - System design, data flow, component details
+- **[Infrastructure](./docs/infrastructure.md)** - Deployment, K8s, Terraform
+- **[CLAUDE.md](./CLAUDE.md)** - Instructions for Claude Code
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Server | Zig + httpz |
+| Frontend | Astro v5 (SSR) |
+| Database | PostgreSQL 16 |
+| VCS | jj (Jujutsu) via Rust FFI |
+| Edge | Cloudflare Workers |
+| Auth | SIWE (Sign-In With Ethereum) |
+| Agents | Claude API + gVisor sandbox |
+| Infra | GKE, Terraform, Helm |
+
+## Development
+
+```bash
+# Database only
+docker compose up -d postgres
+
+# Full environment
+zig build run          # API server with hot reload
+zig build run:web      # Astro dev server
+
+# Testing
+zig build test         # All tests
+zig build test:zig     # Zig tests only
+zig build test:edge    # Edge worker tests
+
+# Linting
+zig build lint         # Lint all code
+```
+
+## Environment Variables
+
+```bash
+# Required
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plue
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional
+SSH_ENABLED=true
+SSH_PORT=2222
+LOG_LEVEL=debug
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines.
+
+## License
+
+MIT

@@ -5,7 +5,7 @@
 - [Zig](https://ziglang.org/) 0.15.1+
 - [Bun](https://bun.sh/) 1.0+
 - [Rust](https://rustup.rs/) (for jj-ffi)
-- [Docker](https://docker.com/) (for postgres/electric)
+- [Docker](https://docker.com/) (for postgres)
 
 ## Quick Start
 
@@ -45,7 +45,7 @@ Run `zig build --help` to see all available commands.
 ### 1. Start Development
 
 ```bash
-zig build run          # Starts postgres, electric, and server
+zig build run          # Starts postgres and server
 ```
 
 In a separate terminal (optional):
@@ -120,8 +120,8 @@ See [CLAUDE.md](./CLAUDE.md) for detailed architecture documentation.
 
 - **Server (Zig)**: HTTP/WebSocket API, AI agent system
 - **Frontend (Astro)**: SSR web interface
-- **Edge (CF Workers)**: Edge caching with ElectricSQL sync
-- **Database**: PostgreSQL + ElectricSQL for real-time sync
+- **Edge (CF Workers)**: Edge caching proxy
+- **Database**: PostgreSQL
 
 ## Getting Help
 

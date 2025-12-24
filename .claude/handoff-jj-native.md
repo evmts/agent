@@ -228,7 +228,6 @@ Remove legacy git-centric code after migration is complete.
 1. **Update tree navigation** - `tree/[branch]` should become `tree/[bookmark]` or `tree/[changeId]`
 2. **Add conflicts page** - `ui/pages/[user]/[repo]/conflicts.astro` to show all unresolved conflicts
 3. **Add change detail page** - `ui/pages/[user]/[repo]/changes/[bookmark]/[changeId].astro`
-4. **ElectricSQL shapes** - Add real-time sync for new tables in `server/electric.ts`
 
 ---
 
@@ -399,4 +398,3 @@ Before proceeding, consider clarifying:
 1. Should the old git endpoints remain available during a transition period, or remove immediately?
 2. For session integration, should conflicts block agent execution or just be surfaced in the UI?
 3. Is there an existing session UI that needs updating, or is it terminal-only?
-4. Should we add ElectricSQL real-time sync for the new tables?

@@ -11,9 +11,11 @@ This document describes the development, staging, and production infrastructure 
 5. [Production Environment](#production-environment)
 6. [Terraform Structure](#terraform-structure)
 7. [CI/CD Pipeline](#cicd-pipeline)
-8. [Secrets Management](#secrets-management)
-9. [Monitoring & Observability](#monitoring--observability)
-10. [Runbooks](#runbooks)
+8. [Edge Worker Deployment](#edge-worker-deployment)
+9. [Origin Protection (mTLS)](#origin-protection-mtls)
+10. [Secrets Management](#secrets-management)
+11. [Monitoring & Observability](#monitoring--observability)
+12. [Runbooks](#runbooks)
 
 ---
 
@@ -1792,6 +1794,116 @@ cacheStatic(Astro);      // Forever (login, register, landing)
 cacheWithTags(Astro, ['user:123']);  // With tags for purging
 cacheShort(Astro, [], 60);  // Short TTL for dynamic lists
 noCache(Astro);          // No cache (dashboard, personalized)
+```
+
+---
+
+## Origin Protection (mTLS)
+
+Mutual TLS (mTLS) ensures only Cloudflare can connect to the origin server, blocking direct attacks.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         mTLS ORIGIN PROTECTION                           │
+│                                                                          │
+│   Cloudflare Edge                              Origin Server            │
+│        │                                           │                    │
+│        │ TLS Handshake                             │                    │
+│        │ ──────────────────────────────────────────>                    │
+│        │                                           │                    │
+│        │ Server: "Show me your client cert"        │                    │
+│        │ <──────────────────────────────────────────                    │
+│        │                                           │                    │
+│        │ Client cert signed by Plue CA             │                    │
+│        │ ──────────────────────────────────────────>                    │
+│        │                                           │                    │
+│        │ Connection accepted ✓                     │                    │
+│        │                                                                │
+│   Attacker                                                              │
+│        │ No cert / Invalid cert → Connection REJECTED ✗                │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Certificate Generation
+
+```bash
+# Generate custom CA and client certificates
+./infra/scripts/generate-mtls-certs.sh ./certs
+
+# Output:
+#   certs/ca.crt      - CA certificate (configure on origin server)
+#   certs/ca.key      - CA private key (keep secure!)
+#   certs/client.crt  - Client certificate (upload to Cloudflare)
+#   certs/client.key  - Client private key (upload to Cloudflare)
+#   certs/expiry-info.json - Certificate expiry metadata
+```
+
+### Terraform Configuration
+
+```bash
+# Set certificate variables (CI/CD should load from secrets)
+export TF_VAR_mtls_client_cert=$(cat ./certs/client.crt)
+export TF_VAR_mtls_client_key=$(cat ./certs/client.key)
+export TF_VAR_mtls_ca_cert=$(cat ./certs/ca.crt)
+
+# Apply with mTLS enabled
+terraform apply -var="enable_mtls=true"
+```
+
+### Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PLUE_MTLS_ENABLED` | Enable client cert verification | `false` |
+| `PLUE_MTLS_CA_PATH` | Path to CA certificate | `/etc/plue/mtls/ca.crt` |
+
+### Certificate Rotation
+
+Certificates should be rotated every **90 days** (before 365-day expiry):
+
+1. Generate new certificates:
+   ```bash
+   ./infra/scripts/generate-mtls-certs.sh ./new-certs
+   ```
+
+2. Update Terraform variables with new certificates
+
+3. Apply Terraform (creates new cert before destroying old):
+   ```bash
+   terraform apply
+   ```
+
+4. Verify:
+   ```bash
+   # Should succeed (via Cloudflare)
+   curl https://plue.dev/health
+
+   # Should fail (direct connection)
+   curl https://origin-ip:443/health
+   ```
+
+### Monitoring
+
+Terraform tracks rotation schedule via `time_rotating` resource. Prometheus alerts:
+
+- `MTLSCertificateExpiringSoon` — Warning at 30 days before expiry
+- `MTLSCertificateExpiryCritical` — Critical at 7 days before expiry
+
+Check rotation status:
+```bash
+terraform output mtls_status
+```
+
+### Disabling for Development
+
+mTLS is disabled by default. Only enable in production:
+
+```hcl
+# Production: enable_mtls = true
+# Staging/Local: enable_mtls = false (default)
 ```
 
 ---

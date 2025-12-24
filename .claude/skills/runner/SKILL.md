@@ -37,7 +37,7 @@ TaskQueue ────────────────► RunnerPool
 The server maintains a pool of warm runners:
 
 ```zig
-// server/src/workflows/runner_pool.zig
+// server/workflows/runner_pool.zig
 pub const RunnerPool = struct {
     available: ArrayList(RunnerInfo),
     claimed: HashMap(TaskId, RunnerInfo),
@@ -143,7 +143,7 @@ spec:
 ## Warm Pool Configuration
 
 ```zig
-// server/src/workflows/runner_pool.zig
+// server/workflows/runner_pool.zig
 pub const PoolConfig = struct {
     min_warm: u32 = 2,      // Minimum warm runners
     max_warm: u32 = 10,     // Maximum warm runners
@@ -156,7 +156,7 @@ pub const PoolConfig = struct {
 For local testing without K8s:
 
 ```zig
-// server/src/workflows/local_runner.zig
+// server/workflows/local_runner.zig
 pub const LocalRunner = struct {
     // Executes workflows in local process
     // Used when K8s runners unavailable
@@ -170,3 +170,9 @@ PLUE_API_URL=http://api:4000    # API server URL
 ANTHROPIC_API_KEY=sk-ant-...    # For LLM calls
 RUNNER_POD_NAME=runner-abc123   # Pod identifier
 ```
+
+## Related Skills
+
+- `security` - Sandboxing details (gVisor, network policy)
+- `server` - Internal API endpoints
+- `workflows` - Workflow execution engine

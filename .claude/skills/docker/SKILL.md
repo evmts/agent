@@ -18,8 +18,7 @@ bun run docker:logs    # View logs
 | Service  | Port  | Description              |
 |----------|-------|--------------------------|
 | postgres | 54321 | PostgreSQL database      |
-| electric | 3000  | ElectricSQL sync service |
-| api      | 4000  | Hono API server          |
+| api      | 4000  | Zig API server           |
 | web      | 5173  | Astro frontend           |
 | adminer  | 8080  | Database admin UI        |
 

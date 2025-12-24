@@ -15,40 +15,24 @@ zig build test         # Run all tests
 ```
 plue/
 ├── server/            # Zig API server (httpz)
-│   ├── src/ai/        # Agent system + tools
-│   ├── src/routes/    # API handlers
-│   └── jj-ffi/        # Rust FFI for jj-lib
+│   ├── routes/        # API handlers
+│   ├── ai/            # Agent system + tools
+│   ├── workflows/     # Workflow execution engine
+│   ├── ssh/           # Git over SSH
+│   └── middleware/    # Auth, CSRF, rate limiting
 ├── ui/                # Astro SSR frontend
-│   ├── pages/         # Astro pages
+│   ├── pages/         # File-based routing
 │   ├── components/    # UI components
-│   └── lib/           # Utilities (auth, cache, git, etc.)
+│   └── lib/           # Auth, cache, API client
 ├── edge/              # Cloudflare Workers caching proxy
-│   ├── index.ts       # Main worker (proxy + cache)
-│   ├── purge.ts       # Cache purge utilities
-│   └── types.ts       # Environment bindings
-├── core/              # Zig agent core library
-│   ├── root.zig       # Module entry point
-│   ├── models/        # Domain entities (Session, Message, Part)
-│   ├── state.zig      # Runtime state tracking
-│   └── events.zig     # Event bus
-├── db/                # Database layer (@plue/db)
-│   ├── root.zig       # Zig module entry
-│   ├── daos/          # Data Access Objects (Zig)
+├── runner/            # Python agent execution (K8s pods)
+├── db/                # Database layer
 │   ├── schema.sql     # PostgreSQL schema
-│   └── *.ts           # TypeScript DB utilities
-├── e2e/               # End-to-end tests (@plue/e2e)
-│   ├── cases/         # Test spec files
-│   ├── fixtures.ts    # Test fixtures
-│   └── playwright.config.ts
-├── docs/              # Architecture & infrastructure docs
-├── infra/             # All deployment infrastructure
-│   ├── terraform/     # Infrastructure as code
-│   ├── helm/          # Helm charts
-│   ├── k8s/           # Kubernetes manifests
-│   ├── docker/        # Dockerfile, docker-compose
-│   ├── monitoring/    # Prometheus, Grafana, Loki
-│   └── scripts/       # Deployment scripts
-└── runner/            # Agent execution environment
+│   └── daos/          # Data Access Objects (Zig)
+├── core/              # Zig agent core library
+├── e2e/               # End-to-end tests (Playwright)
+├── infra/             # Terraform, Helm, K8s, Docker
+└── docs/              # Additional documentation
 ```
 
 ## Build Commands
@@ -66,8 +50,8 @@ plue/
 
 | What | Where |
 |------|-------|
-| API routes | `server/src/routes/` |
-| Agent tools | `server/src/ai/tools/` |
+| API routes | `server/routes/` |
+| Agent tools | `server/ai/tools/` |
 | Database schema | `db/schema.sql` |
 | Database DAOs | `db/daos/` |
 | Frontend pages | `ui/pages/` |
@@ -77,28 +61,38 @@ plue/
 
 ## Documentation
 
-- **Architecture**: `docs/architecture.md` - System design, components, data flow
-- **Infrastructure**: `docs/infrastructure.md` - Deployment, K8s, Terraform
-- **Migration**: `docs/migration.md` - Migration from previous architecture
+| Document | Purpose |
+|----------|---------|
+| [`architecture.md`](./architecture.md) | Comprehensive system design with diagrams |
+| [`docs/infrastructure.md`](./docs/infrastructure.md) | Deployment, K8s, Terraform |
+| [`docs/migration.md`](./docs/migration.md) | Migration from previous architecture |
 
 ## Skills
 
 Claude Code skills provide domain-specific context. Located in `.claude/skills/`:
 
-### Service Skills
-| Skill | Description |
-|-------|-------------|
-| `server` | Zig API server - routes, middleware, WebSocket, SSH |
-| `ui` | Astro SSR frontend - pages, components, libs |
-| `edge` | Cloudflare Workers caching proxy |
-| `runner` | Python agent execution in K8s pods |
-
-### Architecture & Data Skills
+### Core Skills
 | Skill | Description |
 |-------|-------------|
 | `architecture` | System design, component overview, data flow |
+| `server` | Zig API server - routes, middleware, SSH |
+| `ui` | Astro SSR frontend - pages, components, libs |
 | `database` | Schema, migrations, table structure |
+
+### Subsystem Skills
+| Skill | Description |
+|-------|-------------|
+| `edge` | Cloudflare Workers caching proxy |
+| `runner` | Python agent execution in K8s pods |
 | `agent-system` | AI agent tools and configuration |
+| `git` | jj-lib FFI, SSH server, Git operations |
+
+### Cross-Cutting Skills
+| Skill | Description |
+|-------|-------------|
+| `security` | SIWE auth, sandboxing, mTLS, permissions |
+| `caching` | Edge caching, content-addressable strategy |
+| `observability` | System health, metrics, logs, debugging |
 
 ### Infrastructure Skills
 | Skill | Description |
@@ -110,7 +104,6 @@ Claude Code skills provide domain-specific context. Located in `.claude/skills/`
 ### Debugging Skills
 | Skill | Description |
 |-------|-------------|
-| `observability` | System health, metrics, logs, debugging |
 | `workflow-debugging` | Workflow execution issues |
 | `test-debugging` | Playwright E2E test failures |
 
@@ -126,11 +119,16 @@ git push origin plue-git
 
 ## Tech Stack
 
-- **Server**: Zig + httpz
-- **Frontend**: Astro v5 (SSR)
-- **Database**: PostgreSQL
-- **Edge**: Cloudflare Workers
-- **Infra**: Docker, GKE, Terraform
+| Layer | Technology |
+|-------|------------|
+| Server | Zig + httpz |
+| Frontend | Astro v5 (SSR) |
+| Database | PostgreSQL 16 |
+| VCS | jj (Jujutsu) via Rust FFI |
+| Edge | Cloudflare Workers |
+| Auth | SIWE (Sign-In With Ethereum) |
+| Agents | Claude API + gVisor sandbox |
+| Infra | GKE, Terraform, Helm |
 
 ## Subagent Prompting
 
