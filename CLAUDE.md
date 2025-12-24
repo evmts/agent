@@ -81,6 +81,39 @@ plue/
 - **Infrastructure**: `docs/infrastructure.md` - Deployment, K8s, Terraform
 - **Migration**: `docs/migration.md` - Migration from previous architecture
 
+## Skills
+
+Claude Code skills provide domain-specific context. Located in `.claude/skills/`:
+
+### Service Skills
+| Skill | Description |
+|-------|-------------|
+| `server` | Zig API server - routes, middleware, WebSocket, SSH |
+| `ui` | Astro SSR frontend - pages, components, libs |
+| `edge` | Cloudflare Workers caching proxy |
+| `runner` | Python agent execution in K8s pods |
+
+### Architecture & Data Skills
+| Skill | Description |
+|-------|-------------|
+| `architecture` | System design, component overview, data flow |
+| `database` | Schema, migrations, table structure |
+| `agent-system` | AI agent tools and configuration |
+
+### Infrastructure Skills
+| Skill | Description |
+|-------|-------------|
+| `infrastructure` | Deployment, K8s, Terraform |
+| `docker` | Docker containerization, docker-compose |
+| `development` | Local dev environment setup |
+
+### Debugging Skills
+| Skill | Description |
+|-------|-------------|
+| `observability` | System health, metrics, logs, debugging |
+| `workflow-debugging` | Workflow execution issues |
+| `test-debugging` | Playwright E2E test failures |
+
 ## Git Workflow
 
 Single-branch development on `plue-git`. No feature branches.
