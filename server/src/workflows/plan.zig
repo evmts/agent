@@ -79,7 +79,7 @@ pub const TriggerType = enum {
 
 /// Trigger configuration
 pub const Trigger = struct {
-    type: TriggerType,
+    @"type": TriggerType,
     config: std.json.Value, // JSON config specific to trigger type
 
     pub fn deinit(self: *Trigger, allocator: std.mem.Allocator) void {
@@ -102,7 +102,7 @@ pub const StepConfig = struct {
 pub const Step = struct {
     id: []const u8,              // Unique step identifier
     name: []const u8,            // Human-readable name
-    step_type: StepType,         // Type of step
+    @"type": StepType,           // Type of step (JSON field is "type", not "step_type")
     config: StepConfig,          // Type-specific configuration
     depends_on: []const []const u8, // IDs of steps this depends on
 
@@ -154,7 +154,7 @@ pub const WorkflowDefinition = struct {
         var triggers_array = std.json.Array.init(allocator);
         for (self.triggers) |trigger| {
             var trigger_obj = std.json.ObjectMap.init(allocator);
-            try trigger_obj.put("type", .{ .string = trigger.type.toString() });
+            try trigger_obj.put("type", .{ .string = trigger.@"type".toString() });
             try trigger_obj.put("config", trigger.config);
             try triggers_array.append(.{ .object = trigger_obj });
         }
@@ -178,8 +178,12 @@ pub const WorkflowDefinition = struct {
             var step_obj = std.json.ObjectMap.init(allocator);
             try step_obj.put("id", .{ .string = step.id });
             try step_obj.put("name", .{ .string = step.name });
-            try step_obj.put("type", .{ .string = step.step_type.toString() });
-            try step_obj.put("config", step.config.data);
+            try step_obj.put("type", .{ .string = step.@"type".toString() });
+
+            // Wrap config.data in an object so it can be parsed back into StepConfig
+            var config_wrapper = std.json.ObjectMap.init(allocator);
+            try config_wrapper.put("data", step.config.data);
+            try step_obj.put("config", .{ .object = config_wrapper });
 
             var deps_array = std.json.Array.init(allocator);
             for (step.depends_on) |dep| {
@@ -238,14 +242,14 @@ test "Step lifecycle" {
     var step = Step{
         .id = try allocator.dupe(u8, "step_1"),
         .name = try allocator.dupe(u8, "test"),
-        .step_type = .shell,
+        .@"type" = .shell,
         .config = .{ .data = .{ .object = config_map } },
         .depends_on = &.{},
     };
 
     try std.testing.expectEqualStrings("step_1", step.id);
     try std.testing.expectEqualStrings("test", step.name);
-    try std.testing.expectEqual(StepType.shell, step.step_type);
+    try std.testing.expectEqual(StepType.shell, step.@"type");
 
     // step.deinit() will free the config_map and all its contents (keys and values)
     step.deinit(allocator);

@@ -397,7 +397,7 @@ const Parser = struct {
         return plan.Step{
             .id = step_id,
             .name = step_name orelse try self.allocator.dupe(u8, "unnamed"),
-            .step_type = .shell,
+            .@"type" = .shell,
             .config = .{ .data = .{ .object = config } },
             .depends_on = &.{},
         };
@@ -424,7 +424,7 @@ const Parser = struct {
         return plan.Step{
             .id = step_id,
             .name = try self.allocator.dupe(u8, "parallel"),
-            .step_type = .parallel,
+            .@"type" = .parallel,
             .config = .{ .data = .{ .object = config } },
             .depends_on = &.{},
         };
@@ -718,7 +718,7 @@ test "evaluator basic workflow" {
 
     const step = workflow.steps[0];
     try std.testing.expectEqualStrings("test", step.name);
-    try std.testing.expectEqual(plan.StepType.shell, step.step_type);
+    try std.testing.expectEqual(plan.StepType.shell, step.@"type");
 }
 
 test "evaluator multiple steps" {

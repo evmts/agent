@@ -48,18 +48,18 @@ pub const LocalRunner = struct {
     ) !executor.StepResult {
         const start_time = std.time.timestamp();
 
-        log.info("Executing step: {s} (type: {s})", .{ step.id, @tagName(step.step_type) });
+        log.info("Executing step: {s} (type: {s})", .{ step.id, @tagName(step.@"type") });
 
         // Send step_started event
         event_callback(executor.ExecutionEvent{
             .step_started = .{
                 .step_id = step.id,
                 .name = step.name,
-                .step_type = step.step_type,
+                .@"type" = step.@"type",
             },
         });
 
-        const result = switch (step.step_type) {
+        const result = switch (step.@"type") {
             .shell => try self.executeShellStep(step, event_callback),
             .llm => try self.executeLlmStep(step, event_callback),
             .agent => try self.executeAgentStep(step, event_callback),
