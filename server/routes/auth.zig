@@ -70,16 +70,39 @@ pub fn logout(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !void {
     try res.writer().writeAll("{\"message\":\"Logout successful\"}");
 }
 
+/// Allowed usernames for dev login (test accounts only)
+const DEV_LOGIN_ALLOWLIST = [_][]const u8{
+    "testuser",
+    "testadmin",
+    "demo",
+};
+
 /// POST /auth/dev-login
 /// Development-only login endpoint that bypasses authentication
-/// Only available when is_production = false
+/// SECURITY: Only available when ALL conditions are met:
+/// 1. is_production = false
+/// 2. Username is in the explicit allowlist
+/// 3. Request originates from localhost
 pub fn devLogin(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // Only allow in development mode
+    // SECURITY: Only allow in development mode
     if (ctx.config.is_production) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Not found\"}");
+        return;
+    }
+
+    // SECURITY: Restrict to localhost only
+    const host = req.headers.get("host") orelse "";
+    const is_localhost = std.mem.startsWith(u8, host, "localhost") or
+        std.mem.startsWith(u8, host, "127.0.0.1") or
+        std.mem.startsWith(u8, host, "[::1]");
+
+    if (!is_localhost) {
+        log.warn("Dev login attempted from non-localhost host: {s}", .{host});
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Dev login only allowed from localhost\"}");
         return;
     }
 
@@ -101,6 +124,22 @@ pub fn devLogin(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
 
     const username = parsed.value.username;
 
+    // SECURITY: Only allow specific test usernames
+    var allowed = false;
+    for (DEV_LOGIN_ALLOWLIST) |allowed_user| {
+        if (std.mem.eql(u8, username, allowed_user)) {
+            allowed = true;
+            break;
+        }
+    }
+
+    if (!allowed) {
+        log.warn("Dev login attempted for non-allowlisted user: {s}", .{username});
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"User not in dev login allowlist\"}");
+        return;
+    }
+
     // Get user from database
     const user = try db.getUserByUsername(ctx.pool, username);
     if (user == null) {
@@ -115,6 +154,8 @@ pub fn devLogin(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
         try res.writer().writeAll("{\"error\":\"Account is disabled\"}");
         return;
     }
+
+    log.info("Dev login successful for user: {s}", .{username});
 
     // Create session
     const session_key = try db.createSession(ctx.pool, ctx.allocator, u.id, u.username, u.is_admin);

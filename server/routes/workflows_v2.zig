@@ -155,13 +155,7 @@ pub fn parse(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
-    // TODO: Re-enable authentication after Phase 10 testing
-    // Require authentication
-    // if (ctx.user == null) {
-    //     res.status = 401;
-    //     try res.json(.{ .@"error" = "Authentication required" }, .{});
-    //     return;
-    // }
+    // Auth is enforced at the routing layer.
 
     // Parse request body
     const body = req.body() orelse {

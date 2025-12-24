@@ -127,6 +127,25 @@ fn withAuth(
     }.wrapped;
 }
 
+/// Helper function to require auth without CSRF checks (e.g., GET routes)
+fn withAuthRequired(
+    comptime handler: fn (*Context, *httpz.Request, *httpz.Response) anyerror!void,
+) fn (*Context, *httpz.Request, *httpz.Response) anyerror!void {
+    return struct {
+        fn wrapped(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+            if (!try middleware.authMiddleware(ctx, req, res)) {
+                return;
+            }
+
+            if (!try middleware.requireAuth(ctx, req, res)) {
+                return;
+            }
+
+            return handler(ctx, req, res);
+        }
+    }.wrapped;
+}
+
 /// Helper function to apply rate limiting to a handler
 /// Use this wrapper for auth endpoints to prevent brute force attacks
 fn withRateLimit(
@@ -304,20 +323,20 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.delete("/api/:user/:repo/landing/:id/comments/:commentId", withAuthAndCsrf(landing_queue.deleteLineComment), .{});
 
     // API routes - sessions (agent sessions) - CSRF protected
-    router.get("/api/sessions", sessions.listSessions, .{});
+    router.get("/api/sessions", withAuthRequired(sessions.listSessions), .{});
     router.post("/api/sessions", withAuthAndCsrf(sessions.createSession), .{});
-    router.get("/api/sessions/:sessionId", sessions.getSession, .{});
+    router.get("/api/sessions/:sessionId", withAuthRequired(sessions.getSession), .{});
     router.patch("/api/sessions/:sessionId", withAuthAndCsrf(sessions.updateSession), .{});
     router.delete("/api/sessions/:sessionId", withAuthAndCsrf(sessions.deleteSession), .{});
     router.post("/api/sessions/:sessionId/abort", withAuthAndCsrf(sessions.abortSession), .{});
-    router.get("/api/sessions/:sessionId/diff", sessions.getSessionDiff, .{});
-    router.get("/api/sessions/:sessionId/changes", sessions.getSessionChanges, .{});
-    router.get("/api/sessions/:sessionId/changes/:changeId", sessions.getSpecificChange, .{});
-    router.get("/api/sessions/:sessionId/changes/:fromChangeId/compare/:toChangeId", sessions.compareChanges, .{});
-    router.get("/api/sessions/:sessionId/changes/:changeId/files", sessions.getFilesAtChange, .{});
-    router.get("/api/sessions/:sessionId/changes/:changeId/file/*", sessions.getFileAtChange, .{});
-    router.get("/api/sessions/:sessionId/conflicts", sessions.getSessionConflicts, .{});
-    router.get("/api/sessions/:sessionId/operations", sessions.getSessionOperations, .{});
+    router.get("/api/sessions/:sessionId/diff", withAuthRequired(sessions.getSessionDiff), .{});
+    router.get("/api/sessions/:sessionId/changes", withAuthRequired(sessions.getSessionChanges), .{});
+    router.get("/api/sessions/:sessionId/changes/:changeId", withAuthRequired(sessions.getSpecificChange), .{});
+    router.get("/api/sessions/:sessionId/changes/:fromChangeId/compare/:toChangeId", withAuthRequired(sessions.compareChanges), .{});
+    router.get("/api/sessions/:sessionId/changes/:changeId/files", withAuthRequired(sessions.getFilesAtChange), .{});
+    router.get("/api/sessions/:sessionId/changes/:changeId/file/*", withAuthRequired(sessions.getFileAtChange), .{});
+    router.get("/api/sessions/:sessionId/conflicts", withAuthRequired(sessions.getSessionConflicts), .{});
+    router.get("/api/sessions/:sessionId/operations", withAuthRequired(sessions.getSessionOperations), .{});
     router.post("/api/sessions/:sessionId/operations/undo", withAuthAndCsrf(sessions.undoLastOperation), .{});
     router.post("/api/sessions/:sessionId/operations/:operationId/restore", withAuthAndCsrf(sessions.restoreOperation), .{});
     router.post("/api/sessions/:sessionId/fork", withAuthAndCsrf(sessions.forkSession), .{});
@@ -326,19 +345,19 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/sessions/:sessionId/undo", withAuthAndCsrf(sessions.undoTurns), .{});
 
     // API routes - messages (agent messages and parts) - CSRF protected
-    router.get("/api/sessions/:sessionId/messages", messages.listMessages, .{});
+    router.get("/api/sessions/:sessionId/messages", withAuthRequired(messages.listMessages), .{});
     router.post("/api/sessions/:sessionId/messages", withAuthAndCsrf(messages.createMessage), .{});
-    router.get("/api/sessions/:sessionId/messages/:messageId", messages.getMessage, .{});
+    router.get("/api/sessions/:sessionId/messages/:messageId", withAuthRequired(messages.getMessage), .{});
     router.patch("/api/sessions/:sessionId/messages/:messageId", withAuthAndCsrf(messages.updateMessage), .{});
     router.delete("/api/sessions/:sessionId/messages/:messageId", withAuthAndCsrf(messages.deleteMessage), .{});
-    router.get("/api/sessions/:sessionId/messages/:messageId/parts", messages.listParts, .{});
+    router.get("/api/sessions/:sessionId/messages/:messageId/parts", withAuthRequired(messages.listParts), .{});
     router.post("/api/sessions/:sessionId/messages/:messageId/parts", withAuthAndCsrf(messages.createPart), .{});
     router.patch("/api/sessions/:sessionId/messages/:messageId/parts/:partId", withAuthAndCsrf(messages.updatePart), .{});
     router.delete("/api/sessions/:sessionId/messages/:messageId/parts/:partId", withAuthAndCsrf(messages.deletePart), .{});
 
     // API routes - AI agent - CSRF protected
     router.post("/api/sessions/:sessionId/run", withAuthAndCsrf(agent_routes.runAgentHandler), .{});
-    router.get("/api/sessions/:sessionId/stream", sessions.streamSession, .{});  // SSE streaming
+    router.get("/api/sessions/:sessionId/stream", withAuthRequired(sessions.streamSession), .{});  // SSE streaming
     router.get("/api/agents", agent_routes.listAgentsHandler, .{});
     router.get("/api/agents/:name", agent_routes.getAgentHandler, .{});
     router.get("/api/tools", agent_routes.listToolsHandler, .{});
@@ -352,17 +371,17 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/:user/:repo/workflows/runs/:runId/jobs", workflows.getJobs, .{});
     router.get("/api/:user/:repo/workflows/runs/:runId/logs", workflows.getLogs, .{});
 
-    // API routes - workflows v2 (Phase 09) - TODO: Re-enable auth after Phase 10 testing
-    router.post("/api/workflows/parse", workflows_v2.parse, .{});
-    router.post("/api/workflows/run", workflows_v2.runWorkflow, .{}); // Auth temporarily disabled for Phase 10
-    router.get("/api/workflows/runs", workflows_v2.listRuns, .{});
-    router.get("/api/workflows/runs/:id", workflows_v2.getRun, .{});
-    router.get("/api/workflows/runs/:id/stream", workflows_v2.streamRun, .{});
+    // API routes - workflows v2 (Phase 09)
+    router.post("/api/workflows/parse", withAuthAndCsrf(workflows_v2.parse), .{});
+    router.post("/api/workflows/run", withAuthAndCsrf(workflows_v2.runWorkflow), .{});
+    router.get("/api/workflows/runs", withAuthRequired(workflows_v2.listRuns), .{});
+    router.get("/api/workflows/runs/:id", withAuthRequired(workflows_v2.getRun), .{});
+    router.get("/api/workflows/runs/:id/stream", withAuthRequired(workflows_v2.streamRun), .{});
     router.post("/api/workflows/runs/:id/cancel", withAuthAndCsrf(workflows_v2.cancelRun), .{});
 
     // API routes - prompts (Phase 09) - CSRF protected
-    router.post("/api/prompts/parse", prompts.parse, .{});
-    router.post("/api/prompts/render", prompts.render, .{});
+    router.post("/api/prompts/parse", withAuthAndCsrf(prompts.parse), .{});
+    router.post("/api/prompts/render", withAuthAndCsrf(prompts.render), .{});
     router.post("/api/prompts/test", withAuthAndCsrf(prompts.testPrompt), .{});
 
     // API routes - runners - CSRF protected

@@ -10,6 +10,7 @@ const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
 const workflows = @import("../workflows/mod.zig");
 const json = @import("../lib/json.zig");
+const filesystem = @import("../ai/tools/filesystem.zig");
 
 const log = std.log.scoped(.prompt_api);
 
@@ -126,12 +127,42 @@ pub fn render(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     const request = parsed.value;
 
-    // Read prompt file
-    const prompt_source = std.fs.cwd().readFileAlloc(
+    const cwd = std.process.getCwdAlloc(ctx.allocator) catch {
+        res.status = 500;
+        try res.json(.{ .@"error" = "Failed to resolve workspace" }, .{});
+        return;
+    };
+    defer ctx.allocator.free(cwd);
+
+    const resolved_path = try filesystem.resolveAndValidatePathSecure(
         ctx.allocator,
         request.prompt_path,
-        1024 * 1024, // 1MB max
-    ) catch {
+        cwd,
+    ) orelse {
+        res.status = 403;
+        try res.json(.{ .@"error" = "Invalid prompt path" }, .{});
+        return;
+    };
+    defer ctx.allocator.free(resolved_path);
+
+    const prompts_root = std.fs.path.join(ctx.allocator, &.{ cwd, ".plue", "prompts" }) catch {
+        res.status = 500;
+        try res.json(.{ .@"error" = "Failed to resolve prompts directory" }, .{});
+        return;
+    };
+    defer ctx.allocator.free(prompts_root);
+
+    if (!std.mem.startsWith(u8, resolved_path, prompts_root) or
+        (resolved_path.len > prompts_root.len and resolved_path[prompts_root.len] != '/') or
+        !std.mem.endsWith(u8, resolved_path, ".prompt.md"))
+    {
+        res.status = 403;
+        try res.json(.{ .@"error" = "Prompt path must be within .plue/prompts and end with .prompt.md" }, .{});
+        return;
+    }
+
+    // Read prompt file
+    const prompt_source = filesystem.readFileContents(ctx.allocator, resolved_path) catch {
         res.status = 404;
         try res.json(.{ .@"error" = "Prompt file not found" }, .{});
         return;
@@ -150,13 +181,11 @@ pub fn render(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     // See Phase 09 memories for details on this issue
     // For MVP, we skip validation and proceed directly to template rendering
 
-    // Convert request.inputs to JSON string manually
-    // For MVP, we'll serialize a simple object
-    var inputs_buffer: std.ArrayList(u8) = .{};
-    defer inputs_buffer.deinit(ctx.allocator);
-
-    try inputs_buffer.appendSlice(ctx.allocator, "{}");  // Empty object for now
-    const inputs_json = try inputs_buffer.toOwnedSlice(ctx.allocator);
+    const inputs_json = json.valueToString(ctx.allocator, request.inputs) catch {
+        res.status = 400;
+        try res.json(.{ .@"error" = "Invalid inputs" }, .{});
+        return;
+    };
     defer ctx.allocator.free(inputs_json);
 
     // Render template

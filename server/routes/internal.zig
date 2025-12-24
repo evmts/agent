@@ -13,6 +13,32 @@ const log = std.log.scoped(.internal);
 
 const Context = @import("../main.zig").Context;
 
+fn requireInternalAuth(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !bool {
+    const token = ctx.config.internal_api_token;
+    if (token.len == 0) {
+        return true;
+    }
+
+    const header_token = if (req.headers.get("x-plue-internal-token")) |value|
+        value
+    else if (req.headers.get("authorization")) |auth_header| blk: {
+        if (std.mem.startsWith(u8, auth_header, "Bearer ")) {
+            break :blk auth_header["Bearer ".len..];
+        }
+        break :blk null;
+    } else
+        null;
+
+    if (header_token == null or !std.mem.eql(u8, header_token.?, token)) {
+        res.status = 401;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Internal authentication required\"}");
+        return false;
+    }
+
+    return true;
+}
+
 // =============================================================================
 // POST /internal/runners/register - Register a standby runner
 // =============================================================================
@@ -20,6 +46,8 @@ const Context = @import("../main.zig").Context;
 pub fn registerRunner(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
     const allocator = ctx.allocator;
+
+    if (!try requireInternalAuth(ctx, req, res)) return;
 
     const body = req.body() orelse {
         res.status = 400;
@@ -99,6 +127,8 @@ pub fn registerRunner(ctx: *Context, req: *httpz.Request, res: *httpz.Response) 
 pub fn runnerHeartbeat(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
+    if (!try requireInternalAuth(ctx, req, res)) return;
+
     const pod_name = req.param("pod_name") orelse {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Missing pod_name\"}");
@@ -122,6 +152,8 @@ pub fn runnerHeartbeat(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
 pub fn streamTaskEvent(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
     const allocator = ctx.allocator;
+
+    if (!try requireInternalAuth(ctx, req, res)) return;
 
     const task_id_str = req.param("task_id") orelse {
         res.status = 400;
@@ -353,6 +385,8 @@ fn appendWorkflowLog(pool: *db.Pool, step_id: i32, log_type: []const u8, content
 pub fn completeTask(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
     const allocator = ctx.allocator;
+
+    if (!try requireInternalAuth(ctx, req, res)) return;
 
     const task_id_str = req.param("task_id") orelse {
         res.status = 400;

@@ -135,17 +135,57 @@ export function renderMarkdown(content: string, owner?: string, repo?: string): 
 }
 
 function sanitizeUrl(url: string): string {
-  const trimmed = url.trim().toLowerCase();
+  const trimmed = url.trim();
+  const lowercased = trimmed.toLowerCase();
 
-  // Block dangerous protocols
-  if (trimmed.startsWith('javascript:') ||
-      trimmed.startsWith('vbscript:') ||
-      trimmed.startsWith('data:')) {
-    return '';
+  // SECURITY: Block dangerous protocols (case-insensitive check)
+  // Note: We check lowercase but also handle whitespace/encoding bypasses
+  const dangerousProtocols = [
+    'javascript:',
+    'vbscript:',
+    'data:',
+    'about:',
+    'blob:',
+  ];
+
+  for (const protocol of dangerousProtocols) {
+    if (lowercased.startsWith(protocol)) {
+      return '';
+    }
   }
 
-  // Allow http, https, mailto, and relative URLs
-  return url.trim();
+  // SECURITY: Block URLs with encoded dangerous protocols
+  // e.g., "&#106;avascript:" or "%6Aavascript:"
+  const decoded = decodeURIComponentSafe(trimmed);
+  if (decoded !== trimmed) {
+    const decodedLower = decoded.toLowerCase();
+    for (const protocol of dangerousProtocols) {
+      if (decodedLower.startsWith(protocol)) {
+        return '';
+      }
+    }
+  }
+
+  // SECURITY: Validate URL structure for absolute URLs
+  // Only allow http, https, mailto, and relative URLs
+  if (trimmed.includes(':')) {
+    const colonIndex = trimmed.indexOf(':');
+    const protocol = trimmed.substring(0, colonIndex).toLowerCase();
+    const allowedProtocols = ['http', 'https', 'mailto'];
+    if (!allowedProtocols.includes(protocol)) {
+      return '';
+    }
+  }
+
+  return trimmed;
+}
+
+function decodeURIComponentSafe(url: string): string {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
 }
 
 function escapeHtml(text: string): string {
