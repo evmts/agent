@@ -7,7 +7,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const db = @import("db");
 const queue = @import("../dispatch/queue.zig");
-const agent_handler = @import("../websocket/agent_handler.zig");
+const json = @import("../lib/json.zig");
 
 const log = std.log.scoped(.internal);
 
@@ -155,14 +155,20 @@ pub fn streamTaskEvent(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         return;
     };
 
-    // Get session_id for this task to broadcast to WebSocket subscribers
-    const session_id = getSessionIdForTask(ctx.pool, task_id) catch null;
+    const run_id: i32 = task_id;
+    const session_id: ?[]const u8 = null;
 
     // Process event type and broadcast to WebSocket subscribers
-    if (std.mem.eql(u8, event_type, "token")) {
-        const text = if (root.get("text")) |v| v.string else "";
+    if (std.mem.eql(u8, event_type, "token") or std.mem.eql(u8, event_type, "llm_token")) {
+        const text = if (root.get("text")) |v| v.string else if (root.get("token")) |v| v.string else "";
         const token_index = if (root.get("token_index")) |v| @as(usize, @intCast(v.integer)) else 0;
         const message_id = if (root.get("message_id")) |v| v.string else "";
+
+        if (try resolveStepDbId(ctx.pool, run_id, &root)) |step_db_id| {
+            appendWorkflowLog(ctx.pool, step_db_id, "token", text) catch |err| {
+                log.err("Failed to store token log: {}", .{err});
+            };
+        }
 
         if (session_id) |sid| {
             if (ctx.connection_manager) |cm| {
@@ -176,11 +182,29 @@ pub fn streamTaskEvent(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         const tool_id = if (root.get("tool_id")) |v| v.string else "";
         const tool_name = if (root.get("tool_name")) |v| v.string else "";
         const message_id = if (root.get("message_id")) |v| v.string else "";
+        const args_value = root.get("args");
 
         if (session_id) |sid| {
             if (ctx.connection_manager) |cm| {
                 cm.broadcastToolStart(sid, message_id, tool_id, tool_name);
             }
+        }
+
+        if (try resolveStepDbId(ctx.pool, run_id, &root)) |step_db_id| {
+            var payload_obj = std.json.ObjectMap.init(ctx.allocator);
+            defer payload_obj.deinit();
+            try payload_obj.put("tool_id", .{ .string = tool_id });
+            try payload_obj.put("tool_name", .{ .string = tool_name });
+            if (args_value) |args| {
+                try payload_obj.put("args", args);
+            }
+
+            const payload = try json.valueToString(ctx.allocator, .{ .object = payload_obj });
+            defer ctx.allocator.free(payload);
+
+            appendWorkflowLog(ctx.pool, step_db_id, "tool_call", payload) catch |err| {
+                log.err("Failed to store tool_start log: {}", .{err});
+            };
         }
     } else if (std.mem.eql(u8, event_type, "tool_end")) {
         const tool_id = if (root.get("tool_id")) |v| v.string else "";
@@ -191,6 +215,56 @@ pub fn streamTaskEvent(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
             if (ctx.connection_manager) |cm| {
                 cm.broadcastToolEnd(sid, tool_id, tool_state, output);
             }
+        }
+
+        if (try resolveStepDbId(ctx.pool, run_id, &root)) |step_db_id| {
+            var payload_obj = std.json.ObjectMap.init(ctx.allocator);
+            defer payload_obj.deinit();
+            try payload_obj.put("tool_id", .{ .string = tool_id });
+            try payload_obj.put("tool_state", .{ .string = tool_state });
+            if (output) |out| {
+                try payload_obj.put("output", .{ .string = out });
+            }
+
+            const payload = try json.valueToString(ctx.allocator, .{ .object = payload_obj });
+            defer ctx.allocator.free(payload);
+
+            appendWorkflowLog(ctx.pool, step_db_id, "tool_result", payload) catch |err| {
+                log.err("Failed to store tool_end log: {}", .{err});
+            };
+        }
+    } else if (std.mem.eql(u8, event_type, "step_start")) {
+        if (try resolveStepDbId(ctx.pool, run_id, &root)) |step_db_id| {
+            db.workflows.updateWorkflowStepStatus(ctx.pool, step_db_id, "running") catch |err| {
+                log.err("Failed to mark step running: {}", .{err});
+            };
+        }
+    } else if (std.mem.eql(u8, event_type, "step_end")) {
+        const step_state = if (root.get("step_state")) |v| v.string else "success";
+        const output_value = root.get("output");
+        var output_json: ?[]const u8 = null;
+        if (output_value) |val| {
+            output_json = json.valueToString(ctx.allocator, val) catch null;
+        }
+        defer if (output_json) |val| ctx.allocator.free(val);
+
+        if (try resolveStepDbId(ctx.pool, run_id, &root)) |step_db_id| {
+            const failed = std.mem.eql(u8, step_state, "failure") or std.mem.eql(u8, step_state, "error");
+            const error_message = if (failed and output_value != null) output_json else null;
+            const exit_code: ?i32 = if (failed) 1 else 0;
+
+            db.workflows.completeWorkflowStep(
+                ctx.pool,
+                step_db_id,
+                exit_code,
+                output_json,
+                error_message,
+                null,
+                null,
+                null,
+            ) catch |err| {
+                log.err("Failed to complete step: {}", .{err});
+            };
         }
     } else if (std.mem.eql(u8, event_type, "done")) {
         // Mark task as completed
@@ -220,34 +294,56 @@ pub fn streamTaskEvent(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         // Store workflow log
         const level = if (root.get("level")) |v| v.string else "info";
         const message = if (root.get("message")) |v| v.string else "";
-
-        storeWorkflowLog(ctx.pool, task_id, level, message) catch |err| {
-            log.err("Failed to store log: {}", .{err});
-        };
+        if (try resolveStepDbId(ctx.pool, run_id, &root)) |step_db_id| {
+            const log_type = if (std.mem.eql(u8, level, "stderr") or std.mem.eql(u8, level, "error"))
+                "stderr"
+            else
+                "stdout";
+            appendWorkflowLog(ctx.pool, step_db_id, log_type, message) catch |err| {
+                log.err("Failed to store log: {}", .{err});
+            };
+        }
     }
 
     try res.writer().writeAll("{\"ok\":true}");
 }
 
-/// Get session_id for a task
-fn getSessionIdForTask(pool: *db.Pool, task_id: i32) !?[]const u8 {
-    const query = "SELECT session_id FROM workflow_tasks WHERE id = $1";
-    const result = try pool.query(query, .{task_id});
-    defer result.deinit();
-
-    if (try result.next()) |row| {
-        return row.get(?[]const u8, 0);
+fn resolveStepDbId(pool: *db.Pool, run_id: i32, root: *const std.json.ObjectMap) !?i32 {
+    if (root.get("step_id")) |value| {
+        if (value == .string) {
+            const row = try pool.row(
+                \\SELECT id FROM workflow_steps
+                \\WHERE run_id = $1 AND step_id = $2
+            , .{ run_id, value.string });
+            if (row) |r| return r.get(i32, 0);
+        }
     }
+
+    const step_index_value = root.get("step_index") orelse root.get("stepIndex");
+    if (step_index_value) |value| {
+        if (value == .integer) {
+            const row = try pool.row(
+                \\SELECT id FROM workflow_steps
+                \\WHERE run_id = $1
+                \\ORDER BY id
+                \\OFFSET $2 LIMIT 1
+            , .{ run_id, @as(i32, @intCast(value.integer)) });
+            if (row) |r| return r.get(i32, 0);
+        }
+    }
+
     return null;
 }
 
-/// Store a workflow log entry
-fn storeWorkflowLog(pool: *db.Pool, task_id: i32, level: []const u8, message: []const u8) !void {
-    const query =
-        \\INSERT INTO workflow_logs (task_id, level, message, created_at)
-        \\VALUES ($1, $2, $3, NOW())
-    ;
-    _ = try pool.query(query, .{ task_id, level, message });
+fn appendWorkflowLog(pool: *db.Pool, step_id: i32, log_type: []const u8, content: []const u8) !void {
+    const row = try pool.row(
+        \\SELECT COALESCE(MAX(sequence), -1) + 1
+        \\FROM workflow_logs
+        \\WHERE step_id = $1
+    , .{step_id});
+    const sequence = if (row) |r| r.get(i32, 0) else 0;
+
+    _ = try db.workflows.appendWorkflowLog(pool, step_id, log_type, content, sequence);
 }
 
 // =============================================================================

@@ -10,6 +10,68 @@ const workflows_dao = db.workflows;
 const llm_executor_mod = @import("llm_executor.zig");
 const json = @import("../lib/json.zig");
 
+fn buildToolLogPayload(
+    allocator: std.mem.Allocator,
+    tool_name: []const u8,
+    tool_input: ?[]const u8,
+    tool_output: ?[]const u8,
+    success: ?bool,
+) ![]const u8 {
+    var list = std.ArrayList(u8){};
+    errdefer list.deinit(allocator);
+
+    const writer = list.writer(allocator);
+    try writer.writeByte('{');
+    try json.writeKey(writer, "tool_name");
+    try json.writeString(writer, tool_name);
+    if (tool_input) |input| {
+        try json.writeSeparator(writer);
+        try json.writeKey(writer, "tool_input");
+        try json.writeString(writer, input);
+    }
+    if (tool_output) |output| {
+        try json.writeSeparator(writer);
+        try json.writeKey(writer, "tool_output");
+        try json.writeString(writer, output);
+    }
+    if (success) |ok| {
+        try json.writeSeparator(writer);
+        try json.writeKey(writer, "success");
+        try json.writeBool(writer, ok);
+    }
+    try writer.writeByte('}');
+
+    return try list.toOwnedSlice(allocator);
+}
+
+const ParallelWorker = struct {
+    step: *const plan.Step,
+    status: StepStatus = .failed,
+    exit_code: ?i32 = null,
+    started_at: i64 = 0,
+    completed_at: i64 = 0,
+};
+
+fn parallelWorkerMain(worker: *ParallelWorker, db_pool: ?*db.Pool, run_id: i32) void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    var exec = Executor.init(arena.allocator(), db_pool, run_id);
+    var result = exec.executeStep(worker.step) catch {
+        worker.status = .failed;
+        worker.exit_code = null;
+        worker.started_at = std.time.timestamp();
+        worker.completed_at = std.time.timestamp();
+        return;
+    };
+
+    worker.status = result.status;
+    worker.exit_code = result.exit_code;
+    worker.started_at = result.started_at;
+    worker.completed_at = result.completed_at;
+    result.deinit(arena.allocator());
+}
+
 /// Step execution status
 pub const StepStatus = enum {
     pending,    // Not yet started
@@ -38,6 +100,9 @@ pub const StepResult = struct {
     exit_code: ?i32,
     output: ?std.json.Value,
     error_message: ?[]const u8,
+    turns_used: ?i32,
+    tokens_in: ?i32,
+    tokens_out: ?i32,
     started_at: i64,    // Unix timestamp
     completed_at: i64,  // Unix timestamp
 
@@ -212,9 +277,16 @@ pub const Executor = struct {
         var status_map = std.StringHashMap(StepStatus).init(self.allocator);
         defer status_map.deinit();
 
+        var executed_steps = std.StringHashMap(void).init(self.allocator);
+        defer executed_steps.deinit();
+
         // Execute steps in order
         for (execution_order) |step_index| {
             const step = &workflow.steps[step_index];
+
+            if (executed_steps.contains(step.id)) {
+                continue;
+            }
 
             // Check if dependencies succeeded
             const deps_ok = try self.checkDependencies(step, &status_map);
@@ -227,15 +299,29 @@ pub const Executor = struct {
                     .exit_code = null,
                     .output = null,
                     .error_message = try self.allocator.dupe(u8, "Dependency failed"),
+                    .turns_used = null,
+                    .tokens_in = null,
+                    .tokens_out = null,
                     .started_at = std.time.timestamp(),
                     .completed_at = std.time.timestamp(),
                 });
+                try executed_steps.put(step.id, {});
+                continue;
+            }
+
+            if (step.@"type" == .parallel) {
+                const group_results = try self.executeParallelGroup(workflow, step, &status_map, &executed_steps);
+                for (group_results) |group_result| {
+                    try results.append(self.allocator, group_result);
+                }
+                self.allocator.free(group_results);
                 continue;
             }
 
             // Execute the step
             const result = try self.executeStep(step);
             try status_map.put(step.id, result.status);
+            try executed_steps.put(step.id, {});
             try results.append(self.allocator, result);
 
             // If step failed and it's not a parallel group, we might want to stop
@@ -337,9 +423,9 @@ pub const Executor = struct {
                     result.exit_code,
                     output_str,
                     result.error_message,
-                    null, // turns_used (only for agent steps)
-                    null, // tokens_in (only for LLM steps)
-                    null, // tokens_out (only for LLM steps)
+                    result.turns_used,
+                    result.tokens_in,
+                    result.tokens_out,
                 );
             }
         }
@@ -367,16 +453,21 @@ pub const Executor = struct {
     fn executeLlmStep(self: *Executor, step: *const plan.Step, db_step_id: ?i32, started_at: i64) !StepResult {
         // Create LLM executor
         var llm_exec = llm_executor_mod.LlmExecutor.init(self.allocator, self.db_pool);
+        var log_sequence: i32 = 0;
 
         // Set up event callback to forward events
         const LlmCallbackCtx = struct {
             executor: *Executor,
             step_id: []const u8,
+            db_step_id: ?i32,
+            log_sequence: *i32,
         };
 
         var callback_ctx = LlmCallbackCtx{
             .executor = self,
             .step_id = step.id,
+            .db_step_id = db_step_id,
+            .log_sequence = &log_sequence,
         };
 
         const callback = struct {
@@ -384,10 +475,22 @@ pub const Executor = struct {
                 const context: *LlmCallbackCtx = @alignCast(@ptrCast(ctx.?));
                 const executor = context.executor;
 
-                // Forward LLM events to executor event callback if set
-                if (executor.event_callback) |exec_callback| {
-                    switch (event) {
-                        .token => |token_data| {
+                switch (event) {
+                    .token => |token_data| {
+                        if (context.db_step_id) |step_db_id| {
+                            if (executor.db_pool) |pool| {
+                                _ = workflows_dao.appendWorkflowLog(
+                                    pool,
+                                    step_db_id,
+                                    "token",
+                                    token_data.text,
+                                    context.log_sequence.*,
+                                ) catch {};
+                                context.log_sequence.* += 1;
+                            }
+                        }
+
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .llm_token = .{
                                     .step_id = executor.allocator.dupe(u8, token_data.step_id) catch return,
@@ -395,8 +498,31 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                        .tool_start => |tool_data| {
+                        }
+                    },
+                    .tool_start => |tool_data| {
+                        if (context.db_step_id) |step_db_id| {
+                            if (executor.db_pool) |pool| {
+                                const payload = buildToolLogPayload(
+                                    executor.allocator,
+                                    tool_data.tool_name,
+                                    tool_data.tool_input,
+                                    null,
+                                    null,
+                                ) catch return;
+                                defer executor.allocator.free(payload);
+                                _ = workflows_dao.appendWorkflowLog(
+                                    pool,
+                                    step_db_id,
+                                    "tool_call",
+                                    payload,
+                                    context.log_sequence.*,
+                                ) catch {};
+                                context.log_sequence.* += 1;
+                            }
+                        }
+
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .tool_call_start = .{
                                     .step_id = executor.allocator.dupe(u8, tool_data.step_id) catch return,
@@ -405,8 +531,31 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                        .tool_end => |tool_data| {
+                        }
+                    },
+                    .tool_end => |tool_data| {
+                        if (context.db_step_id) |step_db_id| {
+                            if (executor.db_pool) |pool| {
+                                const payload = buildToolLogPayload(
+                                    executor.allocator,
+                                    tool_data.tool_name,
+                                    null,
+                                    tool_data.tool_output,
+                                    tool_data.success,
+                                ) catch return;
+                                defer executor.allocator.free(payload);
+                                _ = workflows_dao.appendWorkflowLog(
+                                    pool,
+                                    step_db_id,
+                                    "tool_result",
+                                    payload,
+                                    context.log_sequence.*,
+                                ) catch {};
+                                context.log_sequence.* += 1;
+                            }
+                        }
+
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .tool_call_end = .{
                                     .step_id = executor.allocator.dupe(u8, tool_data.step_id) catch return,
@@ -416,8 +565,10 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                        .turn_complete => |turn_data| {
+                        }
+                    },
+                    .turn_complete => |turn_data| {
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .agent_turn_complete = .{
                                     .step_id = executor.allocator.dupe(u8, turn_data.step_id) catch return,
@@ -425,8 +576,8 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                    }
+                        }
+                    },
                 }
             }
         }.cb;
@@ -445,6 +596,9 @@ pub const Executor = struct {
                     "LLM execution failed: {s}",
                     .{@errorName(err)},
                 ),
+                .turns_used = null,
+                .tokens_in = null,
+                .tokens_out = null,
                 .started_at = started_at,
                 .completed_at = std.time.timestamp(),
             };
@@ -492,6 +646,9 @@ pub const Executor = struct {
             .exit_code = null,
             .output = llm_result.output,
             .error_message = llm_result.error_message,
+            .turns_used = @as(i32, @intCast(llm_result.turns_used)),
+            .tokens_in = @as(i32, @intCast(llm_result.tokens_in)),
+            .tokens_out = @as(i32, @intCast(llm_result.tokens_out)),
             .started_at = started_at,
             .completed_at = std.time.timestamp(),
         };
@@ -501,16 +658,21 @@ pub const Executor = struct {
     fn executeAgentStep(self: *Executor, step: *const plan.Step, db_step_id: ?i32, started_at: i64) !StepResult {
         // Create LLM executor
         var llm_exec = llm_executor_mod.LlmExecutor.init(self.allocator, self.db_pool);
+        var log_sequence: i32 = 0;
 
         // Set up event callback to forward events
         const AgentCallbackCtx = struct {
             executor: *Executor,
             step_id: []const u8,
+            db_step_id: ?i32,
+            log_sequence: *i32,
         };
 
         var callback_ctx = AgentCallbackCtx{
             .executor = self,
             .step_id = step.id,
+            .db_step_id = db_step_id,
+            .log_sequence = &log_sequence,
         };
 
         const callback = struct {
@@ -518,10 +680,22 @@ pub const Executor = struct {
                 const context: *AgentCallbackCtx = @alignCast(@ptrCast(ctx.?));
                 const executor = context.executor;
 
-                // Forward agent events to executor event callback if set
-                if (executor.event_callback) |exec_callback| {
-                    switch (event) {
-                        .token => |token_data| {
+                switch (event) {
+                    .token => |token_data| {
+                        if (context.db_step_id) |step_db_id| {
+                            if (executor.db_pool) |pool| {
+                                _ = workflows_dao.appendWorkflowLog(
+                                    pool,
+                                    step_db_id,
+                                    "token",
+                                    token_data.text,
+                                    context.log_sequence.*,
+                                ) catch {};
+                                context.log_sequence.* += 1;
+                            }
+                        }
+
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .llm_token = .{
                                     .step_id = executor.allocator.dupe(u8, token_data.step_id) catch return,
@@ -529,8 +703,31 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                        .tool_start => |tool_data| {
+                        }
+                    },
+                    .tool_start => |tool_data| {
+                        if (context.db_step_id) |step_db_id| {
+                            if (executor.db_pool) |pool| {
+                                const payload = buildToolLogPayload(
+                                    executor.allocator,
+                                    tool_data.tool_name,
+                                    tool_data.tool_input,
+                                    null,
+                                    null,
+                                ) catch return;
+                                defer executor.allocator.free(payload);
+                                _ = workflows_dao.appendWorkflowLog(
+                                    pool,
+                                    step_db_id,
+                                    "tool_call",
+                                    payload,
+                                    context.log_sequence.*,
+                                ) catch {};
+                                context.log_sequence.* += 1;
+                            }
+                        }
+
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .tool_call_start = .{
                                     .step_id = executor.allocator.dupe(u8, tool_data.step_id) catch return,
@@ -539,8 +736,31 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                        .tool_end => |tool_data| {
+                        }
+                    },
+                    .tool_end => |tool_data| {
+                        if (context.db_step_id) |step_db_id| {
+                            if (executor.db_pool) |pool| {
+                                const payload = buildToolLogPayload(
+                                    executor.allocator,
+                                    tool_data.tool_name,
+                                    null,
+                                    tool_data.tool_output,
+                                    tool_data.success,
+                                ) catch return;
+                                defer executor.allocator.free(payload);
+                                _ = workflows_dao.appendWorkflowLog(
+                                    pool,
+                                    step_db_id,
+                                    "tool_result",
+                                    payload,
+                                    context.log_sequence.*,
+                                ) catch {};
+                                context.log_sequence.* += 1;
+                            }
+                        }
+
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .tool_call_end = .{
                                     .step_id = executor.allocator.dupe(u8, tool_data.step_id) catch return,
@@ -550,8 +770,10 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                        .turn_complete => |turn_data| {
+                        }
+                    },
+                    .turn_complete => |turn_data| {
+                        if (executor.event_callback) |exec_callback| {
                             const exec_event = ExecutionEvent{
                                 .agent_turn_complete = .{
                                     .step_id = executor.allocator.dupe(u8, turn_data.step_id) catch return,
@@ -559,8 +781,8 @@ pub const Executor = struct {
                                 },
                             };
                             exec_callback(exec_event, executor.event_ctx);
-                        },
-                    }
+                        }
+                    },
                 }
             }
         }.cb;
@@ -579,6 +801,9 @@ pub const Executor = struct {
                     "Agent execution failed: {s}",
                     .{@errorName(err)},
                 ),
+                .turns_used = null,
+                .tokens_in = null,
+                .tokens_out = null,
                 .started_at = started_at,
                 .completed_at = std.time.timestamp(),
             };
@@ -626,6 +851,9 @@ pub const Executor = struct {
             .exit_code = null,
             .output = agent_result.output,
             .error_message = agent_result.error_message,
+            .turns_used = @as(i32, @intCast(agent_result.turns_used)),
+            .tokens_in = @as(i32, @intCast(agent_result.tokens_in)),
+            .tokens_out = @as(i32, @intCast(agent_result.tokens_out)),
             .started_at = started_at,
             .completed_at = std.time.timestamp(),
         };
@@ -647,6 +875,9 @@ pub const Executor = struct {
                         .exit_code = null,
                         .output = null,
                         .error_message = try self.allocator.dupe(u8, "Missing 'cmd' in shell step config"),
+                        .turns_used = null,
+                        .tokens_in = null,
+                        .tokens_out = null,
                         .started_at = started_at,
                         .completed_at = std.time.timestamp(),
                     };
@@ -660,6 +891,9 @@ pub const Executor = struct {
                             .exit_code = null,
                             .output = null,
                             .error_message = try self.allocator.dupe(u8, "'cmd' must be a string"),
+                            .turns_used = null,
+                            .tokens_in = null,
+                            .tokens_out = null,
                             .started_at = started_at,
                             .completed_at = std.time.timestamp(),
                         };
@@ -673,6 +907,9 @@ pub const Executor = struct {
                     .exit_code = null,
                     .output = null,
                     .error_message = try self.allocator.dupe(u8, "Shell step config must be an object"),
+                    .turns_used = null,
+                    .tokens_in = null,
+                    .tokens_out = null,
                     .started_at = started_at,
                     .completed_at = std.time.timestamp(),
                 };
@@ -707,11 +944,56 @@ pub const Executor = struct {
             }
         }
 
-        // Execute the command
-        // Use sh -c to handle complex commands with pipes, etc.
-        const argv = [_][]const u8{ "sh", "-c", cmd };
+        // Validate command doesn't contain obvious shell metacharacters for injection
+        // This is a basic safety check - not exhaustive but catches common patterns
+        const dangerous_chars = ";|&$`()<>";
+        for (dangerous_chars) |char| {
+            if (std.mem.indexOfScalar(u8, cmd, char)) |_| {
+                return StepResult{
+                    .step_id = try self.allocator.dupe(u8, step.id),
+                    .status = .failed,
+                    .exit_code = null,
+                    .output = null,
+                    .error_message = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Command contains potentially dangerous character: {c}",
+                        .{char},
+                    ),
+                    .turns_used = null,
+                    .tokens_in = null,
+                    .tokens_out = null,
+                    .started_at = started_at,
+                    .completed_at = std.time.timestamp(),
+                };
+            }
+        }
 
-        var child = std.process.Child.init(&argv, self.allocator);
+        // Parse command into argv array to avoid shell interpretation
+        // For now, do simple whitespace splitting (can be enhanced with proper shell parsing)
+        var argv_list = std.ArrayList([]const u8){};
+        defer argv_list.deinit(self.allocator);
+
+        var iter = std.mem.tokenizeAny(u8, cmd, " \t\n\r");
+        while (iter.next()) |token| {
+            try argv_list.append(self.allocator, token);
+        }
+
+        if (argv_list.items.len == 0) {
+            return StepResult{
+                .step_id = try self.allocator.dupe(u8, step.id),
+                .status = .failed,
+                .exit_code = null,
+                .output = null,
+                .error_message = try self.allocator.dupe(u8, "Empty command"),
+                .turns_used = null,
+                .tokens_in = null,
+                .tokens_out = null,
+                .started_at = started_at,
+                .completed_at = std.time.timestamp(),
+            };
+        }
+
+        var child = std.process.Child.init(argv_list.items, self.allocator);
         child.env_map = &env_map;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
@@ -727,87 +1009,136 @@ pub const Executor = struct {
                     "Failed to spawn command: {s}",
                     .{@errorName(err)},
                 ),
+                .turns_used = null,
+                .tokens_in = null,
+                .tokens_out = null,
                 .started_at = started_at,
                 .completed_at = std.time.timestamp(),
             };
         };
 
-        // Read output
-        const stdout = child.stdout.?.deprecatedReader().readAllAlloc(self.allocator, 1024 * 1024) catch |err| {
-            _ = child.kill() catch {};
-            return StepResult{
-                .step_id = try self.allocator.dupe(u8, step.id),
-                .status = .failed,
-                .exit_code = null,
-                .output = null,
-                .error_message = try std.fmt.allocPrint(
-                    self.allocator,
-                    "Failed to read stdout: {s}",
-                    .{@errorName(err)},
-                ),
-                .started_at = started_at,
-                .completed_at = std.time.timestamp(),
-            };
-        };
-        defer self.allocator.free(stdout);
+        var stdout_acc = std.ArrayList(u8){};
+        defer stdout_acc.deinit(self.allocator);
+        var stderr_acc = std.ArrayList(u8){};
+        defer stderr_acc.deinit(self.allocator);
 
-        const stderr = child.stderr.?.deprecatedReader().readAllAlloc(self.allocator, 1024 * 1024) catch |err| {
-            _ = child.kill() catch {};
-            return StepResult{
-                .step_id = try self.allocator.dupe(u8, step.id),
-                .status = .failed,
-                .exit_code = null,
-                .output = null,
-                .error_message = try std.fmt.allocPrint(
-                    self.allocator,
-                    "Failed to read stderr: {s}",
-                    .{@errorName(err)},
-                ),
-                .started_at = started_at,
-                .completed_at = std.time.timestamp(),
-            };
-        };
-        defer self.allocator.free(stderr);
+        var stdout_open = true;
+        var stderr_open = true;
 
-        // Persist stdout to database
-        if (stdout.len > 0) {
-            if (self.db_pool) |pool| {
-                if (db_step_id) |step_db_id| {
-                    _ = try workflows_dao.appendWorkflowLog(
-                        pool,
-                        step_db_id,
-                        "stdout",
-                        stdout,
-                        log_sequence,
-                    );
-                    log_sequence += 1;
+        var poll_fds = [_]std.posix.pollfd{
+            .{ .fd = child.stdout.?.handle, .events = std.posix.POLL.IN, .revents = 0 },
+            .{ .fd = child.stderr.?.handle, .events = std.posix.POLL.IN, .revents = 0 },
+        };
+
+        var stdout_buf: [4096]u8 = undefined;
+        var stderr_buf: [4096]u8 = undefined;
+
+        while (stdout_open or stderr_open) {
+            _ = try std.posix.poll(&poll_fds, -1);
+
+            if (stdout_open and poll_fds[0].revents != 0) {
+                const bytes_read = child.stdout.?.read(&stdout_buf) catch |err| {
+                    _ = child.kill() catch {};
+                    return StepResult{
+                        .step_id = try self.allocator.dupe(u8, step.id),
+                        .status = .failed,
+                        .exit_code = null,
+                        .output = null,
+                        .error_message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Failed to read stdout: {s}",
+                            .{@errorName(err)},
+                        ),
+                        .turns_used = null,
+                        .tokens_in = null,
+                        .tokens_out = null,
+                        .started_at = started_at,
+                        .completed_at = std.time.timestamp(),
+                    };
+                };
+
+                if (bytes_read == 0) {
+                    stdout_open = false;
+                    poll_fds[0].fd = -1;
+                } else {
+                    const chunk = stdout_buf[0..bytes_read];
+                    try stdout_acc.appendSlice(self.allocator, chunk);
+
+                    if (self.db_pool) |pool| {
+                        if (db_step_id) |step_db_id| {
+                            _ = try workflows_dao.appendWorkflowLog(
+                                pool,
+                                step_db_id,
+                                "stdout",
+                                chunk,
+                                log_sequence,
+                            );
+                            log_sequence += 1;
+                        }
+                    }
+
+                    if (self.event_callback) |callback| {
+                        const event = ExecutionEvent{
+                            .step_output = .{
+                                .step_id = try self.allocator.dupe(u8, step.id),
+                                .line = try self.allocator.dupe(u8, chunk),
+                            },
+                        };
+                        callback(event, self.event_ctx);
+                    }
                 }
             }
 
-            // Emit stdout as output event
-            if (self.event_callback) |callback| {
-                const event = ExecutionEvent{
-                    .step_output = .{
+            if (stderr_open and poll_fds[1].revents != 0) {
+                const bytes_read = child.stderr.?.read(&stderr_buf) catch |err| {
+                    _ = child.kill() catch {};
+                    return StepResult{
                         .step_id = try self.allocator.dupe(u8, step.id),
-                        .line = try self.allocator.dupe(u8, stdout),
-                    },
+                        .status = .failed,
+                        .exit_code = null,
+                        .output = null,
+                        .error_message = try std.fmt.allocPrint(
+                            self.allocator,
+                            "Failed to read stderr: {s}",
+                            .{@errorName(err)},
+                        ),
+                        .turns_used = null,
+                        .tokens_in = null,
+                        .tokens_out = null,
+                        .started_at = started_at,
+                        .completed_at = std.time.timestamp(),
+                    };
                 };
-                callback(event, self.event_ctx);
-            }
-        }
 
-        // Persist stderr to database
-        if (stderr.len > 0) {
-            if (self.db_pool) |pool| {
-                if (db_step_id) |step_db_id| {
-                    _ = try workflows_dao.appendWorkflowLog(
-                        pool,
-                        step_db_id,
-                        "stderr",
-                        stderr,
-                        log_sequence,
-                    );
-                    log_sequence += 1;
+                if (bytes_read == 0) {
+                    stderr_open = false;
+                    poll_fds[1].fd = -1;
+                } else {
+                    const chunk = stderr_buf[0..bytes_read];
+                    try stderr_acc.appendSlice(self.allocator, chunk);
+
+                    if (self.db_pool) |pool| {
+                        if (db_step_id) |step_db_id| {
+                            _ = try workflows_dao.appendWorkflowLog(
+                                pool,
+                                step_db_id,
+                                "stderr",
+                                chunk,
+                                log_sequence,
+                            );
+                            log_sequence += 1;
+                        }
+                    }
+
+                    if (self.event_callback) |callback| {
+                        const event = ExecutionEvent{
+                            .step_output = .{
+                                .step_id = try self.allocator.dupe(u8, step.id),
+                                .line = try self.allocator.dupe(u8, chunk),
+                            },
+                        };
+                        callback(event, self.event_ctx);
+                    }
                 }
             }
         }
@@ -824,6 +1155,9 @@ pub const Executor = struct {
                     "Failed to wait for command: {s}",
                     .{@errorName(err)},
                 ),
+                .turns_used = null,
+                .tokens_in = null,
+                .tokens_out = null,
                 .started_at = started_at,
                 .completed_at = std.time.timestamp(),
             };
@@ -832,8 +1166,8 @@ pub const Executor = struct {
         // Build output JSON
         var output_obj = std.json.ObjectMap.init(self.allocator);
         // Duplicate strings since stdout/stderr will be freed by defer
-        try output_obj.put("stdout", .{ .string = try self.allocator.dupe(u8, stdout) });
-        try output_obj.put("stderr", .{ .string = try self.allocator.dupe(u8, stderr) });
+        try output_obj.put("stdout", .{ .string = try self.allocator.dupe(u8, stdout_acc.items) });
+        try output_obj.put("stderr", .{ .string = try self.allocator.dupe(u8, stderr_acc.items) });
 
         const exit_code: i32 = switch (term) {
             .Exited => |code| @intCast(code),
@@ -843,8 +1177,8 @@ pub const Executor = struct {
         };
 
         const success = exit_code == 0;
-        const error_message = if (!success and stderr.len > 0)
-            try self.allocator.dupe(u8, stderr)
+        const error_message = if (!success and stderr_acc.items.len > 0)
+            try self.allocator.dupe(u8, stderr_acc.items)
         else
             null;
 
@@ -854,6 +1188,9 @@ pub const Executor = struct {
             .exit_code = exit_code,
             .output = .{ .object = output_obj },
             .error_message = error_message,
+            .turns_used = null,
+            .tokens_in = null,
+            .tokens_out = null,
             .started_at = started_at,
             .completed_at = std.time.timestamp(),
         };
@@ -869,9 +1206,138 @@ pub const Executor = struct {
             .exit_code = null,
             .output = null,
             .error_message = null,
+            .turns_used = null,
+            .tokens_in = null,
+            .tokens_out = null,
             .started_at = std.time.timestamp(),
             .completed_at = std.time.timestamp(),
         };
+    }
+
+    fn executeParallelGroup(
+        self: *Executor,
+        workflow: *const plan.WorkflowDefinition,
+        parallel_step: *const plan.Step,
+        status_map: *std.StringHashMap(StepStatus),
+        executed_steps: *std.StringHashMap(void),
+    ) ![]StepResult {
+        var results = std.ArrayList(StepResult){};
+        errdefer results.deinit(self.allocator);
+
+        const config = parallel_step.config.data;
+        const step_ids_value = if (config == .object) config.object.get("step_ids") else null;
+        if (step_ids_value == null or step_ids_value.? != .array) {
+            try results.append(self.allocator, .{
+                .step_id = try self.allocator.dupe(u8, parallel_step.id),
+                .status = .failed,
+                .exit_code = null,
+                .output = null,
+                .error_message = try self.allocator.dupe(u8, "Parallel step missing step_ids"),
+                .turns_used = null,
+                .tokens_in = null,
+                .tokens_out = null,
+                .started_at = std.time.timestamp(),
+                .completed_at = std.time.timestamp(),
+            });
+            try status_map.put(parallel_step.id, .failed);
+            try executed_steps.put(parallel_step.id, {});
+            return try results.toOwnedSlice(self.allocator);
+        }
+
+        var step_lookup = std.StringHashMap(*const plan.Step).init(self.allocator);
+        defer step_lookup.deinit();
+        for (workflow.steps) |*step| {
+            _ = step_lookup.put(step.id, step) catch {};
+        }
+
+        var to_run = std.ArrayList(*const plan.Step){};
+        defer to_run.deinit(self.allocator);
+
+        const started_at = std.time.timestamp();
+        for (step_ids_value.?.array.items) |item| {
+            if (item != .string) continue;
+            const step_id = item.string;
+            const step_ptr = step_lookup.get(step_id) orelse continue;
+
+            const deps_ok = try self.checkDependencies(step_ptr, status_map);
+            if (!deps_ok) {
+                try status_map.put(step_ptr.id, .skipped);
+                try executed_steps.put(step_ptr.id, {});
+                try results.append(self.allocator, .{
+                    .step_id = try self.allocator.dupe(u8, step_ptr.id),
+                    .status = .skipped,
+                    .exit_code = null,
+                    .output = null,
+                    .error_message = try self.allocator.dupe(u8, "Dependency failed"),
+                    .turns_used = null,
+                    .tokens_in = null,
+                    .tokens_out = null,
+                    .started_at = std.time.timestamp(),
+                    .completed_at = std.time.timestamp(),
+                });
+            } else {
+                try to_run.append(self.allocator, step_ptr);
+            }
+        }
+
+        if (to_run.items.len > 0) {
+            const worker_count = to_run.items.len;
+            var workers = try self.allocator.alloc(ParallelWorker, worker_count);
+            defer self.allocator.free(workers);
+            var threads = try self.allocator.alloc(std.Thread, worker_count);
+            defer self.allocator.free(threads);
+
+            for (to_run.items, 0..) |step_ptr, i| {
+                workers[i] = .{ .step = step_ptr };
+                threads[i] = try std.Thread.spawn(.{}, parallelWorkerMain, .{ &workers[i], self.db_pool, self.run_id });
+            }
+
+            for (threads) |thread| {
+                thread.join();
+            }
+
+            for (workers) |worker| {
+                try status_map.put(worker.step.id, worker.status);
+                try executed_steps.put(worker.step.id, {});
+                try results.append(self.allocator, .{
+                    .step_id = try self.allocator.dupe(u8, worker.step.id),
+                    .status = worker.status,
+                    .exit_code = worker.exit_code,
+                    .output = null,
+                    .error_message = null,
+                    .turns_used = null,
+                    .tokens_in = null,
+                    .tokens_out = null,
+                    .started_at = worker.started_at,
+                    .completed_at = worker.completed_at,
+                });
+            }
+        }
+
+        const group_success = blk: {
+            for (results.items) |result| {
+                if (result.status != .succeeded and result.status != .skipped) break :blk false;
+            }
+            break :blk true;
+        };
+
+        const completed_at = std.time.timestamp();
+        try status_map.put(parallel_step.id, if (group_success) .succeeded else .failed);
+        try executed_steps.put(parallel_step.id, {});
+        try results.append(self.allocator, .{
+            .step_id = try self.allocator.dupe(u8, parallel_step.id),
+            .status = if (group_success) .succeeded else .failed,
+            .exit_code = null,
+            .output = null,
+            .error_message = if (group_success) null else try self.allocator.dupe(u8, "Parallel group failed"),
+            .turns_used = null,
+            .tokens_in = null,
+            .tokens_out = null,
+            .started_at = started_at,
+            .completed_at = completed_at,
+        });
+
+        return try results.toOwnedSlice(self.allocator);
     }
 
     /// Check if all dependencies of a step have succeeded

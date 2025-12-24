@@ -55,10 +55,33 @@ pub const LlmExecutionResult = struct {
         if (self.error_message) |msg| {
             allocator.free(msg);
         }
-        // TODO: Properly deallocate JSON value
-        _ = self.output;
+        freeJsonValue(allocator, &self.output);
     }
 };
+
+/// Recursively free a JSON value and all its nested allocations
+fn freeJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) void {
+    switch (value.*) {
+        .string => |s| {
+            allocator.free(s);
+        },
+        .array => |*arr| {
+            for (arr.items) |*item| {
+                freeJsonValue(allocator, item);
+            }
+            arr.deinit(allocator);
+        },
+        .object => |*obj| {
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                freeJsonValue(allocator, entry.value_ptr);
+            }
+            obj.deinit(allocator);
+        },
+        else => {}, // null, bool, integer, float don't need freeing
+    }
+}
 
 /// LLM step executor
 pub const LlmExecutor = struct {
@@ -66,13 +89,19 @@ pub const LlmExecutor = struct {
     event_callback: ?LlmEventCallback,
     event_ctx: ?*anyopaque,
     db_pool: ?*db.Pool,
+    workspace_dir: []const u8,
 
     pub fn init(allocator: std.mem.Allocator, db_pool: ?*db.Pool) LlmExecutor {
+        return initWithWorkspace(allocator, db_pool, "/tmp/workflow-workspace");
+    }
+
+    pub fn initWithWorkspace(allocator: std.mem.Allocator, db_pool: ?*db.Pool, workspace_dir: []const u8) LlmExecutor {
         return .{
             .allocator = allocator,
             .event_callback = null,
             .event_ctx = null,
             .db_pool = db_pool,
+            .workspace_dir = workspace_dir,
         };
     }
 
@@ -84,7 +113,7 @@ pub const LlmExecutor = struct {
     /// Execute an LLM step (single-shot, no tools)
     pub fn executeLlmStep(
         self: *LlmExecutor,
-        _: []const u8, // step_id unused for now
+        step_id: []const u8,
         step_config: *const plan.StepConfig,
     ) !LlmExecutionResult {
         // 1. Get prompt definition path from config
@@ -144,24 +173,50 @@ pub const LlmExecutor = struct {
 
         // 9. Call Claude API (non-streaming for now)
         const anthropic = client.AnthropicClient.init(self.allocator, api_key);
-        const response = try anthropic.sendMessages(
+
+        const response = anthropic.sendMessages(
             model_id,
             &[_]client.Message{message},
             null, // no system prompt for LLM steps
             null, // no tools for pure LLM steps
             1.0,  // temperature
             4096, // max_tokens
-        );
+        ) catch |err| {
+            const err_msg = try std.fmt.allocPrint(
+                self.allocator,
+                "LLM API error: {s}",
+                .{@errorName(err)},
+            );
+            return LlmExecutionResult{
+                .output = .null,
+                .turns_used = 1,
+                .tokens_in = 0,
+                .tokens_out = 0,
+                .error_message = err_msg,
+            };
+        };
 
-        // 10. Extract text from response
+        // Extract text content from response
         var output_text: []const u8 = "";
-        for (response.content) |block| {
-            switch (block) {
+        const tokens_in: u32 = @intCast(response.usage.input_tokens);
+        const tokens_out: u32 = @intCast(response.usage.output_tokens);
+
+        for (response.content) |content_block| {
+            switch (content_block) {
                 .text => |text| {
                     output_text = text;
+                    // Emit token event for the complete response
+                    if (self.event_callback) |cb| {
+                        cb(.{
+                            .token = .{
+                                .step_id = step_id,
+                                .text = output_text,
+                            },
+                        }, self.event_ctx);
+                    }
                     break;
                 },
-                else => {},
+                .tool_use => {},
             }
         }
 
@@ -187,9 +242,6 @@ pub const LlmExecutor = struct {
                 .{},
             );
             // Extract token usage from API response
-            const tokens_in = @as(u32, @intCast(response.usage.input_tokens));
-            const tokens_out = @as(u32, @intCast(response.usage.output_tokens));
-
             return LlmExecutionResult{
                 .output = parsed.value,
                 .turns_used = 1,
@@ -221,10 +273,6 @@ pub const LlmExecutor = struct {
                 .error_message = err_msg,
             };
         }
-
-        // Extract token usage from API response
-        const tokens_in = @as(u32, @intCast(response.usage.input_tokens));
-        const tokens_out = @as(u32, @intCast(response.usage.output_tokens));
 
         return LlmExecutionResult{
             .output = parsed_output.value,
@@ -299,15 +347,15 @@ pub const LlmExecutor = struct {
 
         // 9. Set up agent options
         const agent_options = types.AgentOptions{
-            .agent_name = "workflow-agent", // Use a workflow-specific agent config
+            .agent_name = "workflow-agent",
             .model_id = model_id,
-            .working_dir = "/tmp/workflow-workspace", // TODO: Use actual workspace path
+            .working_dir = self.workspace_dir,
         };
 
         // 10. Set up tool context (empty for now, will be enhanced with tool scoping)
         const tool_ctx = types.ToolContext{
             .allocator = self.allocator,
-            .working_dir = "/tmp/workflow-workspace", // TODO: Use actual workspace path
+            .working_dir = self.workspace_dir,
             .file_tracker = null,
             .session_id = null,
         };
@@ -400,7 +448,7 @@ pub const LlmExecutor = struct {
         };
 
         // 12. Run agent with streaming
-        ai.streamAgent(
+        const usage = ai.streamAgent(
             self.allocator,
             &[_]client.Message{message},
             agent_options,
@@ -420,6 +468,8 @@ pub const LlmExecutor = struct {
                 .error_message = err_msg,
             };
         };
+        callback_ctx.tokens_in = usage.tokens_in;
+        callback_ctx.tokens_out = usage.tokens_out;
 
         // 13. Parse final output if we have text
         if (callback_ctx.final_text) |text| {
@@ -446,8 +496,8 @@ pub const LlmExecutor = struct {
                 return LlmExecutionResult{
                     .output = parsed.value,
                     .turns_used = callback_ctx.turns,
-                    .tokens_in = 0, // TODO: Extract from response
-                    .tokens_out = 0, // TODO: Extract from response
+                    .tokens_in = callback_ctx.tokens_in,
+                    .tokens_out = callback_ctx.tokens_out,
                     .error_message = callback_ctx.error_message,
                 };
             };
@@ -469,8 +519,8 @@ pub const LlmExecutor = struct {
                 return LlmExecutionResult{
                     .output = parsed_output.value,
                     .turns_used = callback_ctx.turns,
-                    .tokens_in = 0,
-                    .tokens_out = 0,
+                    .tokens_in = callback_ctx.tokens_in,
+                    .tokens_out = callback_ctx.tokens_out,
                     .error_message = err_msg,
                 };
             }
@@ -478,8 +528,8 @@ pub const LlmExecutor = struct {
             return LlmExecutionResult{
                 .output = parsed_output.value,
                 .turns_used = callback_ctx.turns,
-                .tokens_in = 0, // TODO: Extract from response
-                .tokens_out = 0, // TODO: Extract from response
+                .tokens_in = callback_ctx.tokens_in,
+                .tokens_out = callback_ctx.tokens_out,
                 .error_message = callback_ctx.error_message,
             };
         }
@@ -488,8 +538,8 @@ pub const LlmExecutor = struct {
         return LlmExecutionResult{
             .output = .null,
             .turns_used = callback_ctx.turns,
-            .tokens_in = 0,
-            .tokens_out = 0,
+            .tokens_in = callback_ctx.tokens_in,
+            .tokens_out = callback_ctx.tokens_out,
             .error_message = callback_ctx.error_message,
         };
     }

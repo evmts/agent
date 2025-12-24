@@ -7,12 +7,85 @@
 const std = @import("std");
 const plan = @import("plan.zig");
 
+pub const PromptDefinitionInfo = struct {
+    name: []const u8,
+    file_path: []const u8,
+    prompt_type: []const u8,
+    client: []const u8,
+    tools_json: []const u8,
+    max_turns: u32,
+};
+
+pub const PromptCatalog = struct {
+    allocator: std.mem.Allocator,
+    prompts: std.StringHashMap(PromptDefinitionInfo),
+
+    pub fn init(allocator: std.mem.Allocator) PromptCatalog {
+        return .{
+            .allocator = allocator,
+            .prompts = std.StringHashMap(PromptDefinitionInfo).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *PromptCatalog) void {
+        var iter = self.prompts.iterator();
+        while (iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.name);
+            self.allocator.free(entry.value_ptr.file_path);
+            self.allocator.free(entry.value_ptr.prompt_type);
+            self.allocator.free(entry.value_ptr.client);
+            self.allocator.free(entry.value_ptr.tools_json);
+        }
+        self.prompts.deinit();
+    }
+
+    pub fn add(self: *PromptCatalog, info: PromptDefinitionInfo) !void {
+        const name = try self.allocator.dupe(u8, info.name);
+        errdefer self.allocator.free(name);
+
+        const file_path = try self.allocator.dupe(u8, info.file_path);
+        errdefer self.allocator.free(file_path);
+
+        const prompt_type = try self.allocator.dupe(u8, info.prompt_type);
+        errdefer self.allocator.free(prompt_type);
+
+        const client = try self.allocator.dupe(u8, info.client);
+        errdefer self.allocator.free(client);
+
+        const tools_json = try self.allocator.dupe(u8, info.tools_json);
+        errdefer self.allocator.free(tools_json);
+
+        try self.prompts.put(name, .{
+            .name = name,
+            .file_path = file_path,
+            .prompt_type = prompt_type,
+            .client = client,
+            .tools_json = tools_json,
+            .max_turns = info.max_turns,
+        });
+    }
+
+    pub fn get(self: *const PromptCatalog, name: []const u8) ?PromptDefinitionInfo {
+        return self.prompts.get(name);
+    }
+};
+
 /// Evaluation context
 pub const Evaluator = struct {
     allocator: std.mem.Allocator,
+    prompt_catalog: ?*const PromptCatalog = null,
 
     pub fn init(allocator: std.mem.Allocator) Evaluator {
         return .{ .allocator = allocator };
+    }
+
+    pub fn initWithPrompts(allocator: std.mem.Allocator, catalog: *const PromptCatalog) Evaluator {
+        return .{ .allocator = allocator, .prompt_catalog = catalog };
+    }
+
+    pub fn deinit(self: *Evaluator) void {
+        _ = self;
     }
 
     /// Evaluate a workflow file and extract workflow definitions
@@ -35,7 +108,12 @@ pub const Evaluator = struct {
             .pos = 0,
             .line = 1,
             .column = 1,
+            .prompt_catalog = self.prompt_catalog,
+            .imported_prompts = std.StringHashMap(PromptDefinitionInfo).init(self.allocator),
         };
+        defer parser.deinit();
+
+        try parser.scanImportsAndValidate(&errors);
 
         parser.parse(&workflows, &errors) catch |err| {
             try errors.append(self.allocator, .{
@@ -99,9 +177,19 @@ const Parser = struct {
     pos: usize,
     line: usize,
     column: usize,
+    prompt_catalog: ?*const PromptCatalog,
+    imported_prompts: std.StringHashMap(PromptDefinitionInfo),
 
     // Current step counter for generating unique IDs
     step_counter: usize = 0,
+
+    fn deinit(self: *Parser) void {
+        var iter = self.imported_prompts.iterator();
+        while (iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.imported_prompts.deinit();
+    }
 
     fn parse(
         self: *Parser,
@@ -138,6 +226,191 @@ const Parser = struct {
                 self.skipToNextLine();
             }
         }
+    }
+
+    fn scanImportsAndValidate(self: *Parser, errors: *std.ArrayList(plan.PlanError)) !void {
+        var iter = std.mem.splitScalar(u8, self.source, '\n');
+        var line_number: usize = 1;
+
+        while (iter.next()) |raw_line| : (line_number += 1) {
+            const line = std.mem.trimLeft(u8, raw_line, " \t");
+            if (line.len == 0 or line[0] == '#') continue;
+
+            if (std.mem.startsWith(u8, line, "import ")) {
+                try self.appendError(errors, "Direct import statements are not allowed", line_number, 1);
+                continue;
+            }
+
+            if (std.mem.startsWith(u8, line, "from ")) {
+                const import_idx = std.mem.indexOf(u8, line, " import ") orelse {
+                    try self.appendError(errors, "Invalid import statement", line_number, 1);
+                    continue;
+                };
+
+                const module = std.mem.trim(u8, line[5..import_idx], " \t");
+                const names_str = std.mem.trim(u8, line[import_idx + 8 ..], " \t");
+
+                const allowed = std.mem.eql(u8, module, "plue") or
+                    std.mem.eql(u8, module, "plue.prompts") or
+                    std.mem.eql(u8, module, "plue.tools");
+
+                if (!allowed) {
+                    const msg = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Import blocked by RestrictedPython: from {s}",
+                        .{module},
+                    );
+                    try self.appendErrorOwned(errors, msg, line_number, 1);
+                    continue;
+                }
+
+                if (std.mem.eql(u8, module, "plue.prompts")) {
+                    try self.registerPromptImports(names_str, errors, line_number);
+                }
+            }
+        }
+
+        try self.scanForbiddenIdentifiers(errors);
+    }
+
+    fn registerPromptImports(self: *Parser, names_str: []const u8, errors: *std.ArrayList(plan.PlanError), line_number: usize) !void {
+        var name_iter = std.mem.splitScalar(u8, names_str, ',');
+        while (name_iter.next()) |raw_name| {
+            const name = std.mem.trim(u8, raw_name, " \t");
+            if (name.len == 0) continue;
+
+            if (self.prompt_catalog) |catalog| {
+                if (catalog.get(name)) |prompt_def| {
+                    const key = try self.allocator.dupe(u8, name);
+                    errdefer self.allocator.free(key);
+                    try self.imported_prompts.put(key, prompt_def);
+                } else {
+                    const msg = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Prompt '{s}' not found in registry",
+                        .{name},
+                    );
+                    try self.appendErrorOwned(errors, msg, line_number, 1);
+                }
+            } else {
+                const msg = try std.fmt.allocPrint(
+                    self.allocator,
+                    "Prompt imports require a prompt catalog: {s}",
+                    .{name},
+                );
+                try self.appendErrorOwned(errors, msg, line_number, 1);
+            }
+        }
+    }
+
+    fn scanForbiddenIdentifiers(self: *Parser, errors: *std.ArrayList(plan.PlanError)) !void {
+        const forbidden = std.StaticStringMap(void).initComptime(.{
+            .{ "open", {} },
+            .{ "eval", {} },
+            .{ "exec", {} },
+            .{ "compile", {} },
+            .{ "os", {} },
+            .{ "pathlib", {} },
+            .{ "socket", {} },
+            .{ "urllib", {} },
+            .{ "requests", {} },
+            .{ "subprocess", {} },
+        });
+
+        var i: usize = 0;
+        var line: usize = 1;
+        var column: usize = 1;
+        var in_string: ?u8 = null;
+
+        while (i < self.source.len) : (i += 1) {
+            const ch = self.source[i];
+
+            if (in_string) |quote| {
+                if (ch == '\\') {
+                    if (i + 1 < self.source.len) {
+                        i += 1;
+                        column += 1;
+                    }
+                } else if (ch == quote) {
+                    in_string = null;
+                }
+
+                if (ch == '\n') {
+                    line += 1;
+                    column = 1;
+                } else {
+                    column += 1;
+                }
+                continue;
+            }
+
+            if (ch == '#') {
+                while (i < self.source.len and self.source[i] != '\n') : (i += 1) {}
+                continue;
+            }
+
+            if (ch == '\n') {
+                line += 1;
+                column = 1;
+                continue;
+            }
+
+            if (ch == '"' or ch == '\'') {
+                in_string = ch;
+                column += 1;
+                continue;
+            }
+
+            if (std.ascii.isAlphabetic(ch) or ch == '_') {
+                const start = i;
+                var end = i + 1;
+                while (end < self.source.len) : (end += 1) {
+                    const next = self.source[end];
+                    if (!std.ascii.isAlphanumeric(next) and next != '_') break;
+                }
+
+                const ident = self.source[start..end];
+                if (ident.len > 0 and ident[0] == '_') {
+                    const msg = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Private identifiers are not allowed: {s}",
+                        .{ident},
+                    );
+                    try self.appendErrorOwned(errors, msg, line, column);
+                } else if (forbidden.get(ident) != null) {
+                    const msg = try std.fmt.allocPrint(
+                        self.allocator,
+                        "Identifier blocked by RestrictedPython: {s}",
+                        .{ident},
+                    );
+                    try self.appendErrorOwned(errors, msg, line, column);
+                }
+
+                column += (end - start);
+                i = end - 1;
+                continue;
+            }
+
+            column += 1;
+        }
+    }
+
+    fn appendError(self: *Parser, errors: *std.ArrayList(plan.PlanError), message: []const u8, line: usize, column: usize) !void {
+        try errors.append(self.allocator, .{
+            .message = try self.allocator.dupe(u8, message),
+            .file = try self.allocator.dupe(u8, self.source_name),
+            .line = line,
+            .column = column,
+        });
+    }
+
+    fn appendErrorOwned(self: *Parser, errors: *std.ArrayList(plan.PlanError), message: []const u8, line: usize, column: usize) !void {
+        try errors.append(self.allocator, .{
+            .message = message,
+            .file = try self.allocator.dupe(u8, self.source_name),
+            .line = line,
+            .column = column,
+        });
     }
 
     fn parseWorkflow(self: *Parser) !?plan.WorkflowDefinition {
@@ -301,12 +574,16 @@ const Parser = struct {
 
     fn parseFunctionBody(self: *Parser) !std.ArrayList(plan.Step) {
         var steps: std.ArrayList(plan.Step) = .{};
+        var step_vars = std.StringHashMap([]const u8).init(self.allocator);
+        defer {
+            var iter = step_vars.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+            }
+            step_vars.deinit();
+        }
 
         self.skipWhitespaceAndComments();
-
-        // Find all ctx.run(...) calls in the function body
-        // This is a simplified parser - a full implementation would handle
-        // conditional statements, loops, etc.
 
         const body_start = self.pos;
         var body_indent: ?usize = null;
@@ -321,30 +598,76 @@ const Parser = struct {
                 if (line_indent > 0) {
                     body_indent = line_indent;
                 }
-            } else {
-                // If we dedent back to function level or beyond, body is done
-                if (line_indent < body_indent.?) {
-                    break;
+            } else if (line_indent < body_indent.?) {
+                break;
+            }
+
+            const saved_pos = self.pos;
+            const saved_line = self.line;
+            const saved_column = self.column;
+
+            self.skipWhitespaceAndComments();
+
+            if (try self.matchString("return")) {
+                break;
+            }
+
+            // Attempt assignment: <name> = ctx.run(...) / ctx.parallel(...) / Prompt(...)
+            var assignment_name: ?[]const u8 = null;
+            if (self.peek()) |ch| {
+                if (std.ascii.isAlphabetic(ch) or ch == '_') {
+                    assignment_name = self.parseIdentifier() catch null;
                 }
             }
 
-            // Look for ctx.run(...) or ctx.parallel(...)
+            if (assignment_name != null) {
+                self.skipWhitespaceAndComments();
+                if (self.peek() == '=') {
+                    _ = self.advance();
+                    self.skipWhitespaceAndComments();
+
+                    if (try self.matchString("ctx.run")) {
+                        const step = try self.parseRunStep(&step_vars, assignment_name);
+                        try steps.append(self.allocator, step);
+                        continue;
+                    }
+
+                    if (try self.matchString("ctx.parallel")) {
+                        const step = try self.parseParallelStep(&steps, &step_vars, assignment_name);
+                        try steps.append(self.allocator, step);
+                        continue;
+                    }
+
+                    if (try self.tryParsePromptStep(&steps, &step_vars, assignment_name)) {
+                        continue;
+                    }
+                }
+            }
+
+            if (assignment_name) |name| {
+                self.allocator.free(name);
+            }
+
+            // Reset position if no assignment match
+            self.pos = saved_pos;
+            self.line = saved_line;
+            self.column = saved_column;
+
+            self.skipWhitespaceAndComments();
+
             if (try self.matchString("ctx.run")) {
-                const step = try self.parseRunStep();
+                const step = try self.parseRunStep(&step_vars, null);
                 try steps.append(self.allocator, step);
             } else if (try self.matchString("ctx.parallel")) {
-                const step = try self.parseParallelStep();
+                const step = try self.parseParallelStep(&steps, &step_vars, null);
                 try steps.append(self.allocator, step);
-            } else if (try self.matchString("return")) {
-                // End of function body
-                break;
+            } else if (try self.tryParsePromptStep(&steps, &step_vars, null)) {
+                continue;
             } else {
-                // Skip this line
                 self.skipToNextLine();
             }
         }
 
-        // Reset position if we didn't parse anything
         if (steps.items.len == 0) {
             self.pos = body_start;
         }
@@ -352,13 +675,19 @@ const Parser = struct {
         return steps;
     }
 
-    fn parseRunStep(self: *Parser) !plan.Step {
+    fn parseRunStep(
+        self: *Parser,
+        step_vars: *std.StringHashMap([]const u8),
+        assignment_name: ?[]const u8,
+    ) !plan.Step {
         // Already matched "ctx.run", now parse arguments
         self.skipWhitespaceAndComments();
         if (!try self.expectChar('(')) return error.ExpectedLeftParen;
 
         var config = std.json.ObjectMap.init(self.allocator);
         var step_name: ?[]const u8 = null;
+        var depends_on_list = std.ArrayList([]const u8){};
+        errdefer depends_on_list.deinit(self.allocator);
 
         self.skipWhitespaceAndComments();
 
@@ -375,13 +704,21 @@ const Parser = struct {
             }
             self.skipWhitespaceAndComments();
 
-            const value = try self.parseValue();
+            if (std.mem.eql(u8, key, "depends_on")) {
+                const deps = try self.parseDependsOn(step_vars);
+                for (deps) |dep| {
+                    try depends_on_list.append(self.allocator, dep);
+                }
+                self.allocator.free(key);
+            } else {
+                const value = try self.parseValue();
 
-            if (std.mem.eql(u8, key, "name")) {
-                step_name = try self.allocator.dupe(u8, value.string);
+                if (std.mem.eql(u8, key, "name")) {
+                    step_name = try self.allocator.dupe(u8, value.string);
+                }
+
+                try config.put(key, value);
             }
-
-            try config.put(key, value);
 
             self.skipWhitespaceAndComments();
             if (self.peek() == ',') {
@@ -394,40 +731,296 @@ const Parser = struct {
         self.step_counter += 1;
         const step_id = try std.fmt.allocPrint(self.allocator, "step_{d}", .{self.step_counter});
 
-        return plan.Step{
+        const depends_on = try depends_on_list.toOwnedSlice(self.allocator);
+
+        const step = plan.Step{
             .id = step_id,
             .name = step_name orelse try self.allocator.dupe(u8, "unnamed"),
             .@"type" = .shell,
             .config = .{ .data = .{ .object = config } },
-            .depends_on = &.{},
+            .depends_on = depends_on,
         };
+
+        if (assignment_name) |name| {
+            const key = try self.allocator.dupe(u8, name);
+            try step_vars.put(key, step.id);
+            self.allocator.free(name);
+        }
+
+        return step;
     }
 
-    fn parseParallelStep(self: *Parser) !plan.Step {
-        // Simplified - just create a parallel step marker
+    fn parseParallelStep(
+        self: *Parser,
+        steps: *std.ArrayList(plan.Step),
+        step_vars: *std.StringHashMap([]const u8),
+        assignment_name: ?[]const u8,
+    ) !plan.Step {
         self.skipWhitespaceAndComments();
         if (!try self.expectChar('(')) return error.ExpectedLeftParen;
 
-        // Skip the arguments for now
-        var depth: usize = 1;
-        while (depth > 0 and self.pos < self.source.len) {
-            const ch = self.advance() orelse break;
-            if (ch == '(') depth += 1;
-            if (ch == ')') depth -= 1;
+        self.skipWhitespaceAndComments();
+        if (!try self.expectChar('[')) return error.ExpectedLeftBracket;
+
+        var step_ids = std.ArrayList([]const u8){};
+        defer step_ids.deinit(self.allocator);
+
+        self.skipWhitespaceAndComments();
+        while (self.peek() != ']' and self.pos < self.source.len) {
+            self.skipWhitespaceAndComments();
+
+            if (try self.matchString("ctx.run")) {
+                const nested = try self.parseRunStep(step_vars, null);
+                try step_ids.append(self.allocator, try self.allocator.dupe(u8, nested.id));
+                try steps.append(self.allocator, nested);
+            } else if (try self.matchString("ctx.parallel")) {
+                const nested_parallel = try self.parseParallelStep(steps, step_vars, null);
+                try step_ids.append(self.allocator, try self.allocator.dupe(u8, nested_parallel.id));
+                try steps.append(self.allocator, nested_parallel);
+            } else if (try self.tryParsePromptStep(steps, step_vars, null)) {
+                if (steps.items.len > 0) {
+                    const last_step = steps.items[steps.items.len - 1];
+                    try step_ids.append(self.allocator, try self.allocator.dupe(u8, last_step.id));
+                }
+            } else {
+                const name = try self.parseIdentifier();
+                if (step_vars.get(name)) |dep_id| {
+                    try step_ids.append(self.allocator, try self.allocator.dupe(u8, dep_id));
+                    self.allocator.free(name);
+                } else {
+                    try step_ids.append(self.allocator, name);
+                }
+            }
+
+            self.skipWhitespaceAndComments();
+            if (self.peek() == ',') {
+                _ = self.advance();
+                self.skipWhitespaceAndComments();
+            }
         }
+
+        if (!try self.expectChar(']')) return error.ExpectedRightBracket;
+        self.skipWhitespaceAndComments();
+        if (!try self.expectChar(')')) return error.ExpectedRightParen;
 
         self.step_counter += 1;
         const step_id = try std.fmt.allocPrint(self.allocator, "step_{d}", .{self.step_counter});
 
-        const config = std.json.ObjectMap.init(self.allocator);
+        var config = std.json.ObjectMap.init(self.allocator);
+        var ids_array = std.json.Array.init(self.allocator);
+        for (step_ids.items) |id| {
+            try ids_array.append(.{ .string = id });
+        }
+        try config.put("step_ids", .{ .array = ids_array });
 
-        return plan.Step{
+        const step = plan.Step{
             .id = step_id,
             .name = try self.allocator.dupe(u8, "parallel"),
             .@"type" = .parallel,
             .config = .{ .data = .{ .object = config } },
             .depends_on = &.{},
         };
+
+        if (assignment_name) |name| {
+            const key = try self.allocator.dupe(u8, name);
+            try step_vars.put(key, step.id);
+            self.allocator.free(name);
+        }
+
+        return step;
+    }
+
+    fn tryParsePromptStep(
+        self: *Parser,
+        steps: *std.ArrayList(plan.Step),
+        step_vars: *std.StringHashMap([]const u8),
+        assignment_name: ?[]const u8,
+    ) !bool {
+        const saved_pos = self.pos;
+        const saved_line = self.line;
+        const saved_column = self.column;
+
+        if (self.peek() == null) return false;
+        const ch = self.peek().?;
+        if (!std.ascii.isAlphabetic(ch) and ch != '_') return false;
+
+        const name = self.parseIdentifier() catch {
+            self.pos = saved_pos;
+            self.line = saved_line;
+            self.column = saved_column;
+            return false;
+        };
+        defer self.allocator.free(name);
+
+        const prompt_def = self.imported_prompts.get(name) orelse {
+            self.pos = saved_pos;
+            self.line = saved_line;
+            self.column = saved_column;
+            return false;
+        };
+
+        self.skipWhitespaceAndComments();
+        if (self.peek() != '(') {
+            self.pos = saved_pos;
+            self.line = saved_line;
+            self.column = saved_column;
+            return false;
+        }
+
+        const step = try self.parsePromptStep(prompt_def, step_vars, assignment_name);
+        try steps.append(self.allocator, step);
+        return true;
+    }
+
+    fn parsePromptStep(
+        self: *Parser,
+        prompt_def: PromptDefinitionInfo,
+        step_vars: *std.StringHashMap([]const u8),
+        assignment_name: ?[]const u8,
+    ) !plan.Step {
+        self.skipWhitespaceAndComments();
+        if (!try self.expectChar('(')) return error.ExpectedLeftParen;
+
+        var inputs = std.json.ObjectMap.init(self.allocator);
+        var config = std.json.ObjectMap.init(self.allocator);
+        var depends_on_list = std.ArrayList([]const u8){};
+        errdefer depends_on_list.deinit(self.allocator);
+
+        var tools_value: ?std.json.Value = null;
+        var max_turns_value: ?i64 = null;
+        var client_value: ?[]const u8 = null;
+
+        self.skipWhitespaceAndComments();
+        while (self.peek() != ')' and self.pos < self.source.len) {
+            self.skipWhitespaceAndComments();
+
+            const key = try self.parseIdentifier();
+            defer self.allocator.free(key);
+
+            self.skipWhitespaceAndComments();
+            if (!try self.expectChar('=')) return error.ExpectedEquals;
+            self.skipWhitespaceAndComments();
+
+            if (std.mem.eql(u8, key, "depends_on")) {
+                const deps = try self.parseDependsOn(step_vars);
+                for (deps) |dep| {
+                    try depends_on_list.append(self.allocator, dep);
+                }
+            } else if (std.mem.eql(u8, key, "tools")) {
+                tools_value = try self.parseValue();
+            } else if (std.mem.eql(u8, key, "max_turns")) {
+                const value = try self.parseValue();
+                if (value == .integer) {
+                    max_turns_value = value.integer;
+                }
+            } else if (std.mem.eql(u8, key, "client")) {
+                const value = try self.parseValue();
+                if (value == .string) {
+                    client_value = try self.allocator.dupe(u8, value.string);
+                }
+            } else {
+                const value = try self.parseValue();
+                try inputs.put(try self.allocator.dupe(u8, key), value);
+            }
+
+            self.skipWhitespaceAndComments();
+            if (self.peek() == ',') {
+                _ = self.advance();
+            }
+        }
+
+        if (!try self.expectChar(')')) return error.ExpectedRightParen;
+
+        try config.put("prompt_path", .{ .string = try self.allocator.dupe(u8, prompt_def.file_path) });
+        try config.put("inputs", .{ .object = inputs });
+
+        if (client_value) |client| {
+            try config.put("client", .{ .string = client });
+        } else {
+            try config.put("client", .{ .string = try self.allocator.dupe(u8, prompt_def.client) });
+        }
+
+        if (tools_value) |tools| {
+            try config.put("tools", tools);
+        } else if (prompt_def.tools_json.len > 0) {
+            const parsed_tools = std.json.parseFromSlice(
+                std.json.Value,
+                self.allocator,
+                prompt_def.tools_json,
+                .{},
+            ) catch null;
+            if (parsed_tools) |parsed| {
+                try config.put("tools", parsed.value);
+            }
+        }
+
+        const max_turns = max_turns_value orelse @as(i64, @intCast(prompt_def.max_turns));
+        try config.put("max_turns", .{ .integer = max_turns });
+
+        self.step_counter += 1;
+        const step_id = try std.fmt.allocPrint(self.allocator, "step_{d}", .{self.step_counter});
+
+        const depends_on = try depends_on_list.toOwnedSlice(self.allocator);
+
+        const step_type: plan.StepType = if (std.mem.eql(u8, prompt_def.prompt_type, "agent")) .agent else .llm;
+        const step = plan.Step{
+            .id = step_id,
+            .name = try self.allocator.dupe(u8, prompt_def.name),
+            .@"type" = step_type,
+            .config = .{ .data = .{ .object = config } },
+            .depends_on = depends_on,
+        };
+
+        if (assignment_name) |name| {
+            const key = try self.allocator.dupe(u8, name);
+            try step_vars.put(key, step.id);
+            self.allocator.free(name);
+        }
+
+        return step;
+    }
+
+    fn parseDependsOn(
+        self: *Parser,
+        step_vars: *std.StringHashMap([]const u8),
+    ) ![]const []const u8 {
+        self.skipWhitespaceAndComments();
+
+        var deps = std.ArrayList([]const u8){};
+        errdefer deps.deinit(self.allocator);
+
+        if (self.peek() == '[') {
+            _ = self.advance();
+            self.skipWhitespaceAndComments();
+
+            while (self.peek() != ']' and self.pos < self.source.len) {
+                const name = try self.parseIdentifier();
+                if (step_vars.get(name)) |dep_id| {
+                    try deps.append(self.allocator, try self.allocator.dupe(u8, dep_id));
+                    self.allocator.free(name);
+                } else {
+                    try deps.append(self.allocator, name);
+                }
+
+                self.skipWhitespaceAndComments();
+                if (self.peek() == ',') {
+                    _ = self.advance();
+                    self.skipWhitespaceAndComments();
+                }
+            }
+
+            if (!try self.expectChar(']')) return error.ExpectedRightBracket;
+        } else {
+            const name = try self.parseIdentifier();
+            if (step_vars.get(name)) |dep_id| {
+                try deps.append(self.allocator, try self.allocator.dupe(u8, dep_id));
+                self.allocator.free(name);
+            } else {
+                try deps.append(self.allocator, name);
+            }
+        }
+
+        return try deps.toOwnedSlice(self.allocator);
     }
 
     fn parseValue(self: *Parser) anyerror!std.json.Value {
@@ -805,7 +1398,10 @@ test "parser basic structure" {
         .pos = 0,
         .line = 1,
         .column = 1,
+        .prompt_catalog = null,
+        .imported_prompts = std.StringHashMap(PromptDefinitionInfo).init(allocator),
     };
+    defer parser.deinit();
 
     try std.testing.expectEqual(@as(?u8, ' '), parser.peek());
 

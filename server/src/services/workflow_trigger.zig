@@ -1,11 +1,12 @@
 //! Workflow Trigger Service
 //!
-//! Automatically triggers workflows when repository events occur.
-//! Discovers workflow files in .plue/workflows/*.py and creates database records
-//! for workflow_runs, workflow_jobs, and workflow_tasks.
+//! Triggers workflows on repository events by using the workflow registry
+//! and creating workflow_runs in the new workflow schema.
 
 const std = @import("std");
 const db = @import("db");
+const workflows = @import("../workflows/mod.zig");
+const queue = @import("../dispatch/queue.zig");
 
 const log = std.log.scoped(.workflow_trigger);
 
@@ -34,36 +35,6 @@ pub const WorkflowEvent = enum {
     }
 };
 
-/// Workflow status (matches database enum)
-pub const WorkflowStatus = enum(i32) {
-    unknown = 0,
-    success = 1,
-    failure = 2,
-    cancelled = 3,
-    skipped = 4,
-    waiting = 5,
-    running = 6,
-    blocked = 7,
-};
-
-/// Discovered workflow metadata
-pub const WorkflowMetadata = struct {
-    name: []const u8,
-    file_path: []const u8,
-    events: []const []const u8,
-    is_agent_workflow: bool,
-    allocator: std.mem.Allocator,
-
-    pub fn deinit(self: *WorkflowMetadata) void {
-        self.allocator.free(self.name);
-        self.allocator.free(self.file_path);
-        for (self.events) |event| {
-            self.allocator.free(event);
-        }
-        self.allocator.free(self.events);
-    }
-};
-
 /// Workflow Trigger Service
 pub const WorkflowTrigger = struct {
     allocator: std.mem.Allocator,
@@ -87,38 +58,100 @@ pub const WorkflowTrigger = struct {
     ) !void {
         log.info("Triggering workflows for repo {d}, event: {s}", .{ repo_id, event });
 
-        // Get repository path
         const repo_path = try self.getRepositoryPath(repo_id);
         defer self.allocator.free(repo_path);
 
-        // Discover workflows in .plue/workflows/
-        const workflows = try self.discoverWorkflows(repo_path);
-        defer {
-            for (workflows) |*wf| {
-                wf.deinit();
-            }
-            self.allocator.free(workflows);
-        }
+        var registry = workflows.Registry.init(self.allocator, self.pool);
+        var discovery = registry.discoverAndParse(repo_path, @intCast(repo_id)) catch |err| {
+            log.err("Failed to discover workflows: {}", .{err});
+            return err;
+        };
+        defer discovery.deinit(self.allocator);
 
-        log.info("Discovered {d} workflow(s)", .{workflows.len});
+        const defs = try db.workflows.listWorkflowDefinitions(self.pool, self.allocator, @intCast(repo_id));
+        defer self.allocator.free(defs);
 
-        // Trigger matching workflows
         var triggered_count: usize = 0;
-        for (workflows) |workflow| {
-            if (try self.shouldTrigger(&workflow, event)) {
-                try self.createWorkflowRun(
-                    repo_id,
-                    &workflow,
-                    event,
-                    ref,
-                    commit_sha,
-                    trigger_user_id,
-                );
+        for (defs) |def| {
+            if (try self.shouldTrigger(def.triggers, event)) {
+                _ = try self.createWorkflowRun(def.id, event, ref, commit_sha, trigger_user_id);
                 triggered_count += 1;
             }
         }
 
         log.info("Triggered {d} workflow(s) for event: {s}", .{ triggered_count, event });
+    }
+
+    fn shouldTrigger(self: *WorkflowTrigger, triggers_json: []const u8, event: []const u8) !bool {
+        var parsed = std.json.parseFromSlice(std.json.Value, self.allocator, triggers_json, .{}) catch |err| {
+            log.err("Failed to parse workflow triggers JSON: {}", .{err});
+            return false;
+        };
+        defer parsed.deinit();
+
+        if (parsed.value != .array) return false;
+
+        for (parsed.value.array.items) |item| {
+            if (item != .object) continue;
+            if (item.object.get("type")) |value| {
+                if (value == .string and std.mem.eql(u8, value.string, event)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    fn createWorkflowRun(
+        self: *WorkflowTrigger,
+        workflow_def_id: i32,
+        event: []const u8,
+        ref: ?[]const u8,
+        commit_sha: ?[]const u8,
+        trigger_user_id: ?i64,
+    ) !i32 {
+        const TriggerPayload = struct {
+            event: []const u8,
+            ref: ?[]const u8,
+            commit_sha: ?[]const u8,
+            trigger_user_id: ?i64,
+        };
+
+        // Zig 0.15: Use Stringify with allocating writer
+        var out = std.io.Writer.Allocating.init(self.allocator);
+        var write_stream = std.json.Stringify{
+            .writer = &out.writer,
+            .options = .{},
+        };
+        try write_stream.write(TriggerPayload{
+            .event = event,
+            .ref = ref,
+            .commit_sha = commit_sha,
+            .trigger_user_id = trigger_user_id,
+        });
+        const payload_json = try out.toOwnedSlice();
+        defer self.allocator.free(payload_json);
+
+        const run_id = try db.workflows.createWorkflowRun(
+            self.pool,
+            workflow_def_id,
+            event,
+            payload_json,
+            null,
+        );
+
+        _ = queue.submitWorkload(self.allocator, self.pool, .{
+            .type = .workflow,
+            .workflow_run_id = run_id,
+            .session_id = null,
+            .priority = .normal,
+            .config_json = null,
+        }) catch |err| {
+            log.err("Failed to queue workflow run {d}: {}", .{ run_id, err });
+        };
+
+        return run_id;
     }
 
     /// Get repository path from database
@@ -141,7 +174,6 @@ pub const WorkflowTrigger = struct {
         const username = row.?.get([]const u8, 0);
         const repo_name = row.?.get([]const u8, 1);
 
-        // Get current working directory
         const cwd = try std.process.getCwdAlloc(self.allocator);
         defer self.allocator.free(cwd);
 
@@ -151,385 +183,34 @@ pub const WorkflowTrigger = struct {
             .{ cwd, username, repo_name },
         );
     }
-
-    /// Discover workflow files in .plue/workflows/
-    fn discoverWorkflows(self: *WorkflowTrigger, repo_path: []const u8) ![]WorkflowMetadata {
-        const workflows_path = try std.fmt.allocPrint(
-            self.allocator,
-            "{s}/.plue/workflows",
-            .{repo_path},
-        );
-        defer self.allocator.free(workflows_path);
-
-        // Check if workflows directory exists
-        var workflows_dir = std.fs.cwd().openDir(workflows_path, .{ .iterate = true }) catch |err| {
-            if (err == error.FileNotFound) {
-                log.debug("No .plue/workflows directory found", .{});
-                return &[_]WorkflowMetadata{};
-            }
-            return err;
-        };
-        defer workflows_dir.close();
-
-        var result = std.ArrayList(WorkflowMetadata){};
-        errdefer {
-            for (result.items) |*wf| {
-                wf.deinit();
-            }
-            result.deinit(self.allocator);
-        }
-
-        // Iterate through .py files
-        var iter = workflows_dir.iterate();
-        while (try iter.next()) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".py")) continue;
-
-            const file_path = try std.fmt.allocPrint(
-                self.allocator,
-                ".plue/workflows/{s}",
-                .{entry.name},
-            );
-            errdefer self.allocator.free(file_path);
-
-            const abs_path = try std.fmt.allocPrint(
-                self.allocator,
-                "{s}/{s}",
-                .{ workflows_path, entry.name },
-            );
-            defer self.allocator.free(abs_path);
-
-            // Parse workflow metadata
-            const metadata = try self.parseWorkflowFile(abs_path, file_path);
-            try result.append(self.allocator, metadata);
-        }
-
-        return result.toOwnedSlice(self.allocator);
-    }
-
-    /// Parse workflow file to extract metadata
-    fn parseWorkflowFile(
-        self: *WorkflowTrigger,
-        abs_path: []const u8,
-        rel_path: []const u8,
-    ) !WorkflowMetadata {
-        const file = try std.fs.cwd().openFile(abs_path, .{});
-        defer file.close();
-
-        const content = try file.readToEndAlloc(self.allocator, 1024 * 1024); // 1MB max
-        defer self.allocator.free(content);
-
-        var name: ?[]const u8 = null;
-        var events = std.ArrayList([]const u8){};
-        var is_agent_workflow = false;
-
-        errdefer {
-            if (name) |n| self.allocator.free(n);
-            for (events.items) |event| {
-                self.allocator.free(event);
-            }
-            events.deinit(self.allocator);
-        }
-
-        // Parse @workflow decorator
-        // Example: @workflow(name="CI Pipeline", on=["push", "pull_request"])
-        var lines = std.mem.splitScalar(u8, content, '\n');
-        while (lines.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t\r");
-            if (std.mem.startsWith(u8, trimmed, "@workflow(")) {
-                // Extract name
-                if (std.mem.indexOf(u8, trimmed, "name=")) |name_idx| {
-                    const name_start = name_idx + 5;
-                    if (name_start < trimmed.len) {
-                        // Find opening quote
-                        const quote_start = std.mem.indexOfPos(u8, trimmed, name_start, "\"") orelse
-                            std.mem.indexOfPos(u8, trimmed, name_start, "'") orelse continue;
-                        const quote_char = trimmed[quote_start];
-                        const name_content_start = quote_start + 1;
-
-                        // Find closing quote
-                        const quote_end = std.mem.indexOfPos(u8, trimmed, name_content_start, &[_]u8{quote_char}) orelse continue;
-                        name = try self.allocator.dupe(u8, trimmed[name_content_start..quote_end]);
-                    }
-                }
-
-                // Extract on= events
-                if (std.mem.indexOf(u8, trimmed, "on=")) |on_idx| {
-                    const on_start = on_idx + 3;
-                    if (on_start < trimmed.len) {
-                        // Find opening bracket
-                        const bracket_start = std.mem.indexOfPos(u8, trimmed, on_start, "[") orelse continue;
-                        const bracket_end = std.mem.indexOfPos(u8, trimmed, bracket_start, "]") orelse continue;
-                        const events_str = trimmed[bracket_start + 1 .. bracket_end];
-
-                        // Split by comma
-                        var event_iter = std.mem.splitScalar(u8, events_str, ',');
-                        while (event_iter.next()) |event_part| {
-                            const event_trimmed = std.mem.trim(u8, event_part, " \t\"'");
-                            if (event_trimmed.len > 0) {
-                                const event_copy = try self.allocator.dupe(u8, event_trimmed);
-                                try events.append(self.allocator, event_copy);
-                            }
-                        }
-                    }
-                }
-
-                // Check for agent=True
-                if (std.mem.indexOf(u8, trimmed, "agent=True")) |_| {
-                    is_agent_workflow = true;
-                }
-
-                break; // Found @workflow, stop parsing
-            }
-        }
-
-        // Use filename as fallback name
-        if (name == null) {
-            const basename = std.fs.path.basename(rel_path);
-            const name_without_ext = if (std.mem.endsWith(u8, basename, ".py"))
-                basename[0 .. basename.len - 3]
-            else
-                basename;
-            name = try self.allocator.dupe(u8, name_without_ext);
-        }
-
-        return WorkflowMetadata{
-            .name = name.?,
-            .file_path = try self.allocator.dupe(u8, rel_path),
-            .events = try events.toOwnedSlice(self.allocator),
-            .is_agent_workflow = is_agent_workflow,
-            .allocator = self.allocator,
-        };
-    }
-
-    /// Check if workflow should be triggered for event
-    fn shouldTrigger(self: *WorkflowTrigger, workflow: *const WorkflowMetadata, event: []const u8) !bool {
-        _ = self;
-        // Check if event is in workflow's event list
-        for (workflow.events) |wf_event| {
-            if (std.mem.eql(u8, wf_event, event)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// Create workflow run, jobs, and tasks
-    fn createWorkflowRun(
-        self: *WorkflowTrigger,
-        repo_id: i64,
-        workflow: *const WorkflowMetadata,
-        event: []const u8,
-        ref: ?[]const u8,
-        commit_sha: ?[]const u8,
-        trigger_user_id: ?i64,
-    ) !void {
-        var conn = try self.pool.acquire();
-        defer conn.release();
-
-        // Get or create workflow definition
-        const workflow_def_id = try self.getOrCreateWorkflowDefinition(
-            conn,
-            repo_id,
-            workflow,
-        );
-
-        // Get next run number for this repo
-        const run_number = try self.getNextRunNumber(conn, repo_id);
-
-        // Create workflow run
-        const create_run_query =
-            \\INSERT INTO workflow_runs (
-            \\  repository_id, workflow_definition_id, run_number, title,
-            \\  trigger_event, trigger_user_id, ref, commit_sha, status
-            \\) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            \\RETURNING id
-        ;
-
-        const title = try std.fmt.allocPrint(
-            self.allocator,
-            "{s} #{d}",
-            .{ workflow.name, run_number },
-        );
-        defer self.allocator.free(title);
-
-        const run_row = try conn.row(create_run_query, .{
-            repo_id,
-            workflow_def_id,
-            run_number,
-            title,
-            event,
-            trigger_user_id,
-            ref,
-            commit_sha,
-            @as(i32, @intFromEnum(WorkflowStatus.waiting)),
-        });
-
-        const run_id = run_row.?.get(i64, 0);
-
-        log.info("Created workflow run {d} for workflow: {s}", .{ run_id, workflow.name });
-
-        // Create workflow job
-        const job_id = try self.createWorkflowJob(conn, run_id, repo_id, workflow.name);
-
-        // Create workflow task
-        try self.createWorkflowTask(conn, job_id, repo_id, workflow, commit_sha);
-
-        log.info("Created workflow job and task for run {d}", .{run_id});
-    }
-
-    /// Get or create workflow definition
-    fn getOrCreateWorkflowDefinition(
-        self: *WorkflowTrigger,
-        conn: *db.Conn,
-        repo_id: i64,
-        workflow: *const WorkflowMetadata,
-    ) !i64 {
-        // Check if exists
-        const check_query =
-            \\SELECT id FROM workflow_definitions
-            \\WHERE repository_id = $1 AND name = $2
-        ;
-
-        const existing = try conn.row(check_query, .{ repo_id, workflow.name });
-        if (existing) |row| {
-            return row.get(i64, 0);
-        }
-
-        // Create new definition
-        const events_json = try self.eventsToJson(workflow.events);
-        defer self.allocator.free(events_json);
-
-        const create_query =
-            \\INSERT INTO workflow_definitions (
-            \\  repository_id, name, file_path, events, is_agent_workflow
-            \\) VALUES ($1, $2, $3, $4::jsonb, $5)
-            \\RETURNING id
-        ;
-
-        const row = try conn.row(create_query, .{
-            repo_id,
-            workflow.name,
-            workflow.file_path,
-            events_json,
-            workflow.is_agent_workflow,
-        });
-
-        return row.?.get(i64, 0);
-    }
-
-    /// Convert events array to JSON string
-    fn eventsToJson(self: *WorkflowTrigger, events: []const []const u8) ![]const u8 {
-        var result = std.ArrayList(u8){};
-        errdefer result.deinit(self.allocator);
-
-        try result.appendSlice(self.allocator, "[");
-        for (events, 0..) |event, i| {
-            if (i > 0) try result.appendSlice(self.allocator, ",");
-            try result.appendSlice(self.allocator, "\"");
-            try result.appendSlice(self.allocator, event);
-            try result.appendSlice(self.allocator, "\"");
-        }
-        try result.appendSlice(self.allocator, "]");
-
-        return result.toOwnedSlice(self.allocator);
-    }
-
-    /// Get next run number for repository
-    fn getNextRunNumber(self: *WorkflowTrigger, conn: *db.Conn, repo_id: i64) !i32 {
-        _ = self;
-        const query =
-            \\SELECT COALESCE(MAX(run_number), 0) + 1 as next_number
-            \\FROM workflow_runs
-            \\WHERE repository_id = $1
-        ;
-
-        const row = try conn.row(query, .{repo_id});
-        return row.?.get(i32, 0);
-    }
-
-    /// Create workflow job
-    fn createWorkflowJob(
-        self: *WorkflowTrigger,
-        conn: *db.Conn,
-        run_id: i64,
-        repo_id: i64,
-        job_name: []const u8,
-    ) !i64 {
-        _ = self;
-        const query =
-            \\INSERT INTO workflow_jobs (
-            \\  run_id, repository_id, name, job_id, status
-            \\) VALUES ($1, $2, $3, $4, $5)
-            \\RETURNING id
-        ;
-
-        const row = try conn.row(query, .{
-            run_id,
-            repo_id,
-            job_name,
-            "default", // job_id
-            @as(i32, @intFromEnum(WorkflowStatus.waiting)),
-        });
-
-        return row.?.get(i64, 0);
-    }
-
-    /// Create workflow task
-    fn createWorkflowTask(
-        self: *WorkflowTrigger,
-        conn: *db.Conn,
-        job_id: i64,
-        repo_id: i64,
-        workflow: *const WorkflowMetadata,
-        commit_sha: ?[]const u8,
-    ) !void {
-        // Read workflow file content
-        const repo_path = try self.getRepositoryPath(repo_id);
-        defer self.allocator.free(repo_path);
-
-        const workflow_abs_path = try std.fmt.allocPrint(
-            self.allocator,
-            "{s}/{s}",
-            .{ repo_path, workflow.file_path },
-        );
-        defer self.allocator.free(workflow_abs_path);
-
-        const file = try std.fs.cwd().openFile(workflow_abs_path, .{});
-        defer file.close();
-
-        const workflow_content = try file.readToEndAlloc(self.allocator, 1024 * 1024); // 1MB max
-        defer self.allocator.free(workflow_content);
-
-        const query =
-            \\INSERT INTO workflow_tasks (
-            \\  job_id, repository_id, commit_sha, workflow_content,
-            \\  workflow_path, status, attempt
-            \\) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ;
-
-        var result = try conn.query(query, .{
-            job_id,
-            repo_id,
-            commit_sha,
-            workflow_content,
-            workflow.file_path,
-            @as(i32, @intFromEnum(WorkflowStatus.waiting)),
-            @as(i32, 1), // attempt
-        });
-        result.deinit();
-    }
 };
 
-test "WorkflowTrigger init" {
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "shouldTrigger - matching event" {
     const allocator = std.testing.allocator;
     var mock_pool: db.Pool = undefined;
-    const trigger = WorkflowTrigger.init(allocator, &mock_pool);
-    _ = trigger;
+    var trigger = WorkflowTrigger.init(allocator, &mock_pool);
+
+    const triggers_json =
+        "[{\"type\":\"push\",\"config\":{}},{\"type\":\"pull_request\",\"config\":{}}]";
+
+    try std.testing.expect(try trigger.shouldTrigger(triggers_json, "push"));
+    try std.testing.expect(try trigger.shouldTrigger(triggers_json, "pull_request"));
+    try std.testing.expect(!try trigger.shouldTrigger(triggers_json, "issue"));
 }
 
-test "WorkflowEvent fromString" {
+test "WorkflowEvent conversion" {
     try std.testing.expectEqual(WorkflowEvent.push, WorkflowEvent.fromString("push"));
     try std.testing.expectEqual(WorkflowEvent.pull_request, WorkflowEvent.fromString("pull_request"));
-    try std.testing.expectEqual(null, WorkflowEvent.fromString("invalid"));
+    try std.testing.expectEqual(WorkflowEvent.issue, WorkflowEvent.fromString("issue"));
+    try std.testing.expectEqual(WorkflowEvent.chat, WorkflowEvent.fromString("chat"));
+    try std.testing.expectEqual(@as(?WorkflowEvent, null), WorkflowEvent.fromString("invalid"));
+
+    try std.testing.expectEqualStrings("push", WorkflowEvent.push.toString());
+    try std.testing.expectEqualStrings("pull_request", WorkflowEvent.pull_request.toString());
+    try std.testing.expectEqualStrings("issue", WorkflowEvent.issue.toString());
+    try std.testing.expectEqualStrings("chat", WorkflowEvent.chat.toString());
 }

@@ -14,6 +14,7 @@ const Context = @import("../main.zig").Context;
 const db = @import("db");
 const workflows = @import("../workflows/mod.zig");
 const queue = @import("../dispatch/queue.zig");
+const json = @import("../lib/json.zig");
 
 const log = std.log.scoped(.workflow_api);
 
@@ -32,7 +33,9 @@ const ParseWorkflowResponse = struct {
 };
 
 const RunWorkflowRequest = struct {
-    workflow_name: []const u8, // Name of workflow to run
+    workflow_name: ?[]const u8 = null, // Name of workflow to run
+    workflow_definition_id: ?i32 = null, // Direct workflow definition ID
+    repository_id: ?i32 = null, // Repository scope for workflow_name lookup
     trigger_type: []const u8, // "push", "pull_request", "manual", etc.
     trigger_payload: std.json.Value, // Event data
     inputs: ?std.json.Value = null, // Manual trigger inputs
@@ -75,12 +78,40 @@ pub fn parse(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     var evaluator = workflows.Evaluator.init(ctx.allocator);
 
     // Evaluate source
-    const plan_set = evaluator.evaluateSource(request.source, "<inline>") catch |err| {
+    var plan_set = evaluator.evaluateSource(request.source, "<inline>") catch |err| {
         res.status = 400;
         const err_msg = @errorName(err);
         try res.json(.{ .@"error" = err_msg }, .{});
         return;
     };
+    defer plan_set.deinit(ctx.allocator);
+
+    if (plan_set.errors.len > 0) {
+        var messages = std.ArrayList([]const u8){};
+        defer {
+            for (messages.items) |msg| ctx.allocator.free(msg);
+            messages.deinit(ctx.allocator);
+        }
+
+        for (plan_set.errors) |err| {
+            const msg = if (err.line != null and err.column != null)
+                try std.fmt.allocPrint(
+                    ctx.allocator,
+                    "{s} (line {d}, column {d})",
+                    .{ err.message, err.line.?, err.column.? },
+                )
+            else
+                try ctx.allocator.dupe(u8, err.message);
+            try messages.append(ctx.allocator, msg);
+        }
+
+        res.status = 400;
+        try res.json(.{
+            .@"error" = "Workflow parsing failed",
+            .errors = messages.items,
+        }, .{});
+        return;
+    }
 
     // Get first workflow (evaluator can return multiple workflows from one file)
     if (plan_set.workflows.len == 0) {
@@ -156,18 +187,31 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     log.info("DEBUG: Step 1 - Starting workflow execution", .{});
 
     // Get workflow definition from database
-    // TODO: Get repo_id from request or context
-    const repo_id: ?i32 = null; // For now, search all repos
-    log.info("DEBUG: Step 2 - About to call getWorkflowDefinitionByName", .{});
-    const workflow_def_opt = db.workflows.getWorkflowDefinitionByName(
-        ctx.pool,
-        repo_id,
-        request.workflow_name,
-    ) catch |err| {
-        log.err("Failed to get workflow definition: {}", .{err});
-        res.status = 500;
-        try res.json(.{ .@"error" = "Database error" }, .{});
-        return;
+    const workflow_def_opt = if (request.workflow_definition_id) |def_id|
+        db.workflows.getWorkflowDefinition(ctx.pool, def_id) catch |err| {
+            log.err("Failed to get workflow definition by id: {}", .{err});
+            res.status = 500;
+            try res.json(.{ .@"error" = "Database error" }, .{});
+            return;
+        }
+    else blk: {
+        const workflow_name = request.workflow_name orelse {
+            res.status = 400;
+            try res.json(.{ .@"error" = "Missing workflow_name or workflow_definition_id" }, .{});
+            return;
+        };
+        const repo_id = request.repository_id orelse {
+            res.status = 400;
+            try res.json(.{ .@"error" = "Missing repository_id for workflow_name lookup" }, .{});
+            return;
+        };
+
+        break :blk db.workflows.getWorkflowDefinitionByName(ctx.pool, repo_id, workflow_name) catch |err| {
+            log.err("Failed to get workflow definition by name: {}", .{err});
+            res.status = 500;
+            try res.json(.{ .@"error" = "Database error" }, .{});
+            return;
+        };
     };
 
     log.info("DEBUG: Step 3 - Got workflow definition", .{});
@@ -184,12 +228,31 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
 
     // Create workflow_run record
     log.info("DEBUG: Step 5 - About to call createWorkflowRun with id={d}", .{workflow_def.id});
+    const trigger_payload_json = json.valueToString(ctx.allocator, request.trigger_payload) catch |err| {
+        log.err("Failed to serialize trigger_payload: {}", .{err});
+        res.status = 400;
+        try res.json(.{ .@"error" = "Invalid trigger_payload" }, .{});
+        return;
+    };
+    defer ctx.allocator.free(trigger_payload_json);
+
+    var inputs_json: ?[]const u8 = null;
+    if (request.inputs) |inputs_value| {
+        inputs_json = json.valueToString(ctx.allocator, inputs_value) catch |err| {
+            log.err("Failed to serialize inputs: {}", .{err});
+            res.status = 400;
+            try res.json(.{ .@"error" = "Invalid inputs" }, .{});
+            return;
+        };
+    }
+    defer if (inputs_json) |val| ctx.allocator.free(val);
+
     const run_id = db.workflows.createWorkflowRun(
         ctx.pool,
         workflow_def.id,
         request.trigger_type,
-        "{}", // trigger_payload (empty for manual runs)
-        null, // inputs
+        trigger_payload_json,
+        inputs_json,
     ) catch |err| {
         log.err("Failed to create workflow run: {}", .{err});
         res.status = 500;
@@ -373,8 +436,9 @@ pub fn streamRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     // For Phase 10 (local development), implement simple polling-based streaming
     // In production (Phase 15), this would use an event bus for real-time updates
     var is_complete = false;
+    var last_log_id: i32 = 0;
 
-    while (!is_complete) {
+    while (true) {
         // Check run status
         const run = try db.workflows.getWorkflowRun(ctx.pool, run_id);
         if (run) |r| {
@@ -386,39 +450,73 @@ pub fn streamRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
             }
         }
 
-        // Get workflow steps
+        // Get workflow steps and build db_id -> step_id map
         const steps = try db.workflows.listWorkflowSteps(ctx.pool, ctx.allocator, run_id);
         defer ctx.allocator.free(steps);
 
+        var step_lookup = std.AutoHashMap(i32, []const u8).init(ctx.allocator);
+        defer step_lookup.deinit();
         for (steps) |step| {
-            // Send step status update
-            try writer.writeAll("data: {\"type\":\"step_status\",\"step_id\":\"");
-            try writer.writeAll(step.step_id);
-            try writer.writeAll("\",\"status\":\"");
-            try writer.writeAll(step.status);
-            try writer.writeAll("\"}\n\n");
+            try step_lookup.put(step.id, step.step_id);
 
-            // Get logs for this step (simplified - would need proper log tracking)
-            if (step.output) |output| {
-                try writer.writeAll("data: {\"type\":\"step_output\",\"step_id\":\"");
-                try writer.writeAll(step.step_id);
-                try writer.writeAll("\",\"output\":");
-                try writer.writeAll(output);
+            // Send step status update
+            try writer.writeAll("data: {\"type\":\"step_status\",\"step_id\":");
+            try json.writeString(writer, step.step_id);
+            try writer.writeAll(",\"status\":");
+            try json.writeString(writer, step.status);
+            try writer.writeAll("}\n\n");
+        }
+
+        const logs = try db.workflows.listWorkflowLogsForRunSince(ctx.pool, ctx.allocator, run_id, last_log_id);
+        defer ctx.allocator.free(logs);
+
+        for (logs) |log_entry| {
+            last_log_id = log_entry.id;
+            const step_id = step_lookup.get(log_entry.step_id) orelse "";
+
+            if (std.mem.eql(u8, log_entry.log_type, "stdout") or std.mem.eql(u8, log_entry.log_type, "stderr")) {
+                try writer.writeAll("data: {\"type\":\"step_output\",\"step_id\":");
+                try json.writeString(writer, step_id);
+                try writer.writeAll(",\"output\":");
+                try json.writeString(writer, log_entry.content);
+                try writer.writeAll(",\"line\":");
+                try json.writeString(writer, log_entry.content);
+                try writer.writeAll("}\n\n");
+            } else if (std.mem.eql(u8, log_entry.log_type, "token")) {
+                try writer.writeAll("data: {\"type\":\"llm_token\",\"step_id\":");
+                try json.writeString(writer, step_id);
+                try writer.writeAll(",\"token\":");
+                try json.writeString(writer, log_entry.content);
+                try writer.writeAll("}\n\n");
+            } else if (std.mem.eql(u8, log_entry.log_type, "tool_call")) {
+                try writer.writeAll("data: {\"type\":\"tool_start\",\"step_id\":");
+                try json.writeString(writer, step_id);
+                try writer.writeAll(",\"payload\":");
+                try writer.writeAll(log_entry.content);
+                try writer.writeAll("}\n\n");
+            } else if (std.mem.eql(u8, log_entry.log_type, "tool_result")) {
+                try writer.writeAll("data: {\"type\":\"tool_end\",\"step_id\":");
+                try json.writeString(writer, step_id);
+                try writer.writeAll(",\"payload\":");
+                try writer.writeAll(log_entry.content);
                 try writer.writeAll("}\n\n");
             }
         }
 
-        if (is_complete) {
-            // Send completion event
+        if (is_complete and logs.len == 0) {
             if (run) |r| {
-                try writer.writeAll("data: {\"type\":\"completed\",\"status\":\"");
-                try writer.writeAll(r.status);
-                try writer.writeAll("\"}\n\n");
+                try writer.writeAll("data: {\"type\":\"completed\",\"status\":");
+                try json.writeString(writer, r.status);
+                try writer.writeAll("}\n\n");
+
+                const success = std.mem.eql(u8, r.status, "completed");
+                try writer.writeAll("data: {\"type\":\"run_completed\",\"success\":");
+                try json.writeBool(writer, success);
+                try writer.writeAll("}\n\n");
             }
             break;
         }
 
-        // Sleep briefly before next poll (100ms)
         std.Thread.sleep(100 * std.time.ns_per_ms);
     }
 }

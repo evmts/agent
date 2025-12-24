@@ -93,17 +93,14 @@ pub fn submitWorkload(
         const task_id = row.get(i32, 0);
         log.info("Queued workflow run {d} (simulated task_id={d})", .{ run_id, task_id });
 
-        // For MVP local development: execute synchronously
-        // In production, would call: tryAssignRunner(pool, task_id)
-
-        // TODO: Make this async for production
-        // For now, spawn a detached thread to execute asynchronously
-        if (std.Thread.spawn(.{}, executeWorkflowAsync, .{ allocator, pool, run_id })) |exec_thread| {
-            exec_thread.detach();
-        } else |err| {
-            log.err("Failed to spawn execution thread: {}", .{err});
-            // Continue anyway - workflow is queued
-        }
+        // For MVP local development: execute synchronously in the request thread.
+        // This avoids connection pool exhaustion that occurs when a detached thread
+        // competes with HTTP request handlers for the limited connection pool.
+        // In production, this would use: tryAssignRunner(pool, task_id)
+        //
+        // Note: Synchronous execution blocks the HTTP response until the workflow
+        // completes, but for local dev this is acceptable and more reliable.
+        executeWorkflowAsync(allocator, pool, run_id);
 
         return task_id; // Return run_id as task_id for now
     }
@@ -250,14 +247,6 @@ pub fn tryAssignRunner(pool: *db.Pool, task_id: i32) !void {
             task_id,
         });
 
-        // Update task with runner assignment
-        const update_query =
-            \\UPDATE workflow_tasks
-            \\SET runner_id = $1, status = 'assigned', assigned_at = NOW()
-            \\WHERE id = $2
-        ;
-        _ = try pool.query(update_query, .{ runner_id, task_id });
-
         // Notify the runner to start (via HTTP callback)
         notifyRunner(pod_ip, task_id) catch |err| {
             log.err("Failed to notify runner: {}", .{err});
@@ -318,55 +307,10 @@ pub fn registerRunner(
 
     if (try result.next()) |row| {
         const runner_id = row.get(i32, 0);
-
-        // Check if there are pending tasks
-        tryAssignPendingTask(pool, runner_id) catch |err| {
-            log.debug("No pending tasks for new runner: {}", .{err});
-        };
-
         return runner_id;
     }
 
     return error.FailedToRegisterRunner;
-}
-
-/// Try to assign a pending task to a newly registered runner
-fn tryAssignPendingTask(pool: *db.Pool, runner_id: i32) !void {
-    const query =
-        \\WITH pending AS (
-        \\    SELECT id
-        \\    FROM workflow_tasks
-        \\    WHERE status = 'waiting' AND runner_id IS NULL
-        \\    ORDER BY priority DESC, created_at
-        \\    FOR UPDATE SKIP LOCKED
-        \\    LIMIT 1
-        \\)
-        \\UPDATE workflow_tasks t
-        \\SET runner_id = $1, status = 'assigned', assigned_at = NOW()
-        \\FROM pending p
-        \\WHERE t.id = p.id
-        \\RETURNING t.id
-    ;
-
-    const result = try pool.query(query, .{runner_id});
-    defer result.deinit();
-
-    if (try result.next()) |row| {
-        const task_id = row.get(i32, 0);
-        log.info("Assigned pending task {d} to runner {d}", .{ task_id, runner_id });
-
-        // Get runner IP and notify
-        const ip_query = "SELECT pod_ip FROM runner_pool WHERE id = $1";
-        const ip_result = try pool.query(ip_query, .{runner_id});
-        defer ip_result.deinit();
-
-        if (try ip_result.next()) |ip_row| {
-            const pod_ip = ip_row.get([]const u8, 0);
-            notifyRunner(pod_ip, task_id) catch |err| {
-                log.err("Failed to notify runner: {}", .{err});
-            };
-        }
-    }
 }
 
 /// Update runner heartbeat
@@ -384,7 +328,7 @@ pub fn completeTask(pool: *db.Pool, task_id: i32, success: bool) !void {
     const status = if (success) "completed" else "failed";
 
     const query =
-        \\UPDATE workflow_tasks
+        \\UPDATE workflow_runs
         \\SET status = $1, completed_at = NOW()
         \\WHERE id = $2
     ;
@@ -408,31 +352,8 @@ pub fn getPendingTaskForRunner(
     runner_id: i32,
 ) !?TaskAssignment {
     _ = allocator;
-
-    const query =
-        \\SELECT t.id, t.config_json, t.workload_type, t.session_id,
-        \\       w.name as workflow_name
-        \\FROM workflow_tasks t
-        \\LEFT JOIN workflow_jobs j ON t.job_id = j.id
-        \\LEFT JOIN workflow_runs r ON j.run_id = r.id
-        \\LEFT JOIN workflow_definitions w ON r.workflow_definition_id = w.id
-        \\WHERE t.runner_id = $1 AND t.status = 'assigned'
-        \\LIMIT 1
-    ;
-
-    const result = try pool.query(query, .{runner_id});
-    defer result.deinit();
-
-    if (try result.next()) |row| {
-        return .{
-            .task_id = row.get(i32, 0),
-            .config_json = row.get(?[]const u8, 1),
-            .workload_type = row.get([]const u8, 2),
-            .session_id = row.get(?[]const u8, 3),
-            .workflow_name = row.get(?[]const u8, 4),
-        };
-    }
-
+    _ = pool;
+    _ = runner_id;
     return null;
 }
 

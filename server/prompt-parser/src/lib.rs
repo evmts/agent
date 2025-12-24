@@ -350,6 +350,7 @@ pub struct CPromptDefinition {
     pub prompt_type: *mut c_char,
     pub inputs_schema_json: *mut c_char,
     pub output_schema_json: *mut c_char,
+    pub tools_json: *mut c_char,
     pub body_template: *mut c_char,
     pub max_turns: u32,
 }
@@ -382,6 +383,7 @@ pub extern "C" fn prompt_parser_parse(
 
     match parse_prompt_file(content_str) {
         Ok(def) => {
+            let tools_json = serde_json::to_string(&def.tools).unwrap_or_else(|_| "[]".to_string());
             let c_def = CPromptDefinition {
                 name: CString::new(def.name).unwrap().into_raw(),
                 client: CString::new(def.client).unwrap().into_raw(),
@@ -392,6 +394,7 @@ pub extern "C" fn prompt_parser_parse(
                 output_schema_json: CString::new(def.output_schema.to_string())
                     .unwrap()
                     .into_raw(),
+                tools_json: CString::new(tools_json).unwrap().into_raw(),
                 body_template: CString::new(def.body_template).unwrap().into_raw(),
                 max_turns: def.max_turns,
             };
@@ -436,6 +439,9 @@ pub extern "C" fn prompt_parser_free_definition(def: *mut CPromptDefinition) {
         }
         if !def.output_schema_json.is_null() {
             let _ = CString::from_raw(def.output_schema_json);
+        }
+        if !def.tools_json.is_null() {
+            let _ = CString::from_raw(def.tools_json);
         }
         if !def.body_template.is_null() {
             let _ = CString::from_raw(def.body_template);

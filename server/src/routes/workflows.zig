@@ -13,6 +13,8 @@ const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
 const db = @import("db");
+const queue = @import("../dispatch/queue.zig");
+const json = @import("../lib/json.zig");
 
 const log = std.log.scoped(.workflow_routes);
 
@@ -52,6 +54,38 @@ pub const WorkflowStatus = enum(i32) {
         return null;
     }
 };
+
+fn mapRunStatusToLegacy(status: []const u8) []const u8 {
+    if (std.mem.eql(u8, status, "completed")) return "success";
+    if (std.mem.eql(u8, status, "failed")) return "failure";
+    if (std.mem.eql(u8, status, "cancelled")) return "cancelled";
+    if (std.mem.eql(u8, status, "running")) return "running";
+    if (std.mem.eql(u8, status, "pending")) return "waiting";
+    return "unknown";
+}
+
+fn mapLegacyStatusToRun(status: WorkflowStatus) []const u8 {
+    return switch (status) {
+        .success => "completed",
+        .failure => "failed",
+        .cancelled => "cancelled",
+        .running => "running",
+        .waiting => "pending",
+        .skipped => "cancelled",
+        .blocked => "pending",
+        else => "pending",
+    };
+}
+
+fn mapStepStatusToLegacy(status: []const u8) []const u8 {
+    if (std.mem.eql(u8, status, "succeeded")) return "success";
+    if (std.mem.eql(u8, status, "failed")) return "failure";
+    if (std.mem.eql(u8, status, "cancelled")) return "cancelled";
+    if (std.mem.eql(u8, status, "running")) return "running";
+    if (std.mem.eql(u8, status, "pending")) return "waiting";
+    if (std.mem.eql(u8, status, "skipped")) return "skipped";
+    return "unknown";
+}
 
 /// GET /:user/:repo/workflows/runs
 /// List workflow runs for a repository
@@ -105,37 +139,68 @@ pub fn listRuns(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void 
         return;
     }
 
-    // Parse status filter if provided
-    var status_filter: ?WorkflowStatus = null;
+    var status_filter: ?[]const u8 = null;
     if (status_str) |s| {
-        status_filter = WorkflowStatus.fromString(s);
+        if (WorkflowStatus.fromString(s)) |parsed| {
+            status_filter = mapLegacyStatusToRun(parsed);
+        }
     }
 
-    // Get runs from database (convert WorkflowStatus enum to i32)
-    const status_int: ?i32 = if (status_filter) |s| @intFromEnum(s) else null;
-    const runs = try db.listWorkflowRuns(ctx.pool, ctx.allocator, repo_id.?, status_int, per_page, offset);
-    defer ctx.allocator.free(runs);
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
 
-    // Build JSON response
+    var result = try conn.query(
+        \\SELECT r.id, r.status, r.trigger_type, w.name,
+        \\       to_char(r.created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at
+        \\FROM workflow_runs r
+        \\JOIN workflow_definitions w ON r.workflow_definition_id = w.id
+        \\WHERE w.repository_id = $1
+        \\  AND ($2::text IS NULL OR r.status = $2)
+        \\ORDER BY r.created_at DESC
+        \\LIMIT $3 OFFSET $4
+    , .{ repo_id.?, status_filter, per_page, offset });
+    defer result.deinit();
+
+    const Row = struct {
+        id: i32,
+        status: []const u8,
+        trigger_type: []const u8,
+        name: []const u8,
+        created_at: []const u8,
+    };
+
+    var runs = std.ArrayList(Row){};
+    defer runs.deinit(ctx.allocator);
+
+    while (try result.next()) |row| {
+        try runs.append(ctx.allocator, .{
+            .id = row.get(i32, 0),
+            .status = row.get([]const u8, 1),
+            .trigger_type = row.get([]const u8, 2),
+            .name = row.get([]const u8, 3),
+            .created_at = row.get([]const u8, 4),
+        });
+    }
+
     var writer = res.writer();
-    try writer.print("{{\"runs\":[", .{});
+    try writer.writeAll("{\"runs\":[");
 
-    for (runs, 0..) |run, i| {
+    for (runs.items, 0..) |run, i| {
         if (i > 0) try writer.writeAll(",");
-        const status = (WorkflowStatus.fromString(run.status) orelse WorkflowStatus.unknown).toString();
+        const status = mapRunStatusToLegacy(run.status);
         try writer.print(
             \\{{"id":{d},"runNumber":{d},"title":"{s}","status":"{s}","triggerEvent":"{s}","createdAt":"{s}"}}
         , .{
             run.id,
-            run.run_number,
-            run.title,
+            run.id,
+            run.name,
             status,
-            run.trigger_event,
+            run.trigger_type,
             run.created_at,
         });
     }
 
-    try writer.print("]],\"page\":{d},\"perPage\":{d}}}", .{ page, per_page });
+    try writer.print("],\"page\":{d},\"perPage\":{d}}}", .{ page, per_page });
 }
 
 /// GET /:user/:repo/workflows/runs/:runId
@@ -149,37 +214,67 @@ pub fn getRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         return;
     };
 
-    const run_id = std.fmt.parseInt(i64, run_id_str, 10) catch {
+    const run_id = std.fmt.parseInt(i32, run_id_str, 10) catch {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid runId\"}");
         return;
     };
 
-    // Get run
-    const run = try db.getWorkflowRun(ctx.pool, ctx.allocator, run_id);
-    if (run == null) {
+    // Get repository ID
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing user parameter\"}");
+        return;
+    };
+
+    const repo_name = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const repo_id = try db.getRepositoryId(ctx.pool, username, repo_name);
+    if (repo_id == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    }
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    const row = try conn.row(
+        \\SELECT r.id, r.status, r.trigger_type, w.name,
+        \\       to_char(r.created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at
+        \\FROM workflow_runs r
+        \\JOIN workflow_definitions w ON r.workflow_definition_id = w.id
+        \\WHERE r.id = $1 AND w.repository_id = $2
+    , .{ run_id, repo_id.? });
+
+    if (row == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Workflow run not found\"}");
         return;
     }
-    defer if (run) |r| ctx.allocator.free(r.title);
 
-    // Get jobs for this run
-    const jobs = try db.getWorkflowJobs(ctx.pool, ctx.allocator, run_id);
+    const run_status = row.?.get([]const u8, 1);
+    const run_title = row.?.get([]const u8, 3);
+    const trigger_event = row.?.get([]const u8, 2);
+    const created_at = row.?.get([]const u8, 4);
+
+    const jobs = try db.workflows.listWorkflowSteps(ctx.pool, ctx.allocator, @intCast(run_id));
     defer ctx.allocator.free(jobs);
 
-    // Build JSON response
     var writer = res.writer();
-    const r = run.?;
     try writer.print(
         \\{{"run":{{"id":{d},"runNumber":{d},"title":"{s}","status":"{s}","triggerEvent":"{s}","createdAt":"{s}"}},"jobs":[
     , .{
-        r.id,
-        r.run_number,
-        r.title,
-        r.status,
-        r.trigger_event,
-        r.created_at,
+        row.?.get(i32, 0),
+        row.?.get(i32, 0),
+        run_title,
+        mapRunStatusToLegacy(run_status),
+        trigger_event,
+        created_at,
     });
 
     for (jobs, 0..) |job, i| {
@@ -189,8 +284,8 @@ pub fn getRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         , .{
             job.id,
             job.name,
-            job.job_id,
-            job.status,
+            job.step_id,
+            mapStepStatusToLegacy(job.status),
         });
     }
 
@@ -236,32 +331,90 @@ pub fn createRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
         return;
     };
 
-    const parsed = std.json.parseFromSlice(struct {
-        workflowDefinitionId: ?i64 = null,
-        title: []const u8,
-        triggerEvent: []const u8,
-        ref: ?[]const u8 = null,
-        commitSha: ?[]const u8 = null,
-    }, ctx.allocator, body, .{}) catch {
+    const parsed = std.json.parseFromSlice(std.json.Value, ctx.allocator, body, .{}) catch {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
         return;
     };
     defer parsed.deinit();
 
-    const v = parsed.value;
+    const root = parsed.value.object;
 
-    // Create workflow run
-    const run_id = try db.createWorkflowRun(
+    var workflow_def_id: ?i32 = null;
+    if (root.get("workflow_definition_id")) |val| {
+        workflow_def_id = @intCast(val.integer);
+    } else if (root.get("workflowDefinitionId")) |val| {
+        workflow_def_id = @intCast(val.integer);
+    }
+
+    if (workflow_def_id == null) {
+        if (root.get("workflow_name")) |name_val| {
+            const workflow_def = try db.workflows.getWorkflowDefinitionByName(ctx.pool, @as(?i32, @intCast(repo_id.?)), name_val.string);
+            if (workflow_def) |def| {
+                workflow_def_id = def.id;
+            }
+        }
+    }
+
+    if (workflow_def_id == null) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing workflow_definition_id\"}");
+        return;
+    }
+
+    const trigger_type = if (root.get("trigger_type")) |val|
+        val.string
+    else if (root.get("triggerEvent")) |val|
+        val.string
+    else
+        "manual";
+
+    var trigger_payload_json: []const u8 = "{}";
+    var owns_trigger_payload = false;
+    if (root.get("trigger_payload")) |val| {
+        trigger_payload_json = json.valueToString(ctx.allocator, val) catch {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Invalid trigger_payload\"}");
+            return;
+        };
+        owns_trigger_payload = true;
+    } else if (root.get("triggerPayload")) |val| {
+        trigger_payload_json = json.valueToString(ctx.allocator, val) catch {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Invalid trigger_payload\"}");
+            return;
+        };
+        owns_trigger_payload = true;
+    }
+    defer if (owns_trigger_payload) ctx.allocator.free(trigger_payload_json);
+
+    var inputs_json: ?[]const u8 = null;
+    if (root.get("inputs")) |inputs_value| {
+        inputs_json = json.valueToString(ctx.allocator, inputs_value) catch {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Invalid inputs\"}");
+            return;
+        };
+    }
+    defer if (inputs_json) |val| ctx.allocator.free(val);
+
+    const run_id = try db.workflows.createWorkflowRun(
         ctx.pool,
-        repo_id.?,
-        v.workflowDefinitionId,
-        v.title,
-        v.triggerEvent,
-        ctx.user.?.id,
-        v.ref,
-        v.commitSha,
+        workflow_def_id,
+        trigger_type,
+        trigger_payload_json,
+        inputs_json,
     );
+
+    _ = queue.submitWorkload(ctx.allocator, ctx.pool, .{
+        .type = .workflow,
+        .workflow_run_id = run_id,
+        .session_id = null,
+        .priority = .normal,
+        .config_json = null,
+    }) catch |err| {
+        log.err("Failed to queue workflow run {d}: {}", .{ run_id, err });
+    };
 
     res.status = 201;
     var writer = res.writer();
@@ -286,7 +439,7 @@ pub fn updateRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
         return;
     };
 
-    const run_id = std.fmt.parseInt(i64, run_id_str, 10) catch {
+    const run_id = std.fmt.parseInt(i32, run_id_str, 10) catch {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid runId\"}");
         return;
@@ -315,8 +468,7 @@ pub fn updateRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     };
 
     // Update run status (convert enum to i32)
-    const status_int: i32 = @intFromEnum(status);
-    try db.updateWorkflowRunStatus(ctx.pool, run_id, status_int);
+    try db.workflows.updateWorkflowRunStatus(ctx.pool, run_id, mapLegacyStatusToRun(status));
 
     try res.writer().writeAll("{\"ok\":true}");
 }
@@ -339,34 +491,32 @@ pub fn cancelRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
         return;
     };
 
-    const run_id = std.fmt.parseInt(i64, run_id_str, 10) catch {
+    const run_id = std.fmt.parseInt(i32, run_id_str, 10) catch {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid runId\"}");
         return;
     };
 
     // Get run to check current status
-    const run = try db.getWorkflowRun(ctx.pool, ctx.allocator, run_id);
+    const run = try db.workflows.getWorkflowRun(ctx.pool, run_id);
     if (run == null) {
         res.status = 404;
         try res.writer().writeAll("{\"error\":\"Workflow run not found\"}");
         return;
     }
-    defer if (run) |r| ctx.allocator.free(r.title);
 
     const r = run.?;
-    const current_status = WorkflowStatus.fromString(r.status) orelse WorkflowStatus.unknown;
+    const current_status = r.status;
 
     // Can only cancel running or waiting workflows
-    if (current_status != WorkflowStatus.running and current_status != WorkflowStatus.waiting) {
+    if (!std.mem.eql(u8, current_status, "running") and !std.mem.eql(u8, current_status, "pending")) {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Cannot cancel completed workflow\"}");
         return;
     }
 
     // Update to cancelled
-    const cancelled_int: i32 = @intFromEnum(WorkflowStatus.cancelled);
-    try db.updateWorkflowRunStatus(ctx.pool, run_id, cancelled_int);
+    try db.workflows.updateWorkflowRunStatus(ctx.pool, run_id, "cancelled");
 
     try res.writer().writeAll("{\"ok\":true}");
 }
@@ -382,14 +532,14 @@ pub fn getJobs(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         return;
     };
 
-    const run_id = std.fmt.parseInt(i64, run_id_str, 10) catch {
+    const run_id = std.fmt.parseInt(i32, run_id_str, 10) catch {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid runId\"}");
         return;
     };
 
-    // Get jobs
-    const jobs = try db.getWorkflowJobs(ctx.pool, ctx.allocator, run_id);
+    // Get steps as jobs
+    const jobs = try db.workflows.listWorkflowSteps(ctx.pool, ctx.allocator, run_id);
     defer ctx.allocator.free(jobs);
 
     // Build JSON response
@@ -403,8 +553,8 @@ pub fn getJobs(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         , .{
             job.id,
             job.name,
-            job.job_id,
-            job.status,
+            job.step_id,
+            mapStepStatusToLegacy(job.status),
         });
     }
 
@@ -421,7 +571,7 @@ pub fn getLogs(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         return;
     };
 
-    const run_id = std.fmt.parseInt(i64, run_id_str, 10) catch {
+    const run_id = std.fmt.parseInt(i32, run_id_str, 10) catch {
         res.status = 400;
         res.content_type = .JSON;
         try res.writer().writeAll("{\"error\":\"Invalid runId\"}");
@@ -430,22 +580,47 @@ pub fn getLogs(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     // Parse optional step filter
     const query = req.url.query;
-    var step_filter: ?i32 = null;
+    var step_filter: ?[]const u8 = null;
     if (std.mem.indexOf(u8, query, "step=")) |idx| {
         const start = idx + 5;
         const end = std.mem.indexOfPos(u8, query, start, "&") orelse query.len;
         const step_str = query[start..end];
-        step_filter = std.fmt.parseInt(i32, step_str, 10) catch null;
+        step_filter = step_str;
     }
 
-    // Get logs from database
-    const logs = try db.getWorkflowLogs(ctx.pool, ctx.allocator, run_id, step_filter);
-    defer {
-        for (logs) |log_entry| {
-            ctx.allocator.free(log_entry.content);
+    var step_db_id: ?i32 = null;
+    if (step_filter) |step_str| {
+        if (std.fmt.parseInt(i32, step_str, 10) catch null) |step_index| {
+            const row = try ctx.pool.row(
+                \\SELECT id FROM workflow_steps
+                \\WHERE run_id = $1
+                \\ORDER BY id
+                \\OFFSET $2 LIMIT 1
+            , .{ run_id, step_index });
+            if (row) |r| {
+                step_db_id = r.get(i32, 0);
+            }
+        } else {
+            const row = try ctx.pool.row(
+                \\SELECT id FROM workflow_steps
+                \\WHERE run_id = $1 AND step_id = $2
+            , .{ run_id, step_str });
+            if (row) |r| {
+                step_db_id = r.get(i32, 0);
+            }
         }
-        ctx.allocator.free(logs);
     }
+
+    if (step_filter != null and step_db_id == null) {
+        res.content_type = .TEXT;
+        return;
+    }
+
+    const logs = if (step_db_id) |step_id|
+        try db.workflows.listWorkflowLogs(ctx.pool, ctx.allocator, step_id)
+    else
+        try db.workflows.listWorkflowLogsForRunSince(ctx.pool, ctx.allocator, run_id, 0);
+    defer ctx.allocator.free(logs);
 
     // Return as plain text
     res.content_type = .TEXT;

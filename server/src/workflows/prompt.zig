@@ -7,6 +7,7 @@ const CPromptDefinition = extern struct {
     prompt_type: [*:0]const u8,
     inputs_schema_json: [*:0]const u8,
     output_schema_json: [*:0]const u8,
+    tools_json: [*:0]const u8,
     body_template: [*:0]const u8,
     max_turns: u32,
 };
@@ -63,6 +64,7 @@ pub const PromptDefinition = struct {
     prompt_type: []const u8,
     inputs_schema: std.json.Value,
     output_schema: std.json.Value,
+    tools_json: []const u8,
     body_template: []const u8,
     max_turns: u32,
     allocator: std.mem.Allocator,
@@ -74,6 +76,7 @@ pub const PromptDefinition = struct {
         self.allocator.free(self.name);
         self.allocator.free(self.client);
         self.allocator.free(self.prompt_type);
+        self.allocator.free(self.tools_json);
         self.allocator.free(self.body_template);
         self.inputs_parsed.deinit();
         self.output_parsed.deinit();
@@ -89,6 +92,21 @@ pub const PromptDefinition = struct {
         try obj.put("max_turns", .{ .integer = @intCast(self.max_turns) });
         try obj.put("inputs_schema", self.inputs_schema);
         try obj.put("output_schema", self.output_schema);
+        if (self.tools_json.len > 0) {
+            const parsed_tools = std.json.parseFromSlice(
+                std.json.Value,
+                allocator,
+                self.tools_json,
+                .{},
+            ) catch null;
+            if (parsed_tools) |parsed| {
+                try obj.put("tools", parsed.value);
+            } else {
+                try obj.put("tools", .null);
+            }
+        } else {
+            try obj.put("tools", .null);
+        }
         try obj.put("body_template", .{ .string = self.body_template });
 
         return .{ .object = obj };
@@ -131,6 +149,9 @@ pub fn parsePrompt(allocator: std.mem.Allocator, content: []const u8) !PromptDef
     const prompt_type = try allocator.dupe(u8, std.mem.span(c_def.prompt_type));
     errdefer allocator.free(prompt_type);
 
+    const tools_json = try allocator.dupe(u8, std.mem.span(c_def.tools_json));
+    errdefer allocator.free(tools_json);
+
     const body_template = try allocator.dupe(u8, std.mem.span(c_def.body_template));
     errdefer allocator.free(body_template);
 
@@ -160,6 +181,7 @@ pub fn parsePrompt(allocator: std.mem.Allocator, content: []const u8) !PromptDef
         .prompt_type = prompt_type,
         .inputs_schema = inputs_schema.value,
         .output_schema = output_schema.value,
+        .tools_json = tools_json,
         .body_template = body_template,
         .max_turns = c_def.max_turns,
         .allocator = allocator,

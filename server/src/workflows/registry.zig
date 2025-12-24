@@ -52,23 +52,32 @@ pub const Registry = struct {
         var result = DiscoveryResult.init(self.allocator);
         errdefer result.deinit(self.allocator);
 
+        var prompt_catalog = evaluator.PromptCatalog.init(self.allocator);
+        defer prompt_catalog.deinit();
+
+        // Discover prompt files first so prompts can be imported during workflow parsing
+        const prompt_dir = try std.fs.path.join(self.allocator, &.{ repo_path, ".plue", "prompts" });
+        defer self.allocator.free(prompt_dir);
+
+        try self.discoverPrompts(prompt_dir, repo_id, &result, &prompt_catalog);
+
         // Discover workflow files
         const workflow_dir = try std.fs.path.join(self.allocator, &.{ repo_path, ".plue", "workflows" });
         defer self.allocator.free(workflow_dir);
 
-        try self.discoverWorkflows(workflow_dir, repo_id, &result);
-
-        // Discover prompt files
-        const prompt_dir = try std.fs.path.join(self.allocator, &.{ repo_path, ".plue", "prompts" });
-        defer self.allocator.free(prompt_dir);
-
-        try self.discoverPrompts(prompt_dir, repo_id, &result);
+        try self.discoverWorkflows(workflow_dir, repo_id, &result, &prompt_catalog);
 
         return result;
     }
 
     /// Discover and parse workflow files in a directory
-    fn discoverWorkflows(self: *Registry, dir_path: []const u8, repo_id: i32, result: *DiscoveryResult) !void {
+    fn discoverWorkflows(
+        self: *Registry,
+        dir_path: []const u8,
+        repo_id: i32,
+        result: *DiscoveryResult,
+        prompt_catalog: *const evaluator.PromptCatalog,
+    ) !void {
         var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch |err| {
             if (err == error.FileNotFound) {
                 // .plue/workflows directory doesn't exist - that's okay
@@ -96,14 +105,14 @@ pub const Registry = struct {
                 defer def.deinit(self.allocator);
                 if (std.mem.eql(u8, def.content_hash, content_hash)) {
                     // File unchanged - skip parsing
-                    try result.skipped_workflows.append(file_path);
+                    try result.skipped_workflows.append(self.allocator, file_path);
                     continue;
                 }
             }
 
             // Parse workflow
-            self.parseAndStoreWorkflow(repo_id, file_path, content_hash, result) catch |err| {
-                try result.workflow_errors.append(ParseError{
+            self.parseAndStoreWorkflow(repo_id, file_path, content_hash, result, prompt_catalog) catch |err| {
+                try result.workflow_errors.append(self.allocator, ParseError{
                     .file_path = try self.allocator.dupe(u8, file_path),
                     .error_message = try std.fmt.allocPrint(self.allocator, "Parse error: {}", .{err}),
                 });
@@ -113,7 +122,13 @@ pub const Registry = struct {
     }
 
     /// Discover and parse prompt files in a directory
-    fn discoverPrompts(self: *Registry, dir_path: []const u8, repo_id: i32, result: *DiscoveryResult) !void {
+    fn discoverPrompts(
+        self: *Registry,
+        dir_path: []const u8,
+        repo_id: i32,
+        result: *DiscoveryResult,
+        prompt_catalog: *evaluator.PromptCatalog,
+    ) !void {
         var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch |err| {
             if (err == error.FileNotFound) {
                 // .plue/prompts directory doesn't exist - that's okay
@@ -140,15 +155,19 @@ pub const Registry = struct {
             if (existing) |def| {
                 defer def.deinit();
                 if (std.mem.eql(u8, def.content_hash, content_hash)) {
+                    if (try self.loadPromptIntoCatalog(repo_id, file_path, prompt_catalog)) {
+                        try result.skipped_prompts.append(self.allocator, file_path);
+                        continue;
+                    }
                     // File unchanged - skip parsing
-                    try result.skipped_prompts.append(file_path);
+                    try result.skipped_prompts.append(self.allocator, file_path);
                     continue;
                 }
             }
 
             // Parse prompt
-            self.parseAndStorePrompt(repo_id, file_path, content_hash, result) catch |err| {
-                try result.prompt_errors.append(ParseError{
+            self.parseAndStorePrompt(repo_id, file_path, content_hash, result, prompt_catalog) catch |err| {
+                try result.prompt_errors.append(self.allocator, ParseError{
                     .file_path = try self.allocator.dupe(u8, file_path),
                     .error_message = try std.fmt.allocPrint(self.allocator, "Parse error: {}", .{err}),
                 });
@@ -158,40 +177,67 @@ pub const Registry = struct {
     }
 
     /// Parse and store a workflow definition
-    fn parseAndStoreWorkflow(self: *Registry, repo_id: i32, file_path: []const u8, content_hash: []const u8, result: *DiscoveryResult) !void {
+    fn parseAndStoreWorkflow(
+        self: *Registry,
+        repo_id: i32,
+        file_path: []const u8,
+        content_hash: []const u8,
+        result: *DiscoveryResult,
+        prompt_catalog: *const evaluator.PromptCatalog,
+    ) !void {
         // Parse workflow file
-        var eval = evaluator.Evaluator.init(self.allocator);
+        var eval = evaluator.Evaluator.initWithPrompts(self.allocator, prompt_catalog);
         defer eval.deinit();
 
         var plan_set = try eval.evaluateFile(file_path);
-        defer plan_set.deinit();
+        defer plan_set.deinit(self.allocator);
+
+        if (plan_set.errors.len > 0) {
+            for (plan_set.errors) |err| {
+                const message = if (err.line != null and err.column != null)
+                    try std.fmt.allocPrint(
+                        self.allocator,
+                        "{s} (line {d}, column {d})",
+                        .{ err.message, err.line.?, err.column.? },
+                    )
+                else
+                    try self.allocator.dupe(u8, err.message);
+
+                try result.workflow_errors.append(self.allocator, ParseError{
+                    .file_path = try self.allocator.dupe(u8, file_path),
+                    .error_message = message,
+                });
+            }
+            return;
+        }
 
         // Each workflow definition in the file
-        for (plan_set.workflows.items) |*workflow| {
+        for (plan_set.workflows) |*workflow| {
             // Validate workflow plan
-            const validation_result = try validation.validateWorkflow(self.allocator, workflow);
+            var validation_result = try validation.validateWorkflow(self.allocator, workflow);
             defer validation_result.deinit();
 
             if (!validation_result.valid) {
                 // Collect validation errors
-                var error_msg = std.ArrayList(u8).init(self.allocator);
-                defer error_msg.deinit();
+                var error_msg = std.ArrayList(u8){};
+                defer error_msg.deinit(self.allocator);
 
-                const writer = error_msg.writer();
+                const writer = error_msg.writer(self.allocator);
                 try writer.print("Validation failed for workflow '{s}':\n", .{workflow.name});
-                for (validation_result.errors.items) |err| {
-                    try writer.print("  - {s}\n", .{err});
+                for (validation_result.errors) |err| {
+                    try writer.print("  - {s}\n", .{err.message});
                 }
 
-                try result.workflow_errors.append(ParseError{
+                try result.workflow_errors.append(self.allocator, ParseError{
                     .file_path = try self.allocator.dupe(u8, file_path),
-                    .error_message = try error_msg.toOwnedSlice(),
+                    .error_message = try error_msg.toOwnedSlice(self.allocator),
                 });
                 continue;
             }
 
             // Convert to JSON for storage
-            const plan_json = try workflow.toJson(self.allocator);
+            const plan_json_value = try workflow.toJson(self.allocator);
+            const plan_json = try json.valueToString(self.allocator, plan_json_value);
             defer self.allocator.free(plan_json);
 
             // Manually construct triggers JSON array
@@ -201,7 +247,7 @@ pub const Registry = struct {
             // Store in database (using DAO from db/daos/workflows.zig)
             const workflow_id = try self.upsertWorkflowDefinition(repo_id, workflow.name, file_path, triggers_json, workflow.image, workflow.dockerfile, plan_json, content_hash);
 
-            try result.parsed_workflows.append(WorkflowSummary{
+            try result.parsed_workflows.append(self.allocator, WorkflowSummary{
                 .id = workflow_id,
                 .name = try self.allocator.dupe(u8, workflow.name),
                 .file_path = try self.allocator.dupe(u8, file_path),
@@ -210,13 +256,26 @@ pub const Registry = struct {
     }
 
     /// Parse and store a prompt definition
-    fn parseAndStorePrompt(self: *Registry, repo_id: i32, file_path: []const u8, content_hash: []const u8, result: *DiscoveryResult) !void {
+    fn parseAndStorePrompt(
+        self: *Registry,
+        repo_id: i32,
+        file_path: []const u8,
+        content_hash: []const u8,
+        result: *DiscoveryResult,
+        prompt_catalog: *evaluator.PromptCatalog,
+    ) !void {
         // Parse prompt file
         var prompt_def = try prompt.parsePromptFile(self.allocator, file_path);
         defer prompt_def.deinit();
 
         // Validate schemas if needed (basic validation already done in parser)
         // Could add more validation here if needed
+
+        // Serialize JSON schemas to strings
+        const inputs_schema_str = try json.valueToString(self.allocator, prompt_def.inputs_schema);
+        defer self.allocator.free(inputs_schema_str);
+        const output_schema_str = try json.valueToString(self.allocator, prompt_def.output_schema);
+        defer self.allocator.free(output_schema_str);
 
         // Store in database
         const prompt_id = try self.upsertPromptDefinition(
@@ -225,19 +284,48 @@ pub const Registry = struct {
             file_path,
             prompt_def.client,
             prompt_def.prompt_type,
-            prompt_def.inputs_schema,
-            prompt_def.output_schema,
+            inputs_schema_str,
+            output_schema_str,
             prompt_def.tools_json,
-            prompt_def.max_turns,
+            @as(?i32, @intCast(prompt_def.max_turns)),
             prompt_def.body_template,
             content_hash,
         );
 
-        try result.parsed_prompts.append(PromptSummary{
+        try prompt_catalog.add(.{
+            .name = prompt_def.name,
+            .file_path = file_path,
+            .prompt_type = prompt_def.prompt_type,
+            .client = prompt_def.client,
+            .tools_json = prompt_def.tools_json,
+            .max_turns = prompt_def.max_turns,
+        });
+
+        try result.parsed_prompts.append(self.allocator, PromptSummary{
             .id = prompt_id,
             .name = try self.allocator.dupe(u8, prompt_def.name),
             .file_path = try self.allocator.dupe(u8, file_path),
         });
+    }
+
+    fn loadPromptIntoCatalog(
+        self: *Registry,
+        repo_id: i32,
+        file_path: []const u8,
+        prompt_catalog: *evaluator.PromptCatalog,
+    ) !bool {
+        const def = db.workflows.getPromptDefinitionByPath(self.pool, repo_id, file_path) catch return false;
+        const prompt_def = def orelse return false;
+
+        try prompt_catalog.add(.{
+            .name = prompt_def.name,
+            .file_path = prompt_def.file_path,
+            .prompt_type = prompt_def.prompt_type,
+            .client = prompt_def.client,
+            .tools_json = prompt_def.tools orelse "[]",
+            .max_turns = @as(u32, @intCast(prompt_def.max_turns orelse 10)),
+        });
+        return true;
     }
 
     // Database access methods (wrappers around DAO functions)
