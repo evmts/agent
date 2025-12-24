@@ -39,8 +39,8 @@ def read_file_tool(input_data: Dict[str, Any]) -> str:
         return "Error: path is required"
 
     # Security check - prevent path traversal
-    full_path = os.path.normpath(os.path.join("/workspace", path))
-    if not full_path.startswith("/workspace"):
+    full_path = os.path.realpath(os.path.join("/workspace", path))
+    if not full_path.startswith("/workspace/"):
         return "Error: path traversal not allowed"
 
     try:

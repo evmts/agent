@@ -42,8 +42,8 @@ def shell_tool(input_data: Dict[str, Any]) -> str:
 
     # Construct full working directory
     import os
-    full_working_dir = os.path.normpath(os.path.join("/workspace", working_dir))
-    if not full_working_dir.startswith("/workspace"):
+    full_working_dir = os.path.realpath(os.path.join("/workspace", working_dir))
+    if not full_working_dir.startswith("/workspace/"):
         return "Error: working_directory must be within workspace"
 
     try:

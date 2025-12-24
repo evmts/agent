@@ -46,8 +46,8 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
     max_results = input_data.get("max_results", 200)
 
     # Security check - prevent path traversal
-    full_path = os.path.normpath(os.path.join("/workspace", path))
-    if not full_path.startswith("/workspace"):
+    full_path = os.path.realpath(os.path.join("/workspace", path))
+    if not full_path.startswith("/workspace/"):
         return "Error: path traversal not allowed"
 
     try:

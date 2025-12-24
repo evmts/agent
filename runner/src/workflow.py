@@ -87,15 +87,33 @@ class WorkflowRunner:
             return False
 
         working_dir = step.get("working-directory", "/workspace")
-        shell = step.get("shell", "/bin/sh")
 
         self.streaming.send_log("info", f"Running: {command}")
 
+        # Validate command doesn't contain obvious injection patterns
+        dangerous_chars = ";|&$`<>"
+        if any(char in command for char in dangerous_chars):
+            logger.error(f"Command contains dangerous shell metacharacters")
+            self.streaming.send_log("error", "Command rejected: contains shell metacharacters")
+            return False
+
+        # Use shlex to safely parse the command into argv array
+        import shlex
+        try:
+            args = shlex.split(command)
+        except ValueError as e:
+            logger.error(f"Failed to parse command: {e}")
+            self.streaming.send_log("error", f"Invalid command syntax: {e}")
+            return False
+
+        if not args:
+            logger.error("Empty command after parsing")
+            return False
+
         try:
             result = subprocess.run(
-                command,
-                shell=True,
-                executable=shell,
+                args,
+                shell=False,
                 cwd=working_dir,
                 env=self.env,
                 capture_output=True,
