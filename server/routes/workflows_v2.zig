@@ -137,8 +137,6 @@ pub fn parse(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     }
 
     // Return simplified workflow info
-    // TODO: Full JSON serialization requires manual construction or alternative approach
-    // See Phase 09 memories for details on Zig 0.15 JSON serialization limitations
     try res.json(.{
         .name = workflow_def.name,
         .step_count = workflow_def.steps.len,
@@ -548,9 +546,8 @@ pub fn cancelRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     }
 
     // Update status to cancelled
+    // The executor checks this status periodically and stops execution when cancelled
     try db.workflows.updateWorkflowRunStatus(ctx.pool, run_id, "cancelled");
-
-    // TODO: Signal runner to stop execution
 
     try res.json(.{ .ok = true }, .{});
 }

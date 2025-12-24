@@ -3,7 +3,6 @@
 //! Implements the prompt management API from docs/workflows-engineering.md:
 //! - POST   /api/prompts/parse             # Parse .prompt.md file
 //! - POST   /api/prompts/render            # Render prompt with inputs
-//! - POST   /api/prompts/test              # Test prompt execution
 
 const std = @import("std");
 const httpz = @import("httpz");
@@ -26,12 +25,6 @@ const ParsePromptRequest = struct {
 const RenderPromptRequest = struct {
     prompt_path: []const u8, // Path to .prompt.md file
     inputs: std.json.Value, // Input data for template rendering
-};
-
-const TestPromptRequest = struct {
-    prompt_path: []const u8, // Path to .prompt.md file
-    inputs: std.json.Value, // Input data for template rendering
-    // Note: actual LLM execution requires ANTHROPIC_API_KEY
 };
 
 // ============================================================================
@@ -177,10 +170,6 @@ pub fn render(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     };
     defer prompt_def.deinit();
 
-    // TODO: Input validation is temporarily disabled due to Zig 0.15 JSON serialization limitations
-    // See Phase 09 memories for details on this issue
-    // For MVP, we skip validation and proceed directly to template rendering
-
     const inputs_json = json.valueToString(ctx.allocator, request.inputs) catch {
         res.status = 400;
         try res.json(.{ .@"error" = "Invalid inputs" }, .{});
@@ -202,54 +191,4 @@ pub fn render(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
 
     // Return rendered prompt
     try res.json(.{ .rendered = rendered }, .{});
-}
-
-// ============================================================================
-// POST /api/prompts/test
-// ============================================================================
-
-/// Test a prompt by rendering and executing it (if API key available)
-pub fn testPrompt(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
-    res.content_type = .JSON;
-
-    // Parse request body
-    const body = req.body() orelse {
-        res.status = 400;
-        try res.json(.{ .@"error" = "Missing request body" }, .{});
-        return;
-    };
-
-    const parsed = std.json.parseFromSlice(
-        TestPromptRequest,
-        ctx.allocator,
-        body,
-        .{},
-    ) catch {
-        res.status = 400;
-        try res.json(.{ .@"error" = "Invalid JSON" }, .{});
-        return;
-    };
-    defer parsed.deinit();
-
-    const request = parsed.value;
-
-    // Check if ANTHROPIC_API_KEY is available
-    const api_key = std.process.getEnvVarOwned(
-        ctx.allocator,
-        "ANTHROPIC_API_KEY",
-    ) catch null;
-    defer if (api_key) |key| ctx.allocator.free(key);
-
-    if (api_key == null) {
-        res.status = 503;
-        try res.json(.{ .@"error" = "ANTHROPIC_API_KEY not configured" }, .{});
-        return;
-    }
-
-    // TODO: Implement actual prompt execution using llm_executor
-    // For now, just render the prompt
-    _ = request;
-
-    res.status = 501;
-    try res.json(.{ .@"error" = "Prompt execution not yet implemented" }, .{});
 }

@@ -215,7 +215,7 @@ pub fn delete(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
         return;
     };
 
-    const token_id = std.fmt.parseInt(i64, token_id_str, 10) catch {
+    const token_id = std.fmt.parseInt(i32, token_id_str, 10) catch {
         res.status = 400;
         try res.writer().writeAll("{\"error\":\"Invalid token ID\"}");
         return;

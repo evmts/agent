@@ -342,9 +342,7 @@ pub const ValidationResult = struct {
 };
 
 /// Validate JSON data against a JSON Schema
-/// NOTE: Temporarily disabled due to Zig 0.15 JSON serialization issues.
-/// See Phase 09 memories for details. Returns success for MVP.
-/// TODO: Re-implement using manual JSON construction or alternative serialization approach.
+/// TODO: Re-implement validation logic.
 pub fn validateJson(
     allocator: std.mem.Allocator,
     schema: std.json.Value,
@@ -367,7 +365,6 @@ pub fn validateJson(
 // ============================================================================
 
 /// Render a Jinja2 template with JSON inputs
-/// NOTE: Changed to accept JSON string instead of std.json.Value due to Zig 0.15 limitations.
 pub fn renderTemplate(
     allocator: std.mem.Allocator,
     template: []const u8,

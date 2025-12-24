@@ -382,7 +382,6 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     // API routes - prompts (Phase 09) - CSRF protected
     router.post("/api/prompts/parse", withAuthAndCsrf(prompts.parse), .{});
     router.post("/api/prompts/render", withAuthAndCsrf(prompts.render), .{});
-    router.post("/api/prompts/test", withAuthAndCsrf(prompts.testPrompt), .{});
 
     // API routes - runners - CSRF protected
     router.post("/api/runners/register", withAuthAndCsrf(runners.register), .{});
