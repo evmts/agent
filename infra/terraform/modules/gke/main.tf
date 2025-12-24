@@ -124,8 +124,10 @@ resource "google_container_cluster" "primary" {
   }
 
   # Binary Authorization
+  # SECURITY: Enable attestation-based deployment policy
+  # This ensures only signed/trusted container images can be deployed
   binary_authorization {
-    evaluation_mode = "DISABLED"
+    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
   }
 
   # Network policy
