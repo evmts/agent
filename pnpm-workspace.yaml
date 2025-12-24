@@ -3,5 +3,5 @@ packages:
   - "e2e"
   - "edge"
   - "snapshot"
-  - "server/voltaire"
+  - "voltaire"
   - "gitea"

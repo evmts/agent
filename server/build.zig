@@ -31,29 +31,29 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Build jj-ffi Rust library
+    // Build jj-ffi Rust library (now at top-level /jj/)
     const jj_ffi_build = b.addSystemCommand(&.{
         "cargo",
         "build",
         "--release",
         "--manifest-path",
-        "jj-ffi/Cargo.toml",
+        "../jj/Cargo.toml",
     });
 
-    // Build prompt-parser Rust library
+    // Build prompt-parser Rust library (now at top-level /prompt-parser/)
     const prompt_parser_build = b.addSystemCommand(&.{
         "cargo",
         "build",
         "--release",
         "--manifest-path",
-        "prompt-parser/Cargo.toml",
+        "../prompt-parser/Cargo.toml",
     });
 
     // Main executable
     const exe = b.addExecutable(.{
         .name = "server-zig",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -66,16 +66,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link jj-ffi library
+    // Link jj-ffi library (now at top-level /jj/)
     exe.step.dependOn(&jj_ffi_build.step);
-    exe.addIncludePath(b.path("jj-ffi"));
-    exe.addLibraryPath(b.path("jj-ffi/target/release"));
+    exe.addIncludePath(b.path("../jj"));
+    exe.addLibraryPath(b.path("../jj/target/release"));
     exe.linkSystemLibrary("jj_ffi");
     exe.linkLibC();
 
-    // Link prompt-parser library
+    // Link prompt-parser library (now at top-level /prompt-parser/)
     exe.step.dependOn(&prompt_parser_build.step);
-    exe.addLibraryPath(b.path("prompt-parser/target/release"));
+    exe.addLibraryPath(b.path("../prompt-parser/target/release"));
     exe.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib
@@ -107,7 +107,7 @@ pub fn build(b: *std.Build) void {
     const cli_exe = b.addExecutable(.{
         .name = "plue",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/plue_cli.zig"),
+            .root_source_file = b.path("plue_cli.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -120,16 +120,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link jj-ffi library
+    // Link jj-ffi library (now at top-level /jj/)
     cli_exe.step.dependOn(&jj_ffi_build.step);
-    cli_exe.addIncludePath(b.path("jj-ffi"));
-    cli_exe.addLibraryPath(b.path("jj-ffi/target/release"));
+    cli_exe.addIncludePath(b.path("../jj"));
+    cli_exe.addLibraryPath(b.path("../jj/target/release"));
     cli_exe.linkSystemLibrary("jj_ffi");
     cli_exe.linkLibC();
 
-    // Link prompt-parser library
+    // Link prompt-parser library (now at top-level /prompt-parser/)
     cli_exe.step.dependOn(&prompt_parser_build.step);
-    cli_exe.addLibraryPath(b.path("prompt-parser/target/release"));
+    cli_exe.addLibraryPath(b.path("../prompt-parser/target/release"));
     cli_exe.linkSystemLibrary("prompt_parser");
 
     // Link system libraries
@@ -159,7 +159,7 @@ pub fn build(b: *std.Build) void {
     // Tests
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -172,16 +172,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link jj-ffi library for tests
+    // Link jj-ffi library for tests (now at top-level /jj/)
     unit_tests.step.dependOn(&jj_ffi_build.step);
-    unit_tests.addIncludePath(b.path("jj-ffi"));
-    unit_tests.addLibraryPath(b.path("jj-ffi/target/release"));
+    unit_tests.addIncludePath(b.path("../jj"));
+    unit_tests.addLibraryPath(b.path("../jj/target/release"));
     unit_tests.linkSystemLibrary("jj_ffi");
     unit_tests.linkLibC();
 
-    // Link prompt-parser library for tests
+    // Link prompt-parser library for tests (now at top-level /prompt-parser/)
     unit_tests.step.dependOn(&prompt_parser_build.step);
-    unit_tests.addLibraryPath(b.path("prompt-parser/target/release"));
+    unit_tests.addLibraryPath(b.path("../prompt-parser/target/release"));
     unit_tests.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib for tests
@@ -198,7 +198,7 @@ pub fn build(b: *std.Build) void {
     // Integration tests
     const integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/tests/integration/mod.zig"),
+            .root_source_file = b.path("tests/integration/mod.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -211,16 +211,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link jj-ffi library for integration tests
+    // Link jj-ffi library for integration tests (now at top-level /jj/)
     integration_tests.step.dependOn(&jj_ffi_build.step);
-    integration_tests.addIncludePath(b.path("jj-ffi"));
-    integration_tests.addLibraryPath(b.path("jj-ffi/target/release"));
+    integration_tests.addIncludePath(b.path("../jj"));
+    integration_tests.addLibraryPath(b.path("../jj/target/release"));
     integration_tests.linkSystemLibrary("jj_ffi");
     integration_tests.linkLibC();
 
-    // Link prompt-parser library for integration tests
+    // Link prompt-parser library for integration tests (now at top-level /prompt-parser/)
     integration_tests.step.dependOn(&prompt_parser_build.step);
-    integration_tests.addLibraryPath(b.path("prompt-parser/target/release"));
+    integration_tests.addLibraryPath(b.path("../prompt-parser/target/release"));
     integration_tests.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib for integration tests
@@ -242,7 +242,7 @@ pub fn build(b: *std.Build) void {
     // Agent test (LLM integration test)
     const agent_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -255,15 +255,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Link jj-ffi library for agent tests (now at top-level /jj/)
     agent_tests.step.dependOn(&jj_ffi_build.step);
-    agent_tests.addIncludePath(b.path("jj-ffi"));
-    agent_tests.addLibraryPath(b.path("jj-ffi/target/release"));
+    agent_tests.addIncludePath(b.path("../jj"));
+    agent_tests.addLibraryPath(b.path("../jj/target/release"));
     agent_tests.linkSystemLibrary("jj_ffi");
     agent_tests.linkLibC();
 
-    // Link prompt-parser library for agent tests
+    // Link prompt-parser library for agent tests (now at top-level /prompt-parser/)
     agent_tests.step.dependOn(&prompt_parser_build.step);
-    agent_tests.addLibraryPath(b.path("prompt-parser/target/release"));
+    agent_tests.addLibraryPath(b.path("../prompt-parser/target/release"));
     agent_tests.linkSystemLibrary("prompt_parser");
 
     if (target.result.os.tag == .macos) {

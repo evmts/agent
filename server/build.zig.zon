@@ -13,7 +13,7 @@
             .hash = "pg-0.0.0-Wp_7gag6BgD_QAZrPhNNEGpnUZR_LEkKT40Ura3p-4yX",
         },
         .voltaire = .{
-            .path = "voltaire",
+            .path = "../voltaire",
         },
     },
     .paths = .{""},

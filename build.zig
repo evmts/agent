@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
     // RUN STEPS
     // ==========================================================================
 
-    // Run docker compose (postgres only - Electric was removed in architecture migration)
+    // Run docker compose (postgres only)
     const run_docker = b.addSystemCommand(&.{ "docker", "compose", "up", "-d", "postgres" });
     const run_docker_step = b.step("run:docker", "Start Docker services (postgres)");
     run_docker_step.dependOn(&run_docker.step);
@@ -111,13 +111,16 @@ pub fn build(b: *std.Build) void {
     const test_ts_step = b.step("test:ts", "Run all TypeScript tests");
     test_ts_step.dependOn(test_edge_step);
 
-    // Rust tests - run from server/jj-ffi and snapshot directories
+    // Rust tests - run from jj/, prompt-parser/, and snapshot directories
     const test_rust_jj = b.addSystemCommand(&.{ "cargo", "test" });
-    test_rust_jj.setCwd(b.path("server/jj-ffi"));
+    test_rust_jj.setCwd(b.path("jj"));
+    const test_rust_prompt = b.addSystemCommand(&.{ "cargo", "test" });
+    test_rust_prompt.setCwd(b.path("prompt-parser"));
     const test_rust_snapshot = b.addSystemCommand(&.{ "cargo", "test" });
     test_rust_snapshot.setCwd(b.path("snapshot"));
     const test_rust_step = b.step("test:rust", "Run all Rust tests");
     test_rust_step.dependOn(&test_rust_jj.step);
+    test_rust_step.dependOn(&test_rust_prompt.step);
     test_rust_step.dependOn(&test_rust_snapshot.step);
 
     // E2E tests (Playwright)
@@ -136,7 +139,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Zig format check (acts as lint)
-    const lint_zig = b.addSystemCommand(&.{ "zig", "fmt", "--check", "server/src", "core/src", "db" });
+    const lint_zig = b.addSystemCommand(&.{ "zig", "fmt", "--check", "server", "core", "db" });
     const lint_zig_step = b.step("lint:zig", "Check Zig formatting");
     lint_zig_step.dependOn(&lint_zig.step);
 
@@ -146,10 +149,12 @@ pub fn build(b: *std.Build) void {
     lint_ts_step.dependOn(&lint_ts.step);
 
     // Rust lint (clippy)
-    const lint_rust_jj = b.addSystemCommand(&.{ "cargo", "clippy", "--manifest-path", "server/jj-ffi/Cargo.toml", "--", "-D", "warnings" });
+    const lint_rust_jj = b.addSystemCommand(&.{ "cargo", "clippy", "--manifest-path", "jj/Cargo.toml", "--", "-D", "warnings" });
+    const lint_rust_prompt = b.addSystemCommand(&.{ "cargo", "clippy", "--manifest-path", "prompt-parser/Cargo.toml", "--", "-D", "warnings" });
     const lint_rust_snapshot = b.addSystemCommand(&.{ "cargo", "clippy", "--manifest-path", "snapshot/Cargo.toml", "--", "-D", "warnings" });
     const lint_rust_step = b.step("lint:rust", "Lint Rust with Clippy");
     lint_rust_step.dependOn(&lint_rust_jj.step);
+    lint_rust_step.dependOn(&lint_rust_prompt.step);
     lint_rust_step.dependOn(&lint_rust_snapshot.step);
 
     // All lint
@@ -163,7 +168,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Zig format
-    const format_zig = b.addSystemCommand(&.{ "zig", "fmt", "server/src", "core/src", "db" });
+    const format_zig = b.addSystemCommand(&.{ "zig", "fmt", "server", "core", "db" });
     const format_zig_step = b.step("format:zig", "Format Zig code");
     format_zig_step.dependOn(&format_zig.step);
 
@@ -173,10 +178,12 @@ pub fn build(b: *std.Build) void {
     format_ts_step.dependOn(&format_ts.step);
 
     // Rust format
-    const format_rust_jj = b.addSystemCommand(&.{ "cargo", "fmt", "--manifest-path", "server/jj-ffi/Cargo.toml" });
+    const format_rust_jj = b.addSystemCommand(&.{ "cargo", "fmt", "--manifest-path", "jj/Cargo.toml" });
+    const format_rust_prompt = b.addSystemCommand(&.{ "cargo", "fmt", "--manifest-path", "prompt-parser/Cargo.toml" });
     const format_rust_snapshot = b.addSystemCommand(&.{ "cargo", "fmt", "--manifest-path", "snapshot/Cargo.toml" });
     const format_rust_step = b.step("format:rust", "Format Rust code");
     format_rust_step.dependOn(&format_rust_jj.step);
+    format_rust_step.dependOn(&format_rust_prompt.step);
     format_rust_step.dependOn(&format_rust_snapshot.step);
 
     // All format
