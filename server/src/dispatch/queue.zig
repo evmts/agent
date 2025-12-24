@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const db = @import("db");
+const workflows = @import("../workflows/mod.zig");
 
 const log = std.log.scoped(.queue);
 
@@ -63,8 +64,6 @@ pub fn submitWorkload(
     pool: *db.Pool,
     request: WorkloadRequest,
 ) !i32 {
-    _ = allocator;
-
     log.info("Submitting workload: type={s}, priority={d}", .{
         @tagName(request.type),
         @intFromEnum(request.priority),
@@ -94,13 +93,126 @@ pub fn submitWorkload(
         const task_id = row.get(i32, 0);
         log.info("Queued workflow run {d} (simulated task_id={d})", .{ run_id, task_id });
 
-        // For MVP, we don't have warm pool runners yet
+        // For MVP local development: execute synchronously
         // In production, would call: tryAssignRunner(pool, task_id)
+
+        // TODO: Make this async for production
+        // For now, spawn a detached thread to execute asynchronously
+        if (std.Thread.spawn(.{}, executeWorkflowAsync, .{ allocator, pool, run_id })) |exec_thread| {
+            exec_thread.detach();
+        } else |err| {
+            log.err("Failed to spawn execution thread: {}", .{err});
+            // Continue anyway - workflow is queued
+        }
 
         return task_id; // Return run_id as task_id for now
     }
 
     return error.FailedToCreateTask;
+}
+
+/// Execute a workflow asynchronously (for local development)
+fn executeWorkflowAsync(parent_allocator: std.mem.Allocator, pool: *db.Pool, run_id: i32) void {
+    // Create a thread-local arena allocator for this execution
+    // This ensures thread safety and makes cleanup easier
+    var arena = std.heap.ArenaAllocator.init(parent_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    executeWorkflow(allocator, pool, run_id) catch |err| {
+        log.err("Workflow execution failed for run_id={d}: {}", .{ run_id, err });
+
+        // Mark workflow as failed
+        const fail_query =
+            \\UPDATE workflow_runs
+            \\SET status = 'failed', completed_at = NOW(), error_message = $1
+            \\WHERE id = $2
+        ;
+        const err_msg = @errorName(err);
+        _ = pool.query(fail_query, .{ err_msg, run_id }) catch |query_err| {
+            log.err("Failed to update workflow status: {}", .{query_err});
+        };
+    };
+    // Arena allocator automatically frees all memory when this function returns
+}
+
+/// Execute a workflow (synchronous)
+fn executeWorkflow(allocator: std.mem.Allocator, pool: *db.Pool, run_id: i32) !void {
+    log.info("Starting workflow execution for run_id={d}", .{run_id});
+
+    // 1. Get the workflow run to find the workflow_definition_id
+    const run_query =
+        \\SELECT workflow_definition_id
+        \\FROM workflow_runs
+        \\WHERE id = $1
+    ;
+
+    const run_result = try pool.query(run_query, .{run_id});
+    defer run_result.deinit();
+
+    const workflow_def_id = if (try run_result.next()) |row|
+        row.get(i32, 0)
+    else
+        return error.WorkflowRunNotFound;
+
+    log.info("Found workflow_definition_id={d}", .{workflow_def_id});
+
+    // 2. Get the workflow definition (includes the plan JSON)
+    const workflow_def_opt = try db.workflows.getWorkflowDefinition(pool, workflow_def_id);
+    const workflow_def = workflow_def_opt orelse return error.WorkflowDefinitionNotFound;
+
+    log.info("Loaded workflow definition: {s}", .{workflow_def.name});
+    log.info("Plan JSON length: {d} bytes", .{workflow_def.plan.len});
+    log.info("Plan JSON: {s}", .{workflow_def.plan});
+
+    // 3. Parse the plan JSON
+    const parsed = std.json.parseFromSlice(
+        workflows.plan.WorkflowDefinition,
+        allocator,
+        workflow_def.plan,
+        .{ .ignore_unknown_fields = true }, // Ignore unknown fields for now
+    ) catch |err| {
+        log.err("Failed to parse plan JSON: {}", .{err});
+        log.err("Plan JSON was: {s}", .{workflow_def.plan});
+        return err;
+    };
+    defer parsed.deinit();
+
+    const workflow_plan = parsed.value;
+
+    log.info("Parsed workflow plan: {s}, steps={d}", .{ workflow_plan.name, workflow_plan.steps.len });
+
+    // 4. Initialize executor
+    var exec = workflows.Executor.init(allocator, pool, run_id);
+
+    // 5. Execute workflow
+    const results = try exec.execute(&workflow_plan, run_id);
+    defer {
+        for (results) |*result| {
+            result.deinit(allocator);
+        }
+        allocator.free(results);
+    }
+
+    // 6. Determine overall success
+    var all_succeeded = true;
+    for (results) |result| {
+        if (result.status != .succeeded and result.status != .skipped) {
+            all_succeeded = false;
+            break;
+        }
+    }
+
+    // 7. Update workflow_run status
+    const status = if (all_succeeded) "completed" else "failed";
+    const complete_query =
+        \\UPDATE workflow_runs
+        \\SET status = $1, completed_at = NOW()
+        \\WHERE id = $2
+    ;
+    _ = try pool.query(complete_query, .{ status, run_id });
+
+    log.info("Workflow execution completed: run_id={d}, status={s}", .{ run_id, status });
 }
 
 /// Try to assign a warm runner to a task
