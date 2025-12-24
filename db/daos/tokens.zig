@@ -16,8 +16,8 @@ const TOKEN_PREFIX = "plt_";
 // =============================================================================
 
 pub const AccessTokenRecord = struct {
-    id: i64,
-    user_id: i64,
+    id: i32, // Postgres SERIAL is INTEGER (32-bit)
+    user_id: i32, // References users.id which is SERIAL (32-bit)
     name: []const u8,
     token_last_eight: []const u8,
     scopes: []const u8,
@@ -41,7 +41,7 @@ pub const TokenValidationResult = struct {
 pub fn createAccessToken(
     pool: *Pool,
     allocator: std.mem.Allocator,
-    user_id: i64,
+    user_id: i32,
     name: []const u8,
     scopes: []const u8,
 ) ![]const u8 {
@@ -72,12 +72,12 @@ pub fn createAccessToken(
 /// Low-level create that stores pre-hashed token
 pub fn create(
     pool: *Pool,
-    user_id: i64,
+    user_id: i32,
     name: []const u8,
     token_hash: []const u8,
     token_last_eight: []const u8,
     scopes: []const u8,
-) !i64 {
+) !i32 {
     const row = try pool.row(
         \\INSERT INTO access_tokens (user_id, name, token_hash, token_last_eight, scopes, created_at, updated_at)
         \\VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -85,12 +85,12 @@ pub fn create(
     , .{ user_id, name, token_hash, token_last_eight, scopes });
 
     if (row) |r| {
-        return r.get(i64, 0);
+        return r.get(i32, 0);
     }
     return error.InsertFailed;
 }
 
-pub fn delete(pool: *Pool, token_id: i64, user_id: i64) !bool {
+pub fn delete(pool: *Pool, token_id: i32, user_id: i32) !bool {
     const affected = try pool.exec(
         \\DELETE FROM access_tokens WHERE id = $1 AND user_id = $2
     , .{ token_id, user_id });

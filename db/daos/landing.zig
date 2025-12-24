@@ -304,12 +304,20 @@ pub fn createLineComment(
 }
 
 pub fn updateLineComment(pool: *Pool, comment_id: i64, body: ?[]const u8, resolved: ?bool) !LineComment {
-    if (body) |b| {
+    // Build a single UPDATE statement to avoid race conditions
+    // This ensures atomicity without needing an explicit transaction
+    if (body != null and resolved != null) {
+        // Update both fields in a single query
+        _ = try pool.exec(
+            \\UPDATE landing_line_comments
+            \\SET body = $2, resolved = $3, updated_at = NOW()
+            \\WHERE id = $1
+        , .{ comment_id, body.?, resolved.? });
+    } else if (body) |b| {
         _ = try pool.exec(
             \\UPDATE landing_line_comments SET body = $2, updated_at = NOW() WHERE id = $1
         , .{ comment_id, b });
-    }
-    if (resolved) |r| {
+    } else if (resolved) |r| {
         _ = try pool.exec(
             \\UPDATE landing_line_comments SET resolved = $2, updated_at = NOW() WHERE id = $1
         , .{ comment_id, r });

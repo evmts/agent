@@ -192,6 +192,10 @@ CREATE TABLE IF NOT EXISTS comments (
   edited BOOLEAN NOT NULL DEFAULT false
 );
 
+-- Index for fetching comments by issue, ordered by creation time (timeline queries)
+CREATE INDEX IF NOT EXISTS idx_comments_issue_created ON comments(issue_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
+
 -- Mentions (for potential notifications in git-based issues)
 CREATE TABLE IF NOT EXISTS mentions (
   id SERIAL PRIMARY KEY,
@@ -199,7 +203,9 @@ CREATE TABLE IF NOT EXISTS mentions (
   issue_number INTEGER NOT NULL,
   comment_id VARCHAR(10), -- NULL for issue body, or comment ID like "001"
   mentioned_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Foreign key to ensure issue exists (composite key)
+  FOREIGN KEY (repository_id, issue_number) REFERENCES issues(repository_id, issue_number) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_mentions_repo_issue ON mentions(repository_id, issue_number);

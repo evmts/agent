@@ -33,42 +33,50 @@ pub fn list(pool: *Pool, allocator: std.mem.Allocator, repo_id: i64, state: ?[]c
     var conn = try pool.acquire();
     defer conn.release();
 
+    // Use LEFT JOIN with conditional aggregation instead of correlated subqueries
+    // This is O(n) instead of O(n*m) and much more efficient
     const query = if (state) |s|
         if (std.mem.eql(u8, s, "all"))
             \\SELECT m.id, m.repository_id, m.title, m.description,
             \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
             \\       m.state,
-            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
-            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+            \\       COALESCE(SUM(CASE WHEN i.state = 'open' THEN 1 ELSE 0 END), 0) as open_issues,
+            \\       COALESCE(SUM(CASE WHEN i.state = 'closed' THEN 1 ELSE 0 END), 0) as closed_issues,
             \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
             \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
             \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
             \\FROM milestones m
+            \\LEFT JOIN issues i ON i.milestone_id = m.id
             \\WHERE m.repository_id = $1
+            \\GROUP BY m.id, m.repository_id, m.title, m.description, m.due_date, m.state, m.created_at, m.updated_at, m.closed_at
             \\ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
         else
             \\SELECT m.id, m.repository_id, m.title, m.description,
             \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
             \\       m.state,
-            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
-            \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+            \\       COALESCE(SUM(CASE WHEN i.state = 'open' THEN 1 ELSE 0 END), 0) as open_issues,
+            \\       COALESCE(SUM(CASE WHEN i.state = 'closed' THEN 1 ELSE 0 END), 0) as closed_issues,
             \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
             \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
             \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
             \\FROM milestones m
+            \\LEFT JOIN issues i ON i.milestone_id = m.id
             \\WHERE m.repository_id = $1 AND m.state = $2
+            \\GROUP BY m.id, m.repository_id, m.title, m.description, m.due_date, m.state, m.created_at, m.updated_at, m.closed_at
             \\ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
     else
         \\SELECT m.id, m.repository_id, m.title, m.description,
         \\       EXTRACT(EPOCH FROM m.due_date)::bigint,
         \\       m.state,
-        \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open') as open_issues,
-        \\       (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed') as closed_issues,
+        \\       COALESCE(SUM(CASE WHEN i.state = 'open' THEN 1 ELSE 0 END), 0) as open_issues,
+        \\       COALESCE(SUM(CASE WHEN i.state = 'closed' THEN 1 ELSE 0 END), 0) as closed_issues,
         \\       EXTRACT(EPOCH FROM m.created_at)::bigint,
         \\       EXTRACT(EPOCH FROM m.updated_at)::bigint,
         \\       EXTRACT(EPOCH FROM m.closed_at)::bigint
         \\FROM milestones m
+        \\LEFT JOIN issues i ON i.milestone_id = m.id
         \\WHERE m.repository_id = $1 AND m.state = 'open'
+        \\GROUP BY m.id, m.repository_id, m.title, m.description, m.due_date, m.state, m.created_at, m.updated_at, m.closed_at
         \\ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
     ;
 
