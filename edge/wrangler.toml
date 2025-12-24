@@ -9,18 +9,63 @@ compatibility_flags = ["nodejs_compat"]
 ORIGIN_HOST = "origin.internal"
 BUILD_VERSION = "dev"
 
-# Development overrides
+# -----------------------------------------------------------------------------
+# Durable Objects
+# -----------------------------------------------------------------------------
+
+# Durable Object declarations
+[[durable_objects.bindings]]
+name = "AUTH_DO"
+class_name = "AuthDO"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMIT_DO"
+class_name = "RateLimitDO"
+
+# Migrations for Durable Objects
+# Note: When adding new DO classes, create a new migration tag
+[[migrations]]
+tag = "v1"
+new_classes = ["AuthDO", "RateLimitDO"]
+
+# -----------------------------------------------------------------------------
+# Environment: Development
+# -----------------------------------------------------------------------------
+
 [env.dev]
 name = "plue-edge-dev"
+
 [env.dev.vars]
 ORIGIN_HOST = "localhost:4321"
 BUILD_VERSION = "dev"
 
-# Production
+# Dev uses same DO classes
+[[env.dev.durable_objects.bindings]]
+name = "AUTH_DO"
+class_name = "AuthDO"
+
+[[env.dev.durable_objects.bindings]]
+name = "RATE_LIMIT_DO"
+class_name = "RateLimitDO"
+
+# -----------------------------------------------------------------------------
+# Environment: Production
+# -----------------------------------------------------------------------------
+
 [env.production]
 name = "plue-edge"
 routes = [
   { pattern = "plue.dev/*", zone_name = "plue.dev" }
 ]
+
+# Production DO bindings
+[[env.production.durable_objects.bindings]]
+name = "AUTH_DO"
+class_name = "AuthDO"
+
+[[env.production.durable_objects.bindings]]
+name = "RATE_LIMIT_DO"
+class_name = "RateLimitDO"
+
 # BUILD_VERSION is set during deploy via --var flag:
 # wrangler deploy --var BUILD_VERSION:$(git rev-parse --short HEAD)

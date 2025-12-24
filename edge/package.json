@@ -13,7 +13,11 @@
     "purge": "bun purge.ts all",
     "purge:tags": "bun purge.ts tags"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@tsndr/cloudflare-worker-jwt": "^3.2.1",
+    "ethers": "^6.16.0",
+    "siwe": "^3.0.0"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.11.1",
     "@cloudflare/workers-types": "^4.20241127.0",
