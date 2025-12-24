@@ -178,8 +178,6 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
 
     const request = parsed.value;
 
-    log.info("DEBUG: Step 1 - Starting workflow execution", .{});
-
     // Get workflow definition from database
     const workflow_def_opt = if (request.workflow_definition_id) |def_id|
         db.workflows.getWorkflowDefinition(ctx.pool, def_id) catch |err| {
@@ -208,8 +206,6 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         };
     };
 
-    log.info("DEBUG: Step 3 - Got workflow definition", .{});
-
     const workflow_def = workflow_def_opt orelse {
         res.status = 404;
         try res.json(.{ .@"error" = "Workflow not found" }, .{});
@@ -218,10 +214,7 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     // NOTE: workflow_def strings are owned by pg library Row object, not us.
     // Do NOT free them here - they're freed when the Row is freed after this function returns.
 
-    log.info("DEBUG: Step 4 - workflow_def.id={d} (type=i32)", .{workflow_def.id});
-
     // Create workflow_run record
-    log.info("DEBUG: Step 5 - About to call createWorkflowRun with id={d}", .{workflow_def.id});
     const trigger_payload_json = json.valueToString(ctx.allocator, request.trigger_payload) catch |err| {
         log.err("Failed to serialize trigger_payload: {}", .{err});
         res.status = 400;
@@ -254,10 +247,7 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     };
 
-    log.info("DEBUG: Step 6 - Created workflow run, run_id={d} (type=i32)", .{run_id});
-
     // Submit to queue for execution
-    log.info("DEBUG: Step 7 - About to call submitWorkload with run_id={d}", .{run_id});
     const task_id = queue.submitWorkload(
         ctx.allocator,
         ctx.pool,
@@ -274,8 +264,6 @@ pub fn runWorkflow(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         try res.json(.{ .@"error" = "Failed to queue workflow" }, .{});
         return;
     };
-
-    log.info("DEBUG: Step 8 - Submitted workload, task_id={d}", .{task_id});
 
     log.info("Workflow run created: run_id={d}, task_id={d}", .{ run_id, task_id });
 
