@@ -13,6 +13,27 @@
       "env": {
         "PROJECT_ROOT": "/Users/williamcory/plue"
       }
+    },
+    "workflows": {
+      "command": "bun",
+      "args": ["run", "infra/monitoring/workflows.ts"],
+      "env": {
+        "DATABASE_URL": "postgres://postgres:password@localhost:54321/plue"
+      }
+    },
+    "logs": {
+      "command": "bun",
+      "args": ["run", "infra/monitoring/logs.ts"],
+      "env": {
+        "LOKI_URL": "http://localhost:3100"
+      }
+    },
+    "database": {
+      "command": "bun",
+      "args": ["run", "infra/monitoring/database.ts"],
+      "env": {
+        "DATABASE_URL": "postgres://postgres:password@localhost:54321/plue"
+      }
     }
   }
 }
