@@ -597,10 +597,19 @@ const totalPages = Math.ceil(totalCount / perPage);
       });
 
       try {
-        const response = await fetch(`/${user}/${repo}/workflows/dispatch`, {
+        // Call the v2 API for workflow execution
+        const response = await fetch(`/api/workflows/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
+          body: JSON.stringify({
+            workflow_definition_id: parseInt(data.workflowId as string),
+            trigger_type: 'manual',
+            trigger_payload: {
+              ref: data.ref,
+              title: data.title,
+              inputs: data.inputs,
+            },
+          }),
         });
 
         if (response.ok) {

@@ -504,14 +504,111 @@ const shortSha = run.commit_sha?.slice(0, 7);
   }
 </style>
 
-<script define:vars={{ runId, username, reponame }}>
+<script define:vars={{ runId, username, reponame, runStatus: run.status, workflowDefId: run.workflow_definition_id }}>
+  // SSE streaming for live updates
+  let eventSource = null;
+  let isStreaming = false;
+
+  function startStreaming() {
+    if (isStreaming || eventSource) return;
+
+    // Only stream if run is pending (5), running (6), or waiting (5)
+    if (runStatus !== 5 && runStatus !== 6) return;
+
+    isStreaming = true;
+    eventSource = new EventSource(`/api/workflows/runs/${runId}/stream`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleStreamEvent(data);
+      } catch (e) {
+        console.error('Failed to parse SSE event:', e);
+      }
+    };
+
+    eventSource.onerror = (e) => {
+      console.error('SSE error:', e);
+      stopStreaming();
+      // Retry after 5 seconds
+      setTimeout(startStreaming, 5000);
+    };
+
+    eventSource.addEventListener('step_status', (event) => {
+      const data = JSON.parse(event.data);
+      updateStepStatus(data.step_id, data.status);
+    });
+
+    eventSource.addEventListener('step_output', (event) => {
+      const data = JSON.parse(event.data);
+      appendLog(data.output);
+    });
+
+    eventSource.addEventListener('run_completed', (event) => {
+      const data = JSON.parse(event.data);
+      stopStreaming();
+      // Reload page to show final state
+      window.location.reload();
+    });
+  }
+
+  function stopStreaming() {
+    isStreaming = false;
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  }
+
+  function handleStreamEvent(data) {
+    switch (data.type) {
+      case 'step_status':
+        updateStepStatus(data.step_id, data.status);
+        break;
+      case 'step_output':
+        appendLog(data.output);
+        break;
+      case 'run_completed':
+        stopStreaming();
+        window.location.reload();
+        break;
+    }
+  }
+
+  function updateStepStatus(stepId, status) {
+    const stepItem = document.querySelector(`[data-step-id="${stepId}"]`);
+    if (stepItem) {
+      stepItem.setAttribute('data-step-status', status);
+      // Update icon based on status
+      const icon = stepItem.querySelector('.step-icon');
+      if (icon) {
+        icon.textContent = status === 1 ? '✓' : status === 2 ? '✕' : status === 6 ? '⟳' : '○';
+      }
+    }
+  }
+
+  function appendLog(text) {
+    const container = document.getElementById('logs-container');
+    if (container) {
+      container.textContent += text + '\n';
+      // Auto-scroll to bottom
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  // Start streaming on page load
+  startStreaming();
+
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', stopStreaming);
+
   // Load logs
   async function loadLogs() {
     const container = document.getElementById('logs-container');
     if (!container) return;
 
     try {
-      const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/logs`);
+      const response = await fetch(`/api/${username}/${reponame}/workflows/runs/${runId}/logs`);
       if (response.ok) {
         const logs = await response.text();
         container.textContent = logs || '(no logs yet)';
@@ -530,7 +627,7 @@ const shortSha = run.commit_sha?.slice(0, 7);
   if (downloadLogsBtn) {
     downloadLogsBtn.addEventListener('click', async () => {
       try {
-        const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/logs`);
+        const response = await fetch(`/api/${username}/${reponame}/workflows/runs/${runId}/logs`);
         if (response.ok) {
           const logs = await response.text();
           const blob = new Blob([logs], { type: 'text/plain' });
@@ -558,7 +655,7 @@ const shortSha = run.commit_sha?.slice(0, 7);
       if (!confirm('Cancel this workflow run?')) return;
 
       try {
-        const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/cancel`, {
+        const response = await fetch(`/api/${username}/${reponame}/workflows/runs/${runId}/cancel`, {
           method: 'POST',
         });
         if (response.ok) {
@@ -577,8 +674,15 @@ const shortSha = run.commit_sha?.slice(0, 7);
   if (rerunBtn) {
     rerunBtn.addEventListener('click', async () => {
       try {
-        const response = await fetch(`/${username}/${reponame}/workflows/runs/${runId}/rerun`, {
+        // Rerun uses the v2 API to create a new run with same config
+        const response = await fetch(`/api/${username}/${reponame}/workflows/runs`, {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflow_definition_id: workflowDefId,
+            trigger_type: 'manual',
+            trigger_payload: { rerun_of: runId },
+          }),
         });
         if (response.ok) {
           const data = await response.json();

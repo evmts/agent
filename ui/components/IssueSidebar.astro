@@ -650,6 +650,33 @@ function formatDate(date: string | Date | null): string {
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   // Get issue number from URL
   const pathParts = window.location.pathname.split('/');
   const issueNumber = pathParts[pathParts.length - 1];
@@ -665,11 +692,11 @@ function formatDate(date: string | Date | null): string {
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: assigneeUsername })
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -687,9 +714,9 @@ function formatDate(date: string | Date | null): string {
       const assigneeUsername = button.dataset.username;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/assignees/${assigneeUsername}`, withCsrfToken({
           method: 'DELETE'
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -709,11 +736,11 @@ function formatDate(date: string | Date | null): string {
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/labels`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/labels`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ labels: [labelName] })
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -731,9 +758,9 @@ function formatDate(date: string | Date | null): string {
       const labelName = button.dataset.label;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/labels/${encodeURIComponent(labelName!)}`, withCsrfToken({
           method: 'DELETE'
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -753,11 +780,11 @@ function formatDate(date: string | Date | null): string {
       if (button.dataset.disabled === 'true') return;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/milestone`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/milestone`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ milestone_id: parseInt(milestoneId!) })
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -773,9 +800,9 @@ function formatDate(date: string | Date | null): string {
   if (removeMilestoneBtn) {
     removeMilestoneBtn.addEventListener('click', async () => {
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/milestone`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/milestone`, withCsrfToken({
           method: 'DELETE'
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -798,11 +825,11 @@ function formatDate(date: string | Date | null): string {
       if (!dueDate) return;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/due-date`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/due-date`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ due_date: new Date(dueDate).toISOString() })
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -818,9 +845,9 @@ function formatDate(date: string | Date | null): string {
   if (removeDueDateBtn) {
     removeDueDateBtn.addEventListener('click', async () => {
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/due-date`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/due-date`, withCsrfToken({
           method: 'DELETE'
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();

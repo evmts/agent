@@ -62,13 +62,21 @@ export function renderMarkdown(content: string, owner?: string, repo?: string): 
   text = text.replace(/_(.+?)_/g, "<em>$1</em>");
 
   // Links
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+    const sanitized = sanitizeUrl(url);
+    if (!sanitized) return escapeHtml(linkText);
+    return `<a href="${sanitized}" target="_blank" rel="noopener">${linkText}</a>`;
+  });
 
   // @mentions - replace with links to user profiles
   text = replaceMentionsWithLinks(text);
 
   // Images
-  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">');
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, altText, url) => {
+    const sanitized = sanitizeUrl(url);
+    if (!sanitized) return escapeHtml(altText);
+    return `<img src="${sanitized}" alt="${altText}" loading="lazy">`;
+  });
 
   // Blockquotes
   text = text.replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>");
@@ -124,6 +132,20 @@ export function renderMarkdown(content: string, owner?: string, repo?: string): 
   });
 
   return `<div class="markdown-body">${text}</div>`;
+}
+
+function sanitizeUrl(url: string): string {
+  const trimmed = url.trim().toLowerCase();
+
+  // Block dangerous protocols
+  if (trimmed.startsWith('javascript:') ||
+      trimmed.startsWith('vbscript:') ||
+      trimmed.startsWith('data:')) {
+    return '';
+  }
+
+  // Allow http, https, mailto, and relative URLs
+  return url.trim();
 }
 
 function escapeHtml(text: string): string {
