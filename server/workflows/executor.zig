@@ -244,6 +244,21 @@ pub const Executor = struct {
         };
     }
 
+    /// Check if the workflow run has been cancelled
+    fn isCancelled(self: *Executor) bool {
+        if (self.db_pool) |pool| {
+            const row = pool.row(
+                \\SELECT status FROM workflow_runs WHERE id = $1
+            , .{self.run_id}) catch return false;
+
+            if (row) |r| {
+                const status = r.get([]const u8, 0);
+                return std.mem.eql(u8, status, "cancelled");
+            }
+        }
+        return false;
+    }
+
     pub fn setEventCallback(self: *Executor, callback: EventCallback, ctx: ?*anyopaque) void {
         self.event_callback = callback;
         self.event_ctx = ctx;
@@ -290,6 +305,29 @@ pub const Executor = struct {
 
         // Execute steps in order
         for (execution_order) |step_index| {
+            // Check if workflow has been cancelled
+            if (self.isCancelled()) {
+                // Mark remaining steps as cancelled
+                const step = &workflow.steps[step_index];
+                if (!executed_steps.contains(step.id)) {
+                    try status_map.put(step.id, .cancelled);
+                    try results.append(self.allocator, .{
+                        .step_id = try self.allocator.dupe(u8, step.id),
+                        .status = .cancelled,
+                        .exit_code = null,
+                        .output = null,
+                        .error_message = try self.allocator.dupe(u8, "Workflow cancelled"),
+                        .turns_used = null,
+                        .tokens_in = null,
+                        .tokens_out = null,
+                        .started_at = std.time.timestamp(),
+                        .completed_at = std.time.timestamp(),
+                    });
+                    try executed_steps.put(step.id, {});
+                }
+                continue;
+            }
+
             const step = &workflow.steps[step_index];
 
             if (executed_steps.contains(step.id)) {
@@ -1033,6 +1071,23 @@ pub const Executor = struct {
         var stderr_buf: [4096]u8 = undefined;
 
         while (stdout_open or stderr_open) {
+            // Check for cancellation
+            if (self.isCancelled()) {
+                _ = child.kill() catch {};
+                return StepResult{
+                    .step_id = try self.allocator.dupe(u8, step.id),
+                    .status = .cancelled,
+                    .exit_code = null,
+                    .output = null,
+                    .error_message = try self.allocator.dupe(u8, "Workflow cancelled"),
+                    .turns_used = null,
+                    .tokens_in = null,
+                    .tokens_out = null,
+                    .started_at = started_at,
+                    .completed_at = std.time.timestamp(),
+                };
+            }
+
             _ = try std.posix.poll(&poll_fds, -1);
 
             if (stdout_open and poll_fds[0].revents != 0) {
