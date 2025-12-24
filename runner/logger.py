@@ -74,9 +74,11 @@ class StructuredFormatter(logging.Formatter):
                 'levelname', 'levelno', 'lineno', 'module', 'msecs',
                 'message', 'pathname', 'process', 'processName', 'relativeCreated',
                 'thread', 'threadName', 'exc_info', 'exc_text', 'stack_info',
-                'task_id', 'request_id'
+                'task_id', 'request_id', 'taskName'  # Filter out LogRecord internal fields
             }:
-                context[key] = value
+                # Only add non-None values to avoid clutter
+                if value is not None:
+                    context[key] = value
 
         if context:
             log_entry["context"] = context
