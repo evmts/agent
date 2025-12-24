@@ -505,6 +505,33 @@ const shortSha = run.commit_sha?.slice(0, 7);
 </style>
 
 <script define:vars={{ runId, username, reponame, runStatus: run.status, workflowDefId: run.workflow_definition_id }}>
+  // Get CSRF token from cookie
+  function getCsrfToken() {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options = {}) {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   // SSE streaming for live updates
   let eventSource = null;
   let isStreaming = false;
@@ -655,9 +682,9 @@ const shortSha = run.commit_sha?.slice(0, 7);
       if (!confirm('Cancel this workflow run?')) return;
 
       try {
-        const response = await fetch(`/api/${username}/${reponame}/workflows/runs/${runId}/cancel`, {
+        const response = await fetch(`/api/${username}/${reponame}/workflows/runs/${runId}/cancel`, withCsrfToken({
           method: 'POST',
-        });
+        }));
         if (response.ok) {
           window.location.reload();
         } else {
@@ -675,7 +702,7 @@ const shortSha = run.commit_sha?.slice(0, 7);
     rerunBtn.addEventListener('click', async () => {
       try {
         // Rerun uses the v2 API to create a new run with same config
-        const response = await fetch(`/api/${username}/${reponame}/workflows/runs`, {
+        const response = await fetch(`/api/${username}/${reponame}/workflows/runs`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -683,7 +710,7 @@ const shortSha = run.commit_sha?.slice(0, 7);
             trigger_type: 'manual',
             trigger_payload: { rerun_of: runId },
           }),
-        });
+        }));
         if (response.ok) {
           const data = await response.json();
           window.location.href = `/${username}/${reponame}/workflows/${data.run.id}`;

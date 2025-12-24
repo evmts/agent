@@ -246,6 +246,33 @@ const blockedBy = issue.blocked_by || [];
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   // Get issue number from URL
   const pathParts = window.location.pathname.split('/');
   const issueNumber = pathParts[pathParts.length - 1];
@@ -265,11 +292,11 @@ const blockedBy = issue.blocked_by || [];
       }
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/dependencies`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/dependencies`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ blocks: blockedIssueNumber })
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -291,9 +318,9 @@ const blockedBy = issue.blocked_by || [];
       const blockedNumber = button.dataset.issueNumber;
 
       try {
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/dependencies/${blockedNumber}`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${issueNumber}/dependencies/${blockedNumber}`, withCsrfToken({
           method: 'DELETE'
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -318,11 +345,11 @@ const blockedBy = issue.blocked_by || [];
 
       try {
         // Create the dependency from the other issue's perspective
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${blockingIssueNumber}/dependencies`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${blockingIssueNumber}/dependencies`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ blocks: parseInt(issueNumber) })
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -345,9 +372,9 @@ const blockedBy = issue.blocked_by || [];
 
       try {
         // Remove the dependency from the other issue's perspective
-        const response = await fetch(`/repos/${username}/${reponame}/issues/${blockingNumber}/dependencies/${issueNumber}`, {
+        const response = await fetch(`/repos/${username}/${reponame}/issues/${blockingNumber}/dependencies/${issueNumber}`, withCsrfToken({
           method: 'DELETE'
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();

@@ -383,6 +383,33 @@ const colorPalette = [
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const username = window.location.pathname.split('/')[1];
   const reponame = window.location.pathname.split('/')[2];
   const apiBase = `/repos/${username}/${reponame}`;
@@ -466,11 +493,11 @@ const colorPalette = [
     };
 
     try {
-      const response = await fetch(`${apiBase}/labels`, {
+      const response = await fetch(`${apiBase}/labels`, withCsrfToken({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
-      });
+      }));
 
       if (response.ok) {
         window.location.reload();
@@ -531,11 +558,11 @@ const colorPalette = [
       };
 
       try {
-        const response = await fetch(`${apiBase}/labels/${encodeURIComponent(oldLabelName!)}`, {
+        const response = await fetch(`${apiBase}/labels/${encodeURIComponent(oldLabelName!)}`, withCsrfToken({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();
@@ -568,9 +595,9 @@ const colorPalette = [
       }
 
       try {
-        const response = await fetch(`${apiBase}/labels/${encodeURIComponent(labelName!)}`, {
+        const response = await fetch(`${apiBase}/labels/${encodeURIComponent(labelName!)}`, withCsrfToken({
           method: 'DELETE',
-        });
+        }));
 
         if (response.ok) {
           window.location.reload();

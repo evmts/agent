@@ -524,6 +524,33 @@ const totalPages = Math.ceil(totalCount / perPage);
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const triggerBtn = document.getElementById('trigger-btn');
   const modal = document.getElementById('dispatch-modal');
   const modalBackdrop = document.getElementById('modal-backdrop');
@@ -598,7 +625,7 @@ const totalPages = Math.ceil(totalCount / perPage);
 
       try {
         // Call the v2 API for workflow execution
-        const response = await fetch(`/api/workflows/run`, {
+        const response = await fetch(`/api/workflows/run`, withCsrfToken({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -610,7 +637,7 @@ const totalPages = Math.ceil(totalCount / perPage);
               inputs: data.inputs,
             },
           }),
-        });
+        }));
 
         if (response.ok) {
           closeModal();

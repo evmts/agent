@@ -240,6 +240,65 @@ describe("renderMarkdown - HTML escaping", () => {
   });
 });
 
+describe("renderMarkdown - XSS prevention", () => {
+  test("blocks javascript: URLs in links", () => {
+    const result = renderMarkdown("[Click me](javascript:alert('xss'))");
+
+    // Link should be stripped out or sanitized
+    expect(result).not.toContain("javascript:");
+    expect(result).not.toContain("alert");
+  });
+
+  test("blocks vbscript: URLs in links", () => {
+    const result = renderMarkdown("[Click me](vbscript:alert('xss'))");
+
+    expect(result).not.toContain("vbscript:");
+  });
+
+  test("blocks data: URLs in links", () => {
+    const result = renderMarkdown("[Click me](data:text/html,<script>alert('xss')</script>)");
+
+    expect(result).not.toContain("data:");
+  });
+
+  test("blocks javascript: URLs in images", () => {
+    const result = renderMarkdown("![Alt](javascript:alert('xss'))");
+
+    expect(result).not.toContain("javascript:");
+  });
+
+  test("allows safe http URLs", () => {
+    const result = renderMarkdown("[Safe link](https://example.com)");
+
+    expect(result).toContain('href="https://example.com"');
+  });
+
+  test("allows safe relative URLs", () => {
+    const result = renderMarkdown("[Relative](/path/to/page)");
+
+    expect(result).toContain('href="/path/to/page"');
+  });
+
+  test("allows mailto: URLs", () => {
+    const result = renderMarkdown("[Email](mailto:user@example.com)");
+
+    expect(result).toContain("mailto:");
+  });
+
+  test("handles case-insensitive javascript: URLs", () => {
+    const result = renderMarkdown("[Click](JavaScript:alert('xss'))");
+
+    expect(result).not.toContain("JavaScript:");
+    expect(result).not.toContain("alert");
+  });
+
+  test("handles javascript: with whitespace", () => {
+    const result = renderMarkdown("[Click](  javascript:alert('xss'))");
+
+    expect(result).not.toContain("javascript:");
+  });
+});
+
 describe("renderMarkdown - mentions", () => {
   test("converts @username to links", () => {
     const result = renderMarkdown("Thanks @alice");

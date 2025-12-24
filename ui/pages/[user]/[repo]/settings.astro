@@ -148,6 +148,33 @@ const branches = await sql`
 </Layout>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const form = document.getElementById("settings-form") as HTMLFormElement;
   const topicsInput = document.getElementById("topics") as HTMLInputElement;
   const topicsPreview = document.querySelector(".topics-preview");
@@ -195,11 +222,11 @@ const branches = await sql`
 
     try {
       // Update topics
-      const topicsRes = await fetch(`/api/${user}/${repo}/topics`, {
+      const topicsRes = await fetch(`/api/${user}/${repo}/topics`, withCsrfToken({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topics }),
-      });
+      }));
 
       if (!topicsRes.ok) {
         const error = await topicsRes.json();

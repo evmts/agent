@@ -369,6 +369,33 @@ const [{ count: landingCount }] = await sql`
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const username = window.location.pathname.split('/')[1];
   const reponame = window.location.pathname.split('/')[2];
 
@@ -390,14 +417,14 @@ const [{ count: landingCount }] = await sql`
     const form = e.target as HTMLFormElement;
     const formData = new FormData(form);
 
-    const response = await fetch(`/api/${username}/${reponame}/bookmarks`, {
+    const response = await fetch(`/api/${username}/${reponame}/bookmarks`, withCsrfToken({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: formData.get('name'),
         change_id: formData.get('change_id') || undefined
       })
-    });
+    }));
 
     if (response.ok) {
       window.location.reload();
@@ -432,11 +459,11 @@ const [{ count: landingCount }] = await sql`
     const bookmarkName = formData.get('bookmark_name') as string;
     const changeId = formData.get('change_id') as string;
 
-    const response = await fetch(`/api/${username}/${reponame}/bookmarks/${bookmarkName}`, {
+    const response = await fetch(`/api/${username}/${reponame}/bookmarks/${bookmarkName}`, withCsrfToken({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ change_id: changeId })
-    });
+    }));
 
     if (response.ok) {
       window.location.reload();
@@ -453,9 +480,9 @@ const [{ count: landingCount }] = await sql`
 
       if (!confirm(`Delete bookmark "${bookmarkName}"?`)) return;
 
-      const response = await fetch(`/api/${username}/${reponame}/bookmarks/${bookmarkName}`, {
+      const response = await fetch(`/api/${username}/${reponame}/bookmarks/${bookmarkName}`, withCsrfToken({
         method: 'DELETE'
-      });
+      }));
 
       if (response.ok) {
         window.location.reload();

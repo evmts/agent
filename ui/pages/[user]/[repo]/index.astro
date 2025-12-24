@@ -561,6 +561,33 @@ try {
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   // Star functionality
   const starBtn = document.getElementById("star-btn");
   const starIcon = document.getElementById("star-icon");
@@ -661,7 +688,7 @@ try {
         if (level === "ignore") {
           // Unwatch
           try {
-            const res = await fetch(`/${username}/${repo}/watch`, { method: "DELETE" });
+            const res = await fetch(`/${username}/${repo}/watch`, withCsrfToken({ method: "DELETE" }));
             if (res.ok && watchText) {
               watchText.textContent = "Watch";
               watchMenu.classList.remove("show");
@@ -674,11 +701,11 @@ try {
         } else {
           // Watch with level
           try {
-            const res = await fetch(`/${username}/${repo}/watch`, {
+            const res = await fetch(`/${username}/${repo}/watch`, withCsrfToken({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ level }),
-            });
+            }));
 
             if (res.ok && watchText) {
               watchText.textContent = level === "all" ? "Watching" : "Watching releases";
@@ -730,11 +757,11 @@ try {
     const repo = pathParts[2];
 
     try {
-      const res = await fetch(`/api/${username}/${repo}/topics`, {
+      const res = await fetch(`/api/${username}/${repo}/topics`, withCsrfToken({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topics }),
-      });
+      }));
 
       if (res.ok) {
         window.location.reload();

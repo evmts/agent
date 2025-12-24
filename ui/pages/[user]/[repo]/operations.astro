@@ -338,6 +338,33 @@ function getOperationColor(type: string): string {
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const username = window.location.pathname.split('/')[1];
   const reponame = window.location.pathname.split('/')[2];
 
@@ -345,9 +372,9 @@ function getOperationColor(type: string): string {
   document.querySelector('[data-action="undo"]')?.addEventListener('click', async () => {
     if (!confirm('Undo the last operation?')) return;
 
-    const response = await fetch(`/api/${username}/${reponame}/operations/undo`, {
+    const response = await fetch(`/api/${username}/${reponame}/operations/undo`, withCsrfToken({
       method: 'POST'
-    });
+    }));
 
     if (response.ok) {
       window.location.reload();
@@ -364,9 +391,9 @@ function getOperationColor(type: string): string {
 
       if (!confirm(`Restore to operation ${operationId.substring(0, 8)}? This will undo all subsequent operations.`)) return;
 
-      const response = await fetch(`/api/${username}/${reponame}/operations/${operationId}/restore`, {
+      const response = await fetch(`/api/${username}/${reponame}/operations/${operationId}/restore`, withCsrfToken({
         method: 'POST'
-      });
+      }));
 
       if (response.ok) {
         window.location.reload();

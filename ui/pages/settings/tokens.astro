@@ -414,6 +414,33 @@ try {
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const tokenForm = document.getElementById('token-form') as HTMLFormElement;
   const tokenErrorDiv = document.getElementById('token-error') as HTMLDivElement;
   const generateTokenBtn = document.getElementById('generate-token-submit') as HTMLButtonElement;
@@ -443,12 +470,12 @@ try {
     }
 
     try {
-      const res = await fetch('/api/user/tokens', {
+      const res = await fetch('/api/user/tokens', withCsrfToken({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, scopes }),
         credentials: 'include',
-      });
+      }));
 
       const data = await res.json();
 
@@ -513,10 +540,10 @@ try {
       target.textContent = 'Revoking...';
 
       try {
-        const res = await fetch(`/api/user/tokens/${tokenId}`, {
+        const res = await fetch(`/api/user/tokens/${tokenId}`, withCsrfToken({
           method: 'DELETE',
           credentials: 'include',
-        });
+        }));
 
         if (!res.ok) {
           const data = await res.json();

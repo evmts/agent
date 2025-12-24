@@ -246,6 +246,33 @@ try {
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   const keyForm = document.getElementById('ssh-key-form') as HTMLFormElement;
   const keyErrorDiv = document.getElementById('key-error') as HTMLDivElement;
   const keySuccessDiv = document.getElementById('key-success') as HTMLDivElement;
@@ -264,12 +291,12 @@ try {
     const publicKey = (document.getElementById('public-key') as HTMLTextAreaElement).value.trim();
 
     try {
-      const res = await fetch('/api/ssh-keys', {
+      const res = await fetch('/api/ssh-keys', withCsrfToken({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, publicKey }),
         credentials: 'include',
-      });
+      }));
 
       const data = await res.json();
 
@@ -311,10 +338,10 @@ try {
       target.textContent = 'Deleting...';
 
       try {
-        const res = await fetch(`/api/ssh-keys/${keyId}`, {
+        const res = await fetch(`/api/ssh-keys/${keyId}`, withCsrfToken({
           method: 'DELETE',
           credentials: 'include',
-        });
+        }));
 
         if (!res.ok) {
           const data = await res.json();

@@ -55,6 +55,33 @@ const baseUrl =
 </div>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   // Handle reaction interactions
   document.addEventListener("DOMContentLoaded", () => {
     const containers = document.querySelectorAll<HTMLElement>("[data-reactions-container]");
@@ -94,11 +121,11 @@ const baseUrl =
           if (!emoji) return;
 
           try {
-            await fetch(baseUrl!, {
+            await fetch(baseUrl!, withCsrfToken({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ user_id: userId, emoji }),
-            });
+            }));
 
             // Reload the page to show updated reactions
             window.location.reload();
@@ -120,16 +147,16 @@ const baseUrl =
           try {
             if (isActive) {
               // Remove reaction
-              await fetch(`${baseUrl}/${encodeURIComponent(emoji)}?user_id=${userId}`, {
+              await fetch(`${baseUrl}/${encodeURIComponent(emoji)}?user_id=${userId}`, withCsrfToken({
                 method: "DELETE",
-              });
+              }));
             } else {
               // Add reaction
-              await fetch(baseUrl!, {
+              await fetch(baseUrl!, withCsrfToken({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ user_id: userId, emoji }),
-              });
+              }));
             }
 
             // Reload the page to show updated reactions
