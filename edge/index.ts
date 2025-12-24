@@ -186,7 +186,7 @@ export default {
 
       // Skip cache for authenticated users - they get personalized content
       if (user) {
-        const response = await proxyToOrigin(request, env, user, cache, cacheKey);
+        const response = await proxyToOrigin(request, env, user, cache, cacheKey, logger.getRequestId());
         const finalResponse = new Response(response.body, response);
         if (!finalResponse.headers.has('X-Cache')) {
           finalResponse.headers.set('X-Cache', 'BYPASS');
@@ -220,7 +220,7 @@ export default {
       }
 
       // Fetch from origin (with error handling and stale-while-revalidate fallback)
-      const response = await proxyToOrigin(request, env, user, cache, cacheKey);
+      const response = await proxyToOrigin(request, env, user, cache, cacheKey, logger.getRequestId());
 
       // Cache if origin says it's cacheable
       if (shouldCache(response)) {

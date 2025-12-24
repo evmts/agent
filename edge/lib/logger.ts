@@ -32,8 +32,10 @@ export class Logger {
 
   constructor(request: Request) {
     this.startTime = Date.now();
+    // Use existing X-Request-ID if present, otherwise generate new one
+    const existingRequestId = request.headers.get('X-Request-ID');
     this.context = {
-      requestId: crypto.randomUUID(),
+      requestId: existingRequestId || crypto.randomUUID(),
       clientIP: request.headers.get('CF-Connecting-IP') || 'unknown',
       path: new URL(request.url).pathname,
       method: request.method,
