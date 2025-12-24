@@ -22,11 +22,19 @@ class_name = "AuthDO"
 name = "RATE_LIMIT_DO"
 class_name = "RateLimitDO"
 
+[[durable_objects.bindings]]
+name = "METRICS_DO"
+class_name = "MetricsDO"
+
 # Migrations for Durable Objects
 # Note: When adding new DO classes, create a new migration tag
 [[migrations]]
 tag = "v1"
 new_classes = ["AuthDO", "RateLimitDO"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["MetricsDO"]
 
 # -----------------------------------------------------------------------------
 # Environment: Development
@@ -48,6 +56,10 @@ class_name = "AuthDO"
 name = "RATE_LIMIT_DO"
 class_name = "RateLimitDO"
 
+[[env.dev.durable_objects.bindings]]
+name = "METRICS_DO"
+class_name = "MetricsDO"
+
 # -----------------------------------------------------------------------------
 # Environment: Production
 # -----------------------------------------------------------------------------
@@ -66,6 +78,10 @@ class_name = "AuthDO"
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMIT_DO"
 class_name = "RateLimitDO"
+
+[[env.production.durable_objects.bindings]]
+name = "METRICS_DO"
+class_name = "MetricsDO"
 
 # BUILD_VERSION is set during deploy via --var flag:
 # wrangler deploy --var BUILD_VERSION:$(git rev-parse --short HEAD)

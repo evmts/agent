@@ -26,4 +26,12 @@ export interface Env {
 
   // Optional: Workers Analytics Engine binding
   ANALYTICS?: AnalyticsEngineDataset;
+
+  // Optional: Secret key for accessing metrics endpoint
+  // If set, requests to /metrics must include this in Authorization header
+  METRICS_API_KEY?: string;
+
+  // Optional: Allowed CIDRs for metrics endpoint (comma-separated)
+  // e.g., "10.0.0.0/8,192.168.0.0/16"
+  METRICS_ALLOWED_IPS?: string;
 }

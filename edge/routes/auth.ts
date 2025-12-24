@@ -53,7 +53,7 @@ export async function handleAuthRoute(
       if (request.method !== 'POST') {
         return methodNotAllowed();
       }
-      return handleLogout(env);
+      return handleLogout(request, env);
 
     default:
       return notFound();
@@ -100,10 +100,19 @@ async function handleVerify(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    // Verify the SIWE signature
+    // Extract expected domain from request
+    // Use CF-Host header (set by Cloudflare) or fall back to Host header
+    const expectedDomain = request.headers.get('CF-Host') ||
+                          request.headers.get('Host') ||
+                          new URL(request.url).host;
+
+    // SECURITY: Verify the SIWE signature with domain validation
+    // This prevents cross-domain replay attacks where a signature
+    // obtained on one domain could be used on another
     const { address, message: siweMessage } = await verifySiweMessage(
       body.message,
       body.signature,
+      expectedDomain,  // Validate domain matches request
     );
 
     // Consume nonce atomically via Durable Object (replay protection)
@@ -150,10 +159,32 @@ async function handleVerify(request: Request, env: Env): Promise<Response> {
 
 /**
  * POST /api/auth/logout
- * Clear session cookie
+ * Clear session cookie and invalidate the session in the DO
  */
-async function handleLogout(env: Env): Promise<Response> {
+async function handleLogout(request: Request, env: Env): Promise<Response> {
   const isProduction = !env.ORIGIN_HOST.includes('localhost');
+
+  // Try to invalidate the session in the Durable Object
+  // This prevents the JWT from being used even if stolen
+  try {
+    const token = getSessionFromRequest(request);
+    if (token) {
+      const payload = await verifySessionToken(env.JWT_SECRET, token);
+      if (payload?.address) {
+        // Mark this session as logged out in the user's DO
+        const userDO = env.AUTH_DO.get(env.AUTH_DO.idFromName(payload.address));
+        await userDO.fetch(new Request('https://do/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: payload.address }),
+        }));
+      }
+    }
+  } catch (error) {
+    // Log but don't fail the logout - clearing the cookie is the primary action
+    console.warn('Failed to invalidate session in DO:', error);
+  }
+
   const response = jsonResponse({ message: 'Logout successful' });
   response.headers.set('Set-Cookie', createClearSessionCookie(isProduction));
   return response;

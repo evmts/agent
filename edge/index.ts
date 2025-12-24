@@ -53,6 +53,80 @@ function addRateLimitHeaders(headers: Headers, result: RateLimitResult): void {
   }
 }
 
+/**
+ * SECURITY: Validate access to metrics endpoint
+ *
+ * Metrics can reveal sensitive information about:
+ * - Request patterns and volumes
+ * - Authentication success/failure rates (timing attacks)
+ * - User enumeration possibilities
+ *
+ * Access is controlled by either:
+ * 1. METRICS_API_KEY - Bearer token in Authorization header
+ * 2. METRICS_ALLOWED_IPS - IP-based allowlist
+ */
+function validateMetricsAccess(request: Request, env: Env): { allowed: boolean; reason?: string } {
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+  // If neither protection is configured, allow access (development mode)
+  if (!env.METRICS_API_KEY && !env.METRICS_ALLOWED_IPS) {
+    return { allowed: true };
+  }
+
+  // Check API key authentication
+  if (env.METRICS_API_KEY) {
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader) {
+      const [scheme, token] = authHeader.split(' ');
+      if (scheme?.toLowerCase() === 'bearer' && token === env.METRICS_API_KEY) {
+        return { allowed: true };
+      }
+    }
+  }
+
+  // Check IP allowlist
+  if (env.METRICS_ALLOWED_IPS) {
+    const allowedCidrs = env.METRICS_ALLOWED_IPS.split(',').map(s => s.trim());
+    for (const cidr of allowedCidrs) {
+      if (isIpInCidr(clientIP, cidr)) {
+        return { allowed: true };
+      }
+    }
+  }
+
+  // No valid authentication found
+  console.warn('Metrics access denied', { clientIP, hasAuthHeader: !!request.headers.get('Authorization') });
+  return { allowed: false, reason: 'Metrics access denied. Provide valid credentials or use allowed IP.' };
+}
+
+/**
+ * Simple CIDR matching for IPv4
+ * Supports both single IPs and CIDR notation (e.g., "10.0.0.0/8")
+ */
+function isIpInCidr(ip: string, cidr: string): boolean {
+  // Handle single IP match
+  if (!cidr.includes('/')) {
+    return ip === cidr;
+  }
+
+  const [cidrIp, prefixStr] = cidr.split('/');
+  const prefix = parseInt(prefixStr, 10);
+
+  // Parse IPs to numbers
+  const ipParts = ip.split('.').map(p => parseInt(p, 10));
+  const cidrParts = cidrIp.split('.').map(p => parseInt(p, 10));
+
+  if (ipParts.length !== 4 || cidrParts.length !== 4) {
+    return false;
+  }
+
+  const ipNum = (ipParts[0] << 24) | (ipParts[1] << 16) | (ipParts[2] << 8) | ipParts[3];
+  const cidrNum = (cidrParts[0] << 24) | (cidrParts[1] << 16) | (cidrParts[2] << 8) | cidrParts[3];
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+
+  return (ipNum & mask) === (cidrNum & mask);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const logger = new Logger(request);
@@ -60,8 +134,21 @@ export default {
     const url = new URL(request.url);
 
     try {
-      // Handle metrics endpoint (no auth/rate limiting needed)
+      // Handle metrics endpoint with optional auth protection
       if (url.pathname === '/metrics') {
+        // SECURITY: Protect metrics endpoint from unauthorized access
+        // Metrics can reveal request patterns, auth success rates, etc.
+        const metricsAuthResult = validateMetricsAccess(request, env);
+        if (!metricsAuthResult.allowed) {
+          return new Response(JSON.stringify({ error: metricsAuthResult.reason }), {
+            status: 403,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Request-ID': logger.getRequestId(),
+            },
+          });
+        }
+
         const response = await handleMetrics(request, env);
         response.headers.set('X-Request-ID', logger.getRequestId());
         return response;
@@ -361,7 +448,16 @@ async function proxyToOrigin(
   });
 
   try {
-    const response = await fetch(proxyRequest);
+    // Add timeout to prevent hanging on slow/unresponsive origin
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+    let response: Response;
+    try {
+      response = await fetch(proxyRequest, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     // Rewrite redirect URLs back to edge
     if (response.status >= 300 && response.status < 400) {
