@@ -339,6 +339,162 @@ async function createTestIssues(repoId: number, userId: number) {
 }
 
 /**
+ * Create test workflow definitions and runs
+ */
+async function createTestWorkflows(repoId: number, userId: number) {
+  console.log("Creating test workflow definitions and runs...");
+
+  try {
+    // Create a workflow definition
+    const [workflowDef] = await sql<{ id: number }[]>`
+      INSERT INTO workflow_definitions (
+        repository_id,
+        name,
+        file_path,
+        triggers,
+        image,
+        plan,
+        content_hash
+      ) VALUES (
+        ${repoId},
+        'test-ci',
+        '.plue/workflows/ci.py',
+        ${JSON.stringify([{ type: 'push', branches: ['main'] }, { type: 'pull_request' }])}::jsonb,
+        'ubuntu:22.04',
+        ${JSON.stringify({
+          name: 'test-ci',
+          steps: [
+            { id: 'step_1', name: 'Install deps', type: 'shell', config: { data: { cmd: 'echo "Installing..."' } }, depends_on: [] },
+            { id: 'step_2', name: 'Run tests', type: 'shell', config: { data: { cmd: 'echo "Testing..."' } }, depends_on: ['step_1'] }
+          ]
+        })}::jsonb,
+        'abc123'
+      )
+      ON CONFLICT (repository_id, name) DO UPDATE SET
+        file_path = EXCLUDED.file_path,
+        triggers = EXCLUDED.triggers
+      RETURNING id
+    `;
+
+    // Create a successful workflow run
+    const [successRun] = await sql<{ id: number }[]>`
+      INSERT INTO workflow_runs (
+        workflow_definition_id,
+        trigger_type,
+        trigger_payload,
+        status,
+        started_at,
+        completed_at
+      ) VALUES (
+        ${workflowDef.id},
+        'push',
+        ${JSON.stringify({ ref: 'refs/heads/main', sha: 'abc123' })}::jsonb,
+        'success',
+        NOW() - INTERVAL '1 hour',
+        NOW() - INTERVAL '50 minutes'
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `;
+
+    if (successRun) {
+      // Create workflow steps for the successful run
+      await sql`
+        INSERT INTO workflow_steps (
+          run_id,
+          step_id,
+          name,
+          step_type,
+          config,
+          status,
+          started_at,
+          completed_at,
+          exit_code
+        ) VALUES (
+          ${successRun.id},
+          'step_1',
+          'Install deps',
+          'shell',
+          ${JSON.stringify({ data: { cmd: 'echo "Installing..."' } })}::jsonb,
+          'success',
+          NOW() - INTERVAL '1 hour',
+          NOW() - INTERVAL '55 minutes',
+          0
+        )
+        ON CONFLICT DO NOTHING
+      `;
+
+      await sql`
+        INSERT INTO workflow_steps (
+          run_id,
+          step_id,
+          name,
+          step_type,
+          config,
+          status,
+          started_at,
+          completed_at,
+          exit_code
+        ) VALUES (
+          ${successRun.id},
+          'step_2',
+          'Run tests',
+          'shell',
+          ${JSON.stringify({ data: { cmd: 'echo "Testing..."' } })}::jsonb,
+          'success',
+          NOW() - INTERVAL '55 minutes',
+          NOW() - INTERVAL '50 minutes',
+          0
+        )
+        ON CONFLICT DO NOTHING
+      `;
+    }
+
+    // Create a failed workflow run
+    await sql`
+      INSERT INTO workflow_runs (
+        workflow_definition_id,
+        trigger_type,
+        trigger_payload,
+        status,
+        started_at,
+        completed_at,
+        error_message
+      ) VALUES (
+        ${workflowDef.id},
+        'push',
+        ${JSON.stringify({ ref: 'refs/heads/feature', sha: 'def456' })}::jsonb,
+        'failed',
+        NOW() - INTERVAL '2 hours',
+        NOW() - INTERVAL '1 hour 55 minutes',
+        'Step "Run tests" failed with exit code 1'
+      )
+      ON CONFLICT DO NOTHING
+    `;
+
+    // Create a pending workflow run
+    await sql`
+      INSERT INTO workflow_runs (
+        workflow_definition_id,
+        trigger_type,
+        trigger_payload,
+        status
+      ) VALUES (
+        ${workflowDef.id},
+        'manual',
+        ${JSON.stringify({ triggered_by: 'e2etest' })}::jsonb,
+        'pending'
+      )
+      ON CONFLICT DO NOTHING
+    `;
+
+    console.log("Workflow definitions and runs created");
+  } catch (error) {
+    console.log("Skipping workflows (tables may not exist):", error);
+  }
+}
+
+/**
  * Create test landing requests (if table exists)
  */
 async function createTestLandingRequests(repoId: number, userId: number) {
@@ -403,6 +559,9 @@ export async function seed() {
 
     // Create landing requests
     await createTestLandingRequests(repoId, userId);
+
+    // Create workflow definitions and runs
+    await createTestWorkflows(repoId, userId);
 
     // Create empty secondary repo
     const emptyRepoId = await createTestRepo(
