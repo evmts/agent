@@ -449,6 +449,33 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
 </style>
 
 <script>
+  // Get CSRF token from cookie
+  function getCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'csrf_token') {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  // Helper to add CSRF token to fetch options
+  function withCsrfToken(options: RequestInit = {}): RequestInit {
+    const token = getCsrfToken();
+    if (token) {
+      return {
+        ...options,
+        headers: {
+          ...options.headers,
+          'X-CSRF-Token': token,
+        },
+      };
+    }
+    return options;
+  }
+
   // Handle add comment button clicks
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
@@ -509,7 +536,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
       const username = pathParts[1];
       const reponame = pathParts[2];
 
-      fetch(`/api/${username}/${reponame}/landing/${landingId}/comments`, {
+      fetch(`/api/${username}/${reponame}/landing/${landingId}/comments`, withCsrfToken({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -518,7 +545,7 @@ function parseDiffLines(content: string, oldStart: number, newStart: number) {
           side: side,
           body: textarea.value
         })
-      }).then(response => {
+      })).then(response => {
         if (response.ok) {
           window.location.reload();
         } else {

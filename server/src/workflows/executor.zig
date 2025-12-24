@@ -944,35 +944,17 @@ pub const Executor = struct {
             }
         }
 
-        // Validate command doesn't contain obvious shell metacharacters for injection
-        // This is a basic safety check - not exhaustive but catches common patterns
-        const dangerous_chars = ";|&$`()<>";
-        for (dangerous_chars) |char| {
-            if (std.mem.indexOfScalar(u8, cmd, char)) |_| {
-                return StepResult{
-                    .step_id = try self.allocator.dupe(u8, step.id),
-                    .status = .failed,
-                    .exit_code = null,
-                    .output = null,
-                    .error_message = try std.fmt.allocPrint(
-                        self.allocator,
-                        "Command contains potentially dangerous character: {c}",
-                        .{char},
-                    ),
-                    .turns_used = null,
-                    .tokens_in = null,
-                    .tokens_out = null,
-                    .started_at = started_at,
-                    .completed_at = std.time.timestamp(),
-                };
-            }
-        }
-
-        // Parse command into argv array to avoid shell interpretation
-        // For now, do simple whitespace splitting (can be enhanced with proper shell parsing)
+        // WARNING: Commands come from workflow YAML. Do not include untrusted user input in cmd.
+        // For complex shell features, workflows should use a dedicated shell step type.
+        // TODO: Add a "trusted" shell step type that allows `sh -c` for advanced use cases.
+        //
+        // Parse command into argv array for safer execution without shell interpretation
+        // This prevents command injection if untrusted data somehow flows into cmd.
         var argv_list = std.ArrayList([]const u8){};
         defer argv_list.deinit(self.allocator);
 
+        // Simple whitespace tokenization (doesn't handle quotes/escapes)
+        // This is intentionally limited to prevent shell metacharacter interpretation
         var iter = std.mem.tokenizeAny(u8, cmd, " \t\n\r");
         while (iter.next()) |token| {
             try argv_list.append(self.allocator, token);
@@ -992,6 +974,8 @@ pub const Executor = struct {
                 .completed_at = std.time.timestamp(),
             };
         }
+
+        // Use direct argv execution instead of sh -c to avoid shell injection
 
         var child = std.process.Child.init(argv_list.items, self.allocator);
         child.env_map = &env_map;
