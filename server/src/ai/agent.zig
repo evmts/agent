@@ -9,6 +9,11 @@ const AgentOptions = types.AgentOptions;
 const StreamCallbacks = types.StreamCallbacks;
 const ToolContext = types.ToolContext;
 
+pub const AgentUsage = struct {
+    tokens_in: u32 = 0,
+    tokens_out: u32 = 0,
+};
+
 /// Run agent (non-streaming) and return final text
 pub fn runAgent(
     allocator: std.mem.Allocator,
@@ -145,7 +150,7 @@ pub fn streamAgent(
     options: AgentOptions,
     ctx: ToolContext,
     callbacks: StreamCallbacks,
-) !void {
+) !AgentUsage {
     const config = registry.getAgentConfig(options.agent_name);
 
     // Get enabled tools for this agent
@@ -159,7 +164,7 @@ pub fn streamAgent(
     // Get API key
     const api_key = std.process.getEnvVarOwned(allocator, "ANTHROPIC_API_KEY") catch {
         callbacks.on_event(.{ .error_event = .{ .message = "ANTHROPIC_API_KEY not set" } }, callbacks.context);
-        return;
+        return error.ApiKeyNotSet;
     };
     defer allocator.free(api_key);
 
@@ -176,6 +181,7 @@ pub fn streamAgent(
 
     var steps: u32 = 0;
     const max_steps: u32 = 10;
+    var usage = AgentUsage{};
 
     while (steps < max_steps) {
         const response = anthropic.sendMessages(
@@ -187,8 +193,10 @@ pub fn streamAgent(
             4096,
         ) catch |err| {
             callbacks.on_event(.{ .error_event = .{ .message = @errorName(err) } }, callbacks.context);
-            return;
+            return err;
         };
+        usage.tokens_in += @as(u32, @intCast(response.usage.input_tokens));
+        usage.tokens_out += @as(u32, @intCast(response.usage.output_tokens));
 
         // Emit events for response content
         var has_tool_calls = false;
@@ -214,7 +222,7 @@ pub fn streamAgent(
         if (!has_tool_calls) {
             // Done
             callbacks.on_event(.{ .done = {} }, callbacks.context);
-            return;
+            return usage;
         }
 
         // Process tool calls
@@ -291,6 +299,7 @@ pub fn streamAgent(
     }
 
     callbacks.on_event(.{ .error_event = .{ .message = "Max steps reached" } }, callbacks.context);
+    return error.MaxStepsReached;
 }
 
 test "registry integration" {

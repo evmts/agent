@@ -77,7 +77,7 @@ pub fn runAgentHandler(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     };
 
     // Run agent with streaming
-    ai_mod.streamAgent(
+    _ = ai_mod.streamAgent(
         ctx.allocator,
         messages.items,
         .{

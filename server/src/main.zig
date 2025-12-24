@@ -29,10 +29,12 @@ pub fn main() !void {
     log.info("Prometheus metrics initialized (available at /metrics)", .{});
 
     // Initialize database pool
+    // Note: Size increased from 10 to 20 and timeout from 10s to 30s to handle
+    // concurrent workflow execution alongside HTTP requests
     const uri = try std.Uri.parse(cfg.database_url);
     const pool = try db.Pool.initUri(allocator, uri, .{
-        .size = 10,
-        .timeout = 10_000,
+        .size = 20,
+        .timeout = 30_000,
     });
     defer pool.deinit();
 

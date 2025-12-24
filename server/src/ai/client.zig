@@ -234,6 +234,7 @@ pub const StreamingEvent = union(enum) {
 
     pub const MessageStartEvent = struct {
         message_id: []const u8,
+        input_tokens: ?u32 = null,
     };
 
     pub const ContentBlockStartEvent = struct {
@@ -267,6 +268,7 @@ pub const StreamingEvent = union(enum) {
 
     pub const MessageDeltaEvent = struct {
         stop_reason: ?[]const u8,
+        output_tokens: ?u32 = null,
     };
 
     pub const ErrorEvent = struct {
@@ -413,8 +415,17 @@ fn parseStreamEvent(allocator: std.mem.Allocator, data: []const u8) !StreamingEv
 
     if (std.mem.eql(u8, event_type, "message_start")) {
         const msg = root.get("message").?.object;
+        var input_tokens: ?u32 = null;
+        if (msg.get("usage")) |usage_value| {
+            if (usage_value == .object) {
+                if (usage_value.object.get("input_tokens")) |tokens_value| {
+                    input_tokens = @intCast(tokens_value.integer);
+                }
+            }
+        }
         return .{ .message_start = .{
             .message_id = try allocator.dupe(u8, msg.get("id").?.string),
+            .input_tokens = input_tokens,
         } };
     } else if (std.mem.eql(u8, event_type, "content_block_start")) {
         const index = @as(usize, @intCast(root.get("index").?.integer));
@@ -462,7 +473,15 @@ fn parseStreamEvent(allocator: std.mem.Allocator, data: []const u8) !StreamingEv
             if (sr == .string) try allocator.dupe(u8, sr.string) else null
         else
             null;
-        return .{ .message_delta = .{ .stop_reason = stop_reason } };
+        var output_tokens: ?u32 = null;
+        if (delta.get("usage")) |usage_value| {
+            if (usage_value == .object) {
+                if (usage_value.object.get("output_tokens")) |tokens_value| {
+                    output_tokens = @intCast(tokens_value.integer);
+                }
+            }
+        }
+        return .{ .message_delta = .{ .stop_reason = stop_reason, .output_tokens = output_tokens } };
     } else if (std.mem.eql(u8, event_type, "message_stop")) {
         return .{ .message_stop = {} };
     } else if (std.mem.eql(u8, event_type, "ping")) {

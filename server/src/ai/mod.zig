@@ -46,6 +46,7 @@ pub const general_agent = registry.general_agent;
 pub const agent = @import("agent.zig");
 pub const runAgent = agent.runAgent;
 pub const streamAgent = agent.streamAgent;
+pub const AgentUsage = agent.AgentUsage;
 
 // Tools
 pub const tools = @import("tools/mod.zig");
