@@ -5,14 +5,15 @@ Uses HTTP POST with chunked transfer encoding for real-time streaming.
 """
 
 import json
-import logging
 import random
 import time
 from typing import Optional, Any
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from .logger import get_logger
+
+logger = get_logger(__name__)
 
 # Events that are critical and require more retries
 CRITICAL_EVENTS = {'done', 'error', 'tool_end'}

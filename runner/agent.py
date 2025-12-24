@@ -5,7 +5,6 @@ Supports streaming responses and tool execution in sandboxed environments.
 """
 
 import json
-import logging
 import uuid
 from typing import List, Dict, Any, Optional, Callable
 
@@ -13,8 +12,9 @@ from anthropic import Anthropic
 
 from .streaming import StreamingClient
 from .tools import get_tool_definitions, execute_tool
+from .logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AgentRunner:

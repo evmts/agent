@@ -153,7 +153,7 @@ export default {
 
       // Only cache GET/HEAD requests
       if (request.method !== 'GET' && request.method !== 'HEAD') {
-        const response = await proxyToOrigin(request, env, user, undefined, undefined);
+        const response = await proxyToOrigin(request, env, user, undefined, undefined, logger.getRequestId());
         const finalResponse = new Response(response.body, response);
         addRateLimitHeaders(finalResponse.headers, rateLimitResult);
         addSecurityHeaders(finalResponse.headers);
@@ -168,7 +168,7 @@ export default {
 
       // Skip cache for API routes (they handle their own caching)
       if (url.pathname.startsWith('/api/')) {
-        const response = await proxyToOrigin(request, env, user, undefined, undefined);
+        const response = await proxyToOrigin(request, env, user, undefined, undefined, logger.getRequestId());
         const finalResponse = new Response(response.body, response);
         addRateLimitHeaders(finalResponse.headers, rateLimitResult);
         addSecurityHeaders(finalResponse.headers);
@@ -336,7 +336,8 @@ async function proxyToOrigin(
   env: Env,
   user: { address: string } | null,
   cache?: Cache,
-  cacheKey?: Request
+  cacheKey?: Request,
+  requestId?: string
 ): Promise<Response> {
   const url = new URL(request.url);
   const originUrl = new URL(url.pathname + url.search, `https://${env.ORIGIN_HOST}`);
@@ -345,6 +346,11 @@ async function proxyToOrigin(
   const headers = new Headers(request.headers);
   if (user) {
     headers.set(USER_ADDRESS_HEADER, user.address);
+  }
+
+  // Propagate request ID to origin
+  if (requestId) {
+    headers.set('X-Request-ID', requestId);
   }
 
   const proxyRequest = new Request(originUrl.toString(), {

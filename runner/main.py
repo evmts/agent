@@ -19,19 +19,21 @@ Environment variables:
 import os
 import sys
 import json
-import logging
 import signal
 from typing import Optional
 
 from .agent import AgentRunner
 from .workflow import WorkflowRunner
 from .streaming import StreamingClient
+from .logger import configure_logging, get_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Configure structured JSON logging
+configure_logging(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    task_id=os.environ.get("TASK_ID"),
+    request_id=os.environ.get("REQUEST_ID"),
 )
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Runner:

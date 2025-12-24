@@ -1,0 +1,15 @@
+# Build artifacts
+libjson.a
+json
+ssh_keys.o
+*.log
+
+# Zig build
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Backup files
+*.bak
+*.bak2
+*.bak3

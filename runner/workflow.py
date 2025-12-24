@@ -6,14 +6,14 @@ and git operations.
 """
 
 import json
-import logging
 import subprocess
 import os
 from typing import List, Dict, Any, Optional, Callable
 
 from .streaming import StreamingClient
+from .logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WorkflowRunner:

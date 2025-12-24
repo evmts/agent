@@ -1,0 +1,33 @@
+# =============================================================================
+# Pod Disruption Budgets for Runner Infrastructure
+# =============================================================================
+# Ensures high availability during voluntary disruptions (node upgrades, drains).
+# Without PDBs, all pods could be terminated simultaneously during maintenance.
+#
+# This file contains PDBs for runner infrastructure managed via YAML manifests.
+# Core service PDBs (API, Web) are in Terraform at:
+# infra/terraform/kubernetes/services/pod-disruption-budgets.tf
+#
+# Apply with: kubectl apply -f pod-disruption-budgets.yaml
+
+---
+# Runner Standby Pool PDB
+# Protects the warm pool of workflow runners during node maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: runner-standby-pdb
+  namespace: workflows
+  labels:
+    app: runner-standby
+spec:
+  # Keep 2 warm runners available at all times to maintain pool capacity
+  # This is critical because:
+  # 1. Warm runners provide <500ms cold start for workflow execution
+  # 2. Having 2+ available ensures requests can be served during disruptions
+  # 3. The HPA (in warm-pool.yaml) can scale up new pods before old ones are removed
+  # 4. With minReplicas: 2 in HPA, this ensures no disruption to warm pool
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: runner-standby
