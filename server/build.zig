@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     });
 
     // Build jj-ffi Rust library (now at top-level /jj/)
-    const jj_ffi_build = b.addSystemCommand(&.{
+    const jj_ffi_cargo = b.addSystemCommand(&.{
         "cargo",
         "build",
         "--release",
@@ -40,14 +40,40 @@ pub fn build(b: *std.Build) void {
         "../jj/Cargo.toml",
     });
 
+    // Fix dylib install name on macOS (cargo embeds old path from when library was moved)
+    const jj_ffi_build = if (target.result.os.tag == .macos) blk: {
+        const abs_jj_path = b.pathFromRoot("../jj/target/release/libjj_ffi.dylib");
+        const fix_install_name = b.addSystemCommand(&.{
+            "install_name_tool",
+            "-id",
+            abs_jj_path,
+            abs_jj_path,
+        });
+        fix_install_name.step.dependOn(&jj_ffi_cargo.step);
+        break :blk fix_install_name;
+    } else jj_ffi_cargo;
+
     // Build prompt-parser Rust library (now at top-level /prompt-parser/)
-    const prompt_parser_build = b.addSystemCommand(&.{
+    const prompt_parser_cargo = b.addSystemCommand(&.{
         "cargo",
         "build",
         "--release",
         "--manifest-path",
         "../prompt-parser/Cargo.toml",
     });
+
+    // Fix dylib install name on macOS (cargo embeds old path from when library was moved)
+    const prompt_parser_build = if (target.result.os.tag == .macos) blk: {
+        const abs_parser_path = b.pathFromRoot("../prompt-parser/target/release/libprompt_parser.dylib");
+        const fix_install_name = b.addSystemCommand(&.{
+            "install_name_tool",
+            "-id",
+            abs_parser_path,
+            abs_parser_path,
+        });
+        fix_install_name.step.dependOn(&prompt_parser_cargo.step);
+        break :blk fix_install_name;
+    } else prompt_parser_cargo;
 
     // Main executable
     const exe = b.addExecutable(.{
@@ -70,12 +96,14 @@ pub fn build(b: *std.Build) void {
     exe.step.dependOn(&jj_ffi_build.step);
     exe.addIncludePath(b.path("../jj"));
     exe.addLibraryPath(b.path("../jj/target/release"));
+    exe.addRPath(b.path("../jj/target/release"));
     exe.linkSystemLibrary("jj_ffi");
     exe.linkLibC();
 
     // Link prompt-parser library (now at top-level /prompt-parser/)
     exe.step.dependOn(&prompt_parser_build.step);
     exe.addLibraryPath(b.path("../prompt-parser/target/release"));
+    exe.addRPath(b.path("../prompt-parser/target/release"));
     exe.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib
@@ -124,12 +152,14 @@ pub fn build(b: *std.Build) void {
     cli_exe.step.dependOn(&jj_ffi_build.step);
     cli_exe.addIncludePath(b.path("../jj"));
     cli_exe.addLibraryPath(b.path("../jj/target/release"));
+    cli_exe.addRPath(b.path("../jj/target/release"));
     cli_exe.linkSystemLibrary("jj_ffi");
     cli_exe.linkLibC();
 
     // Link prompt-parser library (now at top-level /prompt-parser/)
     cli_exe.step.dependOn(&prompt_parser_build.step);
     cli_exe.addLibraryPath(b.path("../prompt-parser/target/release"));
+    cli_exe.addRPath(b.path("../prompt-parser/target/release"));
     cli_exe.linkSystemLibrary("prompt_parser");
 
     // Link system libraries
@@ -176,12 +206,14 @@ pub fn build(b: *std.Build) void {
     unit_tests.step.dependOn(&jj_ffi_build.step);
     unit_tests.addIncludePath(b.path("../jj"));
     unit_tests.addLibraryPath(b.path("../jj/target/release"));
+    unit_tests.addRPath(b.path("../jj/target/release"));
     unit_tests.linkSystemLibrary("jj_ffi");
     unit_tests.linkLibC();
 
     // Link prompt-parser library for tests (now at top-level /prompt-parser/)
     unit_tests.step.dependOn(&prompt_parser_build.step);
     unit_tests.addLibraryPath(b.path("../prompt-parser/target/release"));
+    unit_tests.addRPath(b.path("../prompt-parser/target/release"));
     unit_tests.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib for tests
@@ -215,12 +247,14 @@ pub fn build(b: *std.Build) void {
     integration_tests.step.dependOn(&jj_ffi_build.step);
     integration_tests.addIncludePath(b.path("../jj"));
     integration_tests.addLibraryPath(b.path("../jj/target/release"));
+    integration_tests.addRPath(b.path("../jj/target/release"));
     integration_tests.linkSystemLibrary("jj_ffi");
     integration_tests.linkLibC();
 
     // Link prompt-parser library for integration tests (now at top-level /prompt-parser/)
     integration_tests.step.dependOn(&prompt_parser_build.step);
     integration_tests.addLibraryPath(b.path("../prompt-parser/target/release"));
+    integration_tests.addRPath(b.path("../prompt-parser/target/release"));
     integration_tests.linkSystemLibrary("prompt_parser");
 
     // Link system libraries required by jj-lib for integration tests
@@ -259,12 +293,14 @@ pub fn build(b: *std.Build) void {
     agent_tests.step.dependOn(&jj_ffi_build.step);
     agent_tests.addIncludePath(b.path("../jj"));
     agent_tests.addLibraryPath(b.path("../jj/target/release"));
+    agent_tests.addRPath(b.path("../jj/target/release"));
     agent_tests.linkSystemLibrary("jj_ffi");
     agent_tests.linkLibC();
 
     // Link prompt-parser library for agent tests (now at top-level /prompt-parser/)
     agent_tests.step.dependOn(&prompt_parser_build.step);
     agent_tests.addLibraryPath(b.path("../prompt-parser/target/release"));
+    agent_tests.addRPath(b.path("../prompt-parser/target/release"));
     agent_tests.linkSystemLibrary("prompt_parser");
 
     if (target.result.os.tag == .macos) {
