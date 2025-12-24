@@ -1,0 +1,268 @@
+//! User routes
+//!
+//! Handles user profile and search operations:
+//! - GET /users/search - Search users by query
+//! - GET /users/:username - Get public user profile
+//! - PATCH /users/me - Update own profile
+
+const std = @import("std");
+const httpz = @import("httpz");
+const Context = @import("../main.zig").Context;
+const db = @import("db");
+const auth = @import("../middleware/auth.zig");
+
+const log = std.log.scoped(.user_routes);
+
+/// Escape LIKE special characters to prevent SQL injection
+/// Escapes: %, _, [, ]
+fn escapeLikePattern(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    // Count special characters to determine buffer size
+    var special_count: usize = 0;
+    for (input) |c| {
+        if (c == '%' or c == '_' or c == '[' or c == ']') {
+            special_count += 1;
+        }
+    }
+
+    // Allocate buffer with extra space for escape characters
+    const escaped = try allocator.alloc(u8, input.len + special_count);
+    var idx: usize = 0;
+
+    for (input) |c| {
+        if (c == '%' or c == '_' or c == '[' or c == ']') {
+            escaped[idx] = '\\';
+            idx += 1;
+        }
+        escaped[idx] = c;
+        idx += 1;
+    }
+
+    return escaped;
+}
+
+/// GET /users/search?q=query
+/// Search active users by username
+pub fn search(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const query_params = try req.query();
+    const query = query_params.get("q") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing query parameter 'q'\"}");
+        return;
+    };
+
+    if (query.len < 2) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Query must be at least 2 characters\"}");
+        return;
+    }
+
+    // Search users (using LIKE pattern)
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    // Sanitize query to prevent SQL injection in LIKE pattern
+    const escaped_query = try escapeLikePattern(ctx.allocator, query);
+    defer ctx.allocator.free(escaped_query);
+
+    var pattern_buf: [512]u8 = undefined;
+    const pattern = try std.fmt.bufPrint(&pattern_buf, "%{s}%", .{escaped_query});
+
+    var result = try conn.query(
+        \\SELECT id, username, display_name, avatar_url
+        \\FROM users
+        \\WHERE is_active = true AND lower_username LIKE lower($1) ESCAPE '\'
+        \\ORDER BY username
+        \\LIMIT 20
+    , .{pattern});
+    defer result.deinit();
+
+    // Build JSON array
+    var writer = res.writer();
+    try writer.writeAll("{\"users\":[");
+
+    var first = true;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        const id: i64 = row.get(i64, 0);
+        const username: []const u8 = row.get([]const u8, 1);
+        const display_name: ?[]const u8 = row.get(?[]const u8, 2);
+        const avatar_url: ?[]const u8 = row.get(?[]const u8, 3);
+
+        try writer.print(
+            \\{{"id":{d},"username":"{s}","displayName":
+        , .{ id, username });
+        if (display_name) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"avatarUrl\":");
+        if (avatar_url) |a| {
+            try writer.print("\"{s}\"", .{a});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll("}}");
+    }
+
+    try writer.writeAll("]}");
+}
+
+/// GET /users/:username
+/// Get public user profile
+pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("username") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    // Get user
+    const user = try db.getUserByUsername(ctx.pool, username);
+    if (user == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"User not found\"}");
+        return;
+    }
+
+    const u = user.?;
+
+    // Count repositories
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var repo_result = try conn.query(
+        \\SELECT COUNT(*) FROM repositories WHERE owner_id = $1
+    , .{u.id});
+    defer repo_result.deinit();
+
+    var repo_count: i64 = 0;
+    if (try repo_result.next()) |row| {
+        repo_count = row.get(i64, 0);
+    }
+
+    // Return profile
+    var writer = res.writer();
+    try writer.print(
+        \\{{"id":{d},"username":"{s}","displayName":
+    , .{ u.id, u.username });
+    if (u.display_name) |d| {
+        try writer.print("\"{s}\"", .{d});
+    } else {
+        try writer.writeAll("null");
+    }
+    try writer.print(
+        \\,"bio":null,"avatarUrl":null,"repositoryCount":{d}}}
+    , .{repo_count});
+}
+
+/// PATCH /users/me
+/// Update own profile
+pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    // Check scope (also checks authentication)
+    if (!try auth.checkScope(ctx, res, .user_write)) return;
+
+    if (!ctx.user.?.is_active) {
+        res.status = 403;
+        try res.writer().writeAll("{\"error\":\"Account not activated\"}");
+        return;
+    }
+
+    const user_id = ctx.user.?.id;
+
+    // Parse JSON body
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        displayName: ?[]const u8 = null,
+        bio: ?[]const u8 = null,
+        email: ?[]const u8 = null,
+        avatarUrl: ?[]const u8 = null,
+    }, ctx.allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Validate field lengths
+    if (v.displayName) |dn| {
+        if (dn.len > 255) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Display name must be at most 255 characters\"}");
+            return;
+        }
+    }
+
+    if (v.bio) |b| {
+        if (b.len > 2000) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Bio must be at most 2000 characters\"}");
+            return;
+        }
+    }
+
+    if (v.email) |e| {
+        if (e.len > 255) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Email must be at most 255 characters\"}");
+            return;
+        }
+        // Basic email validation
+        if (std.mem.indexOf(u8, e, "@") == null) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Invalid email address\"}");
+            return;
+        }
+    }
+
+    if (v.avatarUrl) |au| {
+        if (au.len > 2048) {
+            res.status = 400;
+            try res.writer().writeAll("{\"error\":\"Avatar URL must be at most 2048 characters\"}");
+            return;
+        }
+    }
+
+    // Check if at least one field is provided
+    if (v.displayName == null and v.bio == null and v.email == null and v.avatarUrl == null) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"No updates provided\"}");
+        return;
+    }
+
+    // Update profile using db function
+    try db.updateUserProfile(ctx.pool, user_id, v.displayName, v.bio, v.email);
+
+    // Handle avatar URL separately (not in updateUserProfile function)
+    if (v.avatarUrl) |avatar_url| {
+        var conn = try ctx.pool.acquire();
+        defer conn.release();
+        _ = try conn.exec(
+            \\UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2
+        , .{ avatar_url, user_id });
+    }
+
+    // Notify edge of user profile update
+    if (ctx.edge_notifier) |notifier| {
+        notifier.notifySqlChange("users", null) catch |err| {
+            log.warn("Failed to notify edge of user profile update: {}", .{err});
+        };
+    }
+
+    try res.writer().writeAll("{\"message\":\"Profile updated successfully\"}");
+}

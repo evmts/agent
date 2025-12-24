@@ -1,0 +1,8 @@
+target/
+Cargo.lock
+*.dylib
+*.so
+*.dll
+*.a
+zig-cache/
+zig-out/
