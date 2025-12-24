@@ -255,15 +255,8 @@ fn writeJsonValue(writer: anytype, value: std.json.Value) !void {
 }
 
 /// Stringify a value to JSON.
-/// NOTE: In Zig 0.15, std.json.stringify does not exist.
-/// This function is kept for API compatibility but marked as deprecated.
-/// Use valueToString for std.json.Value or manual JSON construction.
 pub fn stringify(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
-    _ = allocator;
-    _ = value;
-    // TODO: Implement manual JSON construction for arbitrary types
-    // For now, return error to indicate this function needs manual implementation
-    return error.NotImplemented;
+    return std.json.Stringify.valueAlloc(allocator, value, .{});
 }
 
 // =============================================================================
