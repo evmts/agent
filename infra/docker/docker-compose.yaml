@@ -7,6 +7,8 @@ services:
       POSTGRES_DB: plue
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
+      TZ: UTC
+      PGTZ: UTC
     ports:
       - '54321:5432'
     volumes:

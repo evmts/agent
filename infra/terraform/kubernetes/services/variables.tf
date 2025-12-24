@@ -55,3 +55,19 @@ variable "repos_storage_size" {
   type        = string
   default     = "100Gi"
 }
+
+# -----------------------------------------------------------------------------
+# mTLS Configuration
+# -----------------------------------------------------------------------------
+
+variable "enable_mtls" {
+  description = "Enable mTLS origin protection"
+  type        = bool
+  default     = false
+}
+
+variable "mtls_ca_secret_name" {
+  description = "Name of the K8s secret containing the mTLS CA cert"
+  type        = string
+  default     = "mtls-ca"
+}

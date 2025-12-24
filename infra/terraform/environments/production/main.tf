@@ -9,10 +9,12 @@
 # 3. terraform apply -target=module.networking
 # 4. terraform apply -target=module.cloudsql
 # 5. terraform apply -target=module.gke -target=module.secrets -target=module.artifact_registry
-# 6. Build and push Docker images to Artifact Registry
-# 7. Add ANTHROPIC_API_KEY to Secret Manager manually
-# 8. terraform apply (full)
-# 9. terraform apply -target=module.dns (after LB IP is available)
+# 6. terraform apply -target=module.external_secrets (installs ESO)
+# 7. Build and push Docker images to Artifact Registry
+# 8. Create secrets in GCP Secret Manager (see infra/k8s/external-secrets/README.md)
+# 9. Apply K8s manifests for ESO (secret-store.yaml, database-secret.yaml, api-secrets.yaml)
+# 10. terraform apply (full)
+# 11. terraform apply -target=module.dns (after LB IP is available)
 
 terraform {
   required_version = ">= 1.5.0"
@@ -173,6 +175,33 @@ module "gke" {
   deletion_protection           = var.deletion_protection
   labels                        = local.labels
 
+  # Master authorized networks - restrict API access to trusted sources
+  # SECURITY: Never use 0.0.0.0/0 - specify trusted networks explicitly
+  master_authorized_networks = [
+    {
+      # Google Cloud Shell - for emergency console access
+      cidr_block   = "35.235.240.0/20"
+      display_name = "Google Cloud Shell"
+    },
+    # GitHub Actions runners use dynamic IPs - see:
+    # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#ip-addresses
+    # Consider using a GitHub Actions self-hosted runner with a static IP,
+    # or use Workload Identity Federation for secure access.
+    # {
+    #   cidr_block   = "YOUR_GITHUB_ACTIONS_IP/32"
+    #   display_name = "GitHub Actions Self-Hosted Runner"
+    # },
+    # Add your office/VPN networks here:
+    # {
+    #   cidr_block   = "YOUR_OFFICE_IP/32"
+    #   display_name = "Office Network"
+    # },
+    # {
+    #   cidr_block   = "YOUR_VPN_IP/32"
+    #   display_name = "VPN Endpoint"
+    # },
+  ]
+
   # Enable sandbox pool for workflow runners
   enable_sandbox_pool     = var.enable_sandbox_pool
   sandbox_machine_type    = var.sandbox_machine_type
@@ -217,6 +246,42 @@ module "secrets" {
 }
 
 # -----------------------------------------------------------------------------
+# Module: External Secrets Operator
+# -----------------------------------------------------------------------------
+# Syncs secrets from GCP Secret Manager into Kubernetes Secrets, eliminating
+# secrets from Terraform state and enabling secure secret rotation.
+#
+# Benefits:
+# - No secrets in Terraform state (security improvement)
+# - Centralized secret management in GCP Secret Manager
+# - Automatic secret rotation with 1-hour refresh
+# - Audit logging of all secret access
+# - Uses Workload Identity (no service account keys)
+#
+# After applying this module:
+# 1. Create secrets in GCP Secret Manager (see infra/k8s/external-secrets/README.md)
+# 2. Apply ClusterSecretStore manifest (secret-store.yaml)
+# 3. Apply ExternalSecret manifests (database-secret.yaml, api-secrets.yaml)
+# 4. Verify secrets are synced: kubectl get secrets -n plue
+
+module "external_secrets" {
+  source = "../../modules/external-secrets"
+
+  name_prefix           = local.name_prefix
+  project_id            = module.project.project_id
+  namespace             = "external-secrets"  # ESO installs in its own namespace
+  eso_service_account   = "external-secrets"  # K8s SA name for ESO
+  labels                = local.labels
+
+  providers = {
+    google = google
+    helm   = helm
+  }
+
+  depends_on = [module.gke]
+}
+
+# -----------------------------------------------------------------------------
 # Module: Kubernetes Resources
 # -----------------------------------------------------------------------------
 
@@ -242,6 +307,10 @@ module "kubernetes" {
 
   # Edge push secret for K8s to Workers authentication
   edge_push_secret          = var.enable_edge ? random_password.edge_push_secret[0].result : var.edge_push_secret
+
+  # mTLS configuration for origin protection
+  enable_mtls               = var.enable_edge && var.enable_mtls && var.mtls_ca_cert != ""
+  mtls_ca_cert              = var.mtls_ca_cert
 
   # Pass through for services
   providers = {
@@ -328,4 +397,36 @@ module "cloudflare_workers" {
   push_secret  = random_password.edge_push_secret[0].result
 
   depends_on = [module.cloudflare_tunnel]
+}
+
+# -----------------------------------------------------------------------------
+# Module: Cloudflare Spectrum (SSH proxying)
+# -----------------------------------------------------------------------------
+
+module "cloudflare_spectrum" {
+  source = "../../modules/cloudflare-spectrum"
+  count  = var.enable_edge && var.enable_spectrum ? 1 : 0
+
+  zone_id    = var.cloudflare_zone_id
+  domain     = var.domain
+  origin_ip  = module.kubernetes.load_balancer_ip
+  enable_argo = true
+  enable_ssh_443 = true
+
+  depends_on = [module.kubernetes]
+}
+
+# -----------------------------------------------------------------------------
+# Module: Cloudflare mTLS (Authenticated Origin Pulls)
+# -----------------------------------------------------------------------------
+
+module "cloudflare_mtls" {
+  source = "../../modules/cloudflare-mtls"
+  count  = var.enable_edge && var.enable_mtls && var.mtls_client_cert != "" ? 1 : 0
+
+  zone_id            = var.cloudflare_zone_id
+  client_certificate = var.mtls_client_cert
+  client_private_key = var.mtls_client_key
+
+  depends_on = [module.cloudflare_workers]
 }

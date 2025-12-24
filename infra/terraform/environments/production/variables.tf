@@ -178,6 +178,39 @@ variable "edge_push_secret" {
   default     = ""
 }
 
+variable "enable_spectrum" {
+  description = "Enable Cloudflare Spectrum for SSH traffic"
+  type        = bool
+  default     = true
+}
+
+variable "enable_mtls" {
+  description = "Enable mTLS (Authenticated Origin Pulls) for origin protection"
+  type        = bool
+  default     = true
+}
+
+variable "mtls_client_cert" {
+  description = "mTLS client certificate PEM (for Cloudflare to present to origin)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "mtls_client_key" {
+  description = "mTLS client private key PEM"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "mtls_ca_cert" {
+  description = "mTLS CA certificate PEM (for origin to verify Cloudflare)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # -----------------------------------------------------------------------------
 # Application
 # -----------------------------------------------------------------------------

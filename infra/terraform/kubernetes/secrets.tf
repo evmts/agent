@@ -96,3 +96,36 @@ resource "kubernetes_secret" "edge_push_secret" {
 
   type = "Opaque"
 }
+
+# =============================================================================
+# mTLS CA Certificate Secret
+# =============================================================================
+# The CA certificate is used by the Zig server to verify that incoming
+# connections have a client certificate signed by our CA (i.e., Cloudflare).
+#
+# This enables origin protection: only Cloudflare can connect to the origin.
+
+resource "kubernetes_secret" "mtls_ca" {
+  count = var.mtls_ca_cert != "" ? 1 : 0
+
+  metadata {
+    name      = "mtls-ca"
+    namespace = kubernetes_namespace.plue.metadata[0].name
+
+    labels = {
+      app        = "plue"
+      component  = "mtls"
+      managed-by = "terraform"
+    }
+
+    annotations = {
+      "description" = "CA certificate for mTLS origin protection"
+    }
+  }
+
+  data = {
+    "ca.crt" = var.mtls_ca_cert
+  }
+
+  type = "Opaque"
+}

@@ -215,6 +215,29 @@ groups:
           summary: "Certificate {{ $labels.cn }} expiring very soon"
           description: "Certificate {{ $labels.cn }} will expire in {{ $value | humanizeDuration }}."
 
+      # mTLS Certificate Alerts
+      # These require the mTLS cert expiry to be exported as a Prometheus metric
+      # via the plue_mtls_cert_expiry_seconds gauge
+      - alert: MTLSCertificateExpiringSoon
+        expr: (plue_mtls_cert_expiry_seconds - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          component: mtls
+        annotations:
+          summary: "mTLS certificate expiring soon"
+          description: "mTLS client certificate will expire in {{ $value | printf \"%.0f\" }} days. Run generate-mtls-certs.sh and redeploy."
+
+      - alert: MTLSCertificateExpiryCritical
+        expr: (plue_mtls_cert_expiry_seconds - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: critical
+          component: mtls
+        annotations:
+          summary: "mTLS certificate expiring very soon!"
+          description: "CRITICAL: mTLS client certificate will expire in {{ $value | printf \"%.0f\" }} days. Origin protection will fail. Immediate action required."
+
   # Deployment Alerts
   - name: deployments
     interval: 30s

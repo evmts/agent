@@ -13,13 +13,16 @@ terraform {
 }
 
 # -----------------------------------------------------------------------------
-# KV Namespace for caching (optional, for future use)
+# KV Namespaces
 # -----------------------------------------------------------------------------
 
 resource "cloudflare_workers_kv_namespace" "cache" {
   account_id = var.account_id
   title      = "plue-cache-${var.environment}"
 }
+
+# Note: Auth has been migrated from KV to Durable Objects for strong consistency
+# The old plue-auth-* KV namespace can be deleted after migration is verified
 
 # -----------------------------------------------------------------------------
 # Workers Script with Durable Objects
@@ -31,13 +34,35 @@ resource "cloudflare_workers_script" "edge" {
   content    = file(var.worker_script_path)
   module     = true
 
-  # Durable Object binding for data sync
+  # Durable Object binding for authentication state (nonces, sessions, blocklist)
+  # Uses DO instead of KV for strong consistency on nonce replay protection
   durable_object_binding {
-    name       = "DATA_SYNC"
-    class_name = "DataSyncDO"
+    name       = "AUTH_DO"
+    class_name = "AuthDO"
   }
 
-  # KV namespace binding
+  # Durable Object binding for rate limiting
+  # Uses DO for atomic counters with strong consistency
+  durable_object_binding {
+    name       = "RATE_LIMIT_DO"
+    class_name = "RateLimitDO"
+  }
+
+  # Durable Object binding for metrics aggregation
+  # Collects metrics across all edge instances for Prometheus scraping
+  durable_object_binding {
+    name       = "METRICS_DO"
+    class_name = "MetricsDO"
+  }
+
+  # Analytics Engine binding (optional, for detailed analytics)
+  # Uncomment when Analytics Engine is enabled on the account
+  # analytics_engine_binding {
+  #   name    = "ANALYTICS"
+  #   dataset = "plue_edge_analytics"
+  # }
+
+  # KV namespace bindings
   kv_namespace_binding {
     name         = "CACHE"
     namespace_id = cloudflare_workers_kv_namespace.cache.id

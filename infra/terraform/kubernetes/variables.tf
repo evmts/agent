@@ -92,3 +92,20 @@ variable "edge_push_secret" {
   type        = string
   sensitive   = true
 }
+
+# -----------------------------------------------------------------------------
+# mTLS Configuration
+# -----------------------------------------------------------------------------
+
+variable "mtls_ca_cert" {
+  description = "mTLS CA certificate PEM (for origin to verify Cloudflare client certs)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "enable_mtls" {
+  description = "Whether to enable mTLS origin protection"
+  type        = bool
+  default     = false
+}

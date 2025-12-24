@@ -172,6 +172,33 @@ module "gke" {
   deletion_protection           = var.deletion_protection
   labels                        = local.labels
 
+  # Master authorized networks - restrict API access to trusted sources
+  # SECURITY: Never use 0.0.0.0/0 - specify trusted networks explicitly
+  master_authorized_networks = [
+    {
+      # Google Cloud Shell - for emergency console access
+      cidr_block   = "35.235.240.0/20"
+      display_name = "Google Cloud Shell"
+    },
+    # GitHub Actions runners use dynamic IPs - see:
+    # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#ip-addresses
+    # Consider using a GitHub Actions self-hosted runner with a static IP,
+    # or use Workload Identity Federation for secure access.
+    # {
+    #   cidr_block   = "YOUR_GITHUB_ACTIONS_IP/32"
+    #   display_name = "GitHub Actions Self-Hosted Runner"
+    # },
+    # Add your office/VPN networks here:
+    # {
+    #   cidr_block   = "YOUR_OFFICE_IP/32"
+    #   display_name = "Office Network"
+    # },
+    # {
+    #   cidr_block   = "YOUR_VPN_IP/32"
+    #   display_name = "VPN Endpoint"
+    # },
+  ]
+
   # Enable sandbox pool for workflow runners
   enable_sandbox_pool     = var.enable_sandbox_pool
   sandbox_machine_type    = var.sandbox_machine_type

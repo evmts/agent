@@ -101,3 +101,39 @@ output "add_anthropic_key_command" {
   description = "Command to add ANTHROPIC_API_KEY"
   value       = "echo -n 'YOUR_KEY' | gcloud secrets versions add ${module.secrets.anthropic_api_key_secret_id} --data-file=-"
 }
+
+# -----------------------------------------------------------------------------
+# Cloudflare Spectrum (SSH)
+# -----------------------------------------------------------------------------
+
+output "ssh_hostname" {
+  description = "SSH hostname for git operations via Cloudflare Spectrum"
+  value       = var.enable_edge && var.enable_spectrum ? module.cloudflare_spectrum[0].ssh_hostname : null
+}
+
+output "git_hostname" {
+  description = "Git hostname for SSH over port 443 (bypasses restrictive firewalls)"
+  value       = var.enable_edge && var.enable_spectrum ? module.cloudflare_spectrum[0].git_hostname : null
+}
+
+# -----------------------------------------------------------------------------
+# Cloudflare mTLS
+# -----------------------------------------------------------------------------
+
+output "mtls_enabled" {
+  description = "Whether mTLS (Authenticated Origin Pulls) is enabled"
+  value       = var.enable_edge && var.enable_mtls && var.mtls_client_cert != ""
+}
+
+output "mtls_status" {
+  description = "mTLS configuration status including certificate rotation schedule"
+  value = var.enable_edge && var.enable_mtls && var.mtls_client_cert != "" ? {
+    enabled       = true
+    next_rotation = module.cloudflare_mtls[0].next_rotation
+    cert_id       = module.cloudflare_mtls[0].certificate_id
+  } : {
+    enabled       = false
+    next_rotation = null
+    cert_id       = null
+  }
+}

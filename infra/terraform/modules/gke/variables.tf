@@ -49,17 +49,55 @@ variable "master_cidr" {
 }
 
 variable "master_authorized_networks" {
-  description = "Networks authorized to access the GKE master"
+  description = <<-EOT
+    Networks authorized to access the GKE master API.
+
+    SECURITY: Never use 0.0.0.0/0 in production - this exposes the Kubernetes
+    API to the entire internet. Always specify trusted networks explicitly.
+
+    Common authorized networks:
+    - Google Cloud Shell: 35.235.240.0/20
+    - GitHub Actions runners: Dynamic IPs (see GitHub's IP ranges)
+    - Office/VPN: Your organization's egress IPs
+    - CI/CD systems: Your build infrastructure IPs
+
+    Fallback access: If locked out, you can always access via Cloud Shell,
+    which is pre-authorized in Google Cloud Console.
+  EOT
+
   type = list(object({
     cidr_block   = string
     display_name = string
   }))
-  default = [
-    {
-      cidr_block   = "0.0.0.0/0"
-      display_name = "All (use with caution)"
-    }
-  ]
+
+  # Force explicit configuration - no default authorized networks
+  default = []
+
+  validation {
+    condition = alltrue([
+      for network in var.master_authorized_networks :
+      network.cidr_block != "0.0.0.0/0"
+    ])
+    error_message = <<-EOT
+      SECURITY VIOLATION: 0.0.0.0/0 is not allowed in master_authorized_networks.
+
+      Exposing the Kubernetes API to the entire internet is a critical security risk.
+      Please specify trusted networks explicitly:
+
+      master_authorized_networks = [
+        {
+          cidr_block   = "35.235.240.0/20"
+          display_name = "Google Cloud Shell"
+        },
+        {
+          cidr_block   = "YOUR_OFFICE_IP/32"
+          display_name = "Office Network"
+        }
+      ]
+
+      If you need emergency access, use Google Cloud Shell from the GCP Console.
+    EOT
+  }
 }
 
 # Primary node pool configuration

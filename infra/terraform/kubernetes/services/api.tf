@@ -121,6 +121,30 @@ resource "kubernetes_deployment" "api" {
             value = "https://plue-edge.${var.domain}"
           }
 
+          # mTLS Configuration
+          env {
+            name  = "PLUE_MTLS_ENABLED"
+            value = var.enable_mtls ? "true" : "false"
+          }
+
+          dynamic "env" {
+            for_each = var.enable_mtls ? [1] : []
+            content {
+              name  = "PLUE_MTLS_CA_PATH"
+              value = "/etc/plue/mtls/ca.crt"
+            }
+          }
+
+          # Mount mTLS CA certificate (if enabled)
+          dynamic "volume_mount" {
+            for_each = var.enable_mtls ? [1] : []
+            content {
+              name       = "mtls-ca"
+              mount_path = "/etc/plue/mtls"
+              read_only  = true
+            }
+          }
+
           liveness_probe {
             http_get {
               path = "/health"
@@ -151,6 +175,21 @@ resource "kubernetes_deployment" "api" {
             limits = {
               cpu    = "2000m"
               memory = "4Gi"
+            }
+          }
+        }
+
+        # mTLS CA certificate volume (if enabled)
+        dynamic "volume" {
+          for_each = var.enable_mtls ? [1] : []
+          content {
+            name = "mtls-ca"
+            secret {
+              secret_name = var.mtls_ca_secret_name
+              items {
+                key  = "ca.crt"
+                path = "ca.crt"
+              }
             }
           }
         }
