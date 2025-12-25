@@ -8,7 +8,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import Avatar from "../components/Avatar.astro";
 import Pagination from "../components/Pagination.astro";
-import * as users from '@plue/db/users';
+import { listUsers, searchUsers } from "../lib/api";
 
 // Get search query
 const query = Astro.url.searchParams.get('q') || '';
@@ -18,27 +18,31 @@ const PAGE_SIZE = 20;
 const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
 const offset = (page - 1) * PAGE_SIZE;
 
-// Fetch users using DAO
-let userList: any[] = [];
+// Fetch users using API
+let apiUsers: any[] = [];
 let totalCount = 0;
 
 if (query) {
   // Search with query
-  userList = await users.search(query, PAGE_SIZE, offset);
-  totalCount = await users.countSearch(query);
+  const response = await searchUsers(query);
+  apiUsers = response.users;
+  totalCount = apiUsers.length; // Search doesn't return pagination info
 } else {
   // List all users
-  userList = await users.list(PAGE_SIZE, offset);
-  totalCount = await users.count();
+  const response = await listUsers({ limit: PAGE_SIZE, offset });
+  apiUsers = response.users;
+  totalCount = response.total;
 }
 
-// Enrich with repository counts
-const enrichedUsers = await Promise.all(
-  userList.map(async (user) => {
-    const repo_count = await users.getRepositoryCount(user.id);
-    return { ...user, repo_count };
-  })
-);
+// Map API response to UI format (repositoryCount is already included)
+const enrichedUsers = apiUsers.map(user => ({
+  id: user.id,
+  username: user.username,
+  display_name: user.displayName,
+  avatar_url: user.avatarUrl,
+  bio: user.bio,
+  repo_count: user.repositoryCount || 0,
+}));
 
 const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 ---

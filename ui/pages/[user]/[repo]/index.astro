@@ -4,9 +4,8 @@ import Header from "../../../components/Header.astro";
 import FileTree from "../../../components/FileTree.astro";
 import Markdown from "../../../components/Markdown.astro";
 import TopicBadge from "../../../components/TopicBadge.astro";
-import { repositories } from '@plue/db';
 import { getTree, getFileContent, getCloneUrl, getDefaultBookmark } from "../../../lib/jj";
-import type { Repository } from "../../../lib/types";
+import { getRepoStats } from "../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -14,8 +13,9 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Get repository stats (internally fetches and validates repository exists)
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
 const defaultBookmark = await getDefaultBookmark(username, reponame);
 const tree = await getTree(username, reponame, defaultBookmark);
@@ -31,13 +31,19 @@ if (readmeFile) {
 
 const cloneUrl = getCloneUrl(username, reponame);
 
-const stats = await repositories.getStats(repo.id);
 const issueCount = stats.issueCount;
 const starCount = stats.starCount;
 const landingCount = stats.landingCount;
 const workflowStatus = {
-  running: stats.workflowRunning,
-  failing: stats.workflowFailing
+  running: 0, // TODO: Add workflow status to stats endpoint
+  failing: 0
+};
+
+// Temporary: repo metadata not yet exposed via API
+// TODO: Add GET /api/:user/:repo endpoint that returns full repository details
+const repo = {
+  description: null,  // TODO: Get from API
+  topics: [] as string[]  // TODO: Get from API (/api/:user/:repo/topics currently returns empty)
 };
 ---
 

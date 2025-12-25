@@ -2,114 +2,47 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import IssueCard from "../../../../components/IssueCard.astro";
-import IssueFilters from "../../../../components/IssueFilters.astro";
-import { repositories, milestones, reactions } from '@plue/db';
-import {
-  listIssues,
-  getIssueCounts,
-  ensureIssuesRepo,
-  getUniqueAuthors,
-  getUniqueAssignees,
-  getLabels,
-  type IssueFilters as IssueFiltersType
-} from "../../../../lib/git-issues";
-import type { User, Repository } from "../../../../lib/types";
+import { getIssues, getRepoStats, getMilestones, getLabels } from "../../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
 // Parse filter parameters from URL
 const state = Astro.url.searchParams.get("state") || "open";
-const author = Astro.url.searchParams.get("author") || undefined;
-const assignee = Astro.url.searchParams.get("assignee") || undefined;
-const labelsParam = Astro.url.searchParams.get("labels");
-const labels = labelsParam ? labelsParam.split(",").filter(Boolean) : [];
-const milestone = Astro.url.searchParams.get("milestone") || undefined;
-const sort = (Astro.url.searchParams.get("sort") || "created") as "created" | "updated" | "comments";
-const search = Astro.url.searchParams.get("search") || undefined;
 
 if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
-
-// Ensure issues repo exists
-await ensureIssuesRepo(username, reponame);
-
-// Build filters object
-const filters: IssueFiltersType = {
-  state: state as "open" | "closed" | "all",
-  author,
-  assignee,
-  labels,
-  milestone,
-  sort,
-  search,
-};
-
-// Get issues from git with filters
-const gitIssues = await listIssues(username, reponame, filters);
-const counts = await getIssueCounts(username, reponame);
-
-// Get unique authors, assignees, and labels for filters
-const [authors, assignees, availableLabels] = await Promise.all([
-  getUniqueAuthors(username, reponame),
-  getUniqueAssignees(username, reponame),
+// Fetch data from API
+const [{ issues, counts }, stats, { milestones: availableMilestones }, { labels: availableLabels }] = await Promise.all([
+  getIssues(username, reponame, state as 'open' | 'closed' | 'all'),
+  getRepoStats(username, reponame),
+  getMilestones(username, reponame, 'open'),
   getLabels(username, reponame),
 ]);
 
-// Get milestones for filter
-const availableMilestones = await milestones.listOpenForFiltering(repo.id);
+const landingCount = stats.landingCount;
 
-// Fetch reaction counts for all issues
-const issueNumbers = gitIssues.map(i => i.number);
-const reactionCounts = await reactions.getCountsByTargets('issue', issueNumbers);
-
-// Group reactions by issue
-const issueReactionMap = reactionCounts.reduce((acc, r) => {
-  if (!acc[r.target_id]) {
-    acc[r.target_id] = [];
-  }
-  acc[r.target_id].push({ emoji: r.emoji, count: Number(r.count) });
-  return acc;
-}, {} as Record<number, Array<{ emoji: string; count: number }>>);
-
-// Transform to match expected shape (Issue type)
-const issues = gitIssues.map(issue => ({
-  id: issue.number, // Use issue number as id for now
-  repository_id: repo.id,
+// Transform issues to match expected shape for IssueCard
+const transformedIssues = issues.map(issue => ({
+  id: issue.id,
+  repository_id: 0, // Not provided by API
   author_id: issue.author.id,
   issue_number: issue.number,
   title: issue.title,
   body: issue.body,
   state: issue.state,
-  milestone_id: null, // Git-based issues don't have milestone_id yet
-  created_at: new Date(issue.created_at),
-  updated_at: new Date(issue.updated_at),
-  closed_at: issue.closed_at ? new Date(issue.closed_at) : null,
+  milestone_id: null,
+  created_at: new Date(issue.createdAt),
+  updated_at: new Date(issue.updatedAt),
+  closed_at: issue.closedAt ? new Date(issue.closedAt) : null,
   author_username: issue.author.username,
   labels: issue.labels,
-  due_date: issue.due_date || null,
-  reactions: issueReactionMap[issue.number] || [],
+  due_date: issue.dueDate,
+  reactions: issue.reactions,
   assignees: issue.assignees,
-  is_pinned: issue.is_pinned,
+  is_pinned: issue.isPinned,
 }));
-
-// Count pending landing requests
-const stats = await repositories.getStats(repo.id);
-const landingCount = stats.pending_landing_count;
-
-// Build current filters for component
-const currentFilters = {
-  state,
-  author: author || null,
-  assignee: assignee || null,
-  labels,
-  milestone: milestone || null,
-  sort,
-  search: search || null,
-};
 
 const baseUrl = `/${username}/${reponame}/issues`;
 ---
@@ -134,7 +67,7 @@ const baseUrl = `/${username}/${reponame}/issues`;
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/changes/main`}>Changes</a>
   </nav>
 
   <div class="container">
@@ -158,37 +91,22 @@ const baseUrl = `/${username}/${reponame}/issues`;
       </a>
     </div>
 
-    <IssueFilters
-      currentFilters={currentFilters}
-      authors={authors}
-      assignees={assignees}
-      labels={availableLabels}
-      milestones={availableMilestones}
-      baseUrl={baseUrl}
-    />
-
     <div class="issue-results-count">
-      Showing {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+      Showing {transformedIssues.length} {transformedIssues.length === 1 ? 'issue' : 'issues'}
     </div>
 
-    {issues.length === 0 ? (
+    {transformedIssues.length === 0 ? (
       <div class="empty-state">
         <div class="empty-state-icon">◯</div>
         <div class="empty-state-title">No {state} issues found</div>
         <div class="empty-state-description">
-          {!author && !assignee && !search && labels.length === 0
-            ? `There are no ${state} issues in this repository yet.`
-            : "No issues match your current filters. Try adjusting your search criteria."}
+          There are no {state} issues in this repository yet.
         </div>
-        {!author && !assignee && !search && labels.length === 0 ? (
-          <a href={`/${username}/${reponame}/issues/new`} class="btn btn-primary">Create an issue</a>
-        ) : (
-          <a href={`/${username}/${reponame}/issues?state=${state}`} class="btn">Clear filters</a>
-        )}
+        <a href={`/${username}/${reponame}/issues/new`} class="btn btn-primary">Create an issue</a>
       </div>
     ) : (
       <div class="issue-list">
-        {issues.map((issue) => (
+        {transformedIssues.map((issue) => (
           <IssueCard issue={issue} user={username} repo={reponame} availableLabels={availableLabels} />
         ))}
       </div>

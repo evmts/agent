@@ -9,7 +9,7 @@ import Header from "../../../components/Header.astro";
 import Avatar from "../../../components/Avatar.astro";
 import RelativeTime from "../../../components/RelativeTime.astro";
 import Pagination from "../../../components/Pagination.astro";
-import { repositories, watchers as watchersDao } from '@plue/db';
+import { getWatchers } from "../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -17,19 +17,16 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-// Get repo
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Get watchers from API
+const result = await getWatchers(username, reponame).catch(() => null);
+if (!result) return Astro.redirect("/404");
 
-// Pagination
+const { watchers, total: totalCount } = result;
+
+// Pagination (TODO: Add pagination support to API)
 const PAGE_SIZE = 30;
 const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
-const offset = (page - 1) * PAGE_SIZE;
-
-// Get watchers
-const totalCount = await watchersDao.countWatchers(repo.id);
 const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-const watchers = await watchersDao.getWatchers(repo.id, PAGE_SIZE, offset);
 
 function getLevelLabel(level: string): string {
   switch (level) {
@@ -77,22 +74,20 @@ function getLevelLabel(level: string): string {
     ) : (
       <>
         <div class="users-grid">
-          {watchers.map((watcher: any) => (
+          {watchers.map((watcher) => (
             <a href={`/${watcher.username}`} class="user-card">
-              <Avatar user={{ username: watcher.username, avatar_url: watcher.avatar_url }} size="lg" />
+              <Avatar user={{ username: watcher.username, avatar_url: null }} size="lg" />
               <div class="user-info">
                 <div class="user-name">
-                  {watcher.display_name || watcher.username}
+                  {watcher.displayName || watcher.username}
                 </div>
                 <div class="user-username">@{watcher.username}</div>
-                {watcher.bio && (
-                  <div class="user-bio">{watcher.bio}</div>
-                )}
+                {/* TODO: API should return avatar_url and bio */}
                 <div class="watch-info">
-                  <span class="watch-level">{getLevelLabel(watcher.level)}</span>
+                  <span class="watch-level">{getLevelLabel(watcher.watchLevel)}</span>
                   <span class="sep">·</span>
                   <span class="watching-since">
-                    Since <RelativeTime date={watcher.watching_since} />
+                    Since <RelativeTime date={watcher.createdAt} />
                   </span>
                 </div>
               </div>

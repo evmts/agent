@@ -9,7 +9,7 @@ import Header from "../../../components/Header.astro";
 import Avatar from "../../../components/Avatar.astro";
 import RelativeTime from "../../../components/RelativeTime.astro";
 import Pagination from "../../../components/Pagination.astro";
-import { repositories, stars } from '@plue/db';
+import { getStargazers } from "../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -17,19 +17,16 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-// Get repo
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Get stargazers from API
+const result = await getStargazers(username, reponame).catch(() => null);
+if (!result) return Astro.redirect("/404");
 
-// Pagination
+const { stargazers, total: totalCount } = result;
+
+// Pagination (TODO: Add pagination support to API)
 const PAGE_SIZE = 30;
 const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
-const offset = (page - 1) * PAGE_SIZE;
-
-// Get stargazers
-const totalCount = await stars.countStargazers(repo.id);
 const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-const stargazers = await stars.getStargazers(repo.id, PAGE_SIZE, offset);
 ---
 
 <Layout title={`Stargazers · ${username}/${reponame}`}>
@@ -67,19 +64,17 @@ const stargazers = await stars.getStargazers(repo.id, PAGE_SIZE, offset);
     ) : (
       <>
         <div class="users-grid">
-          {stargazers.map((stargazer: any) => (
+          {stargazers.map((stargazer) => (
             <a href={`/${stargazer.username}`} class="user-card">
-              <Avatar user={{ username: stargazer.username, avatar_url: stargazer.avatar_url }} size="lg" />
+              <Avatar user={{ username: stargazer.username, avatar_url: null }} size="lg" />
               <div class="user-info">
                 <div class="user-name">
-                  {stargazer.display_name || stargazer.username}
+                  {stargazer.displayName || stargazer.username}
                 </div>
                 <div class="user-username">@{stargazer.username}</div>
-                {stargazer.bio && (
-                  <div class="user-bio">{stargazer.bio}</div>
-                )}
+                {/* TODO: API should return avatar_url and bio */}
                 <div class="starred-at">
-                  Starred <RelativeTime date={stargazer.starred_at} />
+                  Starred <RelativeTime date={stargazer.createdAt} />
                 </div>
               </div>
             </a>

@@ -7,7 +7,7 @@
  */
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
-import { repositories } from '@plue/db';
+import { getRepoStats, getBookmarks } from "../../../lib/api";
 import * as jj from "../../../lib/jj";
 import type { Operation } from "../../../lib/jj-types";
 
@@ -17,8 +17,9 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Validate repository exists and get stats
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
 // Get operations from jj
 let operations: Operation[] = [];
@@ -30,9 +31,8 @@ try {
   error = e instanceof Error ? e.message : "Failed to load operations";
 }
 
-const defaultBookmark = repo.default_bookmark || 'main';
-
-const stats = await repositories.getStats(repo.id);
+const bookmarksResult = await getBookmarks(username, reponame).catch(() => ({ bookmarks: [] }));
+const defaultBookmark = bookmarksResult.bookmarks.find(b => b.isDefault)?.name || 'main';
 const issueCount = stats.issueCount;
 
 function getOperationIcon(type: string): string {

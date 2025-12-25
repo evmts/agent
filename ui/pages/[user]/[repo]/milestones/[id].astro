@@ -1,8 +1,7 @@
 ---
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
-import { repositories, milestones, issues } from '@plue/db';
-import type { User, Repository, Milestone, Issue } from "../../../../lib/types";
+import { getMilestone, updateMilestone, deleteMilestone, getIssues } from "../../../../lib/api";
 
 const { user: username, repo: reponame, id: milestoneId } = Astro.params;
 const issueState = Astro.url.searchParams.get("issue_state") || "open";
@@ -11,19 +10,19 @@ if (!username || !reponame || !milestoneId) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Fetch data from API
+const [{ milestone }, { issues: allIssues }] = await Promise.all([
+  getMilestone(username, reponame, parseInt(milestoneId)),
+  getIssues(username, reponame, 'all'),
+]);
 
-// Get milestone with issue counts
-const milestone = await milestones.getById(parseInt(milestoneId));
-
-if (!milestone || milestone.repository_id !== repo.id) return Astro.redirect("/404");
-
-// Get issues for this milestone
-const issuesList = await issues.getByMilestone(
-  parseInt(milestoneId),
-  issueState as 'open' | 'closed' | 'all'
-);
+// Filter issues for this milestone
+const issuesList = allIssues.filter(issue => {
+  // Match by milestone title since API stores it as string
+  if (issue.milestone !== milestone.title) return false;
+  if (issueState === 'all') return true;
+  return issue.state === issueState;
+});
 
 let error = "";
 
@@ -40,10 +39,10 @@ if (Astro.request.method === "POST") {
       error = "Title is required";
     } else {
       try {
-        await milestones.update(parseInt(milestoneId), {
+        await updateMilestone(username, reponame, parseInt(milestoneId), {
           title,
           description: description || null,
-          due_date: due_date || null,
+          dueDate: due_date || null,
         });
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
@@ -52,21 +51,25 @@ if (Astro.request.method === "POST") {
     }
   } else if (action === "close") {
     try {
-      await milestones.close(parseInt(milestoneId));
+      await updateMilestone(username, reponame, parseInt(milestoneId), {
+        state: 'closed',
+      });
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "reopen") {
     try {
-      await milestones.reopen(parseInt(milestoneId));
+      await updateMilestone(username, reponame, parseInt(milestoneId), {
+        state: 'open',
+      });
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "delete") {
     try {
-      await milestones.remove(parseInt(milestoneId));
+      await deleteMilestone(username, reponame, parseInt(milestoneId));
       return Astro.redirect(`/${username}/${reponame}/milestones`);
     } catch (e) {
       error = (e as Error).message;
@@ -116,9 +119,9 @@ function getRelativeDueDate(dueDate: Date | null): { text: string; isOverdue: bo
   return { text, isOverdue, daysUntil: diffDays };
 }
 
-const total = (milestone.open_issues || 0) + (milestone.closed_issues || 0);
-const progress = calculateProgress(milestone.open_issues || 0, milestone.closed_issues || 0);
-const relativeDue = getRelativeDueDate(milestone.due_date);
+const total = (milestone.openIssueCount || 0) + (milestone.closedIssueCount || 0);
+const progress = calculateProgress(milestone.openIssueCount || 0, milestone.closedIssueCount || 0);
+const relativeDue = milestone.dueDate ? getRelativeDueDate(new Date(milestone.dueDate)) : null;
 const isOverdue = relativeDue?.isOverdue && milestone.state === 'open';
 
 // Determine progress bar color based on overdue status
@@ -147,7 +150,7 @@ if (isOverdue) {
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`}>Issues</a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/changes/main`}>Changes</a>
     <a href={`/${username}/${reponame}/milestones`} class="active">Milestones</a>
   </nav>
 
@@ -158,13 +161,13 @@ if (isOverdue) {
           <h1 class="page-title">{milestone.title}</h1>
           <div class="milestone-meta">
             <span class:list={["milestone-state", milestone.state]}>{milestone.state}</span>
-            {milestone.due_date && (
+            {milestone.dueDate && (
               <div class="milestone-due-info">
                 <span class:list={["milestone-due", { overdue: isOverdue }]}>
                   {relativeDue?.text}
                 </span>
                 <span class="milestone-due-date">
-                  ({formatDate(milestone.due_date)})
+                  ({formatDate(milestone.dueDate)})
                 </span>
               </div>
             )}
@@ -186,7 +189,7 @@ if (isOverdue) {
         <div class="progress-header">
           <span class="progress-percentage">{progress}% complete</span>
           <span class="progress-counts">
-            {milestone.closed_issues || 0} of {total} {total === 1 ? 'issue' : 'issues'}
+            {milestone.closedIssueCount || 0} of {total} {total === 1 ? 'issue' : 'issues'}
           </span>
         </div>
         <div class="progress-bar">
@@ -196,8 +199,8 @@ if (isOverdue) {
           ></div>
         </div>
         <div class="progress-details">
-          <span class="text-muted">{milestone.closed_issues || 0} closed</span>
-          <span class="text-muted">{milestone.open_issues || 0} open</span>
+          <span class="text-muted">{milestone.closedIssueCount || 0} closed</span>
+          <span class="text-muted">{milestone.openIssueCount || 0} open</span>
         </div>
       </div>
 
@@ -234,7 +237,7 @@ if (isOverdue) {
                   type="date"
                   name="due_date"
                   id="due_date"
-                  value={milestone.due_date ? new Date(milestone.due_date).toISOString().split('T')[0] : ""}
+                  value={milestone.dueDate ? new Date(milestone.dueDate).toISOString().split('T')[0] : ""}
                 />
               </div>
 
@@ -269,19 +272,19 @@ if (isOverdue) {
         href={`/${username}/${reponame}/milestones/${milestoneId}?issue_state=open`}
         class:list={["tab", { active: issueState === "open" }]}
       >
-        {milestone.open_issues || 0} Open
+        {milestone.openIssueCount || 0} Open
       </a>
       <a
         href={`/${username}/${reponame}/milestones/${milestoneId}?issue_state=closed`}
         class:list={["tab", { active: issueState === "closed" }]}
       >
-        {milestone.closed_issues || 0} Closed
+        {milestone.closedIssueCount || 0} Closed
       </a>
       <a
         href={`/${username}/${reponame}/milestones/${milestoneId}?issue_state=all`}
         class:list={["tab", { active: issueState === "all" }]}
       >
-        {(milestone.open_issues || 0) + (milestone.closed_issues || 0)} All
+        {(milestone.openIssueCount || 0) + (milestone.closedIssueCount || 0)} All
       </a>
     </div>
 
@@ -294,11 +297,11 @@ if (isOverdue) {
         {issuesList.map((issue) => (
           <div class="issue-item">
             <div class="issue-info">
-              <a href={`/${username}/${reponame}/issues/${issue.issue_number}`} class="issue-title">
+              <a href={`/${username}/${reponame}/issues/${issue.number}`} class="issue-title">
                 {issue.title}
               </a>
               <p class="text-muted text-sm">
-                #{issue.issue_number} opened by <strong>{issue.author_username}</strong> on {formatDate(issue.created_at)}
+                #{issue.number} opened by <strong>{issue.author.username}</strong> on {formatDate(issue.createdAt)}
               </p>
             </div>
             <span class:list={["issue-state", issue.state]}>{issue.state}</span>

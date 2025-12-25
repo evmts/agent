@@ -1,7 +1,7 @@
 ---
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
-import { repositories } from '@plue/db';
+import { getRepoStats } from "../../../lib/api";
 import { getLabels, ensureIssuesRepo } from "../../../lib/git-issues";
 
 const { user: username, repo: reponame } = Astro.params;
@@ -10,9 +10,9 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-// Get repo
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Validate repository exists and get stats
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
 // Ensure issues repo exists
 await ensureIssuesRepo(username, reponame);
@@ -20,8 +20,6 @@ await ensureIssuesRepo(username, reponame);
 // Get all labels
 const labels = await getLabels(username, reponame);
 
-// Get repository stats (includes landing count)
-const stats = await repositories.getStats(repo.id);
 const landingCount = stats.landingCount;
 
 // Predefined color palette

@@ -8,9 +8,8 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import BlameView from "../../../../components/BlameView.astro";
-import { repositories } from '@plue/db';
+import { getRepoStats } from "../../../../lib/api";
 import { getBlame } from "../../../../lib/jj";
-import type { Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame, path: pathParam } = Astro.params;
 
@@ -18,12 +17,13 @@ if (!username || !reponame || !pathParam) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Validate repository exists
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
 // Parse path: first part is the bookmark/change, rest is file path
 const pathParts = pathParam.split("/");
-const branch = pathParts[0] || repo.default_branch || "main";
+const branch = pathParts[0] || "main";
 const filePath = pathParts.slice(1).join("/");
 
 if (!filePath) {

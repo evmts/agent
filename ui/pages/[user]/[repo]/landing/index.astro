@@ -9,10 +9,9 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
-import { repositories, users, landing } from '@plue/db';
+import { listLandingRequests, getRepoStats } from "../../../../lib/api";
 import * as jj from "../../../../lib/jj";
-import type { User, Repository } from "../../../../lib/types";
-import type { LandingRequest } from "../../../../lib/jj-types";
+import type { LandingRequest } from "../../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -20,14 +19,10 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const user = await users.getByUsername(username);
-if (!user) return Astro.redirect("/404");
-
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
-
-// Get landing requests
-const requests = await landing.listWithAuthors(repo.id);
+// Get landing requests from API
+const { requests } = await listLandingRequests(username, reponame).catch(() => {
+  return Astro.redirect("/404");
+});
 
 const openRequests = requests.filter(r => !['landed', 'cancelled'].includes(r.status));
 const closedRequests = requests.filter(r => ['landed', 'cancelled'].includes(r.status));
@@ -43,31 +38,17 @@ interface StatusSummary {
 
 const statusSummaries: Map<number, StatusSummary> = new Map();
 
-// For now, we'll do a simple approach - this could be optimized with a join in production
-for (const request of openRequests) {
-  try {
-    const change = await jj.getChange(username, reponame, request.changeId);
-    if (change?.commitId) {
-      const statuses = await landing.getCommitStatusStates(repo.id, change.commitId);
+// For now, we'll skip status summaries since they require additional jj queries
+// This could be added back by calling the jj API for each change
+// TODO: Add status summary support when jj API is available
 
-      const summary: StatusSummary = {
-        landingId: request.id,
-        passing: statuses.filter(s => s.state === 'success').length,
-        failing: statuses.filter(s => s.state === 'failure' || s.state === 'error').length,
-        pending: statuses.filter(s => s.state === 'pending').length,
-      };
-
-      statusSummaries.set(request.id, summary);
-    }
-  } catch (e) {
-    // Skip if we can't get change info
-  }
-}
-
-const defaultBookmark = repo.default_branch || 'main';
-
-const stats = await repositories.getStats(repo.id);
+// Get repository stats from API
+const stats = await getRepoStats(username, reponame).catch(() => ({ issueCount: 0, starCount: 0, landingCount: 0, watcherCount: 0 }));
 const issueCount = stats.issueCount;
+
+// Default bookmark - we'll default to 'main' for now
+// TODO: Get this from the repository API once it returns default_branch
+const defaultBookmark = 'main';
 
 function getStatusColor(status: string): string {
   switch (status) {

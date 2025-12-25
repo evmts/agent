@@ -2,8 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import RepoCard from "../../components/RepoCard.astro";
-import { users, repositories } from '@plue/db';
-import type { User, Repository } from "../../lib/types";
+import { getUser, getUserRepos } from "../../lib/api";
 
 const { user: username } = Astro.params;
 
@@ -11,20 +10,35 @@ if (!username) {
   return Astro.redirect('/404');
 }
 
-const user = await users.getByUsername(username);
-
-if (!user) {
+let user;
+try {
+  user = await getUser(username);
+} catch (error) {
   return Astro.redirect("/404");
 }
 
-const repos = await repositories.listByUserId(user.id);
+const reposData = await getUserRepos(username);
+// Transform API response to match component expectations
+const repos = reposData.repositories.map(repo => ({
+  id: repo.id,
+  user_id: 0, // Not used in display
+  name: repo.name,
+  description: repo.description,
+  is_public: !repo.isPrivate,
+  default_branch: repo.defaultBranch || 'main',
+  topics: [], // API doesn't return topics yet
+  created_at: new Date(repo.createdAt),
+  updated_at: new Date(repo.updatedAt),
+  username: repo.owner,
+  star_count: 0, // Will be shown if we fetch stats
+}));
 ---
 
 <Layout title={`${user.username} · plue`}>
   <Header />
   <div class="container">
     <div class="user-profile mb-3">
-      <h1 class="page-title">{user.display_name || user.username}</h1>
+      <h1 class="page-title">{user.displayName || user.username}</h1>
       {user.bio && <p class="bio">{user.bio}</p>}
     </div>
 

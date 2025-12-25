@@ -2,8 +2,7 @@
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
 import TopicBadge from "../../../components/TopicBadge.astro";
-import { repositories } from '@plue/db';
-import type { Repository } from "../../../lib/types";
+import { getRepoStats, getBookmarks } from "../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -11,12 +10,20 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
+// Validate repository exists via stats endpoint
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
-if (!repo) return Astro.redirect("/404");
+// Get bookmarks (replaces branches in jj)
+const bookmarksResult = await getBookmarks(username, reponame).catch(() => ({ bookmarks: [] }));
+const branches = bookmarksResult.bookmarks.map(b => b.name);
 
-// Get all branches for default branch selector
-const branches = await repositories.getBranches(repo.id);
+// Temporary: repo metadata not yet exposed via API
+const repo = {
+  description: null,
+  topics: [] as string[],
+  default_branch: bookmarksResult.bookmarks.find(b => b.isDefault)?.name || 'main'
+};
 ---
 
 <Layout title={`Settings · ${username}/${reponame} · plue`}>

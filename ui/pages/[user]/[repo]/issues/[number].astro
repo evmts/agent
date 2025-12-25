@@ -10,26 +10,24 @@ import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
 import Reactions from "../../../../components/Reactions.astro";
 import ActivityItem from "../../../../components/ActivityItem.astro";
-import { repositories, users, saveMentionsForComment } from '@plue/db';
-import * as milestones from '@plue/db/milestones';
-import * as reactions from '@plue/db/reactions';
 import {
-  getIssue,
-  getComments,
-  addComment,
-  updateComment,
-  deleteComment,
-  updateIssue,
-  closeIssue,
-  reopenIssue,
-  pinIssue,
-  unpinIssue,
-  getIssueCounts,
+  getIssue as apiGetIssue,
+  getIssueComments,
+  getIssueHistory,
+  addIssueComment,
+  updateIssue as apiUpdateIssue,
+  updateIssueComment,
+  deleteIssueComment,
+  closeIssue as apiCloseIssue,
+  reopenIssue as apiReopenIssue,
+  pinIssue as apiPinIssue,
+  unpinIssue as apiUnpinIssue,
+  getIssues,
+  getRepoStats,
+  listUsers,
   getLabels,
-  ensureIssuesRepo,
-  getIssueEvents,
-  listIssues,
-} from "../../../../lib/git-issues";
+  getMilestones,
+} from "../../../../lib/api";
 import type { ReactionGroup } from "../../../../lib/types";
 
 const { user: username, repo: reponame, number: issueNumber } = Astro.params;
@@ -38,42 +36,57 @@ if (!username || !reponame || !issueNumber) {
   return Astro.redirect('/404');
 }
 
-const user = await users.getByUsername(username);
-if (!user) return Astro.redirect("/404");
+// Fetch data from API
+const [
+  { issue: apiIssue },
+  { comments: apiComments },
+  { events: apiEvents },
+  { users: allUsers },
+  { counts },
+  { labels: availableLabels },
+  { milestones: allMilestones },
+  { issues: allIssues },
+  stats,
+] = await Promise.all([
+  apiGetIssue(username, reponame, parseInt(issueNumber)),
+  getIssueComments(username, reponame, parseInt(issueNumber)),
+  getIssueHistory(username, reponame, parseInt(issueNumber)),
+  listUsers(),
+  getIssues(username, reponame, 'open'),
+  getLabels(username, reponame),
+  getMilestones(username, reponame),
+  getIssues(username, reponame, 'all'),
+  getRepoStats(username, reponame),
+]);
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+const landingCount = stats.landingCount;
 
-// Ensure issues repo exists
-await ensureIssuesRepo(username, reponame);
-
-// Get issue from git
-const gitIssue = await getIssue(username, reponame, parseInt(issueNumber));
-if (!gitIssue) return Astro.redirect("/404");
-
-// Get comments and events from git
-const gitComments = await getComments(username, reponame, parseInt(issueNumber));
-const events = await getIssueEvents(username, reponame, parseInt(issueNumber));
-
-// Transform to match expected shapes
+// Transform issue to match expected shape
 const issue = {
-  ...gitIssue,
-  issue_number: gitIssue.number,
-  author_username: gitIssue.author.username,
-  author_id: gitIssue.author.id,
-  repository_id: repo.id,
-  created_at: new Date(gitIssue.created_at),
-  updated_at: new Date(gitIssue.updated_at),
-  closed_at: gitIssue.closed_at ? new Date(gitIssue.closed_at) : null,
+  ...apiIssue,
+  issue_number: apiIssue.number,
+  author_username: apiIssue.author.username,
+  author_id: apiIssue.author.id,
+  repository_id: 0,
+  created_at: new Date(apiIssue.createdAt),
+  updated_at: new Date(apiIssue.updatedAt),
+  closed_at: apiIssue.closedAt ? new Date(apiIssue.closedAt) : null,
 };
 
-const comments = gitComments.map(c => ({
+// Transform comments
+const comments = apiComments.map(c => ({
   ...c,
   author_username: c.author.username,
   author_id: c.author.id,
-  issue_id: gitIssue.id,
-  created_at: new Date(c.created_at),
-  updated_at: c.updated_at ? new Date(c.updated_at) : undefined,
+  issue_id: apiIssue.id,
+  created_at: new Date(c.createdAt),
+  updated_at: c.updatedAt ? new Date(c.updatedAt) : undefined,
+}));
+
+// Transform events
+const events = apiEvents.map(e => ({
+  ...e,
+  created_at: new Date(e.createdAt),
 }));
 
 // Create a unified timeline of comments and events, sorted by date
@@ -88,32 +101,15 @@ const timeline: TimelineItem[] = [
   return dateA.getTime() - dateB.getTime();
 });
 
-const allUsers = await users.list();
-
-const counts = await getIssueCounts(username, reponame);
-
-// Get available labels
-const availableLabels = await getLabels(username, reponame);
-
-// Get all issues for dependency selection
-const allIssues = await listIssues(username, reponame, "all");
-
-// Get milestones for this repository
-const allMilestones = await milestones.list(repo.id);
-
 // Get current milestone if issue has one
 let currentMilestone = null;
-if (gitIssue.milestone) {
-  // milestone is stored as a string (title), find it in the milestones list
-  currentMilestone = allMilestones.find(m => m.title === gitIssue.milestone) || null;
+if (apiIssue.milestone) {
+  currentMilestone = allMilestones.find(m => m.title === apiIssue.milestone) || null;
 }
-
-// Fetch reactions for the issue
-const issueReactions = await reactions.getForIssueWithUser(parseInt(issueNumber));
 
 // Group reactions by emoji
 const issueReactionGroups: ReactionGroup[] = Object.values(
-  issueReactions.reduce((acc, r) => {
+  (apiIssue.reactions || []).reduce((acc, r) => {
     if (!acc[r.emoji]) {
       acc[r.emoji] = {
         emoji: r.emoji,
@@ -122,37 +118,13 @@ const issueReactionGroups: ReactionGroup[] = Object.values(
         has_reacted: false,
       };
     }
-    acc[r.emoji].count++;
-    acc[r.emoji].users.push({ id: r.user_id, username: r.username });
+    acc[r.emoji].count = r.count;
     return acc;
   }, {} as Record<string, ReactionGroup>)
 );
 
-// Fetch reactions for all comments
-const commentIds = comments.map(c => c.id);
-const commentReactionsMap = await reactions.getForCommentsWithUser(commentIds);
-
-// Convert Map to grouped reactions format
+// Comment reactions - for now empty since API doesn't provide them
 const commentReactions = {} as Record<number, Record<string, ReactionGroup>>;
-for (const [commentId, reactionsList] of commentReactionsMap.entries()) {
-  commentReactions[commentId] = {};
-  for (const r of reactionsList) {
-    if (!commentReactions[commentId][r.emoji]) {
-      commentReactions[commentId][r.emoji] = {
-        emoji: r.emoji,
-        count: 0,
-        users: [],
-        has_reacted: false,
-      };
-    }
-    commentReactions[commentId][r.emoji].count++;
-    commentReactions[commentId][r.emoji].users.push({ id: r.user_id, username: r.username });
-  }
-}
-
-// Get repository stats including landing count
-const stats = await repositories.getStats(repo.id);
-const landingCount = stats.landingCount;
 
 let error = "";
 
@@ -168,47 +140,25 @@ if (Astro.request.method === "POST") {
       error = "Comment cannot be empty";
     } else {
       try {
-        // Get author info from DB
-        const author = await users.getById(parseInt(authorId));
-        if (!author) {
-          error = "Author not found";
-        } else {
-          const comment = await addComment(username, reponame, parseInt(issueNumber), {
-            body,
-            author: {
-              id: parseInt(authorId),
-              username: author.username,
-            },
-          });
-
-          // Save mentions to database for notifications
-          try {
-            await saveMentionsForComment(repo.id, parseInt(issueNumber), comment.id.toString().padStart(3, "0"), body);
-          } catch (mentionError) {
-            console.error("Failed to save mentions:", mentionError);
-            // Don't fail the whole request if mentions fail
-          }
-
-          return Astro.redirect(Astro.url.pathname);
-        }
+        await addIssueComment(username, reponame, parseInt(issueNumber), {
+          body,
+          authorId: parseInt(authorId),
+        });
+        return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
       }
     }
   } else if (action === "close") {
-    const actorIdStr = formData.get("author_id") as string;
-    const actorId = actorIdStr ? parseInt(actorIdStr) : undefined;
     try {
-      await closeIssue(username, reponame, parseInt(issueNumber), actorId);
+      await apiCloseIssue(username, reponame, parseInt(issueNumber));
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "reopen") {
-    const actorIdStr = formData.get("author_id") as string;
-    const actorId = actorIdStr ? parseInt(actorIdStr) : undefined;
     try {
-      await reopenIssue(username, reponame, parseInt(issueNumber), actorId);
+      await apiReopenIssue(username, reponame, parseInt(issueNumber));
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
@@ -221,7 +171,7 @@ if (Astro.request.method === "POST") {
       error = "Comment body cannot be empty";
     } else {
       try {
-        await updateComment(username, reponame, parseInt(issueNumber), parseInt(commentId), { body });
+        await updateIssueComment(username, reponame, parseInt(issueNumber), parseInt(commentId), { body });
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
@@ -234,7 +184,7 @@ if (Astro.request.method === "POST") {
       error = "Comment ID is required";
     } else {
       try {
-        await deleteComment(username, reponame, parseInt(issueNumber), parseInt(commentId));
+        await deleteIssueComment(username, reponame, parseInt(issueNumber), parseInt(commentId));
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
@@ -248,7 +198,7 @@ if (Astro.request.method === "POST") {
       error = "Title cannot be empty";
     } else {
       try {
-        await updateIssue(username, reponame, parseInt(issueNumber), { title, body });
+        await apiUpdateIssue(username, reponame, parseInt(issueNumber), { title, body });
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
@@ -256,14 +206,14 @@ if (Astro.request.method === "POST") {
     }
   } else if (action === "pin") {
     try {
-      await pinIssue(username, reponame, parseInt(issueNumber));
+      await apiPinIssue(username, reponame, parseInt(issueNumber));
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "unpin") {
     try {
-      await unpinIssue(username, reponame, parseInt(issueNumber));
+      await apiUnpinIssue(username, reponame, parseInt(issueNumber));
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
@@ -309,7 +259,7 @@ if (authCookie) {
       {landingCount > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/changes/main`}>Changes</a>
   </nav>
 
   <div class="container">
@@ -441,11 +391,11 @@ if (authCookie) {
 
               {issue.is_pinned ? (
                 <button type="submit" name="action" value="unpin" class="btn">
-                  📌 Unpin
+                  Unpin
                 </button>
               ) : (
                 <button type="submit" name="action" value="pin" class="btn">
-                  📌 Pin
+                  Pin
                 </button>
               )}
             </div>

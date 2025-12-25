@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import RepoCard from "../components/RepoCard.astro";
 import Pagination from "../components/Pagination.astro";
-import { repositories } from '@plue/db';
+import { listRepos } from "../lib/api";
 import type { Repository } from "../lib/types";
 
 // Pagination settings
@@ -24,19 +24,25 @@ if (rawPageParam !== null && (isNaN(pageParam) || pageParam < 1 || pageParam !==
 const page = validPage;
 const offset = (page - 1) * PAGE_SIZE;
 
-// Get total count for pagination
-const count = await repositories.countPublic();
-const totalPages = Math.ceil(count / PAGE_SIZE);
+// Get paginated results from API
+const response = await listRepos({
+  limit: PAGE_SIZE,
+  offset: offset,
+  sort: 'updated_at'
+});
 
-// Get paginated results
-const rawRepos = await repositories.listPublic(PAGE_SIZE, offset);
+const totalPages = Math.ceil(response.total / PAGE_SIZE);
 
-// Map owner_username to username for UI compatibility
-const repos: Repository[] = rawRepos.map(repo => ({
-  ...repo,
-  username: (repo as any).owner_username,
-  is_public: !repo.is_private,
-  default_branch: repo.default_bookmark || 'main',
+// Map API response to UI format
+const repos: Repository[] = response.repositories.map(repo => ({
+  id: repo.id,
+  name: repo.name,
+  username: repo.owner,
+  description: repo.description || '',
+  is_public: !repo.isPrivate,
+  default_branch: repo.defaultBranch || 'main',
+  updated_at: repo.updatedAt,
+  created_at: repo.createdAt,
   topics: [],
 }));
 ---

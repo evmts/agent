@@ -2,7 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import RepoCard from "../../components/RepoCard.astro";
-import { users, stars } from '@plue/db';
+import { getUser, getUserStarredRepos } from "../../lib/api";
 
 const { user: username } = Astro.params;
 
@@ -10,33 +10,29 @@ if (!username) {
   return Astro.redirect('/404');
 }
 
-const user = await users.getByUsername(username);
-
-if (!user) {
+let user;
+try {
+  user = await getUser(username);
+} catch (error) {
   return Astro.redirect("/404");
 }
 
 // Get starred repositories
-const starredRepos = await stars.getStarredRepos(user.id);
+const starredData = await getUserStarredRepos(username);
 
-// Get star counts for all repositories in one query
-const starCountMap = starredRepos.length > 0
-  ? await stars.getStarCountsForRepos(starredRepos.map(r => r.id))
-  : new Map<number, number>();
-
-// Map starred repos to the format expected by RepoCard
-const starredReposWithData = starredRepos.map(repo => ({
+// Transform API response to match component expectations
+const starredReposWithData = starredData.repositories.map(repo => ({
   id: repo.id,
   user_id: 0, // Not needed for display
   name: repo.name,
   description: repo.description,
-  is_public: true, // Starred repos are visible
-  default_branch: 'main', // Not needed for display
-  topics: [], // Not returned by DAO
-  created_at: new Date(), // Not needed for display
-  updated_at: new Date(), // Not needed for display
-  username: repo.owner_username,
-  star_count: starCountMap.get(repo.id) || 0,
+  is_public: !repo.isPrivate,
+  default_branch: repo.defaultBranch || 'main',
+  topics: [], // API doesn't return topics yet
+  created_at: new Date(repo.createdAt),
+  updated_at: new Date(repo.updatedAt),
+  username: repo.owner,
+  star_count: 0, // Will be shown if we fetch stats
 }));
 ---
 
@@ -44,7 +40,7 @@ const starredReposWithData = starredRepos.map(repo => ({
   <Header />
   <div class="container">
     <div class="user-profile mb-3">
-      <h1 class="page-title">{user.display_name || user.username}</h1>
+      <h1 class="page-title">{user.displayName || user.username}</h1>
       {user.bio && <p class="bio">{user.bio}</p>}
     </div>
 

@@ -2,8 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MilestoneCard from "../../../../components/MilestoneCard.astro";
-import { repositories, milestones, users, landing, issues } from '@plue/db';
-import type { User, Repository, Milestone } from "../../../../lib/types";
+import { getMilestones, getIssues, getRepoStats, createMilestone } from "../../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 const state = Astro.url.searchParams.get("state") || "open";
@@ -12,29 +11,31 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const user = await users.getByUsername(username);
-if (!user) return Astro.redirect("/404");
+// Fetch data from API
+const [
+  allMilestones,
+  { counts: issueCounts },
+  stats,
+] = await Promise.all([
+  getMilestones(username, reponame),
+  getIssues(username, reponame, 'open'),
+  getRepoStats(username, reponame),
+]);
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-
-if (!repo) return Astro.redirect("/404");
-
-// Get milestones with issue counts
-const milestonesList = await milestones.list(repo.id, state === "all" ? null : state);
+// Filter milestones by state
+const milestonesList = allMilestones.milestones.filter(m => {
+  if (state === 'all') return true;
+  return m.state === state;
+});
 
 // Count milestones by state
-const counts = await milestones.countByState(repo.id);
+const counts = {
+  open: allMilestones.milestones.filter(m => m.state === 'open').length,
+  closed: allMilestones.milestones.filter(m => m.state === 'closed').length,
+};
 
-// Count pending landing requests
-let landingCount = 0;
-try {
-  landingCount = await landing.count(repo.id, 'pending');
-} catch {
-  // landing_queue table may not exist yet
-}
-
-// Get open issue count
-const issueCount = await issues.countByState(repo.id, 'open');
+const landingCount = stats.landingCount;
+const issueCount = issueCounts.open;
 
 let error = "";
 let showCreateForm = false;
@@ -52,7 +53,11 @@ if (Astro.request.method === "POST") {
       error = "Title is required";
     } else {
       try {
-        await milestones.create(repo.id, title, description || null, due_date || null);
+        await createMilestone(username, reponame, {
+          title,
+          description,
+          dueDate: due_date || undefined,
+        });
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
@@ -62,8 +67,6 @@ if (Astro.request.method === "POST") {
     showCreateForm = true;
   }
 }
-
-// Helper functions moved to MilestoneCard component
 ---
 
 <Layout title={`Milestones · ${username}/${reponame} · plue`}>
@@ -88,7 +91,7 @@ if (Astro.request.method === "POST") {
       {landingCount > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/changes/main`}>Changes</a>
     <a href={`/${username}/${reponame}/milestones`} class="active">Milestones</a>
   </nav>
 

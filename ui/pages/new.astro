@@ -1,11 +1,11 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
-import { users, repositories } from '@plue/db';
+import { listUsers, createRepository, ApiError } from "../lib/api";
 import { initRepo } from "../lib/jj";
-import type { User } from "../lib/types";
 
-const allUsers = await users.list();
+const usersData = await listUsers({ limit: 1000 });
+const allUsers = usersData.users;
 
 let error = "";
 
@@ -19,24 +19,34 @@ if (Astro.request.method === "POST") {
     error = "Owner and name are required";
   } else {
     try {
-      const user = await users.getById(parseInt(userId));
+      // Find user from the list we already fetched
+      const user = allUsers.find(u => u.id === parseInt(userId));
 
       if (!user) {
         error = "User not found";
       } else {
-        const alreadyExists = await repositories.exists(parseInt(userId), name);
-
-        if (alreadyExists) {
-          error = "Repository already exists";
-        } else {
-          await repositories.create(parseInt(userId), name, description || undefined);
-
-          await initRepo(user.username, name);
-          return Astro.redirect(`/${user.username}/${name}`);
+        // Get session cookie for authentication
+        const sessionCookie = Astro.cookies.get('plue_session');
+        const headers: HeadersInit = {};
+        if (sessionCookie) {
+          headers['Cookie'] = `plue_session=${sessionCookie.value}`;
         }
+
+        // Create repository via API
+        await createRepository(
+          { name, description: description || undefined },
+          headers
+        );
+
+        await initRepo(user.username, name);
+        return Astro.redirect(`/${user.username}/${name}`);
       }
     } catch (e) {
-      error = (e as Error).message;
+      if (e instanceof ApiError) {
+        error = e.message;
+      } else {
+        error = (e as Error).message;
+      }
     }
   }
 }

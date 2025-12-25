@@ -2,7 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import FileViewer from "../../../../components/FileViewer.astro";
-import { repositories } from '@plue/db';
+import { getRepoStats, getBookmarks } from "../../../../lib/api";
 import { getFileContent } from "../../../../lib/jj";
 
 const { user: username, repo: reponame, path: pathParam } = Astro.params;
@@ -11,12 +11,16 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
+// Validate repository exists
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
-if (!repo) return Astro.redirect("/404");
+// Get default branch/bookmark
+const bookmarksResult = await getBookmarks(username, reponame).catch(() => ({ bookmarks: [] }));
+const defaultBranch = bookmarksResult.bookmarks.find(b => b.isDefault)?.name || "main";
 
 const pathParts = pathParam?.split("/") || [];
-const branch = pathParts[0] || repo.default_branch || "main";
+const branch = pathParts[0] || defaultBranch;
 const filePath = pathParts.slice(1).join("/");
 const filename = pathParts[pathParts.length - 1] || "";
 

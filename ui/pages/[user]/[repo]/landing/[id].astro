@@ -10,10 +10,9 @@ import TabNav from "../../../../components/TabNav.astro";
 import DiffView from "../../../../components/DiffView.astro";
 import StatusChecks from "../../../../components/StatusChecks.astro";
 import type { Tab } from "../../../../components/TabNav.astro";
-import { repositories, landing, users } from '@plue/db';
+import { getLandingRequest } from "../../../../lib/api";
 import * as jj from "../../../../lib/jj";
-import type { User, Repository } from "../../../../lib/types";
-import type { LandingRequest, LandingReview, Change, FileDiff } from "../../../../lib/jj-types";
+import type { Change, FileDiff } from "../../../../lib/jj-types";
 
 const { user: username, repo: reponame, id } = Astro.params;
 
@@ -21,16 +20,12 @@ if (!username || !reponame || !id) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Get landing request from API
+const { request } = await getLandingRequest(username, reponame, parseInt(id)).catch(() => {
+  return Astro.redirect("/404");
+});
 
-// Get landing request
-const request = await landing.getById(repo.id, parseInt(id));
-if (!request) return Astro.redirect("/404");
-
-// Get author username
-const author = await users.getById(request.authorId);
-const author_username = author?.username || 'unknown';
+const author_username = request.authorUsername || 'unknown';
 
 // Get change details
 let change: Change | null = null;
@@ -42,44 +37,13 @@ try {
   // Change details not available
 }
 
-// Get reviews
-const reviewsData = await landing.getReviews(parseInt(id));
-const reviews = await Promise.all(
-  reviewsData.map(async (review) => {
-    const reviewer = await users.getById(review.reviewerId);
-    return {
-      ...review,
-      reviewer_username: reviewer?.username || 'unknown',
-      type: review.reviewType,
-      content: review.content || undefined,
-    };
-  })
-);
+// TODO: Get reviews from API
+// For now, use empty arrays
+const reviews: any[] = [];
 
-// Get line comments
-const lineCommentsData = await landing.getLineComments(parseInt(id));
-const comments = await Promise.all(
-  lineCommentsData.map(async (comment) => {
-    const commentAuthor = await users.getById(comment.authorId);
-    return {
-      id: comment.id,
-      landingId: comment.landingId,
-      authorId: comment.authorId,
-      filePath: comment.filePath,
-      lineNumber: comment.lineNumber,
-      side: comment.side,
-      body: comment.body,
-      resolved: comment.resolved,
-      createdAt: comment.createdAt,
-      updatedAt: comment.updatedAt,
-      author: {
-        id: comment.authorId,
-        username: commentAuthor?.username || 'unknown',
-        displayName: commentAuthor?.display_name || null,
-      }
-    };
-  })
-);
+// TODO: Get line comments from API
+// For now, use empty array
+const comments: any[] = [];
 
 // Count comments per file
 const commentCountsByFile = new Map<string, number>();
@@ -90,7 +54,8 @@ comments.forEach(c => {
 
 const totalCommentCount = comments.length;
 
-// Get commit statuses (CI checks) if change has a commit
+// TODO: Get commit statuses from API
+// For now, use empty array
 let commitStatuses: Array<{
   id: number;
   context: string;
@@ -99,9 +64,6 @@ let commitStatuses: Array<{
   targetUrl: string | null;
   workflowRunId: number | null;
 }> = [];
-if (change?.commitId) {
-  commitStatuses = await landing.getCommitStatuses(repo.id, change.commitId);
-}
 
 // Get ancestor changes (commits) - changes between target bookmark and this change
 let commits: Change[] = [];
@@ -116,7 +78,8 @@ try {
   // Commits not available
 }
 
-const defaultBookmark = repo.default_bookmark || 'main';
+// Default bookmark - we'll default to 'main' for now
+const defaultBookmark = 'main';
 
 // Get active tab from query params
 const activeTab = Astro.url.searchParams.get('tab') || 'conversation';

@@ -7,9 +7,9 @@
  */
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
-import { users, repositories } from '@plue/db';
+import { getBookmarks, getRepoStats } from "../../../lib/api";
 import * as jj from "../../../lib/jj";
-import type { Bookmark, Change } from "../../../lib/jj-types";
+import type { Change } from "../../../lib/jj-types";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -17,23 +17,14 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const user = await users.getByUsername(username);
-if (!user) return Astro.redirect("/404");
+// Get bookmarks from API
+const result = await getBookmarks(username, reponame).catch(() => null);
+if (!result) return Astro.redirect("/404");
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
-
-// Get bookmarks from jj
-let bookmarks: Bookmark[] = [];
-try {
-  bookmarks = await jj.listBookmarks(username, reponame);
-} catch (e) {
-  // Fallback to database if jj not available
-  bookmarks = await repositories.getBookmarks(repo.id);
-}
+const { bookmarks } = result;
 
 // Get change details for each bookmark
-const bookmarksWithChanges: (Bookmark & { change?: Change })[] = [];
+const bookmarksWithChanges: (typeof bookmarks[number] & { change?: Change })[] = [];
 for (const bookmark of bookmarks) {
   let change: Change | null = null;
   try {
@@ -44,9 +35,9 @@ for (const bookmark of bookmarks) {
   bookmarksWithChanges.push({ ...bookmark, change: change || undefined });
 }
 
-const defaultBookmark = repo.default_bookmark || 'main';
+const defaultBookmark = bookmarks.find(b => b.isDefault)?.name || 'main';
 
-const stats = await repositories.getStats(repo.id);
+const stats = await getRepoStats(username, reponame);
 ---
 
 <Layout title={`Bookmarks · ${username}/${reponame}`}>

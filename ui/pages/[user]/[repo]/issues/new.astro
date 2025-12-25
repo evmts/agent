@@ -2,8 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
-import { repositories, users, saveMentionsForIssue } from '@plue/db';
-import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
+import { getRepoStats, listUsers, createIssue as apiCreateIssue, getIssues } from "../../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -11,17 +10,15 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Get users list
+const { users: usersList } = await listUsers();
 
-const usersList = await users.list();
+// Get issue counts and repo stats
+const [{ counts }, stats] = await Promise.all([
+  getIssues(username, reponame, 'open'),
+  getRepoStats(username, reponame),
+]);
 
-// Ensure issues repo exists and get counts
-await ensureIssuesRepo(username, reponame);
-const counts = await getIssueCounts(username, reponame);
-
-// Get repository stats including landing count
-const stats = await repositories.getStats(repo.id);
 const landingCount = stats.landingCount;
 
 let error = "";
@@ -36,31 +33,14 @@ if (Astro.request.method === "POST") {
     error = "Author and title are required";
   } else {
     try {
-      // Get author info from DB
-      const author = await users.getById(parseInt(authorId));
-      if (!author) {
-        error = "Author not found";
-      } else {
-        // Create issue in git repo
-        const issue = await createIssue(username, reponame, {
-          title,
-          body,
-          author: {
-            id: parseInt(authorId),
-            username: author.username,
-          },
-        });
+      // Create issue via API - mentions are saved automatically by the API
+      const { issue } = await apiCreateIssue(username, reponame, {
+        title,
+        body,
+        authorId: parseInt(authorId),
+      });
 
-        // Save mentions to database for notifications
-        try {
-          await saveMentionsForIssue(repo.id, issue.number, body);
-        } catch (mentionError) {
-          console.error("Failed to save mentions:", mentionError);
-          // Don't fail the whole request if mentions fail
-        }
-
-        return Astro.redirect(`/${username}/${reponame}/issues/${issue.number}`);
-      }
+      return Astro.redirect(`/${username}/${reponame}/issues/${issue.number}`);
     } catch (e) {
       error = (e as Error).message;
     }
@@ -92,7 +72,7 @@ if (Astro.request.method === "POST") {
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/changes/main`}>Changes</a>
   </nav>
 
   <div class="container">

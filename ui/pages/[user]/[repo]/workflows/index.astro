@@ -7,18 +7,13 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import WorkflowRunCard from "../../../../components/WorkflowRunCard.astro";
-import { repositories, workflows, WorkflowStatus } from '@plue/db';
-import type { User, Repository } from "../../../../lib/types";
+import { listWorkflowRuns } from "../../../../lib/api";
 
 const { user: username, repo: reponame } = Astro.params;
 
 if (!username || !reponame) {
   return Astro.redirect('/404');
 }
-
-// Get repository
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
 
 // Get query params
 const statusParam = Astro.url.searchParams.get('status');
@@ -27,59 +22,39 @@ const page = parseInt(Astro.url.searchParams.get('page') || '1');
 const perPage = 20;
 const offset = (page - 1) * perPage;
 
-// Get workflow definitions
-let workflowDefinitions: any[] = [];
-try {
-  workflowDefinitions = await workflows.listDefinitions(repo.id);
-} catch (e) {
-  console.error('Error fetching workflow definitions:', e);
+// Status filter mapping
+const statusMap: Record<string, number> = {
+  'success': 1,    // SUCCEEDED
+  'failure': 2,    // FAILED
+  'cancelled': 3,  // CANCELLED
+  'waiting': 5,    // PENDING
+  'running': 6,    // RUNNING
+};
+
+// Build API request options
+const options: any = {
+  limit: perPage,
+  offset,
+};
+
+if (statusParam && statusMap[statusParam] !== undefined) {
+  options.status = statusMap[statusParam];
 }
 
-// Get workflow runs with error counts
-let runs: any[] = [];
-let totalCount = 0;
-let workflowErrorCounts: Record<number, number> = {};
-
-try {
-  // Calculate error counts for each workflow
-  for (const def of workflowDefinitions) {
-    workflowErrorCounts[def.id] = await workflows.countErrors(def.id);
+if (workflowParam) {
+  const workflowDefId = parseInt(workflowParam);
+  if (!isNaN(workflowDefId)) {
+    options.workflowDefinitionId = workflowDefId;
   }
-
-  // Status filter mapping
-  const statusMap: Record<string, WorkflowStatus> = {
-    'success': WorkflowStatus.SUCCEEDED,
-    'failure': WorkflowStatus.FAILED,
-    'cancelled': WorkflowStatus.CANCELLED,
-    'waiting': WorkflowStatus.PENDING,
-    'running': WorkflowStatus.RUNNING,
-  };
-
-  // Build filters
-  const filters: { status?: WorkflowStatus; workflowDefinitionId?: number } = {};
-  if (statusParam && statusMap[statusParam] !== undefined) {
-    filters.status = statusMap[statusParam];
-  }
-  if (workflowParam) {
-    const workflowDefId = parseInt(workflowParam);
-    if (!isNaN(workflowDefId)) {
-      filters.workflowDefinitionId = workflowDefId;
-    }
-  }
-
-  runs = await workflows.listRuns(repo.id, {
-    ...filters,
-    limit: perPage,
-    offset,
-  });
-
-  totalCount = await workflows.countRuns(repo.id, filters);
-} catch (e) {
-  // Table may not exist yet
-  console.error('Error fetching workflow runs:', e);
 }
 
-// Transform DB rows to expected format
+// Get workflow runs from API
+const { runs, total: totalCount } = await listWorkflowRuns(username, reponame, options).catch(() => ({
+  runs: [],
+  total: 0,
+}));
+
+// Transform API response (snake_case) to component format (camelCase)
 const formattedRuns = runs.map((r: any) => ({
   id: r.id,
   runNumber: r.run_number,
@@ -94,6 +69,11 @@ const formattedRuns = runs.map((r: any) => ({
 }));
 
 const totalPages = Math.ceil(totalCount / perPage);
+
+// TODO: Get workflow definitions from API
+// For now, use empty array
+const workflowDefinitions: any[] = [];
+const workflowErrorCounts: Record<number, number> = {};
 ---
 
 <Layout title={`Workflows · ${username}/${reponame}`}>

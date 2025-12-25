@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import RepoCard from "../components/RepoCard.astro";
 import TopicBadge from "../components/TopicBadge.astro";
-import * as repositories from '@plue/db/repositories';
+import { listRepos, searchRepos, getPopularTopics, getReposByTopic } from "../lib/api";
 import type { Repository } from "../lib/types";
 
 const searchQuery = Astro.url.searchParams.get("q") || "";
@@ -14,21 +14,38 @@ const sortBy = Astro.url.searchParams.get("sort") || "recent";
 const sortOrder: 'name' | 'updated_at' = sortBy === "name" ? "name" : "updated_at";
 
 // Fetch repositories based on filters
-let repos: Repository[] = [];
+let apiRepos: any[] = [];
 
 if (topicFilter) {
   // Filter by topic
-  repos = await repositories.listPublicByTopic(topicFilter, 50, 0, sortOrder);
+  const response = await getReposByTopic(topicFilter, { limit: 50, offset: 0, sort: sortOrder });
+  apiRepos = response.repositories;
 } else if (searchQuery) {
   // Search repositories
-  repos = await repositories.searchPublic(searchQuery, 50, 0, sortOrder);
+  const response = await searchRepos(searchQuery, { limit: 50, offset: 0 });
+  apiRepos = response.repositories;
 } else {
   // Show all public repos
-  repos = await repositories.listPublic(50, 0, sortOrder);
+  const response = await listRepos({ limit: 50, offset: 0, sort: sortOrder });
+  apiRepos = response.repositories;
 }
 
+// Map API response to UI format
+const repos: Repository[] = apiRepos.map(repo => ({
+  id: repo.id,
+  name: repo.name,
+  username: repo.owner,
+  description: repo.description || '',
+  is_public: !repo.isPrivate,
+  default_branch: repo.defaultBranch || 'main',
+  updated_at: repo.updatedAt,
+  created_at: repo.createdAt,
+  topics: [],
+}));
+
 // Get popular topics
-const popularTopics = await repositories.getPopularTopics(20);
+const topicsResponse = await getPopularTopics(20);
+const popularTopics = topicsResponse.topics;
 ---
 
 <Layout title="Explore · plue">

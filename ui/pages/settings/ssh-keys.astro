@@ -2,7 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import RelativeTime from "../../components/RelativeTime.astro";
-import { sshKeys as sshKeysDao } from '@plue/db';
+import { listSshKeys } from '../../lib/api';
 
 // User is set by middleware from X-Plue-User-Address header (edge auth)
 const currentUser = Astro.locals.user;
@@ -11,10 +11,17 @@ if (!currentUser) {
   return Astro.redirect('/login');
 }
 
-// Fetch user's SSH keys
+// Fetch user's SSH keys via API
 let sshKeys: Array<{ id: number; name: string; fingerprint: string; created_at: string }> = [];
 try {
-  sshKeys = await sshKeysDao.listByUserId(currentUser.id) as any;
+  const result = await listSshKeys(Astro.request.headers);
+  // Convert API response format to match expected format
+  sshKeys = result.keys.map(k => ({
+    id: k.id,
+    name: k.name,
+    fingerprint: k.fingerprint,
+    created_at: k.createdAt,
+  }));
 } catch (error) {
   console.error('Failed to fetch SSH keys:', error);
 }

@@ -8,8 +8,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import WorkflowStatusBadge from "../../../../components/WorkflowStatusBadge.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
-import { repositories, workflows } from '@plue/db';
-import type { User, Repository } from "../../../../lib/types";
+import { getWorkflowRun } from "../../../../lib/api";
 
 const { user: username, repo: reponame, runId } = Astro.params;
 
@@ -17,38 +16,18 @@ if (!username || !reponame || !runId) {
   return Astro.redirect('/404');
 }
 
-// Get repo
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+const runIdInt = parseInt(runId);
 
-// Get workflow run
-let run: any = null;
+// Get workflow run from API
+const { run } = await getWorkflowRun(username, reponame, runIdInt).catch(() => {
+  return Astro.redirect("/404");
+});
+
+// TODO: Get jobs, steps, and artifacts from API
+// For now, use empty arrays
 let jobs: any[] = [];
 let steps: Record<number, any[]> = {};
 let artifacts: any[] = [];
-
-try {
-  const runIdInt = parseInt(runId);
-
-  // Get workflow run
-  run = await workflows.getRun(runIdInt);
-  if (!run) return Astro.redirect("/404");
-
-  // Get jobs for this run
-  jobs = await workflows.listJobs(runIdInt);
-
-  // Get steps for each job
-  for (const job of jobs) {
-    const jobSteps = await workflows.listSteps(job.id);
-    steps[job.id] = jobSteps;
-  }
-
-  // Get artifacts for this run
-  artifacts = await workflows.listArtifacts(runIdInt);
-} catch (e) {
-  console.error('Error fetching workflow run:', e);
-  return Astro.redirect("/404");
-}
 
 // Format file size
 function formatFileSize(bytes: number): string {

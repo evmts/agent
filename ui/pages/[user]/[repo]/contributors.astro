@@ -7,9 +7,7 @@
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
 import Avatar from "../../../components/Avatar.astro";
-import * as repositories from '@plue/db/repositories';
-import * as users from '@plue/db/users';
-import type { User } from '@plue/db/users';
+import { getRepoStats } from "../../../lib/api";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -21,8 +19,9 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const repo = await repositories.getByOwnerAndName(username, reponame);
-if (!repo) return Astro.redirect("/404");
+// Validate repository exists
+const stats = await getRepoStats(username, reponame).catch(() => null);
+if (!stats) return Astro.redirect("/404");
 
 interface Contributor {
   name: string;
@@ -30,7 +29,7 @@ interface Contributor {
   commitCount: number;
   firstCommit?: Date;
   lastCommit?: Date;
-  user?: User;
+  user?: { id: number; username: string; displayName: string | null; avatarUrl: string | null };
 }
 
 // Get contributors from jj log
@@ -88,20 +87,20 @@ try {
   // Convert to array and sort by commit count
   contributors = Array.from(contributorMap.values()).sort((a, b) => b.commitCount - a.commitCount);
 
-  // Try to match contributors with registered users
-  for (const contrib of contributors) {
-    const matchedUser = await users.getByEmail(contrib.email);
-    if (matchedUser) {
-      contrib.user = matchedUser;
-    }
-  }
+  // TODO: Match contributors with registered users via API
+  // Need to add GET /api/users/by-email/:email endpoint
+  // for (const contrib of contributors) {
+  //   const matchedUser = await getUser(contrib.email);
+  //   if (matchedUser) {
+  //     contrib.user = matchedUser;
+  //   }
+  // }
 } catch (e) {
   error = e instanceof Error ? e.message : "Failed to load contributors";
 }
 
-const stats = await repositories.getStats(repo.id);
-
-const defaultBookmark = repo.default_bookmark || 'main';
+// stats already fetched at the top
+const defaultBookmark = 'main'; // TODO: Get from API bookmarks endpoint
 ---
 
 <Layout title={`Contributors · ${username}/${reponame}`}>
