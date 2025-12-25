@@ -107,6 +107,13 @@ fn writeSessionJson(writer: anytype, session: db.AgentSessionRecord) !void {
     } else {
         try writer.writeAll("\"plugins\":[]");
     }
+    try writer.writeAll(",");
+    // Include workflow_run_id for unified session/workflow model
+    if (session.workflow_run_id) |wrid| {
+        try writer.print("\"workflowRunId\":{d}", .{wrid});
+    } else {
+        try writer.writeAll("\"workflowRunId\":null");
+    }
     try writer.writeAll("}");
 }
 
@@ -139,7 +146,7 @@ pub fn listSessions(ctx: *Context, _: *httpz.Request, res: *httpz.Response) !voi
 }
 
 /// POST /api/sessions
-/// Create a new session
+/// Create a new session with linked workflow_run for agent execution
 pub fn createSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
     res.content_type = .JSON;
 
@@ -178,8 +185,36 @@ pub fn createSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
     const title = v.title orelse "New Session";
     const plugins = v.plugins orelse "[]";
 
-    // Create session in database
-    db.createAgentSession(
+    // 1. Create workflow_run with trigger_type='interactive'
+    const workflow_run_id = db.workflows.createWorkflowRun(
+        ctx.pool,
+        null, // workflow_definition_id (null for interactive sessions)
+        "interactive",
+        "{}", // trigger_payload (empty for interactive)
+        null, // inputs
+    ) catch |err| {
+        log.err("Failed to create workflow_run: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create workflow run\"}");
+        return;
+    };
+
+    // 2. Generate agent token (24 hour expiry)
+    const agent_token = db.generateAgentToken(
+        ctx.pool,
+        ctx.allocator,
+        workflow_run_id,
+        db.agent_tokens.DEFAULT_EXPIRY_MS,
+    ) catch |err| {
+        log.err("Failed to generate agent token: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to generate agent token\"}");
+        return;
+    };
+    defer ctx.allocator.free(agent_token);
+
+    // 3. Create session with workflow_run_id
+    db.createAgentSessionWithWorkflowRun(
         ctx.pool,
         session_id,
         cwd,
@@ -189,11 +224,18 @@ pub fn createSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         v.model,
         v.reasoningEffort,
         plugins,
+        workflow_run_id,
     ) catch |err| {
         log.err("Failed to create session: {}", .{err});
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to create session\"}");
         return;
+    };
+
+    // 4. Update workflow_run with session_id (bidirectional link)
+    db.workflows.updateWorkflowRunSessionId(ctx.pool, workflow_run_id, session_id) catch |err| {
+        log.warn("Failed to update workflow_run session_id: {}", .{err});
+        // Non-fatal - session was created successfully
     };
 
     // Fetch the created session
@@ -204,11 +246,14 @@ pub fn createSession(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !
         return;
     }
 
+    // 5. Return session + agent_token (token shown only once)
     res.status = 201;
     var writer = res.writer();
     try writer.writeAll("{\"session\":");
     try writeSessionJson(writer, session.?);
-    try writer.writeAll("}");
+    try writer.writeAll(",\"agentToken\":\"");
+    try writer.writeAll(agent_token);
+    try writer.writeAll("\"}");
 }
 
 /// GET /api/sessions/:sessionId

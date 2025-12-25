@@ -184,8 +184,11 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/auth/dev-login", auth_routes.devLogin, .{}); // Development-only login bypass
 
     // API routes - users
+    router.get("/api/users", users.listUsers, .{});
     router.get("/api/users/search", users.search, .{});
     router.get("/api/users/:username", users.getProfile, .{});
+    router.get("/api/users/:username/repos", withAuth(users.getUserRepos), .{});
+    router.get("/api/users/:username/starred", users.getUserStarredRepos, .{});
     router.patch("/api/users/me", withAuthAndCsrf(users.updateProfile), .{});
 
     // API routes - SSH keys (CSRF protected)
@@ -198,11 +201,17 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/user/tokens", withAuthAndCsrf(tokens.create), .{});
     router.delete("/api/user/tokens/:id", withAuthAndCsrf(tokens.delete), .{});
 
-    // API routes - repositories (CSRF protected)
+    // API routes - repositories (CRUD and listing)
+    router.get("/api/repos", repo_routes.listPublicRepos, .{});
+    router.get("/api/repos/search", repo_routes.searchRepos, .{});
+    router.get("/api/repos/topics/popular", repo_routes.getPopularTopics, .{});
+    router.get("/api/repos/topics/:topic", repo_routes.getReposByTopic, .{});
     router.post("/api/repos", withAuthAndCsrf(repo_routes.createRepository), .{});
 
-    // API routes - repositories (stars, watches, topics) - CSRF protected
+    // API routes - repositories (stars, watches, topics, stats) - CSRF protected
+    router.get("/api/:user/:repo/stats", repo_routes.getRepositoryStats, .{});
     router.get("/api/:user/:repo/stargazers", repo_routes.getStargazers, .{});
+    router.get("/api/:user/:repo/watchers", repo_routes.getWatchers, .{});
     router.post("/api/:user/:repo/star", withAuthAndCsrf(repo_routes.starRepository), .{});
     router.delete("/api/:user/:repo/star", withAuthAndCsrf(repo_routes.unstarRepository), .{});
     router.post("/api/:user/:repo/watch", withAuthAndCsrf(repo_routes.watchRepository), .{});
@@ -229,6 +238,11 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/internal/runners/:pod_name/heartbeat", internal_routes.runnerHeartbeat, .{});
     router.post("/internal/tasks/:task_id/stream", internal_routes.streamTaskEvent, .{});
     router.post("/internal/tasks/:task_id/complete", internal_routes.completeTask, .{});
+
+    // Internal API routes - agent message persistence (authenticated via agent token)
+    router.post("/internal/agent/messages", internal_routes.createAgentMessage, .{});
+    router.patch("/internal/agent/messages/:id", internal_routes.updateAgentMessage, .{});
+    router.post("/internal/agent/messages/:id/parts", internal_routes.createAgentPart, .{});
 
     // API routes - changes (jj)
     router.get("/api/:user/:repo/changes", repo_routes.listChanges, .{});

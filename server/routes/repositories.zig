@@ -1388,3 +1388,502 @@ pub fn parseTopicsFromJson(allocator: std.mem.Allocator, json: []const u8) ![][]
 
     return topics;
 }
+
+// =============================================================================
+// Public Repository Listing Routes
+// =============================================================================
+
+/// GET /api/repos - List public repositories
+pub fn listPublicRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const query_params = try req.query();
+
+    // Parse pagination params
+    const limit_str = query_params.get("limit") orelse "50";
+    const offset_str = query_params.get("offset") orelse "0";
+    const sort_by = query_params.get("sort") orelse "updated_at";
+
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 50;
+    const offset = std.fmt.parseInt(i32, offset_str, 10) catch 0;
+
+    // Validate limit
+    const safe_limit: i32 = if (limit > 100) 100 else if (limit < 1) 1 else limit;
+    const safe_offset: i32 = if (offset < 0) 0 else offset;
+
+    // Validate sort
+    const valid_sort = if (std.mem.eql(u8, sort_by, "name") or
+        std.mem.eql(u8, sort_by, "updated_at") or
+        std.mem.eql(u8, sort_by, "created_at"))
+        sort_by
+    else
+        "updated_at";
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    // Build and execute query based on sort
+    const query = if (std.mem.eql(u8, valid_sort, "name"))
+        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\       r.created_at, r.updated_at, u.username as owner
+        \\FROM repositories r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE r.is_private = false
+        \\ORDER BY r.name
+        \\LIMIT $1 OFFSET $2
+    else if (std.mem.eql(u8, valid_sort, "created_at"))
+        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\       r.created_at, r.updated_at, u.username as owner
+        \\FROM repositories r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE r.is_private = false
+        \\ORDER BY r.created_at DESC
+        \\LIMIT $1 OFFSET $2
+    else
+        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\       r.created_at, r.updated_at, u.username as owner
+        \\FROM repositories r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE r.is_private = false
+        \\ORDER BY r.updated_at DESC
+        \\LIMIT $1 OFFSET $2
+    ;
+
+    var result = try conn.query(query, .{ safe_limit, safe_offset });
+    defer result.deinit();
+
+    // Get total count
+    var count_result = try conn.query(
+        \\SELECT COUNT(*)::int as count FROM repositories WHERE is_private = false
+    , .{});
+    defer count_result.deinit();
+
+    var total: i32 = 0;
+    if (try count_result.next()) |row| {
+        total = row.get(i32, 0);
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"repositories\":[");
+
+    var first = true;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        const id: i64 = row.get(i64, 0);
+        const name: []const u8 = row.get([]const u8, 1);
+        const description: ?[]const u8 = row.get(?[]const u8, 2);
+        const is_private: bool = row.get(bool, 3);
+        const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
+        const created_at: []const u8 = row.get([]const u8, 5);
+        const updated_at: []const u8 = row.get([]const u8, 6);
+        const owner: []const u8 = row.get([]const u8, 7);
+
+        try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
+            id,
+            name,
+            owner,
+        });
+        if (description) |d| {
+            const escaped = try escapeJson(ctx.allocator, d);
+            defer ctx.allocator.free(escaped);
+            try writer.print("\"{s}\"", .{escaped});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
+            if (is_private) "true" else "false",
+        });
+        if (default_branch) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+            created_at,
+            updated_at,
+        });
+    }
+
+    try writer.print("],\"total\":{d},\"limit\":{d},\"offset\":{d}}}", .{
+        total,
+        safe_limit,
+        safe_offset,
+    });
+}
+
+/// GET /api/repos/search - Search public repositories
+pub fn searchRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const query_params = try req.query();
+
+    const search_query = query_params.get("q") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing query parameter 'q'\"}");
+        return;
+    };
+
+    if (search_query.len < 2) {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Query must be at least 2 characters\"}");
+        return;
+    }
+
+    const limit_str = query_params.get("limit") orelse "50";
+    const offset_str = query_params.get("offset") orelse "0";
+
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 50;
+    const offset = std.fmt.parseInt(i32, offset_str, 10) catch 0;
+
+    const safe_limit: i32 = if (limit > 100) 100 else if (limit < 1) 1 else limit;
+    const safe_offset: i32 = if (offset < 0) 0 else offset;
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    // Build search pattern
+    var pattern_buf: [512]u8 = undefined;
+    const pattern = try std.fmt.bufPrint(&pattern_buf, "%{s}%", .{search_query});
+
+    var result = try conn.query(
+        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\       r.created_at, r.updated_at, u.username as owner
+        \\FROM repositories r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE r.is_private = false
+        \\  AND (r.name ILIKE $1 OR r.description ILIKE $1)
+        \\ORDER BY r.updated_at DESC
+        \\LIMIT $2 OFFSET $3
+    , .{ pattern, safe_limit, safe_offset });
+    defer result.deinit();
+
+    var writer = res.writer();
+    try writer.writeAll("{\"repositories\":[");
+
+    var first = true;
+    var count: i32 = 0;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+        count += 1;
+
+        const id: i64 = row.get(i64, 0);
+        const name: []const u8 = row.get([]const u8, 1);
+        const description: ?[]const u8 = row.get(?[]const u8, 2);
+        const is_private: bool = row.get(bool, 3);
+        const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
+        const created_at: []const u8 = row.get([]const u8, 5);
+        const updated_at: []const u8 = row.get([]const u8, 6);
+        const owner: []const u8 = row.get([]const u8, 7);
+
+        try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
+            id,
+            name,
+            owner,
+        });
+        if (description) |d| {
+            const escaped = try escapeJson(ctx.allocator, d);
+            defer ctx.allocator.free(escaped);
+            try writer.print("\"{s}\"", .{escaped});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
+            if (is_private) "true" else "false",
+        });
+        if (default_branch) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+            created_at,
+            updated_at,
+        });
+    }
+
+    try writer.print("],\"count\":{d}}}", .{count});
+}
+
+/// GET /api/repos/topics/popular - Get popular topics
+pub fn getPopularTopics(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const query_params = try req.query();
+    const limit_str = query_params.get("limit") orelse "10";
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 10;
+    const safe_limit: i32 = if (limit > 50) 50 else if (limit < 1) 1 else limit;
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT unnest(topics) as topic, COUNT(*)::int as count
+        \\FROM repositories
+        \\WHERE is_private = false AND topics IS NOT NULL AND array_length(topics, 1) > 0
+        \\GROUP BY topic
+        \\ORDER BY count DESC
+        \\LIMIT $1
+    , .{safe_limit});
+    defer result.deinit();
+
+    var writer = res.writer();
+    try writer.writeAll("{\"topics\":[");
+
+    var first = true;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        const topic: []const u8 = row.get([]const u8, 0);
+        const count: i32 = row.get(i32, 1);
+
+        try writer.print("{{\"topic\":\"{s}\",\"count\":{d}}}", .{ topic, count });
+    }
+
+    try writer.writeAll("]}");
+}
+
+/// GET /api/repos/topics/:topic - List repositories by topic
+pub fn getReposByTopic(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const topic = req.param("topic") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing topic parameter\"}");
+        return;
+    };
+
+    const query_params = try req.query();
+    const limit_str = query_params.get("limit") orelse "50";
+    const offset_str = query_params.get("offset") orelse "0";
+
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 50;
+    const offset = std.fmt.parseInt(i32, offset_str, 10) catch 0;
+
+    const safe_limit: i32 = if (limit > 100) 100 else if (limit < 1) 1 else limit;
+    const safe_offset: i32 = if (offset < 0) 0 else offset;
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\       r.created_at, r.updated_at, u.username as owner
+        \\FROM repositories r
+        \\JOIN users u ON r.user_id = u.id
+        \\WHERE r.is_private = false AND $1 = ANY(r.topics)
+        \\ORDER BY r.updated_at DESC
+        \\LIMIT $2 OFFSET $3
+    , .{ topic, safe_limit, safe_offset });
+    defer result.deinit();
+
+    var writer = res.writer();
+    try writer.print("{{\"topic\":\"{s}\",\"repositories\":[", .{topic});
+
+    var first = true;
+    var count: i32 = 0;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+        count += 1;
+
+        const id: i64 = row.get(i64, 0);
+        const name: []const u8 = row.get([]const u8, 1);
+        const description: ?[]const u8 = row.get(?[]const u8, 2);
+        const is_private: bool = row.get(bool, 3);
+        const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
+        const created_at: []const u8 = row.get([]const u8, 5);
+        const updated_at: []const u8 = row.get([]const u8, 6);
+        const owner: []const u8 = row.get([]const u8, 7);
+
+        try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
+            id,
+            name,
+            owner,
+        });
+        if (description) |d| {
+            const escaped = try escapeJson(ctx.allocator, d);
+            defer ctx.allocator.free(escaped);
+            try writer.print("\"{s}\"", .{escaped});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
+            if (is_private) "true" else "false",
+        });
+        if (default_branch) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+            created_at,
+            updated_at,
+        });
+    }
+
+    try writer.print("],\"count\":{d}}}", .{count});
+}
+
+/// GET /api/:user/:repo/stats - Get repository stats
+pub fn getRepositoryStats(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing user parameter\"}");
+        return;
+    };
+
+    const reponame = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    } orelse {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    };
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    // Get issue count
+    var issue_result = try conn.query(
+        \\SELECT COUNT(*)::int as count FROM issues
+        \\WHERE repository_id = $1 AND state = 'open'
+    , .{repo.id});
+    defer issue_result.deinit();
+
+    var issue_count: i32 = 0;
+    if (try issue_result.next()) |row| {
+        issue_count = row.get(i32, 0);
+    }
+
+    // Get star count
+    var star_result = try conn.query(
+        \\SELECT COUNT(*)::int as count FROM stars WHERE repository_id = $1
+    , .{repo.id});
+    defer star_result.deinit();
+
+    var star_count: i32 = 0;
+    if (try star_result.next()) |row| {
+        star_count = row.get(i32, 0);
+    }
+
+    // Get landing count
+    var landing_result = try conn.query(
+        \\SELECT COUNT(*)::int as count FROM landing_queue
+        \\WHERE repository_id = $1 AND status NOT IN ('landed', 'cancelled')
+    , .{repo.id});
+    defer landing_result.deinit();
+
+    var landing_count: i32 = 0;
+    if (try landing_result.next()) |row| {
+        landing_count = row.get(i32, 0);
+    }
+
+    // Get watcher count
+    var watcher_result = try conn.query(
+        \\SELECT COUNT(*)::int as count FROM watchers WHERE repository_id = $1
+    , .{repo.id});
+    defer watcher_result.deinit();
+
+    var watcher_count: i32 = 0;
+    if (try watcher_result.next()) |row| {
+        watcher_count = row.get(i32, 0);
+    }
+
+    var writer = res.writer();
+    try writer.print("{{\"issueCount\":{d},\"starCount\":{d},\"landingCount\":{d},\"watcherCount\":{d}}}", .{
+        issue_count,
+        star_count,
+        landing_count,
+        watcher_count,
+    });
+}
+
+/// GET /api/:user/:repo/watchers - Get repository watchers
+pub fn getWatchers(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing user parameter\"}");
+        return;
+    };
+
+    const reponame = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    // Get repository
+    const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    } orelse {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    };
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT u.id, u.username, u.display_name, w.watch_level, w.created_at
+        \\FROM watchers w
+        \\JOIN users u ON w.user_id = u.id
+        \\WHERE w.repository_id = $1
+        \\ORDER BY w.created_at DESC
+    , .{repo.id});
+    defer result.deinit();
+
+    var writer = res.writer();
+    try writer.writeAll("{\"watchers\":[");
+
+    var first = true;
+    var count: i32 = 0;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+        count += 1;
+
+        const id: i64 = row.get(i64, 0);
+        const watcher_username: []const u8 = row.get([]const u8, 1);
+        const display_name: ?[]const u8 = row.get(?[]const u8, 2);
+        const watch_level: []const u8 = row.get([]const u8, 3);
+        const created_at: []const u8 = row.get([]const u8, 4);
+
+        try writer.print("{{\"id\":{d},\"username\":\"{s}\",\"displayName\":", .{
+            id,
+            watcher_username,
+        });
+        if (display_name) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"watchLevel\":\"{s}\",\"createdAt\":\"{s}\"}}", .{
+            watch_level,
+            created_at,
+        });
+    }
+
+    try writer.print("],\"total\":{d}}}", .{count});
+}

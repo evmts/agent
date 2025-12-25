@@ -427,6 +427,303 @@ pub fn completeTask(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
 }
 
 // =============================================================================
+// Agent Token Authentication
+// =============================================================================
+
+/// Validate agent token and return associated session info.
+/// Returns null and sets error response if token is invalid.
+fn requireAgentToken(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !?db.AgentTokenInfo {
+    const auth_header = req.headers.get("authorization") orelse {
+        res.status = 401;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Authorization header required\"}");
+        return null;
+    };
+
+    if (!std.mem.startsWith(u8, auth_header, "Bearer ")) {
+        res.status = 401;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Bearer token required\"}");
+        return null;
+    }
+
+    const token = auth_header["Bearer ".len..];
+
+    const token_info = db.validateAgentToken(ctx.pool, token) catch |err| {
+        log.err("Failed to validate agent token: {}", .{err});
+        res.status = 500;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Token validation failed\"}");
+        return null;
+    };
+
+    if (token_info == null) {
+        res.status = 401;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Invalid or expired agent token\"}");
+        return null;
+    }
+
+    if (token_info.?.session_id == null) {
+        res.status = 401;
+        res.content_type = .JSON;
+        try res.writer().writeAll("{\"error\":\"Token not associated with session\"}");
+        return null;
+    }
+
+    return token_info;
+}
+
+/// Generate message ID
+fn generateMessageId(allocator: std.mem.Allocator) ![]const u8 {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var id_buf: [16]u8 = undefined;
+    id_buf[0] = 'm';
+    id_buf[1] = 's';
+    id_buf[2] = 'g';
+    id_buf[3] = '_';
+
+    var i: usize = 4;
+    while (i < 16) : (i += 1) {
+        const idx = std.crypto.random.intRangeAtMost(usize, 0, chars.len - 1);
+        id_buf[i] = chars[idx];
+    }
+
+    return try allocator.dupe(u8, &id_buf);
+}
+
+/// Generate part ID
+fn generatePartId(allocator: std.mem.Allocator) ![]const u8 {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    var id_buf: [17]u8 = undefined;
+    id_buf[0] = 'p';
+    id_buf[1] = 'a';
+    id_buf[2] = 'r';
+    id_buf[3] = 't';
+    id_buf[4] = '_';
+
+    var i: usize = 5;
+    while (i < 17) : (i += 1) {
+        const idx = std.crypto.random.intRangeAtMost(usize, 0, chars.len - 1);
+        id_buf[i] = chars[idx];
+    }
+
+    return try allocator.dupe(u8, &id_buf);
+}
+
+// =============================================================================
+// POST /internal/agent/messages - Create a message
+// =============================================================================
+
+pub fn createAgentMessage(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    const token_info = try requireAgentToken(ctx, req, res) orelse return;
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        id: ?[]const u8 = null,
+        role: []const u8,
+        status: ?[]const u8 = null,
+        thinking_text: ?[]const u8 = null,
+        error_message: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Generate message ID if not provided
+    const message_id = if (v.id) |id| id else try generateMessageId(allocator);
+    defer if (v.id == null) allocator.free(message_id);
+
+    const session_id = token_info.session_id.?;
+    const status = v.status orelse "pending";
+
+    // Create message in database
+    db.createMessage(
+        ctx.pool,
+        message_id,
+        session_id,
+        v.role,
+        status,
+        v.thinking_text,
+        v.error_message,
+    ) catch |err| {
+        log.err("Failed to create message: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create message\"}");
+        return;
+    };
+
+    res.status = 201;
+    var writer = res.writer();
+    try writer.writeAll("{\"id\":\"");
+    try writer.writeAll(message_id);
+    try writer.writeAll("\"}");
+}
+
+// =============================================================================
+// PATCH /internal/agent/messages/:id - Update message status
+// =============================================================================
+
+pub fn updateAgentMessage(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    const token_info = try requireAgentToken(ctx, req, res) orelse return;
+
+    const message_id = req.param("id") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing message id\"}");
+        return;
+    };
+
+    // Verify message belongs to this session
+    const message = db.getMessageById(ctx.pool, message_id) catch null;
+    if (message == null or !std.mem.eql(u8, message.?.session_id, token_info.session_id.?)) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Message not found\"}");
+        return;
+    }
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        status: ?[]const u8 = null,
+        thinking_text: ?[]const u8 = null,
+        error_message: ?[]const u8 = null,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+
+    // Compute time_completed if status is being set to completed
+    const time_completed: ?i64 = if (v.status) |s|
+        if (std.mem.eql(u8, s, "completed")) std.time.milliTimestamp() else null
+    else
+        null;
+
+    db.updateMessage(
+        ctx.pool,
+        message_id,
+        v.status,
+        v.thinking_text,
+        v.error_message,
+        time_completed,
+    ) catch |err| {
+        log.err("Failed to update message: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to update message\"}");
+        return;
+    };
+
+    try res.writer().writeAll("{\"ok\":true}");
+}
+
+// =============================================================================
+// POST /internal/agent/messages/:id/parts - Create a part
+// =============================================================================
+
+pub fn createAgentPart(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    const token_info = try requireAgentToken(ctx, req, res) orelse return;
+
+    const message_id = req.param("id") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing message id\"}");
+        return;
+    };
+
+    // Verify message belongs to this session
+    const message = db.getMessageById(ctx.pool, message_id) catch null;
+    if (message == null or !std.mem.eql(u8, message.?.session_id, token_info.session_id.?)) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Message not found\"}");
+        return;
+    }
+
+    const body = req.body() orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing request body\"}");
+        return;
+    };
+
+    const parsed = std.json.parseFromSlice(struct {
+        id: ?[]const u8 = null,
+        type: []const u8, // text, reasoning, tool, file
+        text: ?[]const u8 = null,
+        tool_name: ?[]const u8 = null,
+        tool_state: ?[]const u8 = null,
+        mime: ?[]const u8 = null,
+        url: ?[]const u8 = null,
+        filename: ?[]const u8 = null,
+        sort_order: ?i32 = null,
+        time_start: ?i64 = null,
+        time_end: ?i64 = null,
+    }, allocator, body, .{}) catch {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Invalid JSON\"}");
+        return;
+    };
+    defer parsed.deinit();
+
+    const v = parsed.value;
+    const session_id = token_info.session_id.?;
+
+    // Generate part ID if not provided
+    const part_id = if (v.id) |id| id else try generatePartId(allocator);
+    defer if (v.id == null) allocator.free(part_id);
+
+    db.createPart(
+        ctx.pool,
+        part_id,
+        session_id,
+        message_id,
+        v.type,
+        v.text,
+        v.tool_name,
+        v.tool_state,
+        v.mime,
+        v.url,
+        v.filename,
+        v.sort_order orelse 0,
+        v.time_start,
+        v.time_end,
+    ) catch |err| {
+        log.err("Failed to create part: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to create part\"}");
+        return;
+    };
+
+    res.status = 201;
+    var writer = res.writer();
+    try writer.writeAll("{\"id\":\"");
+    try writer.writeAll(part_id);
+    try writer.writeAll("\"}");
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -435,4 +732,7 @@ test "internal routes compile" {
     _ = runnerHeartbeat;
     _ = streamTaskEvent;
     _ = completeTask;
+    _ = createAgentMessage;
+    _ = updateAgentMessage;
+    _ = createAgentPart;
 }

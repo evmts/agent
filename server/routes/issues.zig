@@ -294,6 +294,12 @@ pub fn createIssue(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         return;
     };
 
+    // Extract and save mentions from issue body
+    db.saveMentionsForIssue(ctx.pool, allocator, repo.?.id, issue.issue_number, v.body) catch |err| {
+        log.warn("Failed to save mentions for issue: {}", .{err});
+        // Don't fail the request if mention extraction fails
+    };
+
     // Notify edge of issue creation
     if (ctx.edge_notifier) |notifier| {
         const repo_key = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ username, repo_name });
@@ -826,6 +832,12 @@ pub fn addComment(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
         res.status = 500;
         try res.writer().writeAll("{\"error\":\"Failed to add comment\"}");
         return;
+    };
+
+    // Extract and save mentions from comment body
+    db.saveMentionsForComment(ctx.pool, ctx.allocator, repo.?.id, issue_number, comment.id, v.body) catch |err| {
+        log.warn("Failed to save mentions for comment: {}", .{err});
+        // Don't fail the request if mention extraction fails
     };
 
     // Notify edge of comment creation

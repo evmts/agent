@@ -162,6 +162,315 @@ pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     , .{repo_count});
 }
 
+/// GET /api/users - List all users (paginated)
+pub fn listUsers(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const query_params = try req.query();
+
+    const limit_str = query_params.get("limit") orelse "50";
+    const offset_str = query_params.get("offset") orelse "0";
+
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 50;
+    const offset = std.fmt.parseInt(i32, offset_str, 10) catch 0;
+
+    const safe_limit: i32 = if (limit > 100) 100 else if (limit < 1) 1 else limit;
+    const safe_offset: i32 = if (offset < 0) 0 else offset;
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT id, username, display_name, avatar_url, created_at
+        \\FROM users
+        \\WHERE is_active = true
+        \\ORDER BY username
+        \\LIMIT $1 OFFSET $2
+    , .{ safe_limit, safe_offset });
+    defer result.deinit();
+
+    // Get total count
+    var count_result = try conn.query(
+        \\SELECT COUNT(*)::int as count FROM users WHERE is_active = true
+    , .{});
+    defer count_result.deinit();
+
+    var total: i32 = 0;
+    if (try count_result.next()) |row| {
+        total = row.get(i32, 0);
+    }
+
+    var writer = res.writer();
+    try writer.writeAll("{\"users\":[");
+
+    var first = true;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        const id: i64 = row.get(i64, 0);
+        const username: []const u8 = row.get([]const u8, 1);
+        const display_name: ?[]const u8 = row.get(?[]const u8, 2);
+        const avatar_url: ?[]const u8 = row.get(?[]const u8, 3);
+        const created_at: []const u8 = row.get([]const u8, 4);
+
+        // Get repo count for this user
+        var repo_result = try conn.query(
+            \\SELECT COUNT(*)::int FROM repositories WHERE user_id = $1
+        , .{id});
+        defer repo_result.deinit();
+
+        var repo_count: i32 = 0;
+        if (try repo_result.next()) |repo_row| {
+            repo_count = repo_row.get(i32, 0);
+        }
+
+        try writer.print(
+            \\{{"id":{d},"username":"{s}","displayName":
+        , .{ id, username });
+        if (display_name) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"avatarUrl\":");
+        if (avatar_url) |a| {
+            try writer.print("\"{s}\"", .{a});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"repositoryCount\":{d},\"createdAt\":\"{s}\"}}", .{
+            repo_count,
+            created_at,
+        });
+    }
+
+    try writer.print("],\"total\":{d},\"limit\":{d},\"offset\":{d}}}", .{
+        total,
+        safe_limit,
+        safe_offset,
+    });
+}
+
+/// GET /api/users/:username/repos - List user's repositories
+pub fn getUserRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("username") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const query_params = try req.query();
+    const limit_str = query_params.get("limit") orelse "50";
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 50;
+    const safe_limit: i32 = if (limit > 100) 100 else if (limit < 1) 1 else limit;
+
+    // Get user
+    const user = try db.getUserByUsername(ctx.pool, username);
+    if (user == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"User not found\"}");
+        return;
+    }
+
+    const u = user.?;
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    // Check if requesting user is the owner (can see private repos)
+    const show_private = if (ctx.user) |current_user| current_user.id == u.id else false;
+
+    var result = if (show_private)
+        try conn.query(
+            \\SELECT id, name, description, is_private, default_branch, created_at, updated_at
+            \\FROM repositories
+            \\WHERE user_id = $1
+            \\ORDER BY updated_at DESC
+            \\LIMIT $2
+        , .{ u.id, safe_limit })
+    else
+        try conn.query(
+            \\SELECT id, name, description, is_private, default_branch, created_at, updated_at
+            \\FROM repositories
+            \\WHERE user_id = $1 AND is_private = false
+            \\ORDER BY updated_at DESC
+            \\LIMIT $2
+        , .{ u.id, safe_limit });
+    defer result.deinit();
+
+    var writer = res.writer();
+    try writer.print("{{\"owner\":\"{s}\",\"repositories\":[", .{username});
+
+    var first = true;
+    var count: i32 = 0;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+        count += 1;
+
+        const id: i64 = row.get(i64, 0);
+        const name: []const u8 = row.get([]const u8, 1);
+        const description: ?[]const u8 = row.get(?[]const u8, 2);
+        const is_private: bool = row.get(bool, 3);
+        const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
+        const created_at: []const u8 = row.get([]const u8, 5);
+        const updated_at: []const u8 = row.get([]const u8, 6);
+
+        try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"description\":", .{ id, name });
+        if (description) |d| {
+            // Escape JSON special characters
+            try writer.writeAll("\"");
+            for (d) |c| {
+                switch (c) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => try writer.writeByte(c),
+                }
+            }
+            try writer.writeAll("\"");
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
+            if (is_private) "true" else "false",
+        });
+        if (default_branch) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+            created_at,
+            updated_at,
+        });
+    }
+
+    try writer.print("],\"count\":{d}}}", .{count});
+}
+
+/// GET /api/users/:username/starred - List repositories starred by user
+pub fn getUserStarredRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+
+    const username = req.param("username") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing username parameter\"}");
+        return;
+    };
+
+    const query_params = try req.query();
+    const limit_str = query_params.get("limit") orelse "50";
+    const offset_str = query_params.get("offset") orelse "0";
+
+    const limit = std.fmt.parseInt(i32, limit_str, 10) catch 50;
+    const offset = std.fmt.parseInt(i32, offset_str, 10) catch 0;
+
+    const safe_limit: i32 = if (limit > 100) 100 else if (limit < 1) 1 else limit;
+    const safe_offset: i32 = if (offset < 0) 0 else offset;
+
+    // Get user
+    const user = try db.getUserByUsername(ctx.pool, username);
+    if (user == null) {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"User not found\"}");
+        return;
+    }
+
+    const u = user.?;
+
+    var conn = try ctx.pool.acquire();
+    defer conn.release();
+
+    var result = try conn.query(
+        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\       r.created_at, r.updated_at, o.username as owner, s.created_at as starred_at
+        \\FROM stars s
+        \\JOIN repositories r ON s.repository_id = r.id
+        \\JOIN users o ON r.user_id = o.id
+        \\WHERE s.user_id = $1 AND r.is_private = false
+        \\ORDER BY s.created_at DESC
+        \\LIMIT $2 OFFSET $3
+    , .{ u.id, safe_limit, safe_offset });
+    defer result.deinit();
+
+    // Get total count
+    var count_result = try conn.query(
+        \\SELECT COUNT(*)::int as count
+        \\FROM stars s
+        \\JOIN repositories r ON s.repository_id = r.id
+        \\WHERE s.user_id = $1 AND r.is_private = false
+    , .{u.id});
+    defer count_result.deinit();
+
+    var total: i32 = 0;
+    if (try count_result.next()) |row| {
+        total = row.get(i32, 0);
+    }
+
+    var writer = res.writer();
+    try writer.print("{{\"user\":\"{s}\",\"repositories\":[", .{username});
+
+    var first = true;
+    while (try result.next()) |row| {
+        if (!first) try writer.writeAll(",");
+        first = false;
+
+        const id: i64 = row.get(i64, 0);
+        const name: []const u8 = row.get([]const u8, 1);
+        const description: ?[]const u8 = row.get(?[]const u8, 2);
+        const is_private: bool = row.get(bool, 3);
+        const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
+        const created_at: []const u8 = row.get([]const u8, 5);
+        const updated_at: []const u8 = row.get([]const u8, 6);
+        const owner: []const u8 = row.get([]const u8, 7);
+        const starred_at: []const u8 = row.get([]const u8, 8);
+
+        try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
+            id,
+            name,
+            owner,
+        });
+        if (description) |d| {
+            // Escape JSON special characters
+            try writer.writeAll("\"");
+            for (d) |c| {
+                switch (c) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => try writer.writeByte(c),
+                }
+            }
+            try writer.writeAll("\"");
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
+            if (is_private) "true" else "false",
+        });
+        if (default_branch) |b| {
+            try writer.print("\"{s}\"", .{b});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\",\"starredAt\":\"{s}\"}}", .{
+            created_at,
+            updated_at,
+            starred_at,
+        });
+    }
+
+    try writer.print("],\"total\":{d}}}", .{total});
+}
+
 /// PATCH /users/me
 /// Update own profile
 pub fn updateProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
