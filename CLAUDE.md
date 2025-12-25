@@ -2,6 +2,16 @@
 
 A brutalist GitHub clone with integrated AI agent capabilities.
 
+> **IMPORTANT: Pre-MVP Development**
+>
+> This project has NOT been deployed or released yet. We are still working towards the MVP. Therefore:
+> - **NO backwards compatibility** - Break things freely, rename anything, delete without hesitation
+> - **NO tech debt** - Don't write hacky workarounds "for now", do it right or don't do it
+> - **NO migration files** - Just modify `schema.sql` directly, there are no production databases to migrate
+> - **NO deprecation paths** - Remove old code completely, don't leave compatibility shims
+>
+> Move fast and break things. Clean code only.
+
 ## Quick Start
 
 ```bash
