@@ -49,7 +49,6 @@ zig build test:zig     # Zig tests only
 | Component | Location |
 |-----------|----------|
 | API Server | `server/` |
-| Core Library | `core/` |
 | Build Config | `build.zig` |
 
 ## Common Pitfalls

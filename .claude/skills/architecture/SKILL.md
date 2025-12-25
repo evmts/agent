@@ -87,7 +87,6 @@ plue/
 ├── edge/           # Cloudflare Workers
 ├── runner/         # Python agent runner
 ├── db/             # PostgreSQL schema + DAOs
-├── core/           # Zig agent core library
 ├── e2e/            # Playwright tests
 ├── infra/          # Terraform, Helm, K8s
 └── docs/           # Additional documentation
