@@ -53,7 +53,7 @@ ui/pages/
 
 | File | Purpose |
 |------|---------|
-| `lib/api.ts` | API client for backend calls |
+| `lib/api.ts` | Typed API client for Zig backend (replaces direct DB access) |
 | `lib/auth.ts` | Session/auth utilities |
 | `lib/cache.ts` | Response caching |
 | `lib/git.ts` | Git/jj operations |
@@ -77,16 +77,24 @@ ui/components/
 
 ## API Client
 
+The UI uses `ui/lib/api.ts` to communicate with the Zig API server. All database access goes through the API.
+
 ```typescript
 // ui/lib/api.ts
 import { api } from '../lib/api';
 
-// Server-side (SSR)
+// Server-side (SSR) - calls Zig API
 const repos = await api.get('/api/repos');
 
 // Client-side with CSRF
 await api.post('/api/repos', { name: 'my-repo' }, { csrf: true });
 ```
+
+Key points:
+- UI never queries database directly
+- All data flows through Zig API endpoints
+- Single database connection pool in Zig server
+- Typed API client provides type safety
 
 ## Authentication
 
@@ -155,7 +163,7 @@ zig build run:web      # Start Astro dev server (port 3000)
 ## Environment Variables
 
 ```bash
-PUBLIC_API_URL=http://localhost:4000    # SSR API calls
+PUBLIC_API_URL=http://localhost:4000         # SSR API calls
 PUBLIC_CLIENT_API_URL=http://localhost:4000  # Browser API calls
-DATABASE_URL=postgresql://...           # Direct DB for SSR
+# Note: UI no longer connects to database directly
 ```

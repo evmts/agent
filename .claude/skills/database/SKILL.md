@@ -10,8 +10,7 @@ PostgreSQL 16 database with ~40 tables.
 ## Schema Location
 
 - Schema file: `db/schema.sql`
-- DAOs (Zig): `db/daos/`
-- TypeScript utilities: `db/*.ts`
+- DAOs (Zig only): `db/daos/`
 
 ## Table Domains
 
@@ -76,11 +75,13 @@ repositories ──┬── issues ── labels
 
 ## Connection
 
+Database connections are managed exclusively by the Zig API server. The UI does not connect to the database directly.
+
 ```bash
-# Environment variable
+# Environment variable (Zig server only)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/plue
 
-# Zig connection pool
+# Zig connection pool (single pool in server)
 const pool = try db.Pool.init(allocator, config.database_url);
 defer pool.deinit();
 ```

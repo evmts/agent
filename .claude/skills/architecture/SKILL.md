@@ -63,10 +63,13 @@ Event (push, PR, mention, prompt)
 
 ## Data Flow
 
-1. **Request** → Cloudflare Edge → Check cache/auth → Zig API
-2. **Git Push** → SSH Server → jj-lib (Rust FFI) → Trigger workflows
-3. **Agent** → K8s Job → gVisor pod → Stream back via SSE
-4. **Persistence** → PostgreSQL for state, disk for git repos
+1. **HTTP Request** → Cloudflare Edge → Check cache/auth → Zig API → PostgreSQL
+2. **UI SSR** → Calls Zig API (via `ui/lib/api.ts`) → PostgreSQL
+3. **Git Push** → SSH Server → jj-lib (Rust FFI) → Trigger workflows
+4. **Agent** → K8s Job → gVisor pod → Stream back via SSE
+5. **Persistence** → PostgreSQL (single connection pool in Zig server), disk for git repos
+
+Key architectural change: UI no longer has direct database access. All data flows through the Zig API server.
 
 ## Related Skills
 
