@@ -52,6 +52,7 @@ export {
   createNonce,
   validateNonce,
   markNonceUsed,
+  getUserByWallet,
   getOrCreateUserByWallet,
   createAuthSession,
   updateLastLogin,
