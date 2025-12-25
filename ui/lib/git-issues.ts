@@ -10,7 +10,6 @@ import { promisify } from "node:util";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { parseFrontmatter, stringifyFrontmatter } from "./frontmatter";
-import { repositories as repositoriesDao, issueEvents as issueEventsDao } from '@plue/db';
 import type {
   GitIssue,
   GitComment,
@@ -1208,20 +1207,9 @@ export async function removeLabelFromIssue(
 // =============================================================================
 
 /**
- * Helper to get repository_id from user/repo
- */
-async function getRepositoryId(user: string, repo: string): Promise<number> {
-  const repositoryId = await repositoriesDao.getIdByOwnerAndName(user, repo);
-
-  if (!repositoryId) {
-    throw new Error(`Repository ${user}/${repo} not found`);
-  }
-
-  return repositoryId;
-}
-
-/**
  * Record an issue event in the activity timeline
+ *
+ * TODO: Migrate to API endpoint when available
  */
 export async function recordIssueEvent(
   user: string,
@@ -1231,28 +1219,22 @@ export async function recordIssueEvent(
   actorId: number | null,
   metadata: Record<string, unknown> = {}
 ): Promise<void> {
-  try {
-    const repositoryId = await getRepositoryId(user, repo);
-    await issueEventsDao.recordEvent(repositoryId, issueNumber, eventType, actorId, metadata);
-  } catch (error) {
-    // Don't fail the whole operation if activity recording fails
-    console.error("Failed to record issue event:", error);
-  }
+  // TODO: Call API endpoint to record event
+  // For now, just log - don't fail the operation
+  console.log(`[Issue Event] ${user}/${repo}#${issueNumber}: ${eventType}`, metadata);
 }
 
 /**
  * Get all events for an issue
+ *
+ * TODO: Migrate to API endpoint when available
  */
 export async function getIssueEvents(
   user: string,
   repo: string,
   issueNumber: number
 ): Promise<IssueEvent[]> {
-  try {
-    const repositoryId = await getRepositoryId(user, repo);
-    return await issueEventsDao.getEventsForIssue(repositoryId, issueNumber);
-  } catch (error) {
-    console.error("Failed to fetch issue events:", error);
-    return [];
-  }
+  // TODO: Call API endpoint to fetch events
+  // For now, return empty array
+  return [];
 }

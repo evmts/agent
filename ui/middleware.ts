@@ -1,5 +1,5 @@
 import { defineMiddleware } from 'astro:middleware';
-import { siwe } from '@plue/db';
+import { getCurrentUser } from './lib/api';
 
 /**
  * Security headers middleware
@@ -11,16 +11,17 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const walletAddress = context.request.headers.get('X-Plue-User-Address');
   if (walletAddress) {
     try {
-      const user = await siwe.getUserByWallet(walletAddress);
+      // Call API to get user by wallet address
+      const user = await getCurrentUser(context.request.headers);
       if (user) {
         context.locals.user = {
           id: user.id,
           username: user.username,
-          email: user.email,
-          displayName: user.display_name,
-          isAdmin: user.is_admin,
-          isActive: user.is_active,
-          walletAddress: user.wallet_address,
+          email: null, // API doesn't return email
+          displayName: user.displayName,
+          isAdmin: false, // API doesn't return this field
+          isActive: true, // Assume active if returned
+          walletAddress: walletAddress,
         };
       }
     } catch (error) {
