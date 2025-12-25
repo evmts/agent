@@ -3,60 +3,32 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import RepoCard from "../components/RepoCard.astro";
 import TopicBadge from "../components/TopicBadge.astro";
-import { sql } from '@plue/db';
+import * as repositories from '@plue/db/repositories';
 import type { Repository } from "../lib/types";
 
 const searchQuery = Astro.url.searchParams.get("q") || "";
 const topicFilter = Astro.url.searchParams.get("topic") || "";
 const sortBy = Astro.url.searchParams.get("sort") || "recent";
 
-// Build query
+// Determine sort order
+const sortOrder: 'name' | 'updated_at' = sortBy === "name" ? "name" : "updated_at";
+
+// Fetch repositories based on filters
 let repos: Repository[] = [];
 
 if (topicFilter) {
   // Filter by topic
-  repos = await sql`
-    SELECT r.*, u.username
-    FROM repositories r
-    JOIN users u ON r.user_id = u.id
-    WHERE r.is_public = true AND ${topicFilter} = ANY(r.topics)
-    ORDER BY ${sortBy === "name" ? sql`r.name` : sql`r.updated_at DESC`}
-    LIMIT 50
-  ` as Repository[];
+  repos = await repositories.listPublicByTopic(topicFilter, 50, 0, sortOrder);
 } else if (searchQuery) {
   // Search repositories
-  repos = await sql`
-    SELECT r.*, u.username
-    FROM repositories r
-    JOIN users u ON r.user_id = u.id
-    WHERE r.is_public = true AND (
-      r.name ILIKE ${'%' + searchQuery + '%'} OR
-      r.description ILIKE ${'%' + searchQuery + '%'}
-    )
-    ORDER BY ${sortBy === "name" ? sql`r.name` : sql`r.updated_at DESC`}
-    LIMIT 50
-  ` as Repository[];
+  repos = await repositories.searchPublic(searchQuery, 50, 0, sortOrder);
 } else {
   // Show all public repos
-  repos = await sql`
-    SELECT r.*, u.username
-    FROM repositories r
-    JOIN users u ON r.user_id = u.id
-    WHERE r.is_public = true
-    ORDER BY ${sortBy === "name" ? sql`r.name` : sql`r.updated_at DESC`}
-    LIMIT 50
-  ` as Repository[];
+  repos = await repositories.listPublic(50, 0, sortOrder);
 }
 
 // Get popular topics
-const popularTopics = await sql`
-  SELECT unnest(topics) as topic, COUNT(*) as count
-  FROM repositories
-  WHERE is_public = true AND topics IS NOT NULL AND array_length(topics, 1) > 0
-  GROUP BY topic
-  ORDER BY count DESC
-  LIMIT 20
-`;
+const popularTopics = await repositories.getPopularTopics(20);
 ---
 
 <Layout title="Explore · plue">

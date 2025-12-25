@@ -2,43 +2,19 @@
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import RelativeTime from "../../components/RelativeTime.astro";
-import { sql } from '@plue/db';
+import { sshKeys as sshKeysDao } from '@plue/db';
 
-// Check authentication
-let currentUser = null;
-const sessionCookie = Astro.cookies.get('session');
+// User is set by middleware from X-Plue-User-Address header (edge auth)
+const currentUser = Astro.locals.user;
 
-if (!sessionCookie) {
-  return Astro.redirect('/login');
-}
-
-try {
-  const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
-    headers: {
-      Cookie: `session=${sessionCookie.value}`,
-    },
-  });
-
-  if (response.ok) {
-    const data = await response.json();
-    currentUser = data.user;
-  } else {
-    return Astro.redirect('/login');
-  }
-} catch (error) {
-  console.error('Failed to fetch current user:', error);
+if (!currentUser) {
   return Astro.redirect('/login');
 }
 
 // Fetch user's SSH keys
 let sshKeys: Array<{ id: number; name: string; fingerprint: string; created_at: string }> = [];
 try {
-  sshKeys = await sql`
-    SELECT id, name, fingerprint, created_at
-    FROM ssh_keys
-    WHERE user_id = ${currentUser.id}
-    ORDER BY created_at DESC
-  `;
+  sshKeys = await sshKeysDao.listByUserId(currentUser.id) as any;
 } catch (error) {
   console.error('Failed to fetch SSH keys:', error);
 }

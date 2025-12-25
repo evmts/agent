@@ -1,4 +1,4 @@
-import { replaceMentionsWithLinks } from "@plue/db";
+import { replaceMentionsWithLinks } from "./mentions";
 
 // Simple but solid markdown to HTML converter
 export function renderMarkdown(content: string, owner?: string, repo?: string): string {

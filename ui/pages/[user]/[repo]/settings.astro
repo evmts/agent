@@ -2,8 +2,8 @@
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
 import TopicBadge from "../../../components/TopicBadge.astro";
-import { sql } from '@plue/db';
-import type { User, Repository } from "../../../lib/types";
+import { repositories } from '@plue/db';
+import type { Repository } from "../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -11,22 +11,12 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
+const repo = await repositories.getByOwnerAndName(username, reponame);
 
 if (!repo) return Astro.redirect("/404");
 
 // Get all branches for default branch selector
-const branches = await sql`
-  SELECT name FROM branches
-  WHERE repository_id = ${repo.id} AND is_deleted = false
-  ORDER BY name
-`;
+const branches = await repositories.getBranches(repo.id);
 ---
 
 <Layout title={`Settings · ${username}/${reponame} · plue`}>

@@ -7,9 +7,8 @@
  */
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
-import { sql } from '@plue/db';
+import { users, repositories } from '@plue/db';
 import * as jj from "../../../lib/jj";
-import type { User, Repository } from "../../../lib/types";
 import type { Bookmark, Change } from "../../../lib/jj-types";
 
 const { user: username, repo: reponame } = Astro.params;
@@ -18,14 +17,10 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+const user = await users.getByUsername(username);
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Get bookmarks from jj
@@ -34,11 +29,7 @@ try {
   bookmarks = await jj.listBookmarks(username, reponame);
 } catch (e) {
   // Fallback to database if jj not available
-  bookmarks = await sql<Bookmark[]>`
-    SELECT * FROM bookmarks
-    WHERE repository_id = ${repo.id}
-    ORDER BY is_default DESC, updated_at DESC
-  `;
+  bookmarks = await repositories.getBookmarks(repo.id);
 }
 
 // Get change details for each bookmark
@@ -55,15 +46,7 @@ for (const bookmark of bookmarks) {
 
 const defaultBookmark = repo.default_bookmark || 'main';
 
-const [{ count: issueCount }] = await sql`
-  SELECT COUNT(*) as count FROM issues
-  WHERE repository_id = ${repo.id} AND state = 'open'
-`;
-
-const [{ count: landingCount }] = await sql`
-  SELECT COUNT(*) as count FROM landing_queue
-  WHERE repository_id = ${repo.id} AND status NOT IN ('landed', 'cancelled')
-`;
+const stats = await repositories.getStats(repo.id);
 ---
 
 <Layout title={`Bookmarks · ${username}/${reponame}`}>
@@ -81,13 +64,13 @@ const [{ count: landingCount }] = await sql`
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`}>
       Issues
-      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+      {stats.issueCount > 0 && <span class="badge">{stats.issueCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`} class="active">Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
-      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+      {stats.landingCount > 0 && <span class="badge">{stats.landingCount}</span>}
     </a>
   </nav>
 

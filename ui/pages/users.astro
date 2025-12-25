@@ -8,7 +8,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import Avatar from "../components/Avatar.astro";
 import Pagination from "../components/Pagination.astro";
-import { sql } from '@plue/db';
+import * as users from '@plue/db/users';
 
 // Get search query
 const query = Astro.url.searchParams.get('q') || '';
@@ -18,60 +18,27 @@ const PAGE_SIZE = 20;
 const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
 const offset = (page - 1) * PAGE_SIZE;
 
-// Search users
-let users: any[] = [];
+// Fetch users using DAO
+let userList: any[] = [];
 let totalCount = 0;
 
 if (query) {
   // Search with query
-  const searchPattern = `%${query.toLowerCase()}%`;
-
-  const [{ count }] = await sql<[{ count: number }]>`
-    SELECT COUNT(*)::int as count
-    FROM users
-    WHERE LOWER(username) LIKE ${searchPattern}
-       OR LOWER(display_name) LIKE ${searchPattern}
-  `;
-  totalCount = count;
-
-  users = await sql`
-    SELECT
-      u.id,
-      u.username,
-      u.display_name,
-      u.avatar_url,
-      u.bio,
-      u.created_at,
-      (SELECT COUNT(*) FROM repositories WHERE user_id = u.id) as repo_count
-    FROM users u
-    WHERE LOWER(u.username) LIKE ${searchPattern}
-       OR LOWER(u.display_name) LIKE ${searchPattern}
-    ORDER BY u.username ASC
-    LIMIT ${PAGE_SIZE}
-    OFFSET ${offset}
-  `;
+  userList = await users.search(query, PAGE_SIZE, offset);
+  totalCount = await users.countSearch(query);
 } else {
-  // Show all users
-  const [{ count }] = await sql<[{ count: number }]>`
-    SELECT COUNT(*)::int as count FROM users
-  `;
-  totalCount = count;
-
-  users = await sql`
-    SELECT
-      u.id,
-      u.username,
-      u.display_name,
-      u.avatar_url,
-      u.bio,
-      u.created_at,
-      (SELECT COUNT(*) FROM repositories WHERE user_id = u.id) as repo_count
-    FROM users u
-    ORDER BY u.created_at DESC
-    LIMIT ${PAGE_SIZE}
-    OFFSET ${offset}
-  `;
+  // List all users
+  userList = await users.list(PAGE_SIZE, offset);
+  totalCount = await users.count();
 }
+
+// Enrich with repository counts
+const enrichedUsers = await Promise.all(
+  userList.map(async (user) => {
+    const repo_count = await users.getRepositoryCount(user.id);
+    return { ...user, repo_count };
+  })
+);
 
 const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 ---
@@ -97,7 +64,7 @@ const totalPages = Math.ceil(totalCount / PAGE_SIZE);
       <button type="submit" class="btn btn-primary">Search</button>
     </form>
 
-    {users.length === 0 ? (
+    {enrichedUsers.length === 0 ? (
       <div class="empty-state">
         <div class="empty-state-icon">?</div>
         <div class="empty-state-title">
@@ -112,7 +79,7 @@ const totalPages = Math.ceil(totalCount / PAGE_SIZE);
     ) : (
       <>
         <div class="users-grid">
-          {users.map((user: any) => (
+          {enrichedUsers.map((user: any) => (
             <a href={`/${user.username}`} class="user-card">
               <Avatar user={{ username: user.username, avatar_url: user.avatar_url }} size="lg" />
               <div class="user-info">

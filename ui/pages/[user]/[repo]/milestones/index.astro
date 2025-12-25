@@ -2,7 +2,7 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MilestoneCard from "../../../../components/MilestoneCard.astro";
-import { sql } from '@plue/db';
+import { repositories, milestones, users, landing, issues } from '@plue/db';
 import type { User, Repository, Milestone } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
@@ -12,66 +12,29 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+const user = await users.getByUsername(username);
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
+const repo = await repositories.getByOwnerAndName(username, reponame);
 
 if (!repo) return Astro.redirect("/404");
 
 // Get milestones with issue counts
-let milestones;
-if (state === "all") {
-  milestones = await sql<Milestone[]>`
-    SELECT m.*,
-      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open')::int as open_issues,
-      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed')::int as closed_issues
-    FROM milestones m
-    WHERE m.repository_id = ${repo.id}
-    ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
-  `;
-} else {
-  milestones = await sql<Milestone[]>`
-    SELECT m.*,
-      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open')::int as open_issues,
-      (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed')::int as closed_issues
-    FROM milestones m
-    WHERE m.repository_id = ${repo.id} AND m.state = ${state}
-    ORDER BY m.due_date ASC NULLS LAST, m.created_at DESC
-  `;
-}
+const milestonesList = await milestones.list(repo.id, state === "all" ? null : state);
 
 // Count milestones by state
-const [counts] = await sql<{open: number, closed: number}[]>`
-  SELECT
-    COUNT(*) FILTER (WHERE state = 'open')::int as open,
-    COUNT(*) FILTER (WHERE state = 'closed')::int as closed
-  FROM milestones
-  WHERE repository_id = ${repo.id}
-`;
+const counts = await milestones.countByState(repo.id);
 
 // Count pending landing requests
 let landingCount = 0;
 try {
-  const [result] = await sql`
-    SELECT COUNT(*) as count
-    FROM landing_queue
-    WHERE repository_id = ${repo.id} AND status = 'pending'
-  `;
-  landingCount = result?.count || 0;
+  landingCount = await landing.count(repo.id, 'pending');
 } catch {
   // landing_queue table may not exist yet
 }
 
 // Get open issue count
-const [issueCount] = await sql`
-  SELECT COUNT(*) as count
-  FROM issues
-  WHERE repository_id = ${repo.id} AND state = 'open'
-`;
+const issueCount = await issues.countByState(repo.id, 'open');
 
 let error = "";
 let showCreateForm = false;
@@ -89,10 +52,7 @@ if (Astro.request.method === "POST") {
       error = "Title is required";
     } else {
       try {
-        await sql`
-          INSERT INTO milestones (repository_id, title, description, due_date)
-          VALUES (${repo.id}, ${title}, ${description || null}, ${due_date || null})
-        `;
+        await milestones.create(repo.id, title, description || null, due_date || null);
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
@@ -121,7 +81,7 @@ if (Astro.request.method === "POST") {
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`}>
       Issues
-      {issueCount.count > 0 && <span class="badge">{issueCount.count}</span>}
+      {issueCount > 0 && <span class="badge">{issueCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
@@ -213,7 +173,7 @@ if (Astro.request.method === "POST") {
       </a>
     </div>
 
-    {milestones.length === 0 ? (
+    {milestonesList.length === 0 ? (
       <div class="empty-state">
         <div class="empty-state-icon">◎</div>
         <div class="empty-state-title">No {state} milestones</div>
@@ -231,7 +191,7 @@ if (Astro.request.method === "POST") {
       </div>
     ) : (
       <div class="milestone-list">
-        {milestones.map((milestone) => (
+        {milestonesList.map((milestone) => (
           <MilestoneCard
             milestone={milestone}
             username={username!}

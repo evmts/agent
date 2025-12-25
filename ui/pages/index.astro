@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
 import RepoCard from "../components/RepoCard.astro";
 import Pagination from "../components/Pagination.astro";
-import { sql } from '@plue/db';
+import { repositories } from '@plue/db';
 import type { Repository } from "../lib/types";
 
 // Pagination settings
@@ -25,24 +25,20 @@ const page = validPage;
 const offset = (page - 1) * PAGE_SIZE;
 
 // Get total count for pagination
-const [{ count }] = await sql<[{ count: number }]>`
-  SELECT COUNT(*)::int as count
-  FROM repositories r
-  WHERE r.is_public = true
-`;
-
+const count = await repositories.countPublic();
 const totalPages = Math.ceil(count / PAGE_SIZE);
 
 // Get paginated results
-const repos = await sql<Repository[]>`
-  SELECT r.*, u.username
-  FROM repositories r
-  JOIN users u ON r.user_id = u.id
-  WHERE r.is_public = true
-  ORDER BY r.updated_at DESC
-  LIMIT ${PAGE_SIZE}
-  OFFSET ${offset}
-`;
+const rawRepos = await repositories.listPublic(PAGE_SIZE, offset);
+
+// Map owner_username to username for UI compatibility
+const repos: Repository[] = rawRepos.map(repo => ({
+  ...repo,
+  username: (repo as any).owner_username,
+  is_public: !repo.is_private,
+  default_branch: repo.default_bookmark || 'main',
+  topics: [],
+}));
 ---
 
 <Layout title="plue">

@@ -9,8 +9,7 @@ import Header from "../../../components/Header.astro";
 import Avatar from "../../../components/Avatar.astro";
 import RelativeTime from "../../../components/RelativeTime.astro";
 import Pagination from "../../../components/Pagination.astro";
-import { sql } from '@plue/db';
-import type { User, Repository } from "../../../lib/types";
+import { repositories, watchers as watchersDao } from '@plue/db';
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -18,14 +17,8 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-// Get user and repo
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
+// Get repo
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Pagination
@@ -33,32 +26,10 @@ const PAGE_SIZE = 30;
 const page = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10));
 const offset = (page - 1) * PAGE_SIZE;
 
-// Get total count
-const [{ count: totalCount }] = await sql<[{ count: number }]>`
-  SELECT COUNT(*)::int as count FROM watches WHERE repository_id = ${repo.id}
-`;
-
-const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-
 // Get watchers
-const watchers = await sql`
-  SELECT
-    u.id,
-    u.username,
-    u.display_name,
-    u.avatar_url,
-    u.bio,
-    w.level,
-    w.created_at as watching_since
-  FROM watches w
-  JOIN users u ON w.user_id = u.id
-  WHERE w.repository_id = ${repo.id}
-  ORDER BY w.created_at DESC
-  LIMIT ${PAGE_SIZE}
-  OFFSET ${offset}
-`;
-
-const defaultBookmark = repo.default_bookmark || 'main';
+const totalCount = await watchersDao.countWatchers(repo.id);
+const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+const watchers = await watchersDao.getWatchers(repo.id, PAGE_SIZE, offset);
 
 function getLevelLabel(level: string): string {
   switch (level) {

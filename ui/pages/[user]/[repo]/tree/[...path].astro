@@ -2,9 +2,8 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import FileTree from "../../../../components/FileTree.astro";
-import { sql } from '@plue/db';
+import { repositories } from '@plue/db';
 import { getTree } from "../../../../lib/jj";
-import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame, path: pathParam } = Astro.params;
 
@@ -12,13 +11,7 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
+const repo = await repositories.getByOwnerAndName(username, reponame);
 
 if (!repo) return Astro.redirect("/404");
 

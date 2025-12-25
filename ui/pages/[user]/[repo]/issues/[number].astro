@@ -10,7 +10,9 @@ import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
 import Reactions from "../../../../components/Reactions.astro";
 import ActivityItem from "../../../../components/ActivityItem.astro";
-import { sql } from '@plue/db';
+import { repositories, users, saveMentionsForComment } from '@plue/db';
+import * as milestones from '@plue/db/milestones';
+import * as reactions from '@plue/db/reactions';
 import {
   getIssue,
   getComments,
@@ -28,8 +30,7 @@ import {
   getIssueEvents,
   listIssues,
 } from "../../../../lib/git-issues";
-import { saveMentionsForComment } from '@plue/db';
-import type { User, Repository, ReactionGroup } from "../../../../lib/types";
+import type { ReactionGroup } from "../../../../lib/types";
 
 const { user: username, repo: reponame, number: issueNumber } = Astro.params;
 
@@ -37,14 +38,10 @@ if (!username || !reponame || !issueNumber) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+const user = await users.getByUsername(username);
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Ensure issues repo exists
@@ -91,7 +88,7 @@ const timeline: TimelineItem[] = [
   return dateA.getTime() - dateB.getTime();
 });
 
-const users = await sql<User[]>`SELECT * FROM users ORDER BY username`;
+const allUsers = await users.list();
 
 const counts = await getIssueCounts(username, reponame);
 
@@ -102,34 +99,17 @@ const availableLabels = await getLabels(username, reponame);
 const allIssues = await listIssues(username, reponame, "all");
 
 // Get milestones for this repository
-const milestones = await sql<Array<{ id: number; title: string; due_date: string | null; state: string }>>`
-  SELECT id, title, due_date, state
-  FROM milestones
-  WHERE repository_id = ${repo.id}
-  ORDER BY state DESC, due_date ASC NULLS LAST
-`;
+const allMilestones = await milestones.list(repo.id);
 
 // Get current milestone if issue has one
 let currentMilestone = null;
 if (gitIssue.milestone) {
-  [currentMilestone] = await sql<Array<{ id: number; title: string; due_date: string | null; state: string }>>`
-    SELECT id, title, due_date, state
-    FROM milestones
-    WHERE id = (
-      SELECT milestone_id FROM issues
-      WHERE repository_id = ${repo.id} AND issue_number = ${parseInt(issueNumber)}
-    )
-  `;
+  // milestone is stored as a string (title), find it in the milestones list
+  currentMilestone = allMilestones.find(m => m.title === gitIssue.milestone) || null;
 }
 
 // Fetch reactions for the issue
-const issueReactions = await sql<Array<{ user_id: number; username: string; emoji: string }>>`
-  SELECT r.user_id, u.username, r.emoji
-  FROM reactions r
-  JOIN users u ON r.user_id = u.id
-  WHERE r.target_type = 'issue' AND r.target_id = ${parseInt(issueNumber)}
-  ORDER BY r.created_at ASC
-`;
+const issueReactions = await reactions.getForIssueWithUser(parseInt(issueNumber));
 
 // Group reactions by emoji
 const issueReactionGroups: ReactionGroup[] = Object.values(
@@ -150,44 +130,29 @@ const issueReactionGroups: ReactionGroup[] = Object.values(
 
 // Fetch reactions for all comments
 const commentIds = comments.map(c => c.id);
-const commentReactionsRaw = commentIds.length > 0 ? await sql<Array<{ target_id: number; user_id: number; username: string; emoji: string }>>`
-  SELECT r.target_id, r.user_id, u.username, r.emoji
-  FROM reactions r
-  JOIN users u ON r.user_id = u.id
-  WHERE r.target_type = 'comment' AND r.target_id = ANY(${commentIds})
-  ORDER BY r.created_at ASC
-` : [];
+const commentReactionsMap = await reactions.getForCommentsWithUser(commentIds);
 
-// Group reactions by comment and emoji
-const commentReactions = commentReactionsRaw.reduce((acc, r) => {
-  if (!acc[r.target_id]) {
-    acc[r.target_id] = {};
+// Convert Map to grouped reactions format
+const commentReactions = {} as Record<number, Record<string, ReactionGroup>>;
+for (const [commentId, reactionsList] of commentReactionsMap.entries()) {
+  commentReactions[commentId] = {};
+  for (const r of reactionsList) {
+    if (!commentReactions[commentId][r.emoji]) {
+      commentReactions[commentId][r.emoji] = {
+        emoji: r.emoji,
+        count: 0,
+        users: [],
+        has_reacted: false,
+      };
+    }
+    commentReactions[commentId][r.emoji].count++;
+    commentReactions[commentId][r.emoji].users.push({ id: r.user_id, username: r.username });
   }
-  if (!acc[r.target_id][r.emoji]) {
-    acc[r.target_id][r.emoji] = {
-      emoji: r.emoji,
-      count: 0,
-      users: [],
-      has_reacted: false,
-    };
-  }
-  acc[r.target_id][r.emoji].count++;
-  acc[r.target_id][r.emoji].users.push({ id: r.user_id, username: r.username });
-  return acc;
-}, {} as Record<number, Record<string, ReactionGroup>>);
-
-// Count pending landing requests
-let landingCount = 0;
-try {
-  const [result] = await sql`
-    SELECT COUNT(*) as count
-    FROM landing_queue
-    WHERE repository_id = ${repo.id} AND status = 'pending'
-  `;
-  landingCount = result?.count || 0;
-} catch {
-  // landing_queue table may not exist yet
 }
+
+// Get repository stats including landing count
+const stats = await repositories.getStats(repo.id);
+const landingCount = stats.landingCount;
 
 let error = "";
 
@@ -204,7 +169,7 @@ if (Astro.request.method === "POST") {
     } else {
       try {
         // Get author info from DB
-        const [author] = await sql<User[]>`SELECT * FROM users WHERE id = ${authorId}`;
+        const author = await users.getById(parseInt(authorId));
         if (!author) {
           error = "Author not found";
         } else {
@@ -444,7 +409,7 @@ if (authCookie) {
             <div class="form-group">
               <label for="author_id">Comment as</label>
               <select name="author_id" id="author_id" required>
-                {users.map((u) => (
+                {allUsers.map((u) => (
                   <option value={u.id}>{u.username}</option>
                 ))}
               </select>
@@ -489,7 +454,7 @@ if (authCookie) {
       </div>
 
       <div class="issue-sidebar-wrapper">
-        <IssueSidebar issue={issue} users={users} availableLabels={availableLabels} milestones={milestones} currentMilestone={currentMilestone} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
+        <IssueSidebar issue={issue} users={allUsers} availableLabels={availableLabels} milestones={allMilestones} currentMilestone={currentMilestone} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
         <IssueDependencies issue={issue} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
       </div>
     </div>

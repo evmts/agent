@@ -3,7 +3,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import IssueCard from "../../../../components/IssueCard.astro";
 import IssueFilters from "../../../../components/IssueFilters.astro";
-import { sql } from '@plue/db';
+import { repositories, milestones, reactions } from '@plue/db';
 import {
   listIssues,
   getIssueCounts,
@@ -31,14 +31,7 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Ensure issues repo exists
@@ -67,21 +60,11 @@ const [authors, assignees, availableLabels] = await Promise.all([
 ]);
 
 // Get milestones for filter
-const availableMilestones = await sql<Array<{ id: number; title: string }>>`
-  SELECT id, title
-  FROM milestones
-  WHERE repository_id = ${repo.id} AND state = 'open'
-  ORDER BY due_date ASC NULLS LAST, title ASC
-`;
+const availableMilestones = await milestones.listOpenForFiltering(repo.id);
 
 // Fetch reaction counts for all issues
 const issueNumbers = gitIssues.map(i => i.number);
-const reactionCounts = issueNumbers.length > 0 ? await sql<Array<{ target_id: number; emoji: string; count: number }>>`
-  SELECT target_id, emoji, COUNT(*) as count
-  FROM reactions
-  WHERE target_type = 'issue' AND target_id = ANY(${issueNumbers})
-  GROUP BY target_id, emoji
-` : [];
+const reactionCounts = await reactions.getCountsByTargets('issue', issueNumbers);
 
 // Group reactions by issue
 const issueReactionMap = reactionCounts.reduce((acc, r) => {
@@ -114,17 +97,8 @@ const issues = gitIssues.map(issue => ({
 }));
 
 // Count pending landing requests
-let landingCount = 0;
-try {
-  const [result] = await sql`
-    SELECT COUNT(*) as count
-    FROM landing_queue
-    WHERE repository_id = ${repo.id} AND status = 'pending'
-  `;
-  landingCount = result?.count || 0;
-} catch {
-  // landing_queue table may not exist yet
-}
+const stats = await repositories.getStats(repo.id);
+const landingCount = stats.pending_landing_count;
 
 // Build current filters for component
 const currentFilters = {

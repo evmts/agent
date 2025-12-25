@@ -2,7 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import RepoCard from "../../components/RepoCard.astro";
-import { sql } from '@plue/db';
+import { users, repositories } from '@plue/db';
 import type { User, Repository } from "../../lib/types";
 
 const { user: username } = Astro.params;
@@ -11,20 +11,13 @@ if (!username) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+const user = await users.getByUsername(username);
 
 if (!user) {
   return Astro.redirect("/404");
 }
 
-const repos = await sql<Repository[]>`
-  SELECT r.*, u.username,
-    (SELECT COUNT(*) FROM stars WHERE repository_id = r.id) as star_count
-  FROM repositories r
-  JOIN users u ON r.user_id = u.id
-  WHERE r.user_id = ${user.id} AND r.is_public = true
-  ORDER BY r.updated_at DESC
-`;
+const repos = await repositories.listByUserId(user.id);
 ---
 
 <Layout title={`${user.username} · plue`}>

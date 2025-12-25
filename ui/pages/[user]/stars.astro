@@ -2,8 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import Header from "../../components/Header.astro";
 import RepoCard from "../../components/RepoCard.astro";
-import { sql } from '@plue/db';
-import type { User, Repository } from "../../lib/types";
+import { users, stars } from '@plue/db';
 
 const { user: username } = Astro.params;
 
@@ -11,27 +10,34 @@ if (!username) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+const user = await users.getByUsername(username);
 
 if (!user) {
   return Astro.redirect("/404");
 }
 
-// Get starred repositories with star count
-interface StarredRepo extends Repository {
-  starred_at: Date;
-  star_count: number;
-}
+// Get starred repositories
+const starredRepos = await stars.getStarredRepos(user.id);
 
-const starredRepos = await sql<StarredRepo[]>`
-  SELECT r.*, u.username, s.created_at as starred_at,
-    (SELECT COUNT(*) FROM stars WHERE repository_id = r.id) as star_count
-  FROM stars s
-  JOIN repositories r ON s.repository_id = r.id
-  JOIN users u ON r.user_id = u.id
-  WHERE s.user_id = ${user.id}
-  ORDER BY s.created_at DESC
-`;
+// Get star counts for all repositories in one query
+const starCountMap = starredRepos.length > 0
+  ? await stars.getStarCountsForRepos(starredRepos.map(r => r.id))
+  : new Map<number, number>();
+
+// Map starred repos to the format expected by RepoCard
+const starredReposWithData = starredRepos.map(repo => ({
+  id: repo.id,
+  user_id: 0, // Not needed for display
+  name: repo.name,
+  description: repo.description,
+  is_public: true, // Starred repos are visible
+  default_branch: 'main', // Not needed for display
+  topics: [], // Not returned by DAO
+  created_at: new Date(), // Not needed for display
+  updated_at: new Date(), // Not needed for display
+  username: repo.owner_username,
+  star_count: starCountMap.get(repo.id) || 0,
+}));
 ---
 
 <Layout title={`Stars - ${user.username} · plue`}>
@@ -47,9 +53,9 @@ const starredRepos = await sql<StarredRepo[]>`
       <a href={`/${username}/stars`} class="active">Stars</a>
     </nav>
 
-    <h2 class="mb-2">Starred Repositories ({starredRepos.length})</h2>
+    <h2 class="mb-2">Starred Repositories ({starredReposWithData.length})</h2>
 
-    {starredRepos.length === 0 ? (
+    {starredReposWithData.length === 0 ? (
       <div class="empty-state compact">
         <div class="empty-state-icon">★</div>
         <div class="empty-state-title">No starred repositories</div>
@@ -59,7 +65,7 @@ const starredRepos = await sql<StarredRepo[]>`
       </div>
     ) : (
       <ul class="repo-list">
-        {starredRepos.map((repo) => (
+        {starredReposWithData.map((repo) => (
           <RepoCard repo={repo} showUser={true} starCount={Number(repo.star_count)} />
         ))}
       </ul>

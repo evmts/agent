@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { parseReferences, buildIssueUrl, formatReference } from "@plue/db";
+import { parseReferences, buildIssueUrl, formatReference } from "../references";
 
 describe("parseReferences", () => {
   describe("short format (#123)", () => {

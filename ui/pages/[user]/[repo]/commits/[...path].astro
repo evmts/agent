@@ -8,9 +8,9 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import CommitList from "../../../../components/CommitList.astro";
-import { sql } from '@plue/db';
+import { repositories } from '@plue/db';
 import { getFileHistory, getDefaultBookmark } from "../../../../lib/jj";
-import type { User, Repository } from "../../../../lib/types";
+import type { Repository } from "../../../../lib/types";
 import type { Change } from "../../../../lib/jj-types";
 
 const { user: username, repo: reponame, path: pathParam } = Astro.params;
@@ -19,14 +19,7 @@ if (!username || !reponame || !pathParam) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Parse path: first part is the bookmark/change, rest is file path

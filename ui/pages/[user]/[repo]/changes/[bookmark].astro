@@ -7,9 +7,9 @@
  */
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
-import { sql } from '@plue/db';
+import { repositories } from '@plue/db';
 import * as jj from "../../../../lib/jj";
-import type { User, Repository } from "../../../../lib/types";
+import type { Repository } from "../../../../lib/types";
 import type { Change } from "../../../../lib/jj-types";
 
 const { user: username, repo: reponame, bookmark } = Astro.params;
@@ -18,14 +18,7 @@ if (!username || !reponame || !bookmark) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Get changes from jj
@@ -40,15 +33,7 @@ try {
 
 const defaultBookmark = repo.default_bookmark || 'main';
 
-const [{ count: issueCount }] = await sql`
-  SELECT COUNT(*) as count FROM issues
-  WHERE repository_id = ${repo.id} AND state = 'open'
-`;
-
-const [{ count: landingCount }] = await sql`
-  SELECT COUNT(*) as count FROM landing_queue
-  WHERE repository_id = ${repo.id} AND status NOT IN ('landed', 'cancelled')
-`;
+const stats = await repositories.getStats(repo.id);
 ---
 
 <Layout title={`Changes · ${bookmark} · ${username}/${reponame}`}>
@@ -66,13 +51,13 @@ const [{ count: landingCount }] = await sql`
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`}>
       Issues
-      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+      {stats.issueCount > 0 && <span class="badge">{stats.issueCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${defaultBookmark}`} class="active">Changes</a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
-      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+      {stats.landingCount > 0 && <span class="badge">{stats.landingCount}</span>}
     </a>
   </nav>
 

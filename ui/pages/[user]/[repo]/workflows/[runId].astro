@@ -8,7 +8,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import WorkflowStatusBadge from "../../../../components/WorkflowStatusBadge.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
-import { sql } from '@plue/db';
+import { repositories, workflows } from '@plue/db';
 import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame, runId } = Astro.params;
@@ -17,14 +17,8 @@ if (!username || !reponame || !runId) {
   return Astro.redirect('/404');
 }
 
-// Get user and repo
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
+// Get repo
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Get workflow run
@@ -34,45 +28,23 @@ let steps: Record<number, any[]> = {};
 let artifacts: any[] = [];
 
 try {
-  const [runRow] = await sql`
-    SELECT * FROM workflow_runs WHERE id = ${parseInt(runId)}
-  `;
-  if (!runRow) return Astro.redirect("/404");
-  run = runRow;
+  const runIdInt = parseInt(runId);
+
+  // Get workflow run
+  run = await workflows.getRun(runIdInt);
+  if (!run) return Astro.redirect("/404");
 
   // Get jobs for this run
-  jobs = await sql`
-    SELECT * FROM workflow_jobs
-    WHERE run_id = ${run.id}
-    ORDER BY id
-  `;
+  jobs = await workflows.listJobs(runIdInt);
 
   // Get steps for each job
   for (const job of jobs) {
-    const taskRows = await sql`
-      SELECT id FROM workflow_tasks
-      WHERE job_id = ${job.id}
-      ORDER BY attempt DESC
-      LIMIT 1
-    `;
-    if (taskRows.length > 0) {
-      const stepRows = await sql`
-        SELECT * FROM workflow_steps
-        WHERE task_id = ${taskRows[0].id}
-        ORDER BY step_index
-      `;
-      steps[job.id] = stepRows;
-    } else {
-      steps[job.id] = [];
-    }
+    const jobSteps = await workflows.listSteps(job.id);
+    steps[job.id] = jobSteps;
   }
 
   // Get artifacts for this run
-  artifacts = await sql`
-    SELECT * FROM workflow_artifacts
-    WHERE run_id = ${run.id}
-    ORDER BY created_at DESC
-  `;
+  artifacts = await workflows.listArtifacts(runIdInt);
 } catch (e) {
   console.error('Error fetching workflow run:', e);
   return Astro.redirect("/404");

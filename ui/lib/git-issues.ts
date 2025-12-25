@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { parseFrontmatter, stringifyFrontmatter } from "./frontmatter";
-import { sql } from '@plue/db';
+import { repositories as repositoriesDao, issueEvents as issueEventsDao } from '@plue/db';
 import type {
   GitIssue,
   GitComment,
@@ -1211,18 +1211,13 @@ export async function removeLabelFromIssue(
  * Helper to get repository_id from user/repo
  */
 async function getRepositoryId(user: string, repo: string): Promise<number> {
-  const [repository] = await sql<Array<{ id: number }>>`
-    SELECT r.id
-    FROM repositories r
-    JOIN users u ON r.user_id = u.id
-    WHERE u.username = ${user} AND r.name = ${repo}
-  `;
+  const repositoryId = await repositoriesDao.getIdByOwnerAndName(user, repo);
 
-  if (!repository) {
+  if (!repositoryId) {
     throw new Error(`Repository ${user}/${repo} not found`);
   }
 
-  return repository.id;
+  return repositoryId;
 }
 
 /**
@@ -1238,11 +1233,7 @@ export async function recordIssueEvent(
 ): Promise<void> {
   try {
     const repositoryId = await getRepositoryId(user, repo);
-
-    await sql`
-      INSERT INTO issue_events (repository_id, issue_number, actor_id, event_type, metadata)
-      VALUES (${repositoryId}, ${issueNumber}, ${actorId}, ${eventType}, ${JSON.stringify(metadata)})
-    `;
+    await issueEventsDao.recordEvent(repositoryId, issueNumber, eventType, actorId, metadata);
   } catch (error) {
     // Don't fail the whole operation if activity recording fails
     console.error("Failed to record issue event:", error);
@@ -1259,24 +1250,7 @@ export async function getIssueEvents(
 ): Promise<IssueEvent[]> {
   try {
     const repositoryId = await getRepositoryId(user, repo);
-
-    const events = await sql<IssueEvent[]>`
-      SELECT
-        e.id,
-        e.repository_id,
-        e.issue_number,
-        e.actor_id,
-        u.username as actor_username,
-        e.event_type,
-        e.metadata,
-        e.created_at
-      FROM issue_events e
-      LEFT JOIN users u ON e.actor_id = u.id
-      WHERE e.repository_id = ${repositoryId} AND e.issue_number = ${issueNumber}
-      ORDER BY e.created_at ASC
-    `;
-
-    return events;
+    return await issueEventsDao.getEventsForIssue(repositoryId, issueNumber);
   } catch (error) {
     console.error("Failed to fetch issue events:", error);
     return [];

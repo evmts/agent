@@ -2,9 +2,8 @@
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import MarkdownEditor from "../../../../components/MarkdownEditor.astro";
-import { sql, saveMentionsForIssue } from '@plue/db';
+import { repositories, users, saveMentionsForIssue } from '@plue/db';
 import { createIssue, getIssueCounts, ensureIssuesRepo } from "../../../../lib/git-issues";
-import type { User, Repository } from "../../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -12,34 +11,18 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
-const users = await sql<User[]>`SELECT * FROM users ORDER BY username`;
+const usersList = await users.list();
 
 // Ensure issues repo exists and get counts
 await ensureIssuesRepo(username, reponame);
 const counts = await getIssueCounts(username, reponame);
 
-// Count pending landing requests
-let landingCount = 0;
-try {
-  const [result] = await sql`
-    SELECT COUNT(*) as count
-    FROM landing_queue
-    WHERE repository_id = ${repo.id} AND status = 'pending'
-  `;
-  landingCount = result?.count || 0;
-} catch {
-  // landing_queue table may not exist yet
-}
+// Get repository stats including landing count
+const stats = await repositories.getStats(repo.id);
+const landingCount = stats.landingCount;
 
 let error = "";
 
@@ -54,7 +37,7 @@ if (Astro.request.method === "POST") {
   } else {
     try {
       // Get author info from DB
-      const [author] = await sql<User[]>`SELECT * FROM users WHERE id = ${authorId}`;
+      const author = await users.getById(parseInt(authorId));
       if (!author) {
         error = "Author not found";
       } else {
@@ -125,7 +108,7 @@ if (Astro.request.method === "POST") {
       <div class="form-group">
         <label for="author_id">Author</label>
         <select name="author_id" id="author_id" required>
-          {users.map((u) => (
+          {usersList.map((u) => (
             <option value={u.id}>{u.username}</option>
           ))}
         </select>

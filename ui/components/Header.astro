@@ -1,23 +1,12 @@
 ---
-import { getUserBySession as dbGetUserBySession } from '@plue/db';
-
 interface Props {
   currentPath?: string;
 }
 
 const { currentPath = "/" } = Astro.props;
 
-// Check if user is authenticated - call function directly instead of HTTP fetch
-let user = null;
-const sessionCookie = Astro.cookies.get('session');
-
-if (sessionCookie) {
-  try {
-    user = await dbGetUserBySession(sessionCookie.value);
-  } catch (error) {
-    console.error('Failed to fetch user:', error);
-  }
-}
+// User is set by middleware from X-Plue-User-Address header (edge auth)
+const user = Astro.locals.user;
 ---
 
 <header class="site-header">

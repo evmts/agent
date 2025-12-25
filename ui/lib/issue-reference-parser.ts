@@ -2,7 +2,7 @@
  * Parse references from issue/comment text (for git-based issues)
  */
 
-import { parseReferences } from "@plue/db";
+import { parseReferences } from "./references";
 import { getIssue as getGitIssue } from "./git-issues";
 
 export interface ResolvedReference {

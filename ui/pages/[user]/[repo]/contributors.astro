@@ -7,10 +7,11 @@
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
 import Avatar from "../../../components/Avatar.astro";
-import { sql } from '@plue/db';
+import * as repositories from '@plue/db/repositories';
+import * as users from '@plue/db/users';
+import type { User } from '@plue/db/users';
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { User, Repository } from "../../../lib/types";
 
 const execAsync = promisify(exec);
 
@@ -20,14 +21,7 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 interface Contributor {
@@ -96,9 +90,7 @@ try {
 
   // Try to match contributors with registered users
   for (const contrib of contributors) {
-    const [matchedUser] = await sql<User[]>`
-      SELECT * FROM users WHERE email = ${contrib.email} LIMIT 1
-    `;
+    const matchedUser = await users.getByEmail(contrib.email);
     if (matchedUser) {
       contrib.user = matchedUser;
     }
@@ -107,23 +99,9 @@ try {
   error = e instanceof Error ? e.message : "Failed to load contributors";
 }
 
-const [{ count: issueCount }] = await sql`
-  SELECT COUNT(*) as count FROM issues WHERE repository_id = ${repo.id} AND state = 'open'
-`;
+const stats = await repositories.getStats(repo.id);
 
-let landingCount = 0;
-try {
-  const [result] = await sql`
-    SELECT COUNT(*) as count
-    FROM landing_queue
-    WHERE repository_id = ${repo.id} AND status = 'pending'
-  `;
-  landingCount = result?.count || 0;
-} catch {
-  // landing_queue table may not exist yet
-}
-
-const defaultBookmark = repo.default_branch || 'main';
+const defaultBookmark = repo.default_bookmark || 'main';
 ---
 
 <Layout title={`Contributors · ${username}/${reponame}`}>
@@ -141,11 +119,11 @@ const defaultBookmark = repo.default_branch || 'main';
     <a href={`/${username}/${reponame}`}>Code</a>
     <a href={`/${username}/${reponame}/issues`}>
       Issues
-      {Number(issueCount) > 0 && <span class="badge">{issueCount}</span>}
+      {stats.issueCount > 0 && <span class="badge">{stats.issueCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/landing`}>
       Landing
-      {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
+      {stats.landingCount > 0 && <span class="badge">{stats.landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
     <a href={`/${username}/${reponame}/changes/${defaultBookmark}`}>Changes</a>

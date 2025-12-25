@@ -14,29 +14,10 @@ if (!id) {
   return Astro.redirect('/sessions');
 }
 
-// Check authentication
-let currentUser = null;
-const sessionCookie = Astro.cookies.get('session');
+// User is set by middleware from X-Plue-User-Address header (edge auth)
+const currentUser = Astro.locals.user;
 
-if (!sessionCookie) {
-  return Astro.redirect('/login');
-}
-
-try {
-  const response = await fetch(`${Astro.url.origin}/api/auth/me`, {
-    headers: {
-      Cookie: `session=${sessionCookie.value}`,
-    },
-  });
-
-  if (response.ok) {
-    const data = await response.json();
-    currentUser = data.user;
-  } else {
-    return Astro.redirect('/login');
-  }
-} catch (error) {
-  console.error('Failed to fetch current user:', error);
+if (!currentUser) {
   return Astro.redirect('/login');
 }
 

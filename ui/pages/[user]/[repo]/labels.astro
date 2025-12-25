@@ -1,9 +1,8 @@
 ---
 import Layout from "../../../layouts/Layout.astro";
 import Header from "../../../components/Header.astro";
-import { sql } from '@plue/db';
+import { repositories } from '@plue/db';
 import { getLabels, ensureIssuesRepo } from "../../../lib/git-issues";
-import type { User, Repository } from "../../../lib/types";
 
 const { user: username, repo: reponame } = Astro.params;
 
@@ -11,14 +10,8 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+// Get repo
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Ensure issues repo exists
@@ -27,18 +20,9 @@ await ensureIssuesRepo(username, reponame);
 // Get all labels
 const labels = await getLabels(username, reponame);
 
-// Count pending landing requests
-let landingCount = 0;
-try {
-  const [result] = await sql`
-    SELECT COUNT(*) as count
-    FROM landing_queue
-    WHERE repository_id = ${repo.id} AND status = 'pending'
-  `;
-  landingCount = result?.count || 0;
-} catch {
-  // landing_queue table may not exist yet
-}
+// Get repository stats (includes landing count)
+const stats = await repositories.getStats(repo.id);
+const landingCount = stats.landingCount;
 
 // Predefined color palette
 const colorPalette = [
@@ -77,7 +61,7 @@ const colorPalette = [
       {Number(landingCount) > 0 && <span class="badge">{landingCount}</span>}
     </a>
     <a href={`/${username}/${reponame}/bookmarks`}>Bookmarks</a>
-    <a href={`/${username}/${reponame}/changes/${repo.default_branch || 'main'}`}>Changes</a>
+    <a href={`/${username}/${reponame}/changes/${repo.default_bookmark || 'main'}`}>Changes</a>
   </nav>
 
   <div class="container">

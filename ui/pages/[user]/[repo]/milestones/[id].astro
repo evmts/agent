@@ -1,7 +1,7 @@
 ---
 import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
-import { sql } from '@plue/db';
+import { repositories, milestones, issues } from '@plue/db';
 import type { User, Repository, Milestone, Issue } from "../../../../lib/types";
 
 const { user: username, repo: reponame, id: milestoneId } = Astro.params;
@@ -11,46 +11,19 @@ if (!username || !reponame || !milestoneId) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
-if (!user) return Astro.redirect("/404");
-
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Get milestone with issue counts
-const [milestone] = await sql<Milestone[]>`
-  SELECT m.*,
-    (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'open')::int as open_issues,
-    (SELECT COUNT(*) FROM issues WHERE milestone_id = m.id AND state = 'closed')::int as closed_issues
-  FROM milestones m
-  WHERE m.id = ${milestoneId} AND m.repository_id = ${repo.id}
-`;
+const milestone = await milestones.getById(parseInt(milestoneId));
 
-if (!milestone) return Astro.redirect("/404");
+if (!milestone || milestone.repository_id !== repo.id) return Astro.redirect("/404");
 
 // Get issues for this milestone
-let issues;
-if (issueState === "all") {
-  issues = await sql<Issue[]>`
-    SELECT i.*, u.username as author_username
-    FROM issues i
-    JOIN users u ON i.author_id = u.id
-    WHERE i.milestone_id = ${milestoneId}
-    ORDER BY i.created_at DESC
-  `;
-} else {
-  issues = await sql<Issue[]>`
-    SELECT i.*, u.username as author_username
-    FROM issues i
-    JOIN users u ON i.author_id = u.id
-    WHERE i.milestone_id = ${milestoneId} AND i.state = ${issueState}
-    ORDER BY i.created_at DESC
-  `;
-}
+const issuesList = await issues.getByMilestone(
+  parseInt(milestoneId),
+  issueState as 'open' | 'closed' | 'all'
+);
 
 let error = "";
 
@@ -67,14 +40,11 @@ if (Astro.request.method === "POST") {
       error = "Title is required";
     } else {
       try {
-        await sql`
-          UPDATE milestones
-          SET title = ${title},
-              description = ${description || null},
-              due_date = ${due_date || null},
-              updated_at = NOW()
-          WHERE id = ${milestoneId} AND repository_id = ${repo.id}
-        `;
+        await milestones.update(parseInt(milestoneId), {
+          title,
+          description: description || null,
+          due_date: due_date || null,
+        });
         return Astro.redirect(Astro.url.pathname);
       } catch (e) {
         error = (e as Error).message;
@@ -82,32 +52,21 @@ if (Astro.request.method === "POST") {
     }
   } else if (action === "close") {
     try {
-      await sql`
-        UPDATE milestones
-        SET state = 'closed', closed_at = NOW(), updated_at = NOW()
-        WHERE id = ${milestoneId} AND repository_id = ${repo.id}
-      `;
+      await milestones.close(parseInt(milestoneId));
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "reopen") {
     try {
-      await sql`
-        UPDATE milestones
-        SET state = 'open', closed_at = NULL, updated_at = NOW()
-        WHERE id = ${milestoneId} AND repository_id = ${repo.id}
-      `;
+      await milestones.reopen(parseInt(milestoneId));
       return Astro.redirect(Astro.url.pathname);
     } catch (e) {
       error = (e as Error).message;
     }
   } else if (action === "delete") {
     try {
-      await sql`
-        DELETE FROM milestones
-        WHERE id = ${milestoneId} AND repository_id = ${repo.id}
-      `;
+      await milestones.remove(parseInt(milestoneId));
       return Astro.redirect(`/${username}/${reponame}/milestones`);
     } catch (e) {
       error = (e as Error).message;
@@ -326,13 +285,13 @@ if (isOverdue) {
       </a>
     </div>
 
-    {issues.length === 0 ? (
+    {issuesList.length === 0 ? (
       <div class="empty-state">
         <p>No {issueState} issues in this milestone</p>
       </div>
     ) : (
       <div class="issue-list">
-        {issues.map((issue) => (
+        {issuesList.map((issue) => (
           <div class="issue-item">
             <div class="issue-info">
               <a href={`/${username}/${reponame}/issues/${issue.issue_number}`} class="issue-title">

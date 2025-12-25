@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseReferences, buildIssueUrl, formatReference } from "@plue/db";
+import { parseReferences, buildIssueUrl, formatReference } from "../references";
 
 test("parseReferences - short format #123", () => {
   const text = "This fixes #123 and relates to #456.";

@@ -9,7 +9,7 @@ import Layout from "../../../../layouts/Layout.astro";
 import Header from "../../../../components/Header.astro";
 import Avatar from "../../../../components/Avatar.astro";
 import RelativeTime from "../../../../components/RelativeTime.astro";
-import { sql } from '@plue/db';
+import { repositories, users, landing } from '@plue/db';
 import * as jj from "../../../../lib/jj";
 import type { User, Repository } from "../../../../lib/types";
 import type { LandingRequest } from "../../../../lib/jj-types";
@@ -20,32 +20,14 @@ if (!username || !reponame) {
   return Astro.redirect('/404');
 }
 
-const [user] = await sql<User[]>`SELECT * FROM users WHERE username = ${username}`;
+const user = await users.getByUsername(username);
 if (!user) return Astro.redirect("/404");
 
-const [repo] = await sql<Repository[]>`
-  SELECT * FROM repositories
-  WHERE user_id = ${user.id} AND name = ${reponame}
-`;
-
+const repo = await repositories.getByOwnerAndName(username, reponame);
 if (!repo) return Astro.redirect("/404");
 
 // Get landing requests
-const requests = await sql<(LandingRequest & { author_username?: string })[]>`
-  SELECT lq.*, u.username as author_username
-  FROM landing_queue lq
-  LEFT JOIN users u ON lq.author_id = u.id
-  WHERE lq.repository_id = ${repo.id}
-  ORDER BY
-    CASE
-      WHEN lq.status = 'ready' THEN 0
-      WHEN lq.status = 'conflicted' THEN 1
-      WHEN lq.status = 'checking' THEN 2
-      WHEN lq.status = 'pending' THEN 3
-      ELSE 4
-    END,
-    lq.created_at DESC
-`;
+const requests = await landing.listWithAuthors(repo.id);
 
 const openRequests = requests.filter(r => !['landed', 'cancelled'].includes(r.status));
 const closedRequests = requests.filter(r => ['landed', 'cancelled'].includes(r.status));
@@ -66,10 +48,7 @@ for (const request of openRequests) {
   try {
     const change = await jj.getChange(username, reponame, request.changeId);
     if (change?.commitId) {
-      const statuses = await sql<{ state: string }[]>`
-        SELECT state FROM commit_statuses
-        WHERE repository_id = ${repo.id} AND commit_sha = ${change.commitId}
-      `;
+      const statuses = await landing.getCommitStatusStates(repo.id, change.commitId);
 
       const summary: StatusSummary = {
         landingId: request.id,
@@ -87,10 +66,8 @@ for (const request of openRequests) {
 
 const defaultBookmark = repo.default_branch || 'main';
 
-const [{ count: issueCount }] = await sql`
-  SELECT COUNT(*) as count FROM issues
-  WHERE repository_id = ${repo.id} AND state = 'open'
-`;
+const stats = await repositories.getStats(repo.id);
+const issueCount = stats.issueCount;
 
 function getStatusColor(status: string): string {
   switch (status) {
@@ -175,7 +152,7 @@ function getStatusLabel(status: string): string {
               ></span>
             </div>
 
-            <Avatar user={{ username: request.author_username || 'unknown' }} size="sm" />
+            <Avatar user={{ username: request.authorUsername || 'unknown' }} size="sm" />
 
             <div class="request-info">
               <div class="request-title">
@@ -186,7 +163,7 @@ function getStatusLabel(status: string): string {
                 <span class="arrow">→</span>
                 <span class="bookmark">{request.targetBookmark}</span>
                 <span class="sep">·</span>
-                <span>opened by {request.author_username || 'unknown'}</span>
+                <span>opened by {request.authorUsername || 'unknown'}</span>
                 <span class="sep">·</span>
                 <RelativeTime date={new Date(request.createdAt)} />
               </div>
@@ -248,7 +225,7 @@ function getStatusLabel(status: string): string {
               ></span>
             </div>
 
-            <Avatar user={{ username: request.author_username || 'unknown' }} size="sm" />
+            <Avatar user={{ username: request.authorUsername || 'unknown' }} size="sm" />
 
             <div class="request-info">
               <div class="request-title">

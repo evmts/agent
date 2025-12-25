@@ -1,11 +1,11 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
-import { sql } from '@plue/db';
+import { users, repositories } from '@plue/db';
 import { initRepo } from "../lib/jj";
-import type { User, Repository } from "../lib/types";
+import type { User } from "../lib/types";
 
-const users = await sql`SELECT * FROM users ORDER BY username` as User[];
+const allUsers = await users.list();
 
 let error = "";
 
@@ -19,22 +19,17 @@ if (Astro.request.method === "POST") {
     error = "Owner and name are required";
   } else {
     try {
-      const [user] = await sql`SELECT * FROM users WHERE id = ${userId}` as User[];
+      const user = await users.getById(parseInt(userId));
 
       if (!user) {
         error = "User not found";
       } else {
-        const [existing] = await sql`
-          SELECT * FROM repositories WHERE user_id = ${userId} AND name = ${name}
-        ` as Repository[];
+        const alreadyExists = await repositories.exists(parseInt(userId), name);
 
-        if (existing) {
+        if (alreadyExists) {
           error = "Repository already exists";
         } else {
-          await sql`
-            INSERT INTO repositories (user_id, name, description)
-            VALUES (${userId}, ${name}, ${description})
-          `;
+          await repositories.create(parseInt(userId), name, description || undefined);
 
           await initRepo(user.username, name);
           return Astro.redirect(`/${user.username}/${name}`);
@@ -62,7 +57,7 @@ if (Astro.request.method === "POST") {
       <div class="form-group">
         <label for="user_id">Owner</label>
         <select name="user_id" id="user_id" required>
-          {users.map((user) => (
+          {allUsers.map((user) => (
             <option value={user.id}>{user.username}</option>
           ))}
         </select>
