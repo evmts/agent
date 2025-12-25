@@ -392,30 +392,6 @@ pub fn getWorkflowLogs(
     return try logs.toOwnedSlice(allocator);
 }
 
-// =============================================================================
-// JSON Utility Functions
-// =============================================================================
-
-/// Write a properly escaped JSON string value to a writer
-/// Escapes: quotes, backslashes, newlines, tabs, carriage returns, and control characters
-fn writeJsonString(writer: anytype, str: []const u8) !void {
-    for (str) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            '\x08' => try writer.writeAll("\\b"), // backspace
-            '\x0C' => try writer.writeAll("\\f"), // form feed
-            0x00...0x07, 0x0B, 0x0E...0x1F => {
-                // Other control characters: escape as \uXXXX
-                try writer.print("\\u{x:0>4}", .{c});
-            },
-            else => try writer.writeByte(c),
-        }
-    }
-}
 
 // =============================================================================
 // Runner operations
@@ -437,9 +413,7 @@ pub fn createRunner(
     if (label_list) |runner_labels| {
         for (runner_labels, 0..) |label, i| {
             if (i > 0) try writer.writeByte(',');
-            try writer.writeByte('"');
             try writeJsonString(writer, label);
-            try writer.writeByte('"');
         }
     }
     try writer.writeByte(']');
@@ -733,6 +707,34 @@ pub fn cleanupExpiredRateLimits(pool: *Pool) !?i64 {
     return try pool.exec(
         \\DELETE FROM rate_limits WHERE expires_at < NOW()
     , .{});
+}
+
+// =============================================================================
+// JSON Utilities
+// =============================================================================
+
+/// Write a JSON string value with proper escaping to a writer.
+/// Includes surrounding quotes.
+pub fn writeJsonString(writer: anytype, value: []const u8) !void {
+    try writer.writeByte('"');
+    for (value) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F => {
+                // Control characters - encode as \u00XX
+                try writer.writeAll("\\u00");
+                const hex = "0123456789abcdef";
+                try writer.writeByte(hex[c >> 4]);
+                try writer.writeByte(hex[c & 0x0F]);
+            },
+            else => try writer.writeByte(c),
+        }
+    }
+    try writer.writeByte('"');
 }
 
 // =============================================================================
