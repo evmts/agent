@@ -67,6 +67,9 @@ class AgentRunner:
             message_id = f"msg_{uuid.uuid4().hex[:12]}"
             self.streaming.set_message_id(message_id)
 
+            # Create message record in database (streaming status)
+            db_message_id = self.streaming.create_message("assistant", "streaming")
+
             try:
                 # Call Claude with streaming
                 with self.client.messages.stream(
@@ -80,22 +83,36 @@ class AgentRunner:
 
                 if response is None:
                     # Aborted during stream
+                    if db_message_id:
+                        self.streaming.update_message_status(db_message_id, "aborted")
                     return False
 
             except Exception as e:
                 logger.exception("Error calling Claude API")
                 self.streaming.send_error(f"Claude API error: {str(e)}")
+                if db_message_id:
+                    self.streaming.update_message_status(db_message_id, "failed")
                 return False
 
             # Check stop reason
             stop_reason = response.stop_reason
 
+            # Persist response content as parts
+            if db_message_id:
+                self._persist_response_parts(db_message_id, response.content)
+
             if stop_reason == "end_turn":
                 # Agent completed normally
+                if db_message_id:
+                    self.streaming.update_message_status(db_message_id, "completed")
                 logger.info("Agent completed")
                 return True
 
             elif stop_reason == "tool_use":
+                # Mark message as completed before processing tools
+                if db_message_id:
+                    self.streaming.update_message_status(db_message_id, "completed")
+
                 # Process tool calls
                 tool_results = self._process_tool_calls(
                     response.content,
@@ -118,6 +135,8 @@ class AgentRunner:
 
             else:
                 logger.warning(f"Unexpected stop reason: {stop_reason}")
+                if db_message_id:
+                    self.streaming.update_message_status(db_message_id, "failed")
                 return False
 
             turns += 1
@@ -125,6 +144,28 @@ class AgentRunner:
         logger.warning("Max turns reached")
         self.streaming.send_error("Max turns reached")
         return False
+
+    def _persist_response_parts(self, message_id: str, content: List[Any]) -> None:
+        """Persist response content blocks as parts."""
+        sort_order = 0
+        for block in content:
+            if block.type == "text":
+                self.streaming.create_part(
+                    message_id,
+                    "text",
+                    text=block.text,
+                    sort_order=sort_order,
+                )
+            elif block.type == "tool_use":
+                tool_state = json.dumps({"id": block.id, "input": block.input})
+                self.streaming.create_part(
+                    message_id,
+                    "tool",
+                    tool_name=block.name,
+                    tool_state=tool_state,
+                    sort_order=sort_order,
+                )
+            sort_order += 1
 
     def _process_stream(
         self,

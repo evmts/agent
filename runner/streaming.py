@@ -2,12 +2,14 @@
 Streaming client for sending events back to the Zig API server.
 
 Uses HTTP POST with chunked transfer encoding for real-time streaming.
+Supports agent token authentication for message/part persistence.
 """
 
 import json
 import random
 import time
-from typing import Optional, Any
+import uuid
+from typing import Optional, Any, Dict
 
 import httpx
 
@@ -22,16 +24,32 @@ CRITICAL_EVENTS = {'done', 'error', 'tool_end'}
 class StreamingClient:
     """Client for streaming events back to the Zig API server."""
 
-    def __init__(self, callback_url: str, task_id: str):
+    def __init__(
+        self,
+        callback_url: str,
+        task_id: str,
+        agent_token: Optional[str] = None,
+        persistence_url: Optional[str] = None,
+    ):
         self.callback_url = callback_url
         self.task_id = task_id
+        self.agent_token = agent_token
+        self.persistence_url = persistence_url
         self.client = httpx.Client(timeout=30.0)
         self.token_index = 0
         self.message_id: Optional[str] = None
+        self.current_db_message_id: Optional[str] = None
 
     def close(self):
         """Close the HTTP client."""
         self.client.close()
+
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Get headers including agent token authentication if available."""
+        headers = {"Content-Type": "application/json"}
+        if self.agent_token:
+            headers["Authorization"] = f"Bearer {self.agent_token}"
+        return headers
 
     def _should_retry(self, error: Exception, status_code: Optional[int] = None) -> bool:
         """Determine if a request should be retried based on the error or status code."""
@@ -68,7 +86,7 @@ class StreamingClient:
                 response = self.client.post(
                     self.callback_url,
                     json=event,
-                    headers={"Content-Type": "application/json"},
+                    headers=self._get_auth_headers(),
                 )
 
                 if response.status_code == 200:
@@ -232,3 +250,108 @@ class StreamingClient:
             "level": level,
             "message": message,
         })
+
+    # =========================================================================
+    # Message Persistence Methods (requires agent_token and persistence_url)
+    # =========================================================================
+
+    def create_message(self, role: str, status: str = "pending") -> Optional[str]:
+        """
+        Create a message record in the database.
+
+        Returns the message ID if successful, None otherwise.
+        Requires agent_token and persistence_url to be set.
+        """
+        if not self.persistence_url or not self.agent_token:
+            logger.debug("Persistence not configured, skipping message creation")
+            return None
+
+        message_id = f"msg_{uuid.uuid4().hex[:12]}"
+
+        try:
+            response = self.client.post(
+                f"{self.persistence_url}/internal/agent/messages",
+                json={
+                    "id": message_id,
+                    "role": role,
+                    "status": status,
+                },
+                headers=self._get_auth_headers(),
+            )
+            if response.status_code == 201:
+                self.current_db_message_id = message_id
+                logger.debug(f"Created message: {message_id}")
+                return message_id
+            else:
+                logger.warning(f"Failed to create message: {response.status_code} {response.text}")
+        except Exception as e:
+            logger.warning(f"Failed to create message: {e}")
+
+        return None
+
+    def update_message_status(self, message_id: str, status: str) -> bool:
+        """
+        Update the status of a message.
+
+        Returns True if successful, False otherwise.
+        """
+        if not self.persistence_url or not self.agent_token:
+            return False
+
+        try:
+            response = self.client.patch(
+                f"{self.persistence_url}/internal/agent/messages/{message_id}",
+                json={"status": status},
+                headers=self._get_auth_headers(),
+            )
+            if response.status_code == 200:
+                logger.debug(f"Updated message {message_id} status to {status}")
+                return True
+            else:
+                logger.warning(f"Failed to update message status: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Failed to update message status: {e}")
+
+        return False
+
+    def create_part(
+        self,
+        message_id: str,
+        part_type: str,
+        text: Optional[str] = None,
+        tool_name: Optional[str] = None,
+        tool_state: Optional[str] = None,
+        sort_order: int = 0,
+    ) -> Optional[str]:
+        """
+        Create a message part record.
+
+        Returns the part ID if successful, None otherwise.
+        """
+        if not self.persistence_url or not self.agent_token:
+            return None
+
+        part_id = f"part_{uuid.uuid4().hex[:12]}"
+
+        try:
+            response = self.client.post(
+                f"{self.persistence_url}/internal/agent/messages/{message_id}/parts",
+                json={
+                    "id": part_id,
+                    "type": part_type,
+                    "text": text,
+                    "tool_name": tool_name,
+                    "tool_state": tool_state,
+                    "sort_order": sort_order,
+                },
+                headers=self._get_auth_headers(),
+            )
+            if response.status_code == 201:
+                logger.debug(f"Created part: {part_id}")
+                return part_id
+            else:
+                logger.warning(f"Failed to create part: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Failed to create part: {e}")
+
+        return None
