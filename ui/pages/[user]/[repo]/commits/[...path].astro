@@ -32,8 +32,6 @@ if (!filePath) {
   return Astro.redirect(`/${username}/${reponame}`);
 }
 
-const defaultBookmark = await getDefaultBookmark(username, reponame);
-
 // Get file history
 let changes: Change[] = [];
 let error: string | null = null;

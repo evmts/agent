@@ -31,7 +31,7 @@ const transformedIssues = issues.map(issue => ({
   issue_number: issue.number,
   title: issue.title,
   body: issue.body,
-  state: issue.state,
+  state: issue.state as 'open' | 'closed',
   milestone_id: null,
   created_at: new Date(issue.createdAt),
   updated_at: new Date(issue.updatedAt),
@@ -40,7 +40,7 @@ const transformedIssues = issues.map(issue => ({
   labels: issue.labels,
   due_date: issue.dueDate,
   reactions: issue.reactions,
-  assignees: issue.assignees,
+  assignees: issue.assignees.map(a => a.username),
   is_pinned: issue.isPinned,
 }));
 
@@ -107,7 +107,11 @@ const baseUrl = `/${username}/${reponame}/issues`;
     ) : (
       <div class="issue-list">
         {transformedIssues.map((issue) => (
-          <IssueCard issue={issue} user={username} repo={reponame} availableLabels={availableLabels} />
+          <IssueCard issue={issue} user={username} repo={reponame} availableLabels={availableLabels.map(l => ({
+            name: l.name,
+            color: l.color,
+            description: l.description || undefined
+          }))} />
         ))}
       </div>
     )}

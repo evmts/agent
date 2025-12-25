@@ -36,13 +36,14 @@ const totalPages = Math.ceil(response.total / PAGE_SIZE);
 // Map API response to UI format
 const repos: Repository[] = response.repositories.map(repo => ({
   id: repo.id,
+  user_id: 0, // Not provided by list API
   name: repo.name,
   username: repo.owner,
-  description: repo.description || '',
+  description: repo.description || null,
   is_public: !repo.isPrivate,
   default_branch: repo.defaultBranch || 'main',
-  updated_at: repo.updatedAt,
-  created_at: repo.createdAt,
+  updated_at: new Date(repo.updatedAt),
+  created_at: new Date(repo.createdAt),
   topics: [],
 }));
 ---

@@ -19,9 +19,15 @@ if (!username || !reponame || !runId) {
 const runIdInt = parseInt(runId);
 
 // Get workflow run from API
-const { run } = await getWorkflowRun(username, reponame, runIdInt).catch(() => {
+const result = await getWorkflowRun(username, reponame, runIdInt).catch(() => {
   return Astro.redirect("/404");
 });
+
+if (!result || 'status' in result) {
+  return Astro.redirect("/404");
+}
+
+const { run } = result;
 
 // TODO: Get jobs, steps, and artifacts from API
 // For now, use empty arrays

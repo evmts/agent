@@ -26,10 +26,11 @@ let session: any = null;
 let error: string | null = null;
 
 try {
+  const sessionCookie = Astro.cookies.get('plue_session');
   const response = await fetch(`${Astro.url.origin}/api/sessions/${id}`, {
-    headers: {
-      Cookie: `session=${sessionCookie.value}`,
-    },
+    headers: sessionCookie ? {
+      Cookie: `plue_session=${sessionCookie.value}`,
+    } : {},
   });
 
   if (response.ok) {

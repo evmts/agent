@@ -163,7 +163,7 @@ const defaultBookmark = 'main'; // TODO: Get from API bookmarks endpoint
               <div class="contributor-name">
                 {contributor.user ? (
                   <a href={`/${contributor.user.username}`} class="link">
-                    {contributor.user.display_name || contributor.user.username}
+                    {contributor.user.displayName || contributor.user.username}
                   </a>
                 ) : (
                   <span>{contributor.name}</span>

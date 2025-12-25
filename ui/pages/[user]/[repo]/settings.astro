@@ -22,7 +22,8 @@ const branches = bookmarksResult.bookmarks.map(b => b.name);
 const repo = {
   description: null,
   topics: [] as string[],
-  default_branch: bookmarksResult.bookmarks.find(b => b.isDefault)?.name || 'main'
+  default_branch: bookmarksResult.bookmarks.find(b => b.isDefault)?.name || 'main',
+  is_public: true // Default to public for now
 };
 ---
 

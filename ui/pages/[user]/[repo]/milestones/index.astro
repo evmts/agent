@@ -196,7 +196,19 @@ if (Astro.request.method === "POST") {
       <div class="milestone-list">
         {milestonesList.map((milestone) => (
           <MilestoneCard
-            milestone={milestone}
+            milestone={{
+              id: milestone.id,
+              repository_id: 0,
+              title: milestone.title,
+              description: milestone.description,
+              due_date: milestone.dueDate ? new Date(milestone.dueDate) : null,
+              state: milestone.state as 'open' | 'closed',
+              created_at: new Date(milestone.createdAt),
+              updated_at: new Date(milestone.updatedAt),
+              closed_at: null, // API doesn't provide closedAt yet
+              open_issues: milestone.openIssueCount,
+              closed_issues: milestone.closedIssueCount,
+            }}
             username={username!}
             reponame={reponame!}
           />

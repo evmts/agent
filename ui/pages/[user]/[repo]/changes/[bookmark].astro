@@ -31,9 +31,7 @@ try {
   error = e instanceof Error ? e.message : "Failed to load changes";
 }
 
-const defaultBookmark = repo.default_bookmark || 'main';
-
-const stats = await repositories.getStats(repo.id);
+const defaultBookmark = 'main';
 ---
 
 <Layout title={`Changes · ${bookmark} · ${username}/${reponame}`}>

@@ -71,6 +71,7 @@ const issue = {
   created_at: new Date(apiIssue.createdAt),
   updated_at: new Date(apiIssue.updatedAt),
   closed_at: apiIssue.closedAt ? new Date(apiIssue.closedAt) : null,
+  is_pinned: apiIssue.isPinned || false,
 };
 
 // Transform comments
@@ -85,7 +86,10 @@ const comments = apiComments.map(c => ({
 
 // Transform events
 const events = apiEvents.map(e => ({
-  ...e,
+  id: 0, // API doesn't provide event IDs yet
+  actor_username: e.actor?.username || null,
+  event_type: e.type,
+  metadata: e.data,
   created_at: new Date(e.createdAt),
 }));
 
@@ -404,8 +408,54 @@ if (authCookie) {
       </div>
 
       <div class="issue-sidebar-wrapper">
-        <IssueSidebar issue={issue} users={allUsers} availableLabels={availableLabels} milestones={allMilestones} currentMilestone={currentMilestone} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
-        <IssueDependencies issue={issue} allIssues={allIssues.map(i => ({ number: i.number, title: i.title, state: i.state }))} />
+        <IssueSidebar
+          issue={{
+            id: issue.id,
+            issue_number: issue.issue_number,
+            state: issue.state as 'open' | 'closed',
+            assignees: apiIssue.assignees?.map(a => a.username),
+            labels: issue.labels,
+            milestone: issue.milestone,
+            due_date: issue.dueDate,
+            blocks: [],
+            blocked_by: [],
+          }}
+          users={allUsers}
+          availableLabels={availableLabels.map(l => ({
+            name: l.name,
+            color: l.color,
+            description: l.description || undefined
+          }))}
+          milestones={allMilestones.map(m => ({
+            id: m.id,
+            title: m.title,
+            due_date: m.dueDate,
+            state: m.state
+          }))}
+          currentMilestone={currentMilestone ? {
+            id: currentMilestone.id,
+            title: currentMilestone.title,
+            due_date: currentMilestone.dueDate,
+            state: currentMilestone.state
+          } : null}
+          allIssues={allIssues.map(i => ({
+            number: i.number,
+            title: i.title,
+            state: i.state as 'open' | 'closed'
+          }))}
+        />
+        <IssueDependencies
+          issue={{
+            issue_number: issue.issue_number,
+            blocks: [],
+            blocked_by: [],
+          }}
+          allIssues={allIssues.map(i => ({
+            number: i.number,
+            title: i.title,
+            state: i.state as 'open' | 'closed'
+          }))}
+        />
       </div>
     </div>
   </div>

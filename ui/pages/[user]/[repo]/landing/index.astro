@@ -20,12 +20,18 @@ if (!username || !reponame) {
 }
 
 // Get landing requests from API
-const { requests } = await listLandingRequests(username, reponame).catch(() => {
+const result = await listLandingRequests(username, reponame).catch(() => {
   return Astro.redirect("/404");
 });
 
-const openRequests = requests.filter(r => !['landed', 'cancelled'].includes(r.status));
-const closedRequests = requests.filter(r => ['landed', 'cancelled'].includes(r.status));
+if (!result || 'status' in result) {
+  return Astro.redirect("/404");
+}
+
+const { requests } = result;
+
+const openRequests = requests.filter((r: LandingRequest) => !['landed', 'cancelled'].includes(r.status));
+const closedRequests = requests.filter((r: LandingRequest) => ['landed', 'cancelled'].includes(r.status));
 
 // Get commit statuses for all open requests
 // We'll need to query for each change's commit SHA and then get statuses
@@ -133,7 +139,7 @@ function getStatusLabel(status: string): string {
               ></span>
             </div>
 
-            <Avatar user={{ username: request.authorUsername || 'unknown' }} size="sm" />
+            <Avatar user={{ username: request.authorUsername || 'unknown', avatar_url: null }} size="sm" />
 
             <div class="request-info">
               <div class="request-title">
@@ -206,7 +212,7 @@ function getStatusLabel(status: string): string {
               ></span>
             </div>
 
-            <Avatar user={{ username: request.authorUsername || 'unknown' }} size="sm" />
+            <Avatar user={{ username: request.authorUsername || 'unknown', avatar_url: null }} size="sm" />
 
             <div class="request-info">
               <div class="request-title">
@@ -218,7 +224,7 @@ function getStatusLabel(status: string): string {
                 <span class="bookmark">{request.targetBookmark}</span>
                 <span class="sep">·</span>
                 <span>
-                  {request.status === 'landed' ? 'landed' : 'cancelled'} <RelativeTime date={new Date(request.landedAt || request.updatedAt)} />
+                  {request.status === 'landed' ? 'landed' : 'cancelled'} <RelativeTime date={new Date((request.landedAt || request.updatedAt) as string)} />
                 </span>
               </div>
             </div>

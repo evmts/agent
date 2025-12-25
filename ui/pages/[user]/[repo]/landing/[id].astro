@@ -21,11 +21,17 @@ if (!username || !reponame || !id) {
 }
 
 // Get landing request from API
-const { request } = await getLandingRequest(username, reponame, parseInt(id)).catch(() => {
+const result = await getLandingRequest(username, reponame, parseInt(id)).catch(() => {
   return Astro.redirect("/404");
 });
 
-const author_username = request.authorUsername || 'unknown';
+if (!result || 'status' in result) {
+  return Astro.redirect("/404");
+}
+
+const { request } = result;
+
+const authorUsername = request.authorUsername || 'unknown';
 
 // Get change details
 let change: Change | null = null;
@@ -158,7 +164,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
       <span class="arrow">→</span>
       <span class="bookmark">{request.targetBookmark}</span>
       <span class="sep">·</span>
-      <span>opened by {author_username}</span>
+      <span>opened by {authorUsername}</span>
       <span class="sep">·</span>
       <span>{new Date(request.createdAt).toLocaleDateString()}</span>
     </div>
@@ -185,7 +191,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
                 <h3>Conflicts</h3>
                 <p>This change has conflicts with {request.targetBookmark} that need to be resolved before landing.</p>
                 <ul class="conflict-list">
-                  {request.conflictedFiles.map(file => (
+                  {request.conflictedFiles.map((file: string) => (
                     <li>
                       <span class="file-icon">!</span>
                       {file}
