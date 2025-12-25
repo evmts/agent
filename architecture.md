@@ -41,13 +41,20 @@ Plue is a GitHub alternative built from scratch with AI agents as first-class ci
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────┐│
 │  │   REST API    │  │  SSE Stream   │  │  SSH Server   │  │    K8s Client         ││
 │  │               │  │               │  │               │  │                       ││
-│  │ • CRUD ops    │  │ • Agent token │  │ • Git push/   │  │ • Claim runners       ││
-│  │ • Git tree    │  │   streaming   │  │   pull/fetch  │  │ • Create Jobs         ││
-│  │ • Git blob    │  │ • Workflow    │  │ • Public key  │  │ • Watch status        ││
-│  │ • Issues/PRs  │  │   logs        │  │   auth        │  │ • Warm pool mgmt      ││
+│  │ • Repos       │  │ • Agent token │  │ • Git push/   │  │ • Claim runners       ││
+│  │ • Users       │  │   streaming   │  │   pull/fetch  │  │ • Create Jobs         ││
+│  │ • Issues/PRs  │  │ • Workflow    │  │ • Public key  │  │ • Watch status        ││
+│  │ • Git tree    │  │   logs        │  │   auth        │  │ • Warm pool mgmt      ││
+│  │ • Git blob    │  │               │  │               │  │                       ││
 │  └───────────────┘  └───────────────┘  └───────────────┘  └───────────────────────┘│
-│                                     │                                               │
-│  ┌──────────────────────────────────┴───────────────────────────────────────────┐  │
+│          │                                                                           │
+│          ▼                                                                           │
+│  ┌───────────────────────────────────────────────────────────────────────────────┐  │
+│  │                           Database Layer (Zig DAOs)                           │  │
+│  │                                                                               │  │
+│  │    Repositories • Users • Issues • Pull Requests • Sessions • Workflows       │  │
+│  └───────────────────────────────┬───────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────┴────────────────────────────────────────────────┐  │
 │  │                              jj-lib (Rust FFI)                                │  │
 │  │                                                                               │  │
 │  │    Git operations • Tree walking • Blob content • Snapshots • Change IDs     │  │
@@ -113,7 +120,7 @@ This is the architectural insight that makes Plue unique:
 │   ┌──────────────────────────────────────────────────────────────────────────────┐    │
 │   │                           EVENT OCCURS                                        │    │
 │   │                                                                               │    │
-│   │   push │ pull_request │ issue.comment │ user_prompt │ @plue mention          │    │
+│   │   push │ pull_request │ issue.comment │ user_prompt │ @plue │ interactive    │    │
 │   └───────────────────────────────────────────────────────────────────────────────┘    │
 │                                      │                                                 │
 │                                      ▼                                                 │
@@ -151,6 +158,55 @@ This is the architectural insight that makes Plue unique:
 │   └──────────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Interactive Sessions as Workflows
+
+When a user opens a chat session in the UI, it creates a `workflow_run` with `trigger_type='interactive'`:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                         SESSION-WORKFLOW UNIFICATION                                     │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
+  User opens /sessions
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │  POST /api/sessions                                                         │
+  │                                                                             │
+  │  1. Create workflow_run (trigger_type='interactive', status='pending')     │
+  │  2. Generate agent_token (plat_xxx, SHA256 hash stored, 24h expiry)        │
+  │  3. Create session (workflow_run_id FK)                                     │
+  │  4. Update workflow_run (session_id FK) ← bidirectional link               │
+  │  5. Return { session, agentToken }                                          │
+  └─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  User sends message → Runner pod dispatched
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │  Python Runner (K8s Pod)                                                    │
+  │                                                                             │
+  │  • Uses agent_token for auth: Authorization: Bearer plat_xxx               │
+  │  • POSTs to /internal/agent/messages to persist messages                   │
+  │  • POSTs to /internal/agent/messages/:id/parts for tool calls/text         │
+  │  • Streams events to /internal/tasks/:task_id/stream                        │
+  └─────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  Session UI receives SSE updates in real-time
+
+  Database:
+  ┌─────────────────┐       ┌─────────────────┐
+  │    sessions     │──────▶│  workflow_runs  │
+  │                 │◀──────│                 │
+  │ workflow_run_id │       │ session_id      │
+  │ (FK)            │       │ agent_token_hash│
+  └─────────────────┘       │ trigger_type    │
+                            │   'interactive' │
+                            └─────────────────┘
 ```
 
 ---
@@ -402,12 +458,30 @@ This is the architectural insight that makes Plue unique:
 
 ---
 
+## Database Architecture
+
+The database layer has a single connection pool managed by the Zig API server. The Astro UI does not connect to the database directly—all database access flows through the Zig API.
+
+**Data Flow:**
+```
+Astro UI → ui/lib/api.ts → Zig API → db/daos/*.zig → PostgreSQL
+```
+
+**Key Points:**
+- **Single connection pool**: Only the Zig server connects to PostgreSQL
+- **No TypeScript DAOs**: All database logic is in Zig (`db/daos/`)
+- **API client**: `ui/lib/api.ts` provides typed API calls for the frontend
+- **No direct DB access**: Astro pages never import database code
+
+---
+
 ## Database Schema: Entity Relationships
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                              PLUE DATABASE SCHEMA                                        │
 │                              (~40 tables, PostgreSQL)                                    │
+│                         Accessed only via Zig API server                                 │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 
 ┌─ AUTH DOMAIN ────────────────────────────────────────────────────────────────────────────┐
@@ -510,8 +584,9 @@ This is the architectural insight that makes Plue unique:
 │   └──────────────────────┘      │ status          │      │ step_id         │            │
 │                                 │ started_at      │      │ step_type       │  ◄─────┐   │
 │                                 │ completed_at    │      │ status          │        │   │
-│                                 └─────────────────┘      │ tokens_in/out   │        │   │
-│                                                          └─────────────────┘        │   │
+│                                 │ session_id (FK) │◄──┐  │ tokens_in/out   │        │   │
+│                                 │ agent_token_hash│   │  └─────────────────┘        │   │
+│                                 └─────────────────┘   │                             │   │
 │                                                                   │                 │   │
 │   ┌─────────────────┐      ┌─────────────────┐                   │                 │   │
 │   │ prompt_definitions│     │  workflow_logs  │◄──────────────────┘                 │   │
@@ -527,15 +602,17 @@ This is the architectural insight that makes Plue unique:
 │                                                                                          │
 │   ┌─ AGENT SESSION STATE ───────────────────────────────────────────────────────────┐   │
 │   │                                                                                  │   │
-│   │   ┌─────────────┐       ┌─────────────┐       ┌─────────────┐                   │   │
-│   │   │  sessions   │◄──────│  messages   │◄──────│    parts    │                   │   │
-│   │   │─────────────│       │─────────────│       │─────────────│                   │   │
-│   │   │ id (PK)     │       │ session_id  │       │ message_id  │                   │   │
-│   │   │ directory   │       │ role        │       │ type        │                   │   │
-│   │   │ title       │       │ status      │       │ text        │                   │   │
-│   │   │ token_count │       │ tokens_*    │       │ tool_name   │                   │   │
-│   │   │ model       │       │ cost        │       │ tool_state  │                   │   │
-│   │   └─────────────┘       └─────────────┘       └─────────────┘                   │   │
+│   │   ┌─────────────────┐   ┌─────────────┐       ┌─────────────┐                   │   │
+│   │   │    sessions     │◄──│  messages   │◄──────│    parts    │                   │   │
+│   │   │─────────────────│   │─────────────│       │─────────────│                   │   │
+│   │   │ id (PK)         │   │ session_id  │       │ message_id  │                   │   │
+│   │   │ directory       │   │ role        │       │ type        │                   │   │
+│   │   │ title           │   │ status      │       │ text        │                   │   │
+│   │   │ token_count     │   │ tokens_*    │       │ tool_name   │                   │   │
+│   │   │ model           │   │ cost        │       │ tool_state  │                   │   │
+│   │   │ workflow_run_id │───┘             │       │             │                   │   │
+│   │   │ (FK) ───────────┼───────────────► workflow_runs.session_id (bidirectional)  │   │
+│   │   └─────────────────┘   └─────────────┘       └─────────────┘                   │   │
 │   │                                                                                  │   │
 │   └──────────────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                          │
@@ -943,7 +1020,7 @@ This is the architectural insight that makes Plue unique:
 | **Caching** | Content-addressable | Git SHAs are perfect cache keys (immutable by design) |
 | **Edge** | Cloudflare Workers | Global distribution, version-based invalidation |
 | **Database** | PostgreSQL (not Edge) | Complex joins, full ACID, co-located with agents |
-| **Warm Pool** | Standby pods | Sub-500ms task start vs 3-5s cold start |
+| **DB Access** | Single pool (Zig only) | UI → API → DB. No TypeScript DAOs, single connection pool || **Warm Pool** | Standby pods | Sub-500ms task start vs 3-5s cold start |
 
 ---
 
@@ -960,15 +1037,20 @@ plue/
 ├── ui/                # Astro SSR frontend
 │   ├── pages/         # Astro pages
 │   ├── components/    # UI components
-│   └── lib/           # Utilities (auth, cache, git, etc.)
-├── edge/              # Cloudflare Workers caching proxy
+│   └── lib/
+│       ├── api.ts     # API client (calls Zig API)
+│       ├── auth.ts    # Authentication utilities
+│       └── cache.ts   # Cache header utilities├── edge/              # Cloudflare Workers caching proxy
 │   ├── index.ts       # Main worker (proxy + cache)
 │   ├── purge.ts       # Cache purge utilities
 │   └── types.ts       # Environment bindings
-├── db/                # Database layer
+├── db/                # Database layer (Zig only)
 │   ├── schema.sql     # PostgreSQL schema
 │   └── daos/          # Data Access Objects (Zig)
-├── runner/            # Agent execution environment (Python)
+│       ├── repositories.zig
+│       ├── users.zig
+│       ├── issues.zig
+│       └── ...├── runner/            # Agent execution environment (Python)
 │   └── src/
 │       ├── agent.py   # Claude agent runtime
 │       ├── workflow.py# Workflow executor

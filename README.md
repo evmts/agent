@@ -52,7 +52,7 @@ plue/
 │   └── lib/           # Auth, API client, cache
 ├── edge/              # Cloudflare Workers caching proxy
 ├── runner/            # Python agent execution (K8s pods)
-├── db/                # PostgreSQL schema + DAOs
+├── db/                # PostgreSQL schema + Zig DAOs
 ├── core/              # Zig agent core library
 ├── e2e/               # Playwright E2E tests
 ├── infra/             # Terraform, Helm, K8s, Docker

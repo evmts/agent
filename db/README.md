@@ -1,6 +1,6 @@
 # Database Layer
 
-PostgreSQL database access layer with dual language support: Zig DAOs for server-side operations and TypeScript DAOs for UI/edge compatibility.
+PostgreSQL database access layer with Zig DAOs. The Astro UI accesses the database via the Zig API server (`ui/lib/api.ts`).
 
 ## Architecture
 
@@ -8,9 +8,8 @@ PostgreSQL database access layer with dual language support: Zig DAOs for server
 db/
 ├── schema.sql          # Single-source-of-truth schema (50 tables)
 ├── root.zig            # Zig DAO module exports
-├── index.ts            # TypeScript DAO module exports
-├── daos/               # Data Access Objects (Zig)
-└── migrations/         # Schema migration files
+├── build.zig           # Zig build configuration
+└── daos/               # Data Access Objects (Zig only)
 ```
 
 ## Table Groups
@@ -32,19 +31,18 @@ The schema is organized into functional domains:
 | **Infrastructure** | runner_pool, llm_usage, rate_limits, ssh_keys, commit_statuses | System operations |
 | **Milestones** | milestones, labels | Project management |
 
-## Language Support
+## Data Access Patterns
 
-### Zig DAOs (server/core)
+### Server-Side (Zig)
 - Direct PostgreSQL access via `pg` library
-- Type-safe query builders
-- Located in `daos/*.zig`
+- Type-safe query builders in `daos/*.zig`
 - Re-exported through `root.zig`
+- Used by API routes and workflows
 
-### TypeScript DAOs (ui/edge)
-- PostgreSQL access via `postgres.js`
-- Used in Astro SSR pages and edge workers
-- Located in `*.ts` files
-- Re-exported through `index.ts`
+### Frontend (Astro UI)
+- Calls Zig API via `ui/lib/api.ts` typed client
+- No direct database access from frontend
+- Server-side rendering with API data fetching
 
 ## Key Features
 
@@ -72,13 +70,15 @@ SELECT get_next_issue_number(repo_id);
 ## Quick Reference
 
 ```zig
-// Zig: Import database layer
+// Zig (server-side): Import database layer
 const db = @import("db");
 const user = try db.getUserById(pool, user_id);
+```
 
-// TypeScript: Import database layer
-import { getUserById } from '@/db';
-const user = await getUserById(userId);
+```typescript
+// TypeScript (Astro UI): Call API
+import { api } from '@/lib/api';
+const user = await api.users.getById(userId);
 ```
 
 ## Schema Access
@@ -86,9 +86,8 @@ const user = await getUserById(userId);
 | File | Purpose |
 |------|---------|
 | `schema.sql` | Complete PostgreSQL schema (DDL) |
-| `migrations/` | Incremental schema changes |
 | `root.zig` | Zig DAO exports and types |
-| `index.ts` | TypeScript DAO exports |
+| `daos/*.zig` | Individual DAO implementations |
 
 ## Connection
 
@@ -99,8 +98,7 @@ Docker managed via `zig build run` (spins up PostgreSQL container automatically)
 ## Testing
 
 ```bash
-zig build test:db        # Zig DAO tests
-npm test                 # TypeScript DAO tests (if configured)
+zig build test:zig       # Includes Zig DAO tests
 ```
 
-See `daos/*_test.zig` for Zig test examples.
+See `daos/*_test.zig` for test examples.

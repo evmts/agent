@@ -63,7 +63,8 @@ plue/
 | API routes | `server/routes/` |
 | Agent tools | `server/ai/tools/` |
 | Database schema | `db/schema.sql` |
-| Database DAOs | `db/daos/` |
+| Database DAOs (Zig) | `db/daos/` |
+| API client | `ui/lib/api.ts` |
 | Frontend pages | `ui/pages/` |
 | Cache utilities | `ui/lib/cache.ts` |
 | Edge worker | `edge/index.ts` |
