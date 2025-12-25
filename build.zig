@@ -90,16 +90,9 @@ pub fn build(b: *std.Build) void {
     const test_server_step = b.step("test:server", "Run server Zig tests");
     test_server_step.dependOn(&test_server.step);
 
-    // Zig tests - core
-    const test_core = b.addSystemCommand(&.{ "zig", "build", "test" });
-    test_core.setCwd(b.path("core"));
-    const test_core_step = b.step("test:core", "Run core Zig tests");
-    test_core_step.dependOn(&test_core.step);
-
     // All Zig tests
     const test_zig_step = b.step("test:zig", "Run all Zig tests");
     test_zig_step.dependOn(test_server_step);
-    test_zig_step.dependOn(test_core_step);
 
     // TypeScript tests (vitest in edge)
     const test_edge = b.addSystemCommand(&.{ "bun", "run", "test" });
@@ -139,7 +132,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Zig format check (acts as lint)
-    const lint_zig = b.addSystemCommand(&.{ "zig", "fmt", "--check", "server", "core", "db" });
+    const lint_zig = b.addSystemCommand(&.{ "zig", "fmt", "--check", "server", "db" });
     const lint_zig_step = b.step("lint:zig", "Check Zig formatting");
     lint_zig_step.dependOn(&lint_zig.step);
 
@@ -168,7 +161,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Zig format
-    const format_zig = b.addSystemCommand(&.{ "zig", "fmt", "server", "core", "db" });
+    const format_zig = b.addSystemCommand(&.{ "zig", "fmt", "server", "db" });
     const format_zig_step = b.step("format:zig", "Format Zig code");
     format_zig_step.dependOn(&format_zig.step);
 
@@ -226,8 +219,6 @@ pub fn build(b: *std.Build) void {
         "server/zig-out",
         "server/zig-cache",
         "server/.zig-cache",
-        "core/zig-out",
-        "core/zig-cache",
         "dist",
         "edge/dist",
         "tui/dist",
