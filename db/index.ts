@@ -2,50 +2,36 @@
  * TypeScript Database Access Layer
  *
  * Central module re-exporting all TypeScript DAOs and shared types.
+ *
+ * IMPORTANT: The `sql` template tag is intentionally NOT exported here.
+ * All database queries should go through DAOs, not raw SQL in UI code.
+ * DAOs import sql from './client' internally.
  */
-
-// =============================================================================
-// Database Client
-// =============================================================================
-
-export { sql, sql as default } from './client';
 
 // =============================================================================
 // Domain DAOs
 // =============================================================================
 
-export * as auth from './auth';
-export * as siwe from './siwe';
-export * as sessions from './sessions';
-export * as mentions from './mentions';
-export * as issueReferences from './issue-references';
-export * as landing from './landing';
+export * as siwe from './daos/siwe';
+export * as sessions from './daos/sessions';
+export * as mentions from './daos/mentions';
+export * as issueReferences from './daos/issue-references';
+export * as issueEvents from './daos/issue-events';
+export * as landing from './daos/landing';
+export * as repositories from './daos/repositories';
+export * as users from './daos/users';
+export * as stars from './daos/stars';
+export * as watchers from './daos/watchers';
+export * as milestones from './daos/milestones';
+export * as issues from './daos/issues';
+export * as workflows from './daos/workflows';
+export * as sshKeys from './daos/ssh-keys';
+export * as tokens from './daos/tokens';
+export * as reactions from './daos/reactions';
 
 // =============================================================================
 // Re-exports for convenience
 // =============================================================================
-
-// Auth
-export {
-  getUserBySession,
-  getUserByUsernameOrEmail,
-  getUserById,
-  getUserByUsername,
-  getUserByEmail,
-  getUserByActivationToken,
-  createUser,
-  createSession,
-  deleteSession,
-  deleteAllUserSessions,
-  activateUser,
-  createPasswordResetToken,
-  getUserByResetToken,
-  updateUserPassword,
-  deletePasswordResetToken,
-  updateUserProfile,
-  type AuthUser,
-  type CreateSessionResult,
-} from './auth';
 
 // SIWE
 export {
@@ -56,13 +42,13 @@ export {
   getOrCreateUserByWallet,
   createAuthSession,
   updateLastLogin,
-} from './siwe';
+} from './daos/siwe';
 
 // Sessions
 export {
   listSessions,
   createAgentSession,
-} from './sessions';
+} from './daos/sessions';
 
 // Mentions
 export {
@@ -70,7 +56,7 @@ export {
   saveMentionsForComment,
   getMentionedUsersForIssue,
   getMentionsForUser,
-} from './mentions';
+} from './daos/mentions';
 
 // Issue References
 export {
@@ -80,7 +66,15 @@ export {
   getReferencedIssues,
   deleteCommentReferences,
   deleteIssueReferences,
-} from './issue-references';
+} from './daos/issue-references';
+
+// Issue Events
+export {
+  getEventsForIssue,
+  recordEvent as recordIssueEvent,
+  type IssueEvent,
+  type IssueEventType,
+} from './daos/issue-events';
 
 // Landing
 export {
@@ -98,28 +92,13 @@ export {
   deleteLineComment,
   getReviews as getLandingReviews,
   createReview as createLandingReview,
+  listWithAuthors,
+  getCommitStatuses,
+  getCommitStatusStates,
   type LandingRequest,
+  type LandingRequestWithAuthor,
   type LineComment,
   type LandingReview,
-} from './landing';
+  type CommitStatus,
+} from './daos/landing';
 
-// =============================================================================
-// Utilities
-// =============================================================================
-
-// References
-export {
-  parseReferences,
-  buildIssueUrl,
-  formatReference,
-  type IssueReference,
-} from './references';
-
-// Mentions
-export {
-  extractMentions,
-  getUniqueMentionedUsernames,
-  replaceMentionsWithLinks,
-  hasMentions,
-  type Mention,
-} from './mentions-utils';
