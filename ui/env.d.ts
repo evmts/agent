@@ -2,7 +2,17 @@
 /// <reference types="astro/client" />
 
 declare namespace App {
-  interface Locals {}
+  interface Locals {
+    user?: {
+      id: number;
+      username: string;
+      email: string | null;
+      displayName: string | null;
+      isAdmin: boolean;
+      isActive: boolean;
+      walletAddress: string;
+    };
+  }
 }
 
 declare module '*.astro' {

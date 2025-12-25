@@ -1,10 +1,33 @@
 import { defineMiddleware } from 'astro:middleware';
+import { siwe } from '@plue/db';
 
 /**
  * Security headers middleware
  * Adds Content-Security-Policy and other security headers to all responses
+ * Also reads user from X-Plue-User-Address header set by edge worker
  */
-export const onRequest = defineMiddleware(async (_context, next) => {
+export const onRequest = defineMiddleware(async (context, next) => {
+  // Check if edge worker passed authenticated user via header
+  const walletAddress = context.request.headers.get('X-Plue-User-Address');
+  if (walletAddress) {
+    try {
+      const user = await siwe.getUserByWallet(walletAddress);
+      if (user) {
+        context.locals.user = {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.display_name,
+          isAdmin: user.is_admin,
+          isActive: user.is_active,
+          walletAddress: user.wallet_address,
+        };
+      }
+    } catch (error) {
+      console.error('Failed to fetch user by wallet address:', error);
+    }
+  }
+
   const response = await next();
 
   // Clone response to add headers

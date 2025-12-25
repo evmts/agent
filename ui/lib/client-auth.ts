@@ -57,7 +57,7 @@ export interface SiweRegistrationData {
  * Get a fresh nonce from the server for SIWE.
  */
 async function getNonce(): Promise<string> {
-  const response = await fetch(`${API_BASE}/auth/siwe/nonce`, {
+  const response = await fetch(`${API_BASE}/auth/nonce`, {
     credentials: 'include',
   });
 
@@ -86,7 +86,7 @@ export async function connectAndLogin(): Promise<{ user: SiweUser }> {
   });
 
   // Verify signature (auto-creates user if new wallet)
-  const response = await fetch(`${API_BASE}/auth/siwe/verify`, withCsrfToken({
+  const response = await fetch(`${API_BASE}/auth/verify`, withCsrfToken({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, signature }),
@@ -104,31 +104,15 @@ export async function connectAndLogin(): Promise<{ user: SiweUser }> {
 
 /**
  * Register a new user with SIWE.
- * Call this after connectAndLogin returns 'needs_registration'.
+ * NOTE: Edge worker auto-creates users, so this function is deprecated.
+ * Kept for backwards compatibility but should not be used.
  */
 export async function registerWithSiwe(
   message: string,
   signature: string,
   data: SiweRegistrationData
 ): Promise<{ user: SiweUser }> {
-  const response = await fetch(`${API_BASE}/auth/siwe/register`, withCsrfToken({
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      signature,
-      username: data.username,
-      displayName: data.displayName,
-    }),
-    credentials: 'include',
-  }));
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Registration failed');
-  }
-
-  return response.json();
+  throw new Error('Registration is automatic - users are created on first login');
 }
 
 /**
