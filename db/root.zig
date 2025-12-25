@@ -49,6 +49,8 @@ pub const changes = @import("daos/changes.zig");
 pub const agent = @import("daos/agent.zig");
 pub const stars = @import("daos/stars.zig");
 pub const landing = @import("daos/landing.zig");
+pub const agent_tokens = @import("daos/agent_tokens.zig");
+pub const mentions = @import("daos/mentions.zig");
 
 // =============================================================================
 // Convenience re-exports for common types
@@ -106,6 +108,7 @@ pub const PartRecord = agent.PartRecord;
 pub const getAllAgentSessions = agent.getAllSessions;
 pub const getAgentSessionById = agent.getSessionById;
 pub const createAgentSession = agent.createSession;
+pub const createAgentSessionWithWorkflowRun = agent.createSessionWithWorkflowRun;
 pub const updateAgentSession = agent.updateSession;
 pub const deleteAgentSession = agent.deleteSession;
 pub const getAgentSessionMessages = agent.getSessionMessages;
@@ -118,6 +121,12 @@ pub const getPartById = agent.getPartById;
 pub const createPart = agent.createPart;
 pub const updatePart = agent.updatePart;
 pub const deletePart = agent.deletePart;
+
+// Agent token types (for secure runner->API auth)
+pub const AgentTokenInfo = agent_tokens.AgentTokenInfo;
+pub const generateAgentToken = agent_tokens.generateAgentToken;
+pub const validateAgentToken = agent_tokens.validateAgentToken;
+pub const revokeAgentToken = agent_tokens.revokeAgentToken;
 
 // Star types
 pub const Stargazer = stars.Stargazer;
@@ -211,6 +220,10 @@ pub const getIssueHistory = issues.getHistory;
 pub const getDueDate = issues.getDueDate;
 pub const setDueDate = issues.setDueDate;
 pub const removeDueDate = issues.removeDueDate;
+
+// Mentions
+pub const saveMentionsForIssue = mentions.saveMentionsForIssue;
+pub const saveMentionsForComment = mentions.saveMentionsForComment;
 
 // =============================================================================
 // Landing Queue (backward-compatible)

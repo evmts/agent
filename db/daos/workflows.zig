@@ -58,6 +58,8 @@ pub const WorkflowRun = struct {
     outputs: ?[]const u8, // JSONB as string or null
     error_message: ?[]const u8,
     created_at: i64, // Unix timestamp (EXTRACT(EPOCH) returns bigint)
+    session_id: ?[]const u8, // Link to sessions table for interactive workflows
+    agent_token_expires_at: ?i64, // Agent token expiration (EXTRACT(EPOCH) returns bigint)
 };
 
 pub const WorkflowStep = struct {
@@ -390,7 +392,8 @@ pub fn getWorkflowRun(pool: *Pool, id: i32) !?WorkflowRun {
         \\       inputs::text, status,
         \\       EXTRACT(EPOCH FROM started_at)::bigint,
         \\       EXTRACT(EPOCH FROM completed_at)::bigint,
-        \\       outputs::text, error_message, EXTRACT(EPOCH FROM created_at)::bigint
+        \\       outputs::text, error_message, EXTRACT(EPOCH FROM created_at)::bigint,
+        \\       session_id, EXTRACT(EPOCH FROM agent_token_expires_at)::bigint
         \\FROM workflow_runs WHERE id = $1
     , .{id});
 
@@ -407,6 +410,8 @@ pub fn getWorkflowRun(pool: *Pool, id: i32) !?WorkflowRun {
             .outputs = r.get(?[]const u8, 8),
             .error_message = r.get(?[]const u8, 9),
             .created_at = r.get(i64, 10),
+            .session_id = r.get(?[]const u8, 11),
+            .agent_token_expires_at = r.get(?i64, 12),
         };
     }
     return null;
@@ -428,6 +433,13 @@ pub fn updateWorkflowRunStatus(pool: *Pool, id: i32, status: []const u8) !void {
     }
 }
 
+/// Update the session_id for a workflow run (bidirectional link)
+pub fn updateWorkflowRunSessionId(pool: *Pool, id: i32, session_id: []const u8) !void {
+    _ = try pool.exec(
+        \\UPDATE workflow_runs SET session_id = $2 WHERE id = $1
+    , .{ id, session_id });
+}
+
 pub fn completeWorkflowRun(pool: *Pool, id: i32, outputs: ?[]const u8, error_message: ?[]const u8) !void {
     const status = if (error_message != null) "failed" else "completed";
     _ = try pool.exec(
@@ -446,7 +458,8 @@ pub fn listWorkflowRuns(pool: *Pool, allocator: std.mem.Allocator, workflow_defi
         \\       inputs::text, status,
         \\       EXTRACT(EPOCH FROM started_at)::bigint,
         \\       EXTRACT(EPOCH FROM completed_at)::bigint,
-        \\       outputs::text, error_message, EXTRACT(EPOCH FROM created_at)::bigint
+        \\       outputs::text, error_message, EXTRACT(EPOCH FROM created_at)::bigint,
+        \\       session_id, EXTRACT(EPOCH FROM agent_token_expires_at)::bigint
         \\FROM workflow_runs
         \\WHERE ($1::bigint IS NULL OR workflow_definition_id = $1)
         \\ORDER BY created_at DESC LIMIT $2
@@ -467,6 +480,8 @@ pub fn listWorkflowRuns(pool: *Pool, allocator: std.mem.Allocator, workflow_defi
             .outputs = row.get(?[]const u8, 8),
             .error_message = row.get(?[]const u8, 9),
             .created_at = row.get(i64, 10),
+            .session_id = row.get(?[]const u8, 11),
+            .agent_token_expires_at = row.get(?i64, 12),
         });
     }
 

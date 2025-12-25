@@ -477,11 +477,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   model VARCHAR(255),
   reasoning_effort VARCHAR(20) CHECK (reasoning_effort IN ('minimal', 'low', 'medium', 'high')),
   ghost_commit JSONB,
-  plugins JSONB NOT NULL DEFAULT '[]'
+  plugins JSONB NOT NULL DEFAULT '[]',
+  -- Link to workflow system (sessions are special workflow runs)
+  -- Note: FK constraint added at end of file due to circular dependency
+  workflow_run_id INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(time_updated DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_workflow_run ON sessions(workflow_run_id) WHERE workflow_run_id IS NOT NULL;
 
 -- Messages
 CREATE TABLE IF NOT EXISTS messages (
@@ -646,11 +650,18 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   completed_at TIMESTAMPTZ,
   outputs JSONB,
   error_message TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Link to session (for interactive agent workflows)
+  session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE SET NULL,
+  -- Agent token for secure runner->API communication
+  agent_token_hash VARCHAR(64) UNIQUE,
+  agent_token_expires_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_definition_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_session ON workflow_runs(session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_agent_token ON workflow_runs(agent_token_hash) WHERE agent_token_hash IS NOT NULL;
 
 -- Individual steps within a run
 CREATE TABLE IF NOT EXISTS workflow_steps (
@@ -1070,3 +1081,19 @@ CREATE TABLE IF NOT EXISTS landing_line_comments (
 
 CREATE INDEX IF NOT EXISTS idx_landing_line_comments_landing ON landing_line_comments(landing_id);
 CREATE INDEX IF NOT EXISTS idx_landing_line_comments_file ON landing_line_comments(landing_id, file_path);
+
+-- =============================================================================
+-- Deferred Foreign Key Constraints (circular dependencies)
+-- =============================================================================
+
+-- sessions.workflow_run_id -> workflow_runs.id (sessions defined before workflow_runs)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessions_workflow_run'
+  ) THEN
+    ALTER TABLE sessions
+    ADD CONSTRAINT fk_sessions_workflow_run
+    FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL;
+  END IF;
+END $$;

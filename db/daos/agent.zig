@@ -31,6 +31,7 @@ pub const SessionRecord = struct {
     reasoning_effort: ?[]const u8,
     ghost_commit: ?[]const u8, // JSONB as string
     plugins: []const u8, // JSONB as string
+    workflow_run_id: ?i32, // Link to workflow_runs table
 };
 
 pub const MessageRecord = struct {
@@ -74,7 +75,7 @@ pub fn getAllSessions(pool: *Pool, allocator: std.mem.Allocator) !std.ArrayList(
         \\SELECT id, project_id, directory, title, version, time_created, time_updated,
         \\       time_archived, parent_id, fork_point, summary::text, revert::text,
         \\       compaction::text, token_count, bypass_mode, model, reasoning_effort,
-        \\       ghost_commit::text, plugins::text
+        \\       ghost_commit::text, plugins::text, workflow_run_id
         \\FROM sessions
         \\ORDER BY time_updated DESC
     , .{});
@@ -101,6 +102,7 @@ pub fn getAllSessions(pool: *Pool, allocator: std.mem.Allocator) !std.ArrayList(
             .reasoning_effort = row.get(?[]const u8, 16),
             .ghost_commit = row.get(?[]const u8, 17),
             .plugins = row.get([]const u8, 18),
+            .workflow_run_id = row.get(?i32, 19),
         });
     }
 
@@ -112,7 +114,7 @@ pub fn getSessionById(pool: *Pool, session_id: []const u8) !?SessionRecord {
         \\SELECT id, project_id, directory, title, version, time_created, time_updated,
         \\       time_archived, parent_id, fork_point, summary::text, revert::text,
         \\       compaction::text, token_count, bypass_mode, model, reasoning_effort,
-        \\       ghost_commit::text, plugins::text
+        \\       ghost_commit::text, plugins::text, workflow_run_id
         \\FROM sessions
         \\WHERE id = $1
     , .{session_id});
@@ -138,6 +140,7 @@ pub fn getSessionById(pool: *Pool, session_id: []const u8) !?SessionRecord {
             .reasoning_effort = r.get(?[]const u8, 16),
             .ghost_commit = r.get(?[]const u8, 17),
             .plugins = r.get([]const u8, 18),
+            .workflow_run_id = r.get(?i32, 19),
         };
     }
     return null;
@@ -162,6 +165,29 @@ pub fn createSession(
         \\  parent_id, bypass_mode, model, reasoning_effort, plugins, token_count
         \\) VALUES ($1, 'default', $2, $3, '1.0.0', $4, $4, $5, $6, $7, $8, $9::jsonb, 0)
     , .{ id, directory, title, now, parent_id, bypass_mode, model, reasoning_effort, plugins });
+}
+
+/// Create a session with a linked workflow_run_id
+pub fn createSessionWithWorkflowRun(
+    pool: *Pool,
+    id: []const u8,
+    directory: []const u8,
+    title: []const u8,
+    parent_id: ?[]const u8,
+    bypass_mode: bool,
+    model: ?[]const u8,
+    reasoning_effort: ?[]const u8,
+    plugins: []const u8,
+    workflow_run_id: i32,
+) !void {
+    const now = std.time.milliTimestamp();
+
+    _ = try pool.exec(
+        \\INSERT INTO sessions (
+        \\  id, project_id, directory, title, version, time_created, time_updated,
+        \\  parent_id, bypass_mode, model, reasoning_effort, plugins, token_count, workflow_run_id
+        \\) VALUES ($1, 'default', $2, $3, '1.0.0', $4, $4, $5, $6, $7, $8, $9::jsonb, 0, $10)
+    , .{ id, directory, title, now, parent_id, bypass_mode, model, reasoning_effort, plugins, workflow_run_id });
 }
 
 pub fn updateSession(
