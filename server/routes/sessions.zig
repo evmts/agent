@@ -26,6 +26,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const Context = @import("../main.zig").Context;
 const db = @import("db");
+const json = @import("../lib/json.zig");
 
 const log = std.log.scoped(.session_routes);
 
@@ -52,32 +53,36 @@ fn generateSessionId(allocator: std.mem.Allocator) ![]const u8 {
     return try allocator.dupe(u8, &id_buf);
 }
 
-/// Helper to write JSON field
-fn writeJsonString(writer: anytype, key: []const u8, value: []const u8) !void {
-    try writer.print("\"{s}\":\"{s}\"", .{ key, value });
+/// Helper to write JSON field with proper escaping
+fn writeJsonField(writer: anytype, key: []const u8, value: []const u8) !void {
+    try json.writeString(writer, key);
+    try writer.writeByte(':');
+    try json.writeString(writer, value);
 }
 
-/// Helper to write optional JSON field
-fn writeJsonOptionalString(writer: anytype, key: []const u8, value: ?[]const u8) !void {
+/// Helper to write optional JSON field with proper escaping
+fn writeJsonOptionalField(writer: anytype, key: []const u8, value: ?[]const u8) !void {
+    try json.writeString(writer, key);
+    try writer.writeByte(':');
     if (value) |v| {
-        try writer.print("\"{s}\":\"{s}\"", .{ key, v });
+        try json.writeString(writer, v);
     } else {
-        try writer.print("\"{s}\":null", .{key});
+        try writer.writeAll("null");
     }
 }
 
 /// Helper to write session record as JSON
 fn writeSessionJson(writer: anytype, session: db.AgentSessionRecord) !void {
     try writer.writeAll("{");
-    try writeJsonString(writer, "id", session.id);
+    try writeJsonField(writer, "id", session.id);
     try writer.writeAll(",");
-    try writeJsonString(writer, "projectID", session.project_id);
+    try writeJsonField(writer, "projectID", session.project_id);
     try writer.writeAll(",");
-    try writeJsonString(writer, "directory", session.directory);
+    try writeJsonField(writer, "directory", session.directory);
     try writer.writeAll(",");
-    try writeJsonString(writer, "title", session.title);
+    try writeJsonField(writer, "title", session.title);
     try writer.writeAll(",");
-    try writeJsonString(writer, "version", session.version);
+    try writeJsonField(writer, "version", session.version);
     try writer.writeAll(",");
     try writer.print("\"time\":{{\"created\":{d},\"updated\":{d}", .{ session.time_created, session.time_updated });
     if (session.time_archived) |archived| {
@@ -85,17 +90,17 @@ fn writeSessionJson(writer: anytype, session: db.AgentSessionRecord) !void {
     }
     try writer.writeAll("}");
     try writer.writeAll(",");
-    try writeJsonOptionalString(writer, "parentID", session.parent_id);
+    try writeJsonOptionalField(writer, "parentID", session.parent_id);
     try writer.writeAll(",");
-    try writeJsonOptionalString(writer, "forkPoint", session.fork_point);
+    try writeJsonOptionalField(writer, "forkPoint", session.fork_point);
     try writer.writeAll(",");
     try writer.print("\"tokenCount\":{d}", .{session.token_count});
     try writer.writeAll(",");
     try writer.print("\"bypassMode\":{s}", .{if (session.bypass_mode) "true" else "false"});
     try writer.writeAll(",");
-    try writeJsonOptionalString(writer, "model", session.model);
+    try writeJsonOptionalField(writer, "model", session.model);
     try writer.writeAll(",");
-    try writeJsonOptionalString(writer, "reasoningEffort", session.reasoning_effort);
+    try writeJsonOptionalField(writer, "reasoningEffort", session.reasoning_effort);
     try writer.writeAll(",");
     if (session.plugins.len > 0) {
         try writer.print("\"plugins\":{s}", .{session.plugins});
