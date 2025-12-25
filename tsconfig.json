@@ -22,7 +22,6 @@
       "@/*": ["./*"],
       "@/core/*": ["./core/*"],
       "@/ui/*": ["./ui/*"],
-      "@/db/*": ["./db/*"],
       "@/server/*": ["./server/*"]
     },
     "noUnusedLocals": false,
@@ -33,10 +32,9 @@
   },
   "include": [
     "ui/**/*.ts",
-    "ui/**/*.tsx", 
+    "ui/**/*.tsx",
     "ui/**/*.astro",
     "core/**/*.ts",
-    "db/**/*.ts",
     "server/**/*.ts",
     ".astro/types.d.ts"
   ],
