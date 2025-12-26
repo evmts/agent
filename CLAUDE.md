@@ -12,6 +12,35 @@ A brutalist GitHub clone with integrated AI agent capabilities.
 >
 > Move fast and break things. Clean code only.
 
+> **CRITICAL: Manual Testing Required**
+>
+> **YOU MUST test the app end-to-end in a browser after making changes.** Curl commands are NOT sufficient - you must verify the actual user experience.
+>
+> After ANY code change:
+> 1. Rebuild Docker if server code changed: `docker compose -f infra/docker/docker-compose.yaml build api --no-cache`
+> 2. Restart services: `docker compose -f infra/docker/docker-compose.yaml up -d`
+> 3. Start the frontend: `bunx astro dev --host`
+> 4. **Open the app in a browser and test the affected pages** - check for errors, verify functionality works
+> 5. Check Astro server logs for API errors or rendering failures
+> 6. Check Docker API logs: `docker logs plue-api-1 --tail 30`
+>
+> **Why browser testing matters:**
+> - Curl testing individual endpoints can pass while the full page fails
+> - SSR pages make multiple API calls - all must succeed
+> - JavaScript hydration errors only appear in browser
+> - Visual regressions are invisible to curl
+>
+> Quick verification:
+> ```bash
+> curl http://localhost:4000/health                    # API health check
+> curl http://localhost:4000/api/repos                 # Verify routes work
+> docker logs plue-api-1 --tail 20                     # Check for errors
+> # Then OPEN https://localhost:4321/ IN A BROWSER
+> ```
+>
+> **Do not mark a task complete until you have loaded the affected pages in a browser and verified they render without errors.**
+> Untested code is broken code. Curl-only tested code is also broken code.
+
 ## Quick Start
 
 ```bash
