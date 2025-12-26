@@ -242,17 +242,17 @@ pub fn build(b: *std.Build) void {
     db_seed_step.dependOn(&db_seed.step);
 
     // Docker build
-    const docker_build = b.addSystemCommand(&.{ "docker", "compose", "build" });
+    const docker_build = b.addSystemCommand(&.{ "docker", "compose", "-f", "infra/docker/docker-compose.yaml", "build" });
     const docker_step = b.step("docker", "Build Docker images");
     docker_step.dependOn(&docker_build.step);
 
     // Docker up all
-    const docker_up_all = b.addSystemCommand(&.{ "docker", "compose", "up", "-d" });
+    const docker_up_all = b.addSystemCommand(&.{ "docker", "compose", "-f", "infra/docker/docker-compose.yaml", "up", "-d" });
     const docker_up_step = b.step("docker:up", "Start all Docker services");
     docker_up_step.dependOn(&docker_up_all.step);
 
     // Docker down
-    const docker_down = b.addSystemCommand(&.{ "docker", "compose", "down" });
+    const docker_down = b.addSystemCommand(&.{ "docker", "compose", "-f", "infra/docker/docker-compose.yaml", "down" });
     const docker_down_step = b.step("docker:down", "Stop all Docker services");
     docker_down_step.dependOn(&docker_down.step);
 
