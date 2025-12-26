@@ -51,6 +51,8 @@ pub const stars = @import("daos/stars.zig");
 pub const landing = @import("daos/landing.zig");
 pub const agent_tokens = @import("daos/agent_tokens.zig");
 pub const mentions = @import("daos/mentions.zig");
+pub const protected_bookmarks = @import("daos/protected_bookmarks.zig");
+pub const commit_statuses = @import("daos/commit_statuses.zig");
 
 // =============================================================================
 // Convenience re-exports for common types
@@ -225,6 +227,14 @@ pub const removeDueDate = issues.removeDueDate;
 pub const saveMentionsForIssue = mentions.saveMentionsForIssue;
 pub const saveMentionsForComment = mentions.saveMentionsForComment;
 
+// Protected bookmarks
+pub const ProtectedBookmarkRecord = protected_bookmarks.ProtectedBookmarkRecord;
+pub const listProtectedBookmarks = protected_bookmarks.list;
+pub const getProtectedBookmarkById = protected_bookmarks.getById;
+pub const createProtectedBookmark = protected_bookmarks.create;
+pub const deleteProtectedBookmark = protected_bookmarks.delete;
+pub const matchesBookmarkProtection = protected_bookmarks.matchesProtection;
+
 // =============================================================================
 // Landing Queue (backward-compatible)
 // =============================================================================
@@ -249,6 +259,18 @@ pub const updateLineComment = landing.updateLineComment;
 pub const deleteLineComment = landing.deleteLineComment;
 
 // =============================================================================
+// Commit Statuses (CI/workflow check results)
+// =============================================================================
+
+pub const CommitStatus = commit_statuses.CommitStatus;
+pub const getCommitStatusesByCommit = commit_statuses.getByCommitSha;
+pub const getCommitStatusByContext = commit_statuses.getByContext;
+pub const getCommitStatusAggregatedState = commit_statuses.getAggregatedState;
+pub const upsertCommitStatus = commit_statuses.upsert;
+pub const deleteCommitStatus = commit_statuses.delete;
+pub const deleteAllCommitStatuses = commit_statuses.deleteAllForCommit;
+
+// =============================================================================
 // Bookmark operations (backward-compatible)
 // =============================================================================
 
@@ -256,7 +278,6 @@ pub const updateBookmark = changes.updateBookmark;
 pub const deleteBookmark = changes.deleteBookmark;
 pub const setDefaultBookmark = changes.setDefaultBookmark;
 pub const getChangeById = changes.getChangeById;
-
 
 // =============================================================================
 // Workflow operations (backward-compatible)
@@ -404,7 +425,6 @@ pub fn getWorkflowLogs(
 
     return try logs.toOwnedSlice(allocator);
 }
-
 
 // =============================================================================
 // Runner operations

@@ -145,15 +145,15 @@ const TokenType = enum {
     keyword_return,
 
     // Symbols
-    at_sign,      // @
-    left_paren,   // (
-    right_paren,  // )
+    at_sign, // @
+    left_paren, // (
+    right_paren, // )
     left_bracket, // [
     right_bracket, // ]
-    comma,        // ,
-    equals,       // =
-    colon,        // :
-    dot,          // .
+    comma, // ,
+    equals, // =
+    colon, // :
+    dot, // .
 
     // Special
     newline,
@@ -736,7 +736,7 @@ const Parser = struct {
         const step = plan.Step{
             .id = step_id,
             .name = step_name orelse try self.allocator.dupe(u8, "unnamed"),
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = config } },
             .depends_on = depends_on,
         };
@@ -816,7 +816,7 @@ const Parser = struct {
         const step = plan.Step{
             .id = step_id,
             .name = try self.allocator.dupe(u8, "parallel"),
-            .@"type" = .parallel,
+            .type = .parallel,
             .config = .{ .data = .{ .object = config } },
             .depends_on = &.{},
         };
@@ -966,7 +966,7 @@ const Parser = struct {
         const step = plan.Step{
             .id = step_id,
             .name = try self.allocator.dupe(u8, prompt_def.name),
-            .@"type" = step_type,
+            .type = step_type,
             .config = .{ .data = .{ .object = config } },
             .depends_on = depends_on,
         };
@@ -1311,7 +1311,7 @@ test "evaluator basic workflow" {
 
     const step = workflow.steps[0];
     try std.testing.expectEqualStrings("test", step.name);
-    try std.testing.expectEqual(plan.StepType.shell, step.@"type");
+    try std.testing.expectEqual(plan.StepType.shell, step.type);
 }
 
 test "evaluator multiple steps" {

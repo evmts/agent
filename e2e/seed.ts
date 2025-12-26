@@ -23,6 +23,9 @@ export const TEST_USER = {
   displayName: "E2E Test User",
 };
 
+// Test session for authenticated tests
+export const TEST_SESSION_KEY = "e2e-test-session-key-for-playwright-tests";
+
 export const TEST_REPO = {
   name: "testrepo",
   description: "Test repository for e2e tests",
@@ -59,6 +62,30 @@ async function cleanup() {
   }
 
   console.log("Cleanup complete");
+}
+
+/**
+ * Create test session for authenticated e2e tests
+ */
+async function createTestSession(userId: number, username: string) {
+  console.log("Creating test session...");
+
+  // Delete any existing test session
+  await sql`DELETE FROM auth_sessions WHERE session_key = ${TEST_SESSION_KEY}`;
+
+  // Create a test session that expires in 7 days
+  await sql`
+    INSERT INTO auth_sessions (session_key, user_id, username, is_admin, expires_at)
+    VALUES (
+      ${TEST_SESSION_KEY},
+      ${userId},
+      ${username},
+      false,
+      NOW() + INTERVAL '7 days'
+    )
+  `;
+
+  console.log(`Test session created: ${TEST_SESSION_KEY}`);
 }
 
 /**
@@ -540,6 +567,9 @@ export async function seed() {
 
     // Create test user
     const userId = await createTestUser();
+
+    // Create test session for authenticated tests
+    await createTestSession(userId, TEST_USER.username);
 
     // Create main test repository
     const repoId = await createTestRepo(

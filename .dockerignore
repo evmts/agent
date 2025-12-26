@@ -1,0 +1,59 @@
+# Dependencies (copied from deps stage, not needed in context)
+node_modules
+
+# Build outputs
+dist
+.astro
+zig-cache
+zig-out
+**/zig-cache
+**/zig-out
+**/target
+
+# Git
+.git
+.gitignore
+.gitmodules
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test artifacts
+test-results
+playwright-report
+e2e
+**/*.test.ts
+**/*.spec.ts
+__tests__
+
+# Documentation
+*.md
+docs/
+
+# Development tooling
+.claude/
+.cursor/
+
+# Unrelated projects/submodules (not built in this Dockerfile)
+gitea/
+codex/
+electric-ai-chat/
+examples/
+edge/
+runner/

@@ -12,8 +12,8 @@ pub const Pool = pg.Pool;
 // =============================================================================
 
 pub const Repository = struct {
-    id: i64,
-    user_id: i64,
+    id: i32,
+    user_id: i32,
     name: []const u8,
     description: ?[]const u8,
     is_public: bool,
@@ -36,8 +36,8 @@ pub fn getByUserAndName(pool: *Pool, username: []const u8, repo_name: []const u8
 
     if (row) |r| {
         return Repository{
-            .id = r.get(i64, 0),
-            .user_id = r.get(i64, 1),
+            .id = r.get(i32, 0),
+            .user_id = r.get(i32, 1),
             .name = r.get([]const u8, 2),
             .description = r.get(?[]const u8, 3),
             .is_public = r.get(bool, 4),
@@ -47,7 +47,7 @@ pub fn getByUserAndName(pool: *Pool, username: []const u8, repo_name: []const u8
     return null;
 }
 
-pub fn getById(pool: *Pool, repo_id: i64) !?Repository {
+pub fn getById(pool: *Pool, repo_id: i32) !?Repository {
     const row = try pool.row(
         \\SELECT id, user_id, name, description, is_public, default_branch
         \\FROM repositories WHERE id = $1
@@ -55,8 +55,8 @@ pub fn getById(pool: *Pool, repo_id: i64) !?Repository {
 
     if (row) |r| {
         return Repository{
-            .id = r.get(i64, 0),
-            .user_id = r.get(i64, 1),
+            .id = r.get(i32, 0),
+            .user_id = r.get(i32, 1),
             .name = r.get([]const u8, 2),
             .description = r.get(?[]const u8, 3),
             .is_public = r.get(bool, 4),
@@ -66,7 +66,7 @@ pub fn getById(pool: *Pool, repo_id: i64) !?Repository {
     return null;
 }
 
-pub fn exists(pool: *Pool, owner_id: i64, name: []const u8) !bool {
+pub fn exists(pool: *Pool, owner_id: i32, name: []const u8) !bool {
     const row = try pool.row(
         \\SELECT 1 FROM repositories WHERE user_id = $1 AND name = $2
     , .{ owner_id, name });
@@ -80,49 +80,49 @@ pub fn exists(pool: *Pool, owner_id: i64, name: []const u8) !bool {
 
 pub fn create(
     pool: *Pool,
-    owner_id: i64,
+    owner_id: i32,
     name: []const u8,
     description: ?[]const u8,
     is_public: bool,
-) !i64 {
+) !i32 {
     const row = try pool.row(
         \\INSERT INTO repositories (user_id, name, description, is_public, created_at, updated_at)
         \\VALUES ($1, $2, $3, $4, NOW(), NOW())
         \\RETURNING id
     , .{ owner_id, name, description, is_public }) orelse return error.InsertFailed;
 
-    return row.get(i64, 0);
+    return row.get(i32, 0);
 }
 
-pub fn updateTopics(pool: *Pool, repo_id: i64, topics: [][]const u8) !void {
+pub fn updateTopics(pool: *Pool, repo_id: i32, topics: [][]const u8) !void {
     _ = try pool.exec(
         \\UPDATE repositories SET topics = $1, updated_at = NOW()
         \\WHERE id = $2
     , .{ topics, repo_id });
 }
 
-pub fn updateDescription(pool: *Pool, repo_id: i64, description: ?[]const u8) !void {
+pub fn updateDescription(pool: *Pool, repo_id: i32, description: ?[]const u8) !void {
     _ = try pool.exec(
         \\UPDATE repositories SET description = $1, updated_at = NOW()
         \\WHERE id = $2
     , .{ description, repo_id });
 }
 
-pub fn updateDefaultBranch(pool: *Pool, repo_id: i64, default_branch: []const u8) !void {
+pub fn updateDefaultBranch(pool: *Pool, repo_id: i32, default_branch: []const u8) !void {
     _ = try pool.exec(
         \\UPDATE repositories SET default_branch = $1, updated_at = NOW()
         \\WHERE id = $2
     , .{ default_branch, repo_id });
 }
 
-pub fn delete(pool: *Pool, repo_id: i64) !void {
+pub fn delete(pool: *Pool, repo_id: i32) !void {
     _ = try pool.exec(
         \\DELETE FROM repositories WHERE id = $1
     , .{repo_id});
 }
 
 /// Get repository ID by username and repository name (case-insensitive)
-pub fn getId(pool: *Pool, username: []const u8, repo_name: []const u8) !?i64 {
+pub fn getId(pool: *Pool, username: []const u8, repo_name: []const u8) !?i32 {
     const row = try pool.row(
         \\SELECT r.id FROM repositories r
         \\JOIN users u ON r.user_id = u.id
@@ -130,7 +130,7 @@ pub fn getId(pool: *Pool, username: []const u8, repo_name: []const u8) !?i64 {
     , .{ username, repo_name });
 
     if (row) |r| {
-        return r.get(i64, 0);
+        return r.get(i32, 0);
     }
     return null;
 }

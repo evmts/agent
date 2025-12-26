@@ -20,14 +20,31 @@ function isPlaywright(): boolean {
 }
 
 /**
+ * Detect if running in a context that requires mock mode.
+ * Porto requires HTTPS for WebAuthn, so we use mock mode for:
+ * - Playwright tests
+ * - HTTP origins (localhost dev via edge worker)
+ */
+function shouldUseMockMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  // Always mock for Playwright
+  if (isPlaywright()) return true;
+  // Mock for HTTP origins (Porto requires HTTPS for WebAuthn)
+  if (window.location.protocol === 'http:') return true;
+  return false;
+}
+
+/**
  * Get or create the Porto instance.
- * Uses Mode.relay with mock passkeys in Playwright tests,
- * Mode.dialog (default) in production.
+ * Uses Mode.relay with mock passkeys when:
+ * - Running in Playwright tests
+ * - Running on HTTP (Porto requires HTTPS for WebAuthn)
+ * Mode.dialog (default) for production HTTPS.
  */
 export function getPorto() {
   if (!portoInstance) {
-    if (isPlaywright()) {
-      // Headless mode with mock passkey for E2E tests
+    if (shouldUseMockMode()) {
+      // Mock mode for tests and HTTP development
       portoInstance = Porto.create({
         mode: Mode.relay({ mock: true }),
       });
@@ -72,13 +89,13 @@ export async function signInWithEthereum(config: SiweConfig): Promise<{
 
   let address: `0x${string}`;
 
-  if (isPlaywright()) {
+  if (shouldUseMockMode()) {
     // In mock mode, use wallet_connect with createAccount capability
     const result = await porto.provider.request({
       method: 'wallet_connect',
       params: [{
         capabilities: {
-          createAccount: { label: 'E2E Test Account' },
+          createAccount: { label: 'Test Account' },
         },
       }],
     });

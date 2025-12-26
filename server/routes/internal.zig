@@ -26,8 +26,7 @@ fn requireInternalAuth(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
             break :blk auth_header["Bearer ".len..];
         }
         break :blk null;
-    } else
-        null;
+    } else null;
 
     if (header_token == null or !std.mem.eql(u8, header_token.?, token)) {
         res.status = 401;

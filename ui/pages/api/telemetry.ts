@@ -48,11 +48,12 @@ export const POST: APIRoute = async ({ request }) => {
         case 'error':
           structuredLog('error', event);
           break;
-        case 'network':
+        case 'network': {
           // Log network errors at error level, successful requests at debug
           const level = event.data.error || (event.data.status as number) >= 400 ? 'warn' : 'debug';
           structuredLog(level, event);
           break;
+        }
         case 'performance':
           structuredLog('info', event);
           break;

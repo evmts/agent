@@ -43,9 +43,9 @@ fn deinitJsonValue(value: std.json.Value, allocator: std.mem.Allocator) void {
 
 /// Step type discriminator
 pub const StepType = enum {
-    shell,    // Shell command execution
-    llm,      // Single LLM call with input/output
-    agent,    // Multi-turn agent with tools
+    shell, // Shell command execution
+    llm, // Single LLM call with input/output
+    agent, // Multi-turn agent with tools
     parallel, // Parallel execution group
 
     pub fn toString(self: StepType) []const u8 {
@@ -79,7 +79,7 @@ pub const TriggerType = enum {
 
 /// Trigger configuration
 pub const Trigger = struct {
-    @"type": TriggerType,
+    type: TriggerType,
     config: std.json.Value, // JSON config specific to trigger type
 
     pub fn deinit(self: *Trigger, allocator: std.mem.Allocator) void {
@@ -100,10 +100,10 @@ pub const StepConfig = struct {
 
 /// A single step in the workflow plan
 pub const Step = struct {
-    id: []const u8,              // Unique step identifier
-    name: []const u8,            // Human-readable name
-    @"type": StepType,           // Type of step (JSON field is "type", not "step_type")
-    config: StepConfig,          // Type-specific configuration
+    id: []const u8, // Unique step identifier
+    name: []const u8, // Human-readable name
+    type: StepType, // Type of step (JSON field is "type", not "step_type")
+    config: StepConfig, // Type-specific configuration
     depends_on: []const []const u8, // IDs of steps this depends on
 
     pub fn deinit(self: *Step, allocator: std.mem.Allocator) void {
@@ -119,11 +119,11 @@ pub const Step = struct {
 
 /// Complete workflow definition
 pub const WorkflowDefinition = struct {
-    name: []const u8,                // Workflow name (from function name)
-    triggers: []Trigger,             // Trigger configurations
-    image: ?[]const u8,              // Docker image (or null for default)
-    dockerfile: ?[]const u8,         // Path to Dockerfile (or null)
-    steps: []Step,                   // Ordered list of steps
+    name: []const u8, // Workflow name (from function name)
+    triggers: []Trigger, // Trigger configurations
+    image: ?[]const u8, // Docker image (or null for default)
+    dockerfile: ?[]const u8, // Path to Dockerfile (or null)
+    steps: []Step, // Ordered list of steps
 
     pub fn deinit(self: *WorkflowDefinition, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
@@ -154,7 +154,7 @@ pub const WorkflowDefinition = struct {
         var triggers_array = std.json.Array.init(allocator);
         for (self.triggers) |trigger| {
             var trigger_obj = std.json.ObjectMap.init(allocator);
-            try trigger_obj.put("type", .{ .string = trigger.@"type".toString() });
+            try trigger_obj.put("type", .{ .string = trigger.type.toString() });
             try trigger_obj.put("config", trigger.config);
             try triggers_array.append(.{ .object = trigger_obj });
         }
@@ -178,7 +178,7 @@ pub const WorkflowDefinition = struct {
             var step_obj = std.json.ObjectMap.init(allocator);
             try step_obj.put("id", .{ .string = step.id });
             try step_obj.put("name", .{ .string = step.name });
-            try step_obj.put("type", .{ .string = step.@"type".toString() });
+            try step_obj.put("type", .{ .string = step.type.toString() });
 
             // Wrap config.data in an object so it can be parsed back into StepConfig
             var config_wrapper = std.json.ObjectMap.init(allocator);
@@ -202,7 +202,7 @@ pub const WorkflowDefinition = struct {
 /// Result of evaluating a workflow file
 pub const PlanSet = struct {
     workflows: []WorkflowDefinition, // All workflows defined in the file
-    errors: []PlanError,            // Any errors encountered
+    errors: []PlanError, // Any errors encountered
 
     pub fn deinit(self: *PlanSet, allocator: std.mem.Allocator) void {
         for (self.workflows) |*workflow| {
@@ -242,14 +242,14 @@ test "Step lifecycle" {
     var step = Step{
         .id = try allocator.dupe(u8, "step_1"),
         .name = try allocator.dupe(u8, "test"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config_map } },
         .depends_on = &.{},
     };
 
     try std.testing.expectEqualStrings("step_1", step.id);
     try std.testing.expectEqualStrings("test", step.name);
-    try std.testing.expectEqual(StepType.shell, step.@"type");
+    try std.testing.expectEqual(StepType.shell, step.type);
 
     // step.deinit() will free the config_map and all its contents (keys and values)
     step.deinit(allocator);

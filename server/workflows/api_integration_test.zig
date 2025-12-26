@@ -140,7 +140,8 @@ test "parse workflow - validation error (cycle)" {
     const has_cycle_error = for (validation.errors) |err| {
         if (std.mem.indexOf(u8, err, "cycle") != null or
             std.mem.indexOf(u8, err, "Cycle") != null or
-            std.mem.indexOf(u8, err, "circular") != null) {
+            std.mem.indexOf(u8, err, "circular") != null)
+        {
             break true;
         }
     } else false;

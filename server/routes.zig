@@ -24,6 +24,8 @@ const internal_routes = @import("routes/internal.zig");
 const agent_routes = @import("routes/agent.zig");
 const operations = @import("routes/operations.zig");
 const metrics_routes = @import("routes/metrics.zig");
+const protected_bookmarks = @import("routes/protected_bookmarks.zig");
+const commit_statuses = @import("routes/commit_statuses.zig");
 
 const log = std.log.scoped(.routes);
 
@@ -252,7 +254,12 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.get("/api/:user/:repo/changes/:changeId/file/*", changes.getFileAtChange, .{});
     router.get("/api/:user/:repo/changes/:fromChangeId/compare/:toChangeId", changes.compareChanges, .{});
     router.get("/api/:user/:repo/changes/:changeId/conflicts", changes.getConflicts, .{});
+    router.get("/api/:user/:repo/changes/:changeId/stack", changes.getChangeStack, .{});
     router.post("/api/:user/:repo/changes/:changeId/conflicts/:filePath/resolve", withAuthAndCsrf(changes.resolveConflict), .{});
+
+    // API routes - commit statuses (CI check results)
+    router.get("/api/:user/:repo/changes/:changeId/statuses", commit_statuses.getStatuses, .{});
+    router.post("/api/:user/:repo/changes/:changeId/statuses", withAuthAndCsrf(commit_statuses.createStatus), .{});
 
     // API routes - operations (jj operation log) - CSRF protected
     router.get("/api/:user/:repo/operations", operations.listOperations, .{});
@@ -371,7 +378,7 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
 
     // API routes - AI agent - CSRF protected
     router.post("/api/sessions/:sessionId/run", withAuthAndCsrf(agent_routes.runAgentHandler), .{});
-    router.get("/api/sessions/:sessionId/stream", withAuthRequired(sessions.streamSession), .{});  // SSE streaming
+    router.get("/api/sessions/:sessionId/stream", withAuthRequired(sessions.streamSession), .{}); // SSE streaming
     router.get("/api/agents", agent_routes.listAgentsHandler, .{});
     router.get("/api/agents/:name", agent_routes.getAgentHandler, .{});
     router.get("/api/tools", agent_routes.listToolsHandler, .{});
@@ -410,6 +417,11 @@ pub fn configure(server: *httpz.Server(*Context)) !void {
     router.post("/api/watcher/watch/:user/:repo", withAuthAndCsrf(watcher_routes.watchRepository), .{});
     router.delete("/api/watcher/watch/:user/:repo", withAuthAndCsrf(watcher_routes.unwatchRepository), .{});
     router.post("/api/watcher/sync/:user/:repo", withAuthAndCsrf(watcher_routes.syncRepository), .{});
+
+    // API routes - protected bookmarks (repository settings) - CSRF protected
+    router.get("/api/:user/:repo/settings/protection", protected_bookmarks.listProtectionRules, .{});
+    router.post("/api/:user/:repo/settings/protection", withAuthAndCsrf(protected_bookmarks.createProtectionRule), .{});
+    router.delete("/api/:user/:repo/settings/protection/:id", withAuthAndCsrf(protected_bookmarks.deleteProtectionRule), .{});
 
     log.info("Routes configured", .{});
 }

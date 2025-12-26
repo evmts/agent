@@ -48,18 +48,18 @@ pub const LocalRunner = struct {
     ) !executor.StepResult {
         const start_time = std.time.timestamp();
 
-        log.info("Executing step: {s} (type: {s})", .{ step.id, @tagName(step.@"type") });
+        log.info("Executing step: {s} (type: {s})", .{ step.id, @tagName(step.type) });
 
         // Send step_started event
         event_callback(executor.ExecutionEvent{
             .step_started = .{
                 .step_id = step.id,
                 .name = step.name,
-                .@"type" = step.@"type",
+                .type = step.type,
             },
         });
 
-        const result = switch (step.@"type") {
+        const result = switch (step.type) {
             .shell => try self.executeShellStep(step, event_callback),
             .llm => try self.executeLlmStep(step, event_callback),
             .agent => try self.executeAgentStep(step, event_callback),
@@ -225,7 +225,7 @@ pub const LocalRunner = struct {
             event_callback: *const fn (event: executor.ExecutionEvent) void,
 
             fn handleEvent(event: llm_executor.LlmExecutionEvent, ctx: ?*anyopaque) void {
-                const self_ctx: *@This() = @alignCast(@ptrCast(ctx.?));
+                const self_ctx: *@This() = @ptrCast(@alignCast(ctx.?));
 
                 // Convert LlmExecutionEvent to ExecutionEvent
                 const exec_event: executor.ExecutionEvent = switch (event) {
@@ -286,7 +286,7 @@ pub const LocalRunner = struct {
             event_callback: *const fn (event: executor.ExecutionEvent) void,
 
             fn handleEvent(event: llm_executor.LlmExecutionEvent, ctx: ?*anyopaque) void {
-                const self_ctx: *@This() = @alignCast(@ptrCast(ctx.?));
+                const self_ctx: *@This() = @ptrCast(@alignCast(ctx.?));
 
                 // Convert LlmExecutionEvent to ExecutionEvent
                 const exec_event: executor.ExecutionEvent = switch (event) {

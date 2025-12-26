@@ -180,18 +180,18 @@ pub fn validateAccess(
     // Check if repository exists and user has access
     const query = if (is_write)
         \\SELECT r.id FROM repositories r
-        \\JOIN users u ON r.owner_id = u.id
+        \\JOIN users u ON r.user_id = u.id
         \\WHERE u.username = $1 AND r.name = $2
-        \\  AND (r.owner_id = $3 OR EXISTS (
+        \\  AND (r.user_id = $3 OR EXISTS (
         \\    SELECT 1 FROM collaborators c
         \\    WHERE c.repo_id = r.id AND c.user_id = $3
         \\      AND (c.permission = 'write' OR c.permission = 'admin')
         \\  ))
     else
         \\SELECT r.id FROM repositories r
-        \\JOIN users u ON r.owner_id = u.id
+        \\JOIN users u ON r.user_id = u.id
         \\WHERE u.username = $1 AND r.name = $2
-        \\  AND (r.is_private = false OR r.owner_id = $3 OR EXISTS (
+        \\  AND (r.is_public = true OR r.user_id = $3 OR EXISTS (
         \\    SELECT 1 FROM collaborators c
         \\    WHERE c.repo_id = r.id AND c.user_id = $3
         \\  ))

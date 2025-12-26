@@ -10,7 +10,7 @@ declare namespace App {
       displayName: string | null;
       isAdmin: boolean;
       isActive: boolean;
-      walletAddress: string;
+      walletAddress: string | null;
     };
   }
 }

@@ -1,0 +1,312 @@
+---
+/**
+ * ChangeStack Component
+ *
+ * Displays a linear visualization of change ancestors and descendants.
+ * Shows the current change highlighted in the middle with ancestors above
+ * and descendants below, connected by ASCII-style lines.
+ *
+ * Brutalist design: simple boxes, monospace, high contrast.
+ */
+
+interface StackChange {
+  changeId: string;
+  description: string;
+  isEmpty: boolean;
+  hasConflicts: boolean;
+}
+
+interface Props {
+  /** Current change being viewed */
+  current: StackChange | null;
+  /** Ancestor changes (oldest first) */
+  ancestors: StackChange[];
+  /** Descendant changes (newest first) */
+  descendants: StackChange[];
+  /** Link base URL */
+  baseUrl: string;
+  /** Maximum items to show before collapsing */
+  maxVisible?: number;
+}
+
+const {
+  current,
+  ancestors,
+  descendants,
+  baseUrl,
+  maxVisible = 5,
+} = Astro.props;
+
+// Limit visible ancestors/descendants
+const visibleAncestors = ancestors.slice(-maxVisible);
+const hiddenAncestorCount = ancestors.length - visibleAncestors.length;
+const visibleDescendants = descendants.slice(0, maxVisible);
+const hiddenDescendantCount = descendants.length - visibleDescendants.length;
+
+function truncateDescription(desc: string, maxLen: number = 24): string {
+  if (!desc) return "(no description)";
+  if (desc.length <= maxLen) return desc;
+  return desc.substring(0, maxLen - 3) + "...";
+}
+---
+
+<div class="change-stack">
+  <h4>Stack Context</h4>
+
+  <div class="stack-container">
+    <!-- Hidden ancestors indicator -->
+    {hiddenAncestorCount > 0 && (
+      <div class="stack-ellipsis">
+        <span class="connector">|</span>
+        <span class="count">+{hiddenAncestorCount} more</span>
+      </div>
+    )}
+
+    <!-- Ancestors (oldest at top) -->
+    {visibleAncestors.map((change, index) => (
+      <div class="stack-item ancestor">
+        <div class="connector-line top">{index === 0 && hiddenAncestorCount === 0 ? " " : "|"}</div>
+        <a
+          href={`${baseUrl}/${change.changeId}`}
+          class={`stack-box ${change.hasConflicts ? "conflict" : ""} ${change.isEmpty ? "empty" : ""}`}
+          title={change.description || "(no description)"}
+        >
+          <span class="change-id">{change.changeId.substring(0, 8)}</span>
+          <span class="description">{truncateDescription(change.description)}</span>
+          {change.hasConflicts && <span class="badge conflict">!</span>}
+          {change.isEmpty && <span class="badge empty">o</span>}
+        </a>
+        <div class="connector-line bottom">|</div>
+      </div>
+    ))}
+
+    <!-- Current change (highlighted) -->
+    {current && (
+      <div class="stack-item current">
+        <div class="connector-line top">{visibleAncestors.length > 0 || hiddenAncestorCount > 0 ? "|" : " "}</div>
+        <div
+          class={`stack-box current-box ${current.hasConflicts ? "conflict" : ""} ${current.isEmpty ? "empty" : ""}`}
+          title={current.description || "(no description)"}
+        >
+          <span class="change-id">{current.changeId.substring(0, 8)}</span>
+          <span class="description">{truncateDescription(current.description)}</span>
+          {current.hasConflicts && <span class="badge conflict">!</span>}
+          {current.isEmpty && <span class="badge empty">o</span>}
+          <span class="current-marker">&lt;--</span>
+        </div>
+        <div class="connector-line bottom">{visibleDescendants.length > 0 || hiddenDescendantCount > 0 ? "|" : " "}</div>
+      </div>
+    )}
+
+    <!-- Descendants -->
+    {visibleDescendants.map((change, index) => (
+      <div class="stack-item descendant">
+        <div class="connector-line top">|</div>
+        <a
+          href={`${baseUrl}/${change.changeId}`}
+          class={`stack-box ${change.hasConflicts ? "conflict" : ""} ${change.isEmpty ? "empty" : ""}`}
+          title={change.description || "(no description)"}
+        >
+          <span class="change-id">{change.changeId.substring(0, 8)}</span>
+          <span class="description">{truncateDescription(change.description)}</span>
+          {change.hasConflicts && <span class="badge conflict">!</span>}
+          {change.isEmpty && <span class="badge empty">o</span>}
+        </a>
+        <div class="connector-line bottom">{index < visibleDescendants.length - 1 || hiddenDescendantCount > 0 ? "|" : " "}</div>
+      </div>
+    ))}
+
+    <!-- Hidden descendants indicator -->
+    {hiddenDescendantCount > 0 && (
+      <div class="stack-ellipsis">
+        <span class="connector">|</span>
+        <span class="count">+{hiddenDescendantCount} more</span>
+      </div>
+    )}
+  </div>
+
+  {!current && ancestors.length === 0 && descendants.length === 0 && (
+    <div class="empty-state">No stack context available</div>
+  )}
+</div>
+
+<style>
+  .change-stack {
+    border: 2px solid var(--border);
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .change-stack h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .stack-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stack-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .connector-line {
+    font-family: var(--font-mono);
+    color: #9ca3af;
+    font-size: 14px;
+    line-height: 1;
+    height: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .connector-line.top {
+    margin-bottom: 2px;
+  }
+
+  .connector-line.bottom {
+    margin-top: 2px;
+  }
+
+  .stack-box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--background);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-decoration: none;
+    color: var(--text);
+    width: 100%;
+    box-sizing: border-box;
+    transition: background var(--transition-fast);
+  }
+
+  .stack-box:hover {
+    background: var(--hover);
+  }
+
+  .stack-box.current-box {
+    border: 2px solid #7c3aed;
+    background: #f5f3ff;
+    font-weight: 600;
+  }
+
+  .stack-box.conflict {
+    border-color: #dc2626;
+    background: #fef2f2;
+  }
+
+  .stack-box.current-box.conflict {
+    border-color: #dc2626;
+    background: #fef2f2;
+  }
+
+  .stack-box.empty {
+    opacity: 0.7;
+  }
+
+  .change-id {
+    background: #e5e7eb;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    color: #7c3aed;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .current-box .change-id {
+    background: #7c3aed;
+    color: white;
+  }
+
+  .description {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+
+  .current-box .description {
+    color: var(--text);
+  }
+
+  .badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 0 4px;
+    border-radius: 2px;
+  }
+
+  .badge.conflict {
+    background: #dc2626;
+    color: white;
+  }
+
+  .badge.empty {
+    background: #9ca3af;
+    color: white;
+  }
+
+  .current-marker {
+    flex-shrink: 0;
+    color: #7c3aed;
+    font-weight: bold;
+    font-size: 11px;
+  }
+
+  .stack-ellipsis {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.25rem 0;
+  }
+
+  .stack-ellipsis .connector {
+    font-family: var(--font-mono);
+    color: #9ca3af;
+    font-size: 14px;
+  }
+
+  .stack-ellipsis .count {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .empty-state {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 0.5rem;
+  }
+
+  /* Ancestor items are slightly faded */
+  .stack-item.ancestor .stack-box {
+    opacity: 0.85;
+  }
+
+  .stack-item.ancestor .stack-box:hover {
+    opacity: 1;
+  }
+
+  /* Descendant items are slightly faded */
+  .stack-item.descendant .stack-box {
+    opacity: 0.85;
+  }
+
+  .stack-item.descendant .stack-box:hover {
+    opacity: 1;
+  }
+</style>

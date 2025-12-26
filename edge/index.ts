@@ -27,7 +27,8 @@ function addSecurityHeaders(headers: Headers): void {
     "script-src 'self' 'unsafe-inline'", // unsafe-inline needed for Astro hydration
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
-    "connect-src 'self' https://api.anthropic.com",
+    "connect-src 'self' https://api.anthropic.com https://id.porto.sh https://*.porto.sh wss://*.porto.sh",
+    "frame-src https://id.porto.sh https://*.porto.sh", // Porto wallet iframe
     "font-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -427,7 +428,9 @@ async function proxyToOrigin(
   requestId?: string
 ): Promise<Response> {
   const url = new URL(request.url);
-  const originUrl = new URL(url.pathname + url.search, `https://${env.ORIGIN_HOST}`);
+  // Use http for local development, https for production
+  const protocol = env.ORIGIN_HOST.includes('localhost') || env.ORIGIN_HOST.startsWith('web:') ? 'http' : 'https';
+  const originUrl = new URL(url.pathname + url.search, `${protocol}://${env.ORIGIN_HOST}`);
 
   // Clone headers and add user address if authenticated
   const headers = new Headers(request.headers);

@@ -9,10 +9,19 @@ import { getCurrentUser } from './lib/api';
 export const onRequest = defineMiddleware(async (context, next) => {
   // Check if edge worker passed authenticated user via header
   const walletAddress = context.request.headers.get('X-Plue-User-Address');
-  if (walletAddress) {
+
+  // Also check for session cookie (local dev without edge worker)
+  // Cookie name must match SESSION_COOKIE_NAME in server/middleware/auth.zig
+  const sessionCookie = context.cookies.get('plue_session')?.value;
+
+  if (walletAddress || sessionCookie) {
     try {
-      // Call API to get user by wallet address
-      const user = await getCurrentUser(context.request.headers);
+      // Build headers for API call
+      const headers: HeadersInit = walletAddress
+        ? Object.fromEntries(context.request.headers.entries())
+        : { Cookie: `plue_session=${sessionCookie}` };
+
+      const user = await getCurrentUser(headers);
       if (user) {
         context.locals.user = {
           id: user.id,
@@ -21,11 +30,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
           displayName: user.displayName,
           isAdmin: false, // API doesn't return this field
           isActive: true, // Assume active if returned
-          walletAddress: walletAddress,
+          walletAddress: walletAddress || null,
         };
       }
     } catch (error) {
-      console.error('Failed to fetch user by wallet address:', error);
+      console.error('Failed to fetch user:', error);
     }
   }
 

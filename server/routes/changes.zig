@@ -635,3 +635,202 @@ pub fn resolveConflict(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
 
     try res.writer().writeAll("{\"success\":true}");
 }
+
+// =============================================================================
+// GET /:user/:repo/changes/:changeId/stack - Get change stack (ancestors/descendants)
+// =============================================================================
+
+pub fn getChangeStack(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void {
+    res.content_type = .JSON;
+    const allocator = ctx.allocator;
+
+    const username = req.param("user") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing user parameter\"}");
+        return;
+    };
+
+    const reponame = req.param("repo") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing repo parameter\"}");
+        return;
+    };
+
+    const change_id = req.param("changeId") orelse {
+        res.status = 400;
+        try res.writer().writeAll("{\"error\":\"Missing changeId parameter\"}");
+        return;
+    };
+
+    // Get optional query params for ancestor/descendant limits
+    const query_params = try req.query();
+    const ancestors_limit = std.fmt.parseInt(usize, query_params.get("ancestors") orelse "10", 10) catch 10;
+    const descendants_limit = std.fmt.parseInt(usize, query_params.get("descendants") orelse "5", 10) catch 5;
+
+    // Get repository from database (validate it exists)
+    _ = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
+        log.err("Failed to get repository: {}", .{err});
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Internal server error\"}");
+        return;
+    } orelse {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Repository not found\"}");
+        return;
+    };
+
+    // Get repository path on disk
+    const repo_path = getRepoPath(allocator, username, reponame) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to access repository\"}");
+        return;
+    };
+    defer allocator.free(repo_path);
+
+    // Template for extracting change info
+    const template = "change_id ++ \"|\" ++ description.first_line() ++ \"|\" ++ empty ++ \"|\" ++ conflict ++ \"\\n\"";
+
+    // Get ancestors (parents and their parents)
+    var ancestors_limit_str: [16]u8 = undefined;
+    const ancestors_limit_slice = std.fmt.bufPrint(&ancestors_limit_str, "{d}", .{ancestors_limit}) catch "10";
+
+    // Build the revset string dynamically
+    var revset_buf: [256]u8 = undefined;
+    const ancestors_revset = std.fmt.bufPrint(&revset_buf, "ancestors({s}) ~ {s}", .{ change_id, change_id }) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to build revset\"}");
+        return;
+    };
+
+    const ancestors_args_dynamic = &[_][]const u8{
+        "log", "-r", ancestors_revset,
+        "--no-graph", "-n", ancestors_limit_slice, "-T", template,
+    };
+
+    const ancestors_output = runJjCommand(allocator, repo_path, ancestors_args_dynamic) catch "";
+    defer if (ancestors_output.len > 0) allocator.free(ancestors_output);
+
+    // Get descendants (children and their children)
+    var descendants_limit_str: [16]u8 = undefined;
+    const descendants_limit_slice = std.fmt.bufPrint(&descendants_limit_str, "{d}", .{descendants_limit}) catch "5";
+
+    var descendants_revset_buf: [256]u8 = undefined;
+    const descendants_revset = std.fmt.bufPrint(&descendants_revset_buf, "descendants({s}) ~ {s}", .{ change_id, change_id }) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to build revset\"}");
+        return;
+    };
+
+    const descendants_args = &[_][]const u8{
+        "log", "-r", descendants_revset,
+        "--no-graph", "-n", descendants_limit_slice, "-T", template,
+    };
+
+    const descendants_output = runJjCommand(allocator, repo_path, descendants_args) catch "";
+    defer if (descendants_output.len > 0) allocator.free(descendants_output);
+
+    // Get current change info
+    var current_revset_buf: [128]u8 = undefined;
+    const current_revset = std.fmt.bufPrint(&current_revset_buf, "{s}", .{change_id}) catch {
+        res.status = 500;
+        try res.writer().writeAll("{\"error\":\"Failed to build revset\"}");
+        return;
+    };
+
+    const current_args = &[_][]const u8{
+        "log", "-r", current_revset,
+        "--no-graph", "-T", template,
+    };
+
+    const current_output = runJjCommand(allocator, repo_path, current_args) catch {
+        res.status = 404;
+        try res.writer().writeAll("{\"error\":\"Change not found\"}");
+        return;
+    };
+    defer allocator.free(current_output);
+
+    // Build JSON response
+    var writer = res.writer();
+    try writer.writeAll("{");
+
+    // Current change
+    try writer.writeAll("\"current\":");
+    try writeChangeJson(allocator, writer, current_output);
+
+    // Ancestors (in reverse order - oldest first for stack visualization)
+    try writer.writeAll(",\"ancestors\":[");
+    try writeChangesArrayJson(allocator, writer, ancestors_output, true);
+    try writer.writeAll("]");
+
+    // Descendants
+    try writer.writeAll(",\"descendants\":[");
+    try writeChangesArrayJson(allocator, writer, descendants_output, false);
+    try writer.writeAll("]");
+
+    // Metadata
+    try writer.print(",\"changeId\":\"{s}\"", .{change_id});
+
+    try writer.writeAll("}");
+}
+
+/// Write a single change as JSON object
+fn writeChangeJson(allocator: std.mem.Allocator, writer: anytype, output: []const u8) !void {
+    const trimmed = std.mem.trim(u8, output, &std.ascii.whitespace);
+    if (trimmed.len == 0) {
+        try writer.writeAll("null");
+        return;
+    }
+
+    var parts = std.mem.splitScalar(u8, trimmed, '|');
+    const change_id_part = parts.next() orelse "";
+    const description_part = parts.next() orelse "";
+    const is_empty = std.mem.eql(u8, parts.next() orelse "", "true");
+    const has_conflict = std.mem.eql(u8, parts.next() orelse "", "true");
+
+    const escaped_id = try escapeJson(allocator, change_id_part);
+    defer allocator.free(escaped_id);
+    const escaped_desc = try escapeJson(allocator, description_part);
+    defer allocator.free(escaped_desc);
+
+    try writer.print("{{\"changeId\":\"{s}\",\"description\":\"{s}\",\"isEmpty\":{s},\"hasConflicts\":{s}}}", .{
+        escaped_id,
+        escaped_desc,
+        if (is_empty) "true" else "false",
+        if (has_conflict) "true" else "false",
+    });
+}
+
+/// Write multiple changes as JSON array contents
+fn writeChangesArrayJson(allocator: std.mem.Allocator, writer: anytype, output: []const u8, reverse: bool) !void {
+    if (output.len == 0) return;
+
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    var changes = std.ArrayList([]const u8){};
+    defer changes.deinit(allocator);
+
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        if (trimmed.len == 0) continue;
+        try changes.append(allocator, trimmed);
+    }
+
+    if (changes.items.len == 0) return;
+
+    var first = true;
+    if (reverse) {
+        // Iterate in reverse for ancestors (oldest first)
+        var i: usize = changes.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (!first) try writer.writeAll(",");
+            first = false;
+            try writeChangeJson(allocator, writer, changes.items[i]);
+        }
+    } else {
+        for (changes.items) |change_line| {
+            if (!first) try writer.writeAll(",");
+            first = false;
+            try writeChangeJson(allocator, writer, change_line);
+        }
+    }
+}

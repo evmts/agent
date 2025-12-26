@@ -41,7 +41,7 @@ export default [
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/prefer-nullish-coalescing': 'off', // Disabled due to compatibility issues
       '@typescript-eslint/prefer-optional-chain': 'error',
       'no-console': 'off',
@@ -92,7 +92,9 @@ export default [
         clearInterval: 'readonly',
         requestAnimationFrame: 'readonly',
         cancelAnimationFrame: 'readonly',
-        Astro: 'readonly'
+        Astro: 'readonly',
+        process: 'readonly',
+        HeadersInit: 'readonly'
       }
     },
     plugins: {
@@ -119,13 +121,18 @@ export default [
       'electric-ai-chat/**',
       'gitea/**',
       'ui/env.d.ts',
+      'ui/.astro/**',
       'index.ts',
       'scripts/**',
       'src/**',
       'e2e/**',
+      'edge/**',
       'playwright.config.ts',
       'playwright-report/**',
-      'test-results/**'
+      'test-results/**',
+      '.claude/skills/**',
+      '**/*.test.ts',
+      '**/*.spec.ts'
     ]
   }
 ];

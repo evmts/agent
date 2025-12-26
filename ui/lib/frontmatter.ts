@@ -98,7 +98,7 @@ function parseYaml(yaml: string): Record<string, unknown> {
     if (valueStr === "" || valueStr === "|" || valueStr === ">") {
       // Look ahead for array items
       const nextLine = lines[i + 1];
-      if (nextLine && nextLine.trim().startsWith("- ")) {
+      if (nextLine?.trim().startsWith("- ")) {
         const items: unknown[] = [];
         i++;
         while (i < lines.length && lines[i].trim().startsWith("- ")) {

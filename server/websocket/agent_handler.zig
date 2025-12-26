@@ -48,101 +48,101 @@ pub fn AgentSSEResponse(comptime Writer: type) type {
             };
         }
 
-    // =========================================================================
-    // Server → Client SSE event sending
-    // =========================================================================
+        // =========================================================================
+        // Server → Client SSE event sending
+        // =========================================================================
 
-    /// Send a token event (text delta from Claude)
-    pub fn sendToken(self: *Self, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) !void {
-        var buf: [8192]u8 = undefined;
-        const escaped = escapeJsonString(&buf, text);
-        var msg_buf: [16384]u8 = undefined;
-        const msg = std.fmt.bufPrint(&msg_buf, "{{\"type\":\"token\",\"session_id\":\"{s}\",\"message_id\":\"{s}\",\"text\":{s},\"token_index\":{d}}}", .{
-            session_id,
-            message_id,
-            escaped,
-            token_index,
-        }) catch return error.BufferTooSmall;
-        try self.sendSSE("token", msg);
-    }
-
-    /// Send a tool start event
-    pub fn sendToolStart(self: *Self, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) !void {
-        var buf: [4096]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"tool_start\",\"session_id\":\"{s}\",\"message_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_name\":\"{s}\"}}", .{
-            session_id,
-            message_id,
-            tool_id,
-            tool_name,
-        }) catch return error.BufferTooSmall;
-        try self.sendSSE("tool_start", msg);
-    }
-
-    /// Send a tool end event
-    pub fn sendToolEnd(self: *Self, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) !void {
-        var buf: [8192]u8 = undefined;
-        var escaped_buf: [4096]u8 = undefined;
-
-        const msg = if (output) |out| blk: {
-            const escaped = escapeJsonString(&escaped_buf, out);
-            break :blk std.fmt.bufPrint(&buf, "{{\"type\":\"tool_end\",\"session_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_state\":\"{s}\",\"output\":{s}}}", .{
+        /// Send a token event (text delta from Claude)
+        pub fn sendToken(self: *Self, session_id: []const u8, message_id: []const u8, text: []const u8, token_index: usize) !void {
+            var buf: [8192]u8 = undefined;
+            const escaped = escapeJsonString(&buf, text);
+            var msg_buf: [16384]u8 = undefined;
+            const msg = std.fmt.bufPrint(&msg_buf, "{{\"type\":\"token\",\"session_id\":\"{s}\",\"message_id\":\"{s}\",\"text\":{s},\"token_index\":{d}}}", .{
                 session_id,
-                tool_id,
-                tool_state,
+                message_id,
                 escaped,
+                token_index,
             }) catch return error.BufferTooSmall;
-        } else blk: {
-            break :blk std.fmt.bufPrint(&buf, "{{\"type\":\"tool_end\",\"session_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_state\":\"{s}\"}}", .{
+            try self.sendSSE("token", msg);
+        }
+
+        /// Send a tool start event
+        pub fn sendToolStart(self: *Self, session_id: []const u8, message_id: []const u8, tool_id: []const u8, tool_name: []const u8) !void {
+            var buf: [4096]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"tool_start\",\"session_id\":\"{s}\",\"message_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_name\":\"{s}\"}}", .{
                 session_id,
+                message_id,
                 tool_id,
-                tool_state,
+                tool_name,
             }) catch return error.BufferTooSmall;
-        };
-        try self.sendSSE("tool_end", msg);
-    }
+            try self.sendSSE("tool_start", msg);
+        }
 
-    /// Send a done event
-    pub fn sendDone(self: *Self, session_id: []const u8) !void {
-        var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"done\",\"session_id\":\"{s}\"}}", .{session_id}) catch return error.BufferTooSmall;
-        try self.sendSSE("done", msg);
-    }
+        /// Send a tool end event
+        pub fn sendToolEnd(self: *Self, session_id: []const u8, tool_id: []const u8, tool_state: []const u8, output: ?[]const u8) !void {
+            var buf: [8192]u8 = undefined;
+            var escaped_buf: [4096]u8 = undefined;
 
-    /// Send an error event
-    pub fn sendError(self: *Self, message: []const u8) !void {
-        var buf: [1024]u8 = undefined;
-        var escaped_buf: [512]u8 = undefined;
-        const escaped = escapeJsonString(&escaped_buf, message);
-        const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"message\":{s}}}", .{escaped}) catch return error.BufferTooSmall;
-        try self.sendSSE("error", msg);
-    }
+            const msg = if (output) |out| blk: {
+                const escaped = escapeJsonString(&escaped_buf, out);
+                break :blk std.fmt.bufPrint(&buf, "{{\"type\":\"tool_end\",\"session_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_state\":\"{s}\",\"output\":{s}}}", .{
+                    session_id,
+                    tool_id,
+                    tool_state,
+                    escaped,
+                }) catch return error.BufferTooSmall;
+            } else blk: {
+                break :blk std.fmt.bufPrint(&buf, "{{\"type\":\"tool_end\",\"session_id\":\"{s}\",\"tool_id\":\"{s}\",\"tool_state\":\"{s}\"}}", .{
+                    session_id,
+                    tool_id,
+                    tool_state,
+                }) catch return error.BufferTooSmall;
+            };
+            try self.sendSSE("tool_end", msg);
+        }
 
-    /// Send a keepalive comment (to prevent connection timeout)
-    pub fn sendKeepalive(self: *Self) !void {
-        self.writer.writeAll(": keepalive\n\n") catch |err| {
-            log.err("Failed to send SSE keepalive: {}", .{err});
-            return err;
-        };
-    }
+        /// Send a done event
+        pub fn sendDone(self: *Self, session_id: []const u8) !void {
+            var buf: [256]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"done\",\"session_id\":\"{s}\"}}", .{session_id}) catch return error.BufferTooSmall;
+            try self.sendSSE("done", msg);
+        }
 
-    /// Send an SSE event with event type and data
-    fn sendSSE(self: *Self, event_type: []const u8, data: []const u8) !void {
-        self.writer.print("event: {s}\ndata: {s}\n\n", .{ event_type, data }) catch |err| {
-            log.err("Failed to send SSE event: {}", .{err});
-            return err;
-        };
-    }
+        /// Send an error event
+        pub fn sendError(self: *Self, message: []const u8) !void {
+            var buf: [1024]u8 = undefined;
+            var escaped_buf: [512]u8 = undefined;
+            const escaped = escapeJsonString(&escaped_buf, message);
+            const msg = std.fmt.bufPrint(&buf, "{{\"type\":\"error\",\"message\":{s}}}", .{escaped}) catch return error.BufferTooSmall;
+            try self.sendSSE("error", msg);
+        }
 
-    /// Check if the connection is aborted
-    pub fn isAborted(self: *const Self) bool {
-        return self.aborted.load(.acquire);
-    }
+        /// Send a keepalive comment (to prevent connection timeout)
+        pub fn sendKeepalive(self: *Self) !void {
+            self.writer.writeAll(": keepalive\n\n") catch |err| {
+                log.err("Failed to send SSE keepalive: {}", .{err});
+                return err;
+            };
+        }
 
-    /// Mark as aborted
-    pub fn abort(self: *Self) void {
-        self.aborted.store(true, .release);
-        log.info("Session {s} aborted", .{self.session_id});
-    }
+        /// Send an SSE event with event type and data
+        fn sendSSE(self: *Self, event_type: []const u8, data: []const u8) !void {
+            self.writer.print("event: {s}\ndata: {s}\n\n", .{ event_type, data }) catch |err| {
+                log.err("Failed to send SSE event: {}", .{err});
+                return err;
+            };
+        }
+
+        /// Check if the connection is aborted
+        pub fn isAborted(self: *const Self) bool {
+            return self.aborted.load(.acquire);
+        }
+
+        /// Mark as aborted
+        pub fn abort(self: *Self) void {
+            self.aborted.store(true, .release);
+            log.info("Session {s} aborted", .{self.session_id});
+        }
     };
 }
 

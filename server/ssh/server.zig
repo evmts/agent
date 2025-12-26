@@ -428,9 +428,9 @@ fn extractIpAddress(address: std.net.Address, buf: []u8) []const u8 {
             // Simplified IPv6 formatting - use first 16 bytes
             const bytes = @as(*const [16]u8, @ptrCast(&address.in6.sa.addr));
             const result = std.fmt.bufPrint(buf, "{x:0>2}{x:0>2}:{x:0>2}{x:0>2}:{x:0>2}{x:0>2}:{x:0>2}{x:0>2}:{x:0>2}{x:0>2}:{x:0>2}{x:0>2}:{x:0>2}{x:0>2}:{x:0>2}{x:0>2}", .{
-                bytes[0], bytes[1], bytes[2], bytes[3],
-                bytes[4], bytes[5], bytes[6], bytes[7],
-                bytes[8], bytes[9], bytes[10], bytes[11],
+                bytes[0],  bytes[1],  bytes[2],  bytes[3],
+                bytes[4],  bytes[5],  bytes[6],  bytes[7],
+                bytes[8],  bytes[9],  bytes[10], bytes[11],
                 bytes[12], bytes[13], bytes[14], bytes[15],
             }) catch return "unknown";
             return result;

@@ -138,7 +138,7 @@ pub fn getProfile(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !voi
     defer conn.release();
 
     var repo_result = try conn.query(
-        \\SELECT COUNT(*) FROM repositories WHERE owner_id = $1
+        \\SELECT COUNT(*) FROM repositories WHERE user_id = $1
     , .{u.id});
     defer repo_result.deinit();
 
@@ -180,25 +180,29 @@ pub fn listUsers(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
     var conn = try ctx.pool.acquire();
     defer conn.release();
 
+    // Get total count first (before the main query to avoid ConnectionBusy)
+    var total: i32 = 0;
+    {
+        var count_result = try conn.query(
+            \\SELECT COUNT(*)::int as count FROM users WHERE is_active = true
+        , .{});
+
+        if (try count_result.next()) |row| {
+            total = row.get(i32, 0);
+        }
+        try count_result.drain();
+        count_result.deinit();
+    }
+
     var result = try conn.query(
-        \\SELECT id, username, display_name, avatar_url, created_at
-        \\FROM users
-        \\WHERE is_active = true
-        \\ORDER BY username
+        \\SELECT u.id, u.username, u.display_name, u.avatar_url, u.created_at,
+        \\       (SELECT COUNT(*)::int FROM repositories WHERE user_id = u.id) as repo_count
+        \\FROM users u
+        \\WHERE u.is_active = true
+        \\ORDER BY u.username
         \\LIMIT $1 OFFSET $2
     , .{ safe_limit, safe_offset });
     defer result.deinit();
-
-    // Get total count
-    var count_result = try conn.query(
-        \\SELECT COUNT(*)::int as count FROM users WHERE is_active = true
-    , .{});
-    defer count_result.deinit();
-
-    var total: i32 = 0;
-    if (try count_result.next()) |row| {
-        total = row.get(i32, 0);
-    }
 
     var writer = res.writer();
     try writer.writeAll("{\"users\":[");
@@ -212,18 +216,8 @@ pub fn listUsers(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
         const username: []const u8 = row.get([]const u8, 1);
         const display_name: ?[]const u8 = row.get(?[]const u8, 2);
         const avatar_url: ?[]const u8 = row.get(?[]const u8, 3);
-        const created_at: []const u8 = row.get([]const u8, 4);
-
-        // Get repo count for this user
-        var repo_result = try conn.query(
-            \\SELECT COUNT(*)::int FROM repositories WHERE user_id = $1
-        , .{id});
-        defer repo_result.deinit();
-
-        var repo_count: i32 = 0;
-        if (try repo_result.next()) |repo_row| {
-            repo_count = repo_row.get(i32, 0);
-        }
+        const created_at: i64 = row.get(i64, 4);
+        const repo_count: i32 = row.get(i32, 5);
 
         try writer.print(
             \\{{"id":{d},"username":"{s}","displayName":
@@ -239,7 +233,7 @@ pub fn listUsers(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"repositoryCount\":{d},\"createdAt\":\"{s}\"}}", .{
+        try writer.print(",\"repositoryCount\":{d},\"createdAt\":{d}}}", .{
             repo_count,
             created_at,
         });
@@ -285,7 +279,7 @@ pub fn getUserRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
 
     var result = if (show_private)
         try conn.query(
-            \\SELECT id, name, description, is_private, default_branch, created_at, updated_at
+            \\SELECT id, name, description, is_public, default_branch, created_at, updated_at
             \\FROM repositories
             \\WHERE user_id = $1
             \\ORDER BY updated_at DESC
@@ -293,9 +287,9 @@ pub fn getUserRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         , .{ u.id, safe_limit })
     else
         try conn.query(
-            \\SELECT id, name, description, is_private, default_branch, created_at, updated_at
+            \\SELECT id, name, description, is_public, default_branch, created_at, updated_at
             \\FROM repositories
-            \\WHERE user_id = $1 AND is_private = false
+            \\WHERE user_id = $1 AND is_public = true
             \\ORDER BY updated_at DESC
             \\LIMIT $2
         , .{ u.id, safe_limit });
@@ -314,10 +308,10 @@ pub fn getUserRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
         const id: i64 = row.get(i64, 0);
         const name: []const u8 = row.get([]const u8, 1);
         const description: ?[]const u8 = row.get(?[]const u8, 2);
-        const is_private: bool = row.get(bool, 3);
+        const is_public: bool = row.get(bool, 3);
         const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
-        const created_at: []const u8 = row.get([]const u8, 5);
-        const updated_at: []const u8 = row.get([]const u8, 6);
+        const created_at: i64 = row.get(i64, 5);
+        const updated_at: i64 = row.get(i64, 6);
 
         try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"description\":", .{ id, name });
         if (description) |d| {
@@ -338,14 +332,14 @@ pub fn getUserRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !v
             try writer.writeAll("null");
         }
         try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
-            if (is_private) "true" else "false",
+            if (!is_public) "true" else "false",
         });
         if (default_branch) |b| {
             try writer.print("\"{s}\"", .{b});
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+        try writer.print(",\"createdAt\":{d},\"updatedAt\":{d}}}", .{
             created_at,
             updated_at,
         });
@@ -387,31 +381,34 @@ pub fn getUserStarredRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
     var conn = try ctx.pool.acquire();
     defer conn.release();
 
+    // Get total count first (before the main query to avoid ConnectionBusy)
+    var total: i32 = 0;
+    {
+        var count_result = try conn.query(
+            \\SELECT COUNT(*)::int as count
+            \\FROM stars s
+            \\JOIN repositories r ON s.repository_id = r.id
+            \\WHERE s.user_id = $1 AND r.is_public = true
+        , .{u.id});
+
+        if (try count_result.next()) |row| {
+            total = row.get(i32, 0);
+        }
+        try count_result.drain();
+        count_result.deinit();
+    }
+
     var result = try conn.query(
-        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\SELECT r.id, r.name, r.description, r.is_public, r.default_branch,
         \\       r.created_at, r.updated_at, o.username as owner, s.created_at as starred_at
         \\FROM stars s
         \\JOIN repositories r ON s.repository_id = r.id
         \\JOIN users o ON r.user_id = o.id
-        \\WHERE s.user_id = $1 AND r.is_private = false
+        \\WHERE s.user_id = $1 AND r.is_public = true
         \\ORDER BY s.created_at DESC
         \\LIMIT $2 OFFSET $3
     , .{ u.id, safe_limit, safe_offset });
     defer result.deinit();
-
-    // Get total count
-    var count_result = try conn.query(
-        \\SELECT COUNT(*)::int as count
-        \\FROM stars s
-        \\JOIN repositories r ON s.repository_id = r.id
-        \\WHERE s.user_id = $1 AND r.is_private = false
-    , .{u.id});
-    defer count_result.deinit();
-
-    var total: i32 = 0;
-    if (try count_result.next()) |row| {
-        total = row.get(i32, 0);
-    }
 
     var writer = res.writer();
     try writer.print("{{\"user\":\"{s}\",\"repositories\":[", .{username});
@@ -424,12 +421,12 @@ pub fn getUserStarredRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
         const id: i64 = row.get(i64, 0);
         const name: []const u8 = row.get([]const u8, 1);
         const description: ?[]const u8 = row.get(?[]const u8, 2);
-        const is_private: bool = row.get(bool, 3);
+        const is_public: bool = row.get(bool, 3);
         const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
-        const created_at: []const u8 = row.get([]const u8, 5);
-        const updated_at: []const u8 = row.get([]const u8, 6);
+        const created_at: i64 = row.get(i64, 5);
+        const updated_at: i64 = row.get(i64, 6);
         const owner: []const u8 = row.get([]const u8, 7);
-        const starred_at: []const u8 = row.get([]const u8, 8);
+        const starred_at: i64 = row.get(i64, 8);
 
         try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
             id,
@@ -454,14 +451,14 @@ pub fn getUserStarredRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Respo
             try writer.writeAll("null");
         }
         try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
-            if (is_private) "true" else "false",
+            if (!is_public) "true" else "false",
         });
         if (default_branch) |b| {
             try writer.print("\"{s}\"", .{b});
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\",\"starredAt\":\"{s}\"}}", .{
+        try writer.print(",\"createdAt\":{d},\"updatedAt\":{d},\"starredAt\":{d}}}", .{
             created_at,
             updated_at,
             starred_at,

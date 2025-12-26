@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) void {
     // ==========================================================================
 
     // Run docker compose (postgres only)
-    const run_docker = b.addSystemCommand(&.{ "docker", "compose", "up", "-d", "postgres" });
+    const run_docker = b.addSystemCommand(&.{ "docker", "compose", "-f", "infra/docker/docker-compose.yaml", "up", "-d", "postgres" });
     const run_docker_step = b.step("run:docker", "Start Docker services (postgres)");
     run_docker_step.dependOn(&run_docker.step);
 

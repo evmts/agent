@@ -108,9 +108,9 @@ export async function connectAndLogin(): Promise<{ user: SiweUser }> {
  * Kept for backwards compatibility but should not be used.
  */
 export async function registerWithSiwe(
-  message: string,
-  signature: string,
-  data: SiweRegistrationData
+  _message: string,
+  _signature: string,
+  _data: SiweRegistrationData
 ): Promise<{ user: SiweUser }> {
   throw new Error('Registration is automatic - users are created on first login');
 }

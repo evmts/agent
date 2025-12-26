@@ -1,11 +1,17 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Header from "../components/Header.astro";
+import { getCurrentUser } from "../lib/api";
 
-// If already logged in, redirect
+// If already logged in with a VALID session, redirect
 const sessionCookie = Astro.cookies.get('session');
 if (sessionCookie) {
-  return Astro.redirect('/');
+  const user = await getCurrentUser({ Cookie: `session=${sessionCookie.value}` });
+  if (user) {
+    return Astro.redirect('/');
+  }
+  // Invalid session - clear the stale cookie
+  Astro.cookies.delete('session', { path: '/' });
 }
 ---
 

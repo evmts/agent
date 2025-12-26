@@ -46,6 +46,7 @@ name = "plue-edge-dev"
 [env.dev.vars]
 ORIGIN_HOST = "localhost:4321"
 BUILD_VERSION = "dev"
+JWT_SECRET = "dev-jwt-secret-for-local-development-only"
 
 # Dev uses same DO classes
 [[env.dev.durable_objects.bindings]]

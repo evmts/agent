@@ -2,7 +2,7 @@
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use jj_lib::backend::{CommitId, TreeValue};
@@ -17,6 +17,7 @@ use jj_lib::workspace::{default_working_copy_factories, Workspace};
 // Opaque handle for JjWorkspace
 pub struct JjWorkspace {
     workspace_root: PathBuf,
+    #[allow(dead_code)]
     repo_path: PathBuf,
 }
 
@@ -132,7 +133,7 @@ fn create_settings() -> Result<UserSettings, String> {
     UserSettings::from_config(config).map_err(|e| format!("Failed to create settings: {}", e))
 }
 
-fn load_repo(workspace_root: &PathBuf) -> Result<(Workspace, Arc<ReadonlyRepo>), String> {
+fn load_repo(workspace_root: &Path) -> Result<(Workspace, Arc<ReadonlyRepo>), String> {
     let settings = create_settings()?;
     let workspace = Workspace::load(
         &settings,
@@ -179,10 +180,10 @@ fn commit_to_info(commit: &Commit, repo: &dyn Repo) -> JjCommitInfo {
         description: CString::new(commit.description()).unwrap_or_default().into_raw(),
         author_name: CString::new(author.name.clone()).unwrap_or_default().into_raw(),
         author_email: CString::new(author.email.clone()).unwrap_or_default().into_raw(),
-        author_timestamp: author.timestamp.timestamp.0 as i64,
+        author_timestamp: author.timestamp.timestamp.0,
         committer_name: CString::new(committer.name.clone()).unwrap_or_default().into_raw(),
         committer_email: CString::new(committer.email.clone()).unwrap_or_default().into_raw(),
-        committer_timestamp: committer.timestamp.timestamp.0 as i64,
+        committer_timestamp: committer.timestamp.timestamp.0,
         parent_ids: parent_ids_ptr,
         parent_ids_len,
         is_empty,
@@ -917,7 +918,7 @@ pub unsafe extern "C" fn jj_get_current_operation(
         description: CString::new(metadata.description.clone())
             .unwrap_or_default()
             .into_raw(),
-        timestamp: metadata.time.end.timestamp.0 as i64,
+        timestamp: metadata.time.end.timestamp.0,
     };
 
     JjOperationInfoResult {

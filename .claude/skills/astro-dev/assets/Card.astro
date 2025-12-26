@@ -1,0 +1,52 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+  image?: string;
+  href?: string;
+  hoverable?: boolean;
+}
+
+const { 
+  title, 
+  description, 
+  image, 
+  href, 
+  hoverable = true 
+} = Astro.props;
+
+const Component = href ? 'a' : 'div';
+---
+
+<Component 
+  href={href}
+  class={`
+    block bg-white dark:bg-gray-800 
+    rounded-lg shadow-md overflow-hidden
+    ${hoverable ? 'hover:shadow-lg transition-shadow duration-300' : ''}
+  `}
+>
+  {image && (
+    <img 
+      src={image} 
+      alt={title}
+      class="w-full h-48 object-cover"
+    />
+  )}
+  
+  <div class="p-6">
+    <h3 class="text-xl font-bold mb-2 text-gray-900 dark:text-white">
+      {title}
+    </h3>
+    
+    {description && (
+      <p class="text-gray-600 dark:text-gray-300 mb-4">
+        {description}
+      </p>
+    )}
+    
+    <div class="text-gray-600 dark:text-gray-300">
+      <slot />
+    </div>
+  </div>
+</Component>

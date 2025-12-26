@@ -16,7 +16,8 @@
   "dependencies": {
     "@tsndr/cloudflare-worker-jwt": "^3.2.1",
     "ethers": "^6.16.0",
-    "siwe": "^3.0.0"
+    "siwe": "^3.0.0",
+    "viem": "^2.43.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.11.1",

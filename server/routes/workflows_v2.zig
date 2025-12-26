@@ -425,7 +425,8 @@ pub fn streamRun(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !void
             const status = r.status;
             if (std.mem.eql(u8, status, "completed") or
                 std.mem.eql(u8, status, "failed") or
-                std.mem.eql(u8, status, "cancelled")) {
+                std.mem.eql(u8, status, "cancelled"))
+            {
                 is_complete = true;
             }
         }

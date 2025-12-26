@@ -11,7 +11,7 @@ const { content, owner, repo } = Astro.props;
 const html = renderMarkdown(content, owner, repo);
 ---
 
-<Fragment set:html={html} />
+<div class="markdown-body" set:html={html} />
 
 <style is:global>
   .mention {

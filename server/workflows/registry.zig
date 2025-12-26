@@ -20,7 +20,7 @@ fn triggersToJsonString(allocator: std.mem.Allocator, triggers: []const plan.Tri
 
         try writer.writeByte('{');
         try writer.writeAll("\"type\":\"");
-        try writer.writeAll(trigger.@"type".toString());
+        try writer.writeAll(trigger.type.toString());
         try writer.writeAll("\",\"config\":");
 
         // Convert config std.json.Value to string

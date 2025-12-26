@@ -33,10 +33,15 @@ async function applyMigrations() {
   // Dynamic import after env is loaded
   const { sql } = await import("../db/client");
 
-  // Apply JJ native migration
+  // Apply JJ native migration if it exists
   const migrationPath = join(process.cwd(), "db/migrate-jj-native.sql");
-  const migrationSql = await readFile(migrationPath, "utf-8");
-  await sql.unsafe(migrationSql);
+  if (existsSync(migrationPath)) {
+    const migrationSql = await readFile(migrationPath, "utf-8");
+    await sql.unsafe(migrationSql);
+    console.log("Applied JJ native migration");
+  } else {
+    console.log("JJ native migration not found, skipping (schema should already be applied)");
+  }
 
   // Apply missing tables from schema.sql that may not exist
   // These are newer tables added to schema.sql after initial DB setup

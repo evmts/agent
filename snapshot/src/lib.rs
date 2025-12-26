@@ -238,7 +238,7 @@ impl JjWorkspace {
         Ok(JjOperationInfo {
             id: current_op.id().hex(),
             description: metadata.description.clone(),
-            timestamp: metadata.time.end.timestamp.0 as i64,
+            timestamp: metadata.time.end.timestamp.0,
         })
     }
 
@@ -457,10 +457,10 @@ impl JjWorkspace {
             description: commit.description().to_string(),
             author_name: author.name.clone(),
             author_email: author.email.clone(),
-            author_timestamp: author.timestamp.timestamp.0 as i64,
+            author_timestamp: author.timestamp.timestamp.0,
             committer_name: committer.name.clone(),
             committer_email: committer.email.clone(),
-            committer_timestamp: committer.timestamp.timestamp.0 as i64,
+            committer_timestamp: committer.timestamp.timestamp.0,
             parent_ids: commit.parent_ids().iter().map(|id| id.hex()).collect(),
             is_empty,
         }

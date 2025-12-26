@@ -86,7 +86,7 @@ test "llm_executor - full LLM step execution with API" {
 
     const callback = struct {
         fn cb(event: llm_executor_mod.LlmExecutionEvent, ctx: ?*anyopaque) void {
-            const collector: *EventCollector = @alignCast(@ptrCast(ctx.?));
+            const collector: *EventCollector = @ptrCast(@alignCast(ctx.?));
             switch (event) {
                 .token => |token_data| {
                     collector.tokens.append(allocator, token_data.text) catch return;
@@ -213,7 +213,7 @@ test "llm_executor - full agent step execution with API" {
 
     const callback = struct {
         fn cb(event: llm_executor_mod.LlmExecutionEvent, ctx: ?*anyopaque) void {
-            const collector: *EventCollector = @alignCast(@ptrCast(ctx.?));
+            const collector: *EventCollector = @ptrCast(@alignCast(ctx.?));
             switch (event) {
                 .token => |token_data| {
                     collector.tokens.append(allocator, token_data.text) catch return;

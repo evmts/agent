@@ -29,7 +29,7 @@ pub const Config = struct {
 const WatchedRepo = struct {
     user: []const u8,
     repo: []const u8,
-    repo_id: i64,
+    repo_id: i32,
     last_modified: i64,
     debounce_timer: ?i64,
     allocator: std.mem.Allocator,
@@ -129,7 +129,7 @@ pub const RepoWatcher = struct {
 
         var count: usize = 0;
         while (try result.next()) |row| {
-            const repo_id = row.get(i64, 0);
+            const repo_id = row.get(i32, 0);
             const repo_name = try self.allocator.dupe(u8, row.get([]const u8, 1));
             const username = try self.allocator.dupe(u8, row.get([]const u8, 2));
 
@@ -146,7 +146,7 @@ pub const RepoWatcher = struct {
     }
 
     /// Add a repository to the watch list
-    pub fn watchRepo(self: *RepoWatcher, user: []const u8, repo: []const u8, repo_id: i64) !void {
+    pub fn watchRepo(self: *RepoWatcher, user: []const u8, repo: []const u8, repo_id: i32) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
 

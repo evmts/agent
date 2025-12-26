@@ -66,7 +66,6 @@ const StderrWriter = struct {
     }
 };
 
-
 pub const Command = enum {
     workflow_list,
     workflow_run,

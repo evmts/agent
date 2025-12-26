@@ -1424,44 +1424,47 @@ pub fn listPublicRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
 
     // Build and execute query based on sort
     const query = if (std.mem.eql(u8, valid_sort, "name"))
-        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\SELECT r.id, r.name, r.description, r.is_public, r.default_branch,
         \\       r.created_at, r.updated_at, u.username as owner
         \\FROM repositories r
         \\JOIN users u ON r.user_id = u.id
-        \\WHERE r.is_private = false
+        \\WHERE r.is_public = true
         \\ORDER BY r.name
         \\LIMIT $1 OFFSET $2
     else if (std.mem.eql(u8, valid_sort, "created_at"))
-        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\SELECT r.id, r.name, r.description, r.is_public, r.default_branch,
         \\       r.created_at, r.updated_at, u.username as owner
         \\FROM repositories r
         \\JOIN users u ON r.user_id = u.id
-        \\WHERE r.is_private = false
+        \\WHERE r.is_public = true
         \\ORDER BY r.created_at DESC
         \\LIMIT $1 OFFSET $2
     else
-        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\SELECT r.id, r.name, r.description, r.is_public, r.default_branch,
         \\       r.created_at, r.updated_at, u.username as owner
         \\FROM repositories r
         \\JOIN users u ON r.user_id = u.id
-        \\WHERE r.is_private = false
+        \\WHERE r.is_public = true
         \\ORDER BY r.updated_at DESC
         \\LIMIT $1 OFFSET $2
     ;
 
+    // Get total count first (before the main query to avoid ConnectionBusy)
+    var total: i32 = 0;
+    {
+        var count_result = try conn.query(
+            \\SELECT COUNT(*)::int as count FROM repositories WHERE is_public = true
+        , .{});
+
+        if (try count_result.next()) |row| {
+            total = row.get(i32, 0);
+        }
+        try count_result.drain();
+        count_result.deinit();
+    }
+
     var result = try conn.query(query, .{ safe_limit, safe_offset });
     defer result.deinit();
-
-    // Get total count
-    var count_result = try conn.query(
-        \\SELECT COUNT(*)::int as count FROM repositories WHERE is_private = false
-    , .{});
-    defer count_result.deinit();
-
-    var total: i32 = 0;
-    if (try count_result.next()) |row| {
-        total = row.get(i32, 0);
-    }
 
     var writer = res.writer();
     try writer.writeAll("{\"repositories\":[");
@@ -1471,17 +1474,17 @@ pub fn listPublicRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         if (!first) try writer.writeAll(",");
         first = false;
 
-        const id: i64 = row.get(i64, 0);
+        const id: i32 = row.get(i32, 0);
         const name: []const u8 = row.get([]const u8, 1);
         const description: ?[]const u8 = row.get(?[]const u8, 2);
-        const is_private: bool = row.get(bool, 3);
+        const is_public: bool = row.get(bool, 3);
         const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
-        const created_at: []const u8 = row.get([]const u8, 5);
-        const updated_at: []const u8 = row.get([]const u8, 6);
+        const created_at: i64 = row.get(i64, 5);
+        const updated_at: i64 = row.get(i64, 6);
         const owner: []const u8 = row.get([]const u8, 7);
 
         try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
-            id,
+            @as(i64, id),
             name,
             owner,
         });
@@ -1493,14 +1496,14 @@ pub fn listPublicRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
             try writer.writeAll("null");
         }
         try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
-            if (is_private) "true" else "false",
+            if (is_public) "false" else "true",
         });
         if (default_branch) |b| {
             try writer.print("\"{s}\"", .{b});
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+        try writer.print(",\"createdAt\":{d},\"updatedAt\":{d}}}", .{
             created_at,
             updated_at,
         });
@@ -1548,11 +1551,11 @@ pub fn searchRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
     const pattern = try std.fmt.bufPrint(&pattern_buf, "%{s}%", .{search_query});
 
     var result = try conn.query(
-        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\SELECT r.id, r.name, r.description, r.is_public, r.default_branch,
         \\       r.created_at, r.updated_at, u.username as owner
         \\FROM repositories r
         \\JOIN users u ON r.user_id = u.id
-        \\WHERE r.is_private = false
+        \\WHERE r.is_public = true
         \\  AND (r.name ILIKE $1 OR r.description ILIKE $1)
         \\ORDER BY r.updated_at DESC
         \\LIMIT $2 OFFSET $3
@@ -1569,17 +1572,17 @@ pub fn searchRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
         first = false;
         count += 1;
 
-        const id: i64 = row.get(i64, 0);
+        const id: i32 = row.get(i32, 0);
         const name: []const u8 = row.get([]const u8, 1);
         const description: ?[]const u8 = row.get(?[]const u8, 2);
-        const is_private: bool = row.get(bool, 3);
+        const is_public: bool = row.get(bool, 3);
         const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
-        const created_at: []const u8 = row.get([]const u8, 5);
-        const updated_at: []const u8 = row.get([]const u8, 6);
+        const created_at: i64 = row.get(i64, 5);
+        const updated_at: i64 = row.get(i64, 6);
         const owner: []const u8 = row.get([]const u8, 7);
 
         try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
-            id,
+            @as(i64, id),
             name,
             owner,
         });
@@ -1591,14 +1594,14 @@ pub fn searchRepos(ctx: *Context, req: *httpz.Request, res: *httpz.Response) !vo
             try writer.writeAll("null");
         }
         try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
-            if (is_private) "true" else "false",
+            if (is_public) "false" else "true",
         });
         if (default_branch) |b| {
             try writer.print("\"{s}\"", .{b});
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+        try writer.print(",\"createdAt\":{d},\"updatedAt\":{d}}}", .{
             created_at,
             updated_at,
         });
@@ -1622,7 +1625,7 @@ pub fn getPopularTopics(ctx: *Context, req: *httpz.Request, res: *httpz.Response
     var result = try conn.query(
         \\SELECT unnest(topics) as topic, COUNT(*)::int as count
         \\FROM repositories
-        \\WHERE is_private = false AND topics IS NOT NULL AND array_length(topics, 1) > 0
+        \\WHERE is_public = true AND topics IS NOT NULL AND array_length(topics, 1) > 0
         \\GROUP BY topic
         \\ORDER BY count DESC
         \\LIMIT $1
@@ -1670,11 +1673,11 @@ pub fn getReposByTopic(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
     defer conn.release();
 
     var result = try conn.query(
-        \\SELECT r.id, r.name, r.description, r.is_private, r.default_branch,
+        \\SELECT r.id, r.name, r.description, r.is_public, r.default_branch,
         \\       r.created_at, r.updated_at, u.username as owner
         \\FROM repositories r
         \\JOIN users u ON r.user_id = u.id
-        \\WHERE r.is_private = false AND $1 = ANY(r.topics)
+        \\WHERE r.is_public = true AND $1 = ANY(r.topics)
         \\ORDER BY r.updated_at DESC
         \\LIMIT $2 OFFSET $3
     , .{ topic, safe_limit, safe_offset });
@@ -1690,17 +1693,17 @@ pub fn getReposByTopic(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
         first = false;
         count += 1;
 
-        const id: i64 = row.get(i64, 0);
+        const id: i32 = row.get(i32, 0);
         const name: []const u8 = row.get([]const u8, 1);
         const description: ?[]const u8 = row.get(?[]const u8, 2);
-        const is_private: bool = row.get(bool, 3);
+        const is_public: bool = row.get(bool, 3);
         const default_branch: ?[]const u8 = row.get(?[]const u8, 4);
-        const created_at: []const u8 = row.get([]const u8, 5);
-        const updated_at: []const u8 = row.get([]const u8, 6);
+        const created_at: i64 = row.get(i64, 5);
+        const updated_at: i64 = row.get(i64, 6);
         const owner: []const u8 = row.get([]const u8, 7);
 
         try writer.print("{{\"id\":{d},\"name\":\"{s}\",\"owner\":\"{s}\",\"description\":", .{
-            id,
+            @as(i64, id),
             name,
             owner,
         });
@@ -1712,14 +1715,14 @@ pub fn getReposByTopic(ctx: *Context, req: *httpz.Request, res: *httpz.Response)
             try writer.writeAll("null");
         }
         try writer.print(",\"isPrivate\":{s},\"defaultBranch\":", .{
-            if (is_private) "true" else "false",
+            if (is_public) "false" else "true",
         });
         if (default_branch) |b| {
             try writer.print("\"{s}\"", .{b});
         } else {
             try writer.writeAll("null");
         }
-        try writer.print(",\"createdAt\":\"{s}\",\"updatedAt\":\"{s}\"}}", .{
+        try writer.print(",\"createdAt\":{d},\"updatedAt\":{d}}}", .{
             created_at,
             updated_at,
         });
@@ -1744,6 +1747,10 @@ pub fn getRepositoryStats(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
         return;
     };
 
+    // DEBUG: Log pool stats before getRepositoryByUserAndName
+    const stats_before = ctx.pool.stats();
+    log.info("DEBUG: Pool stats BEFORE getRepositoryByUserAndName: available={d}, in_use={d}, missing={d}, size={d}", .{ stats_before.available, stats_before.in_use, stats_before.missing, stats_before.size });
+
     // Get repository
     const repo = db.getRepositoryByUserAndName(ctx.pool, username, reponame) catch |err| {
         log.err("Failed to get repository: {}", .{err});
@@ -1756,53 +1763,65 @@ pub fn getRepositoryStats(ctx: *Context, req: *httpz.Request, res: *httpz.Respon
         return;
     };
 
+    // DEBUG: Log pool stats after getRepositoryByUserAndName
+    const stats_after = ctx.pool.stats();
+    log.info("DEBUG: Pool stats AFTER getRepositoryByUserAndName: available={d}, in_use={d}, missing={d}, size={d}", .{ stats_after.available, stats_after.in_use, stats_after.missing, stats_after.size });
+
     var conn = try ctx.pool.acquire();
     defer conn.release();
 
     // Get issue count
-    var issue_result = try conn.query(
-        \\SELECT COUNT(*)::int as count FROM issues
-        \\WHERE repository_id = $1 AND state = 'open'
-    , .{repo.id});
-    defer issue_result.deinit();
-
     var issue_count: i32 = 0;
-    if (try issue_result.next()) |row| {
-        issue_count = row.get(i32, 0);
+    {
+        var issue_result = try conn.query(
+            \\SELECT COUNT(*)::int as count FROM issues
+            \\WHERE repository_id = $1 AND state = 'open'
+        , .{repo.id});
+        defer issue_result.deinit();
+
+        if (try issue_result.next()) |row| {
+            issue_count = row.get(i32, 0);
+        }
     }
 
     // Get star count
-    var star_result = try conn.query(
-        \\SELECT COUNT(*)::int as count FROM stars WHERE repository_id = $1
-    , .{repo.id});
-    defer star_result.deinit();
-
     var star_count: i32 = 0;
-    if (try star_result.next()) |row| {
-        star_count = row.get(i32, 0);
+    {
+        var star_result = try conn.query(
+            \\SELECT COUNT(*)::int as count FROM stars WHERE repository_id = $1
+        , .{repo.id});
+        defer star_result.deinit();
+
+        if (try star_result.next()) |row| {
+            star_count = row.get(i32, 0);
+        }
     }
 
     // Get landing count
-    var landing_result = try conn.query(
-        \\SELECT COUNT(*)::int as count FROM landing_queue
-        \\WHERE repository_id = $1 AND status NOT IN ('landed', 'cancelled')
-    , .{repo.id});
-    defer landing_result.deinit();
-
     var landing_count: i32 = 0;
-    if (try landing_result.next()) |row| {
-        landing_count = row.get(i32, 0);
+    {
+        var landing_result = try conn.query(
+            \\SELECT COUNT(*)::int as count FROM landing_queue
+            \\WHERE repository_id = $1 AND status NOT IN ('landed', 'cancelled')
+        , .{repo.id});
+        defer landing_result.deinit();
+
+        if (try landing_result.next()) |row| {
+            landing_count = row.get(i32, 0);
+        }
     }
 
     // Get watcher count
-    var watcher_result = try conn.query(
-        \\SELECT COUNT(*)::int as count FROM watchers WHERE repository_id = $1
-    , .{repo.id});
-    defer watcher_result.deinit();
-
     var watcher_count: i32 = 0;
-    if (try watcher_result.next()) |row| {
-        watcher_count = row.get(i32, 0);
+    {
+        var watcher_result = try conn.query(
+            \\SELECT COUNT(*)::int as count FROM watchers WHERE repository_id = $1
+        , .{repo.id});
+        defer watcher_result.deinit();
+
+        if (try watcher_result.next()) |row| {
+            watcher_count = row.get(i32, 0);
+        }
     }
 
     var writer = res.writer();

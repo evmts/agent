@@ -5,8 +5,10 @@
  * Used by Astro pages instead of direct database queries.
  */
 
-// API base URL - in SSR context, use localhost
-const API_URL = import.meta.env.PUBLIC_API_URL || 'http://localhost:4000';
+// API base URL - check runtime env first (for SSR in Docker), then build-time env
+const API_URL = (typeof process !== 'undefined' && process.env.PUBLIC_API_URL)
+  || import.meta.env.PUBLIC_API_URL
+  || 'http://localhost:4000';
 
 // =============================================================================
 // Types
@@ -572,7 +574,8 @@ export async function getCurrentUser(headers?: HeadersInit): Promise<User | null
   try {
     const res = await fetch(`${API_URL}/api/auth/me`, { headers });
     if (res.status === 401) return null;
-    return handleResponse(res);
+    const data = await handleResponse<{ user: User | null }>(res);
+    return data.user;
   } catch {
     return null;
   }
@@ -638,6 +641,33 @@ export interface LandingRequest {
   landedChangeId: string | null;
 }
 
+export interface LandingReview {
+  id: number;
+  landingId: number;
+  reviewerId: number;
+  reviewer_username?: string;
+  type: string;
+  content: string | null;
+  changeId: string;
+  createdAt: number;
+}
+
+export interface LineComment {
+  id: number;
+  landingId: number;
+  authorId: number;
+  author?: {
+    username: string;
+  };
+  filePath: string;
+  lineNumber: number;
+  side: 'old' | 'new';
+  body: string;
+  resolved: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /**
  * List landing requests for a repository
  */
@@ -647,10 +677,84 @@ export async function listLandingRequests(owner: string, repo: string): Promise<
 }
 
 /**
- * Get a single landing request
+ * Get a single landing request with reviews
  */
-export async function getLandingRequest(owner: string, repo: string, id: number): Promise<{ request: LandingRequest }> {
+export async function getLandingRequest(owner: string, repo: string, id: number): Promise<{ request: LandingRequest; reviews: LandingReview[] }> {
   const res = await fetch(`${API_URL}/api/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/landing/${id}`);
+  return handleResponse(res);
+}
+
+/**
+ * Get line comments for a landing request
+ */
+export async function getLineComments(owner: string, repo: string, id: number): Promise<{ comments: LineComment[] }> {
+  const res = await fetch(`${API_URL}/api/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/landing/${id}/comments`);
+  return handleResponse(res);
+}
+
+// =============================================================================
+// Commit Status Endpoints
+// =============================================================================
+
+export interface CommitStatus {
+  id: number;
+  repositoryId: number;
+  commitSha: string;
+  context: string;
+  state: 'pending' | 'success' | 'failure' | 'error';
+  description: string | null;
+  targetUrl: string | null;
+  workflowRunId: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Get commit statuses for a change
+ */
+export async function getCommitStatuses(
+  owner: string,
+  repo: string,
+  changeId: string
+): Promise<{ statuses: CommitStatus[]; aggregatedState: string }> {
+  const res = await fetch(`${API_URL}/api/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/changes/${encodeURIComponent(changeId)}/statuses`);
+  return handleResponse(res);
+}
+
+// =============================================================================
+// Change Stack Endpoints
+// =============================================================================
+
+export interface StackChange {
+  changeId: string;
+  description: string;
+  isEmpty: boolean;
+  hasConflicts: boolean;
+}
+
+export interface ChangeStack {
+  current: StackChange | null;
+  ancestors: StackChange[];
+  descendants: StackChange[];
+  changeId: string;
+}
+
+/**
+ * Get change stack (ancestors and descendants) for context visualization
+ */
+export async function getChangeStack(
+  owner: string,
+  repo: string,
+  changeId: string,
+  options: { ancestors?: number; descendants?: number } = {}
+): Promise<ChangeStack> {
+  const params = new URLSearchParams();
+  if (options.ancestors !== undefined) params.set('ancestors', String(options.ancestors));
+  if (options.descendants !== undefined) params.set('descendants', String(options.descendants));
+
+  const queryString = params.toString();
+  const url = `${API_URL}/api/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/changes/${encodeURIComponent(changeId)}/stack${queryString ? `?${queryString}` : ''}`;
+  const res = await fetch(url);
   return handleResponse(res);
 }
 

@@ -74,12 +74,12 @@ fn parallelWorkerMain(worker: *ParallelWorker, db_pool: ?*db.Pool, run_id: i32) 
 
 /// Step execution status
 pub const StepStatus = enum {
-    pending,    // Not yet started
-    running,    // Currently executing
-    succeeded,  // Completed successfully
-    failed,     // Failed with error
-    skipped,    // Skipped due to dependency failure
-    cancelled,  // Manually cancelled
+    pending, // Not yet started
+    running, // Currently executing
+    succeeded, // Completed successfully
+    failed, // Failed with error
+    skipped, // Skipped due to dependency failure
+    cancelled, // Manually cancelled
 
     pub fn toString(self: StepStatus) []const u8 {
         return switch (self) {
@@ -103,8 +103,8 @@ pub const StepResult = struct {
     turns_used: ?i32,
     tokens_in: ?i32,
     tokens_out: ?i32,
-    started_at: i64,    // Unix timestamp
-    completed_at: i64,  // Unix timestamp
+    started_at: i64, // Unix timestamp
+    completed_at: i64, // Unix timestamp
 
     pub fn deinit(self: *StepResult, allocator: std.mem.Allocator) void {
         allocator.free(self.step_id);
@@ -141,7 +141,7 @@ pub const ExecutionEvent = union(enum) {
     step_started: struct {
         step_id: []const u8,
         name: []const u8,
-        @"type": plan.StepType,
+        type: plan.StepType,
     },
     step_output: struct {
         step_id: []const u8,
@@ -355,7 +355,7 @@ pub const Executor = struct {
                 continue;
             }
 
-            if (step.@"type" == .parallel) {
+            if (step.type == .parallel) {
                 const group_results = try self.executeParallelGroup(workflow, step, &status_map, &executed_steps);
                 for (group_results) |group_result| {
                     try results.append(self.allocator, group_result);
@@ -414,7 +414,7 @@ pub const Executor = struct {
             defer self.allocator.free(config_str);
 
             // Convert step type to string
-            const step_type_str = switch (step.@"type") {
+            const step_type_str = switch (step.type) {
                 .shell => "shell",
                 .llm => "llm",
                 .agent => "agent",
@@ -440,14 +440,14 @@ pub const Executor = struct {
                 .step_started = .{
                     .step_id = try self.allocator.dupe(u8, step.id),
                     .name = try self.allocator.dupe(u8, step.name),
-                    .@"type" = step.@"type",
+                    .type = step.type,
                 },
             };
             callback(event, self.event_ctx);
         }
 
         // Execute based on step type
-        const result = switch (step.@"type") {
+        const result = switch (step.type) {
             .shell => try self.executeShellStep(step, db_step_id),
             .parallel => try self.executeParallelStep(step),
             .llm => try self.executeLlmStep(step, db_step_id, started_at),
@@ -520,7 +520,7 @@ pub const Executor = struct {
 
         const callback = struct {
             fn cb(event: llm_executor_mod.LlmExecutionEvent, ctx: ?*anyopaque) void {
-                const context: *LlmCallbackCtx = @alignCast(@ptrCast(ctx.?));
+                const context: *LlmCallbackCtx = @ptrCast(@alignCast(ctx.?));
                 const executor = context.executor;
 
                 switch (event) {
@@ -725,7 +725,7 @@ pub const Executor = struct {
 
         const callback = struct {
             fn cb(event: llm_executor_mod.LlmExecutionEvent, ctx: ?*anyopaque) void {
-                const context: *AgentCallbackCtx = @alignCast(@ptrCast(ctx.?));
+                const context: *AgentCallbackCtx = @ptrCast(@alignCast(ctx.?));
                 const executor = context.executor;
 
                 switch (event) {
@@ -1507,7 +1507,7 @@ test "topological sort - linear dependencies" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Step 1"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step1_deps,
     };
@@ -1519,7 +1519,7 @@ test "topological sort - linear dependencies" {
     var step2 = plan.Step{
         .id = try allocator.dupe(u8, "step2"),
         .name = try allocator.dupe(u8, "Step 2"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step2_deps,
     };
@@ -1533,7 +1533,7 @@ test "topological sort - linear dependencies" {
     var step3 = plan.Step{
         .id = try allocator.dupe(u8, "step3"),
         .name = try allocator.dupe(u8, "Step 3"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step3_deps,
     };
@@ -1570,7 +1570,7 @@ test "topological sort - parallel steps" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Step 1"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step1_deps,
     };
@@ -1582,7 +1582,7 @@ test "topological sort - parallel steps" {
     var step2 = plan.Step{
         .id = try allocator.dupe(u8, "step2"),
         .name = try allocator.dupe(u8, "Step 2"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step2_deps,
     };
@@ -1596,7 +1596,7 @@ test "topological sort - parallel steps" {
     var step3 = plan.Step{
         .id = try allocator.dupe(u8, "step3"),
         .name = try allocator.dupe(u8, "Step 3"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step3_deps,
     };
@@ -1611,7 +1611,7 @@ test "topological sort - parallel steps" {
     var step4 = plan.Step{
         .id = try allocator.dupe(u8, "step4"),
         .name = try allocator.dupe(u8, "Step 4"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .null },
         .depends_on = step4_deps,
     };
@@ -1650,7 +1650,7 @@ test "executor - simple shell step execution" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Echo test"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config_obj } },
         .depends_on = &[_][]const u8{},
     };
@@ -1693,7 +1693,7 @@ test "executor - shell step with actual output" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Output test"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config_obj } },
         .depends_on = &[_][]const u8{},
     };
@@ -1743,7 +1743,7 @@ test "executor - shell step failure" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Failing step"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config_obj } },
         .depends_on = &[_][]const u8{},
     };
@@ -1786,7 +1786,7 @@ test "executor - dependency skipping" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Failing step"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config1_obj } },
         .depends_on = step1_deps,
     };
@@ -1802,7 +1802,7 @@ test "executor - dependency skipping" {
     var step2 = plan.Step{
         .id = try allocator.dupe(u8, "step2"),
         .name = try allocator.dupe(u8, "Dependent step"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config2_obj } },
         .depends_on = step2_deps,
     };
@@ -1855,7 +1855,7 @@ test "executor - environment variables" {
     var step1 = plan.Step{
         .id = try allocator.dupe(u8, "step1"),
         .name = try allocator.dupe(u8, "Env test"),
-        .@"type" = .shell,
+        .type = .shell,
         .config = .{ .data = .{ .object = config_obj } },
         .depends_on = step1_deps,
     };

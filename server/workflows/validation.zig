@@ -277,14 +277,14 @@ test "valid workflow passes validation" {
         .{
             .id = "step1",
             .name = "First step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{},
         },
         .{
             .id = "step2",
             .name = "Second step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{"step1"},
         },
@@ -312,14 +312,14 @@ test "detects duplicate step IDs" {
         .{
             .id = "step1",
             .name = "First step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{},
         },
         .{
             .id = "step1", // Duplicate!
             .name = "Second step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{},
         },
@@ -348,7 +348,7 @@ test "detects missing dependencies" {
         .{
             .id = "step1",
             .name = "First step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{"nonexistent"}, // Missing!
         },
@@ -377,14 +377,14 @@ test "detects circular dependencies" {
         .{
             .id = "step1",
             .name = "First step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{"step2"},
         },
         .{
             .id = "step2",
             .name = "Second step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{"step1"}, // Cycle: step1 -> step2 -> step1
         },
@@ -413,7 +413,7 @@ test "detects empty workflow name" {
         .{
             .id = "step1",
             .name = "First step",
-            .@"type" = .shell,
+            .type = .shell,
             .config = .{ .data = .{ .object = std.json.ObjectMap.init(allocator) } },
             .depends_on = &.{},
         },

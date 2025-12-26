@@ -31,7 +31,7 @@ pub const TestConfig = struct {
 /// Get test database URL from environment or use default
 pub fn getTestDatabaseUrl() []const u8 {
     return std.posix.getenv("TEST_DATABASE_URL") orelse
-           "postgres://localhost:5432/plue_test";
+        "postgres://localhost:5432/plue_test";
 }
 
 // =============================================================================

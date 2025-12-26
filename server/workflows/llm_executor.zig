@@ -179,7 +179,7 @@ pub const LlmExecutor = struct {
             &[_]client.Message{message},
             null, // no system prompt for LLM steps
             null, // no tools for pure LLM steps
-            1.0,  // temperature
+            1.0, // temperature
             4096, // max_tokens
         ) catch |err| {
             const err_msg = try std.fmt.allocPrint(
@@ -372,7 +372,7 @@ pub const LlmExecutor = struct {
             error_message: ?[]const u8 = null,
 
             fn handleEvent(event: types.StreamEvent, ctx: ?*anyopaque) void {
-                const self_ctx: *@This() = @alignCast(@ptrCast(ctx.?));
+                const self_ctx: *@This() = @ptrCast(@alignCast(ctx.?));
 
                 switch (event) {
                     .text => |text_event| {
@@ -565,7 +565,7 @@ test "llm_executor - set event callback" {
     const callback = struct {
         fn cb(event: LlmExecutionEvent, context: ?*anyopaque) void {
             _ = event;
-            const test_ctx: *TestCtx = @alignCast(@ptrCast(context.?));
+            const test_ctx: *TestCtx = @ptrCast(@alignCast(context.?));
             test_ctx.called = true;
         }
     }.cb;
@@ -600,7 +600,7 @@ test "llm_executor - agent step callback structure" {
         }
 
         fn handleEvent(event: LlmExecutionEvent, ctx: ?*anyopaque) void {
-            const collector: *@This() = @alignCast(@ptrCast(ctx.?));
+            const collector: *@This() = @ptrCast(@alignCast(ctx.?));
 
             switch (event) {
                 .token => |token_event| {

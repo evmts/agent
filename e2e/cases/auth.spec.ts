@@ -11,6 +11,18 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Authentication', () => {
+  test.describe('Auth API Endpoints', () => {
+    test('should return nonce from /api/auth/nonce', async ({ request }) => {
+      const response = await request.get('/api/auth/nonce');
+      expect(response.status()).toBe(200);
+
+      const data = await response.json();
+      expect(data).toHaveProperty('nonce');
+      expect(typeof data.nonce).toBe('string');
+      expect(data.nonce.length).toBeGreaterThan(0);
+    });
+  });
+
   test.describe('Wallet Login Flow', () => {
     test('should show login page when not authenticated', async ({ page }) => {
       await page.goto('/login');
@@ -393,6 +405,104 @@ test.describe('Authentication', () => {
         // Should handle error gracefully
         await expect(connectBtn).not.toBeDisabled();
       }
+    });
+  });
+
+  test.describe('Profile Navigation', () => {
+    const TEST_USERNAME = 'e2etest';
+    const TEST_DISPLAY_NAME = 'E2E Test User';
+
+    // TODO: These tests require server restart to enable dev-login endpoint
+    // The dev-login route was added but requires rebuilding the Zig server
+    // Once rebuilt, replace page.route mocks with actual dev-login calls
+    test.skip('should navigate to user profile when clicking Profile link', async ({ page }) => {
+      // Mock the auth/me API to return authenticated user
+      // This simulates what happens when the session is valid
+      await page.route('**/api/auth/me', route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            user: {
+              id: 1,
+              username: TEST_USERNAME,
+              displayName: TEST_DISPLAY_NAME,
+              email: 'e2etest@plue.local',
+              isActive: true,
+              isAdmin: false,
+              walletAddress: null
+            }
+          }),
+        });
+      });
+
+      // Mock user profile API
+      await page.route(`**/api/users/${TEST_USERNAME}`, route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 1,
+            username: TEST_USERNAME,
+            displayName: TEST_DISPLAY_NAME,
+            bio: 'Test user for e2e tests',
+            isActive: true
+          }),
+        });
+      });
+
+      // Mock user repos API
+      await page.route(`**/api/users/${TEST_USERNAME}/repos**`, route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            owner: TEST_USERNAME,
+            repositories: [],
+            count: 0
+          }),
+        });
+      });
+
+      await page.goto('/');
+
+      // Find and click the Profile link in the header
+      const profileLink = page.locator('.user-menu a:has-text("Profile")');
+      await expect(profileLink).toBeVisible();
+      await profileLink.click();
+
+      // Should navigate to the user's profile page
+      await expect(page).toHaveURL(`/${TEST_USERNAME}`);
+
+      // Profile page should show the display name
+      await expect(page.locator('h1')).toContainText(TEST_DISPLAY_NAME);
+    });
+
+    test.skip('profile link should have correct href', async ({ page }) => {
+      // Mock the auth/me API to return authenticated user
+      await page.route('**/api/auth/me', route => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            user: {
+              id: 1,
+              username: TEST_USERNAME,
+              displayName: TEST_DISPLAY_NAME,
+              email: 'e2etest@plue.local',
+              isActive: true,
+              isAdmin: false,
+              walletAddress: null
+            }
+          }),
+        });
+      });
+
+      await page.goto('/');
+
+      // Verify the Profile link has the correct href
+      const profileLink = page.locator('.user-menu a:has-text("Profile")');
+      await expect(profileLink).toHaveAttribute('href', `/${TEST_USERNAME}`);
     });
   });
 

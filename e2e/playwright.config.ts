@@ -3,6 +3,13 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright configuration for Plue E2E tests
  *
+ * Port configuration:
+ * - Dev server (user): ASTRO_PORT=3000, API on 4000
+ * - Test server (Playwright CI): ASTRO_PORT=4321, API on 4000
+ *
+ * To run tests against your running dev server:
+ *   PLAYWRIGHT_BASE_URL=https://localhost:3000 pnpm test
+ *
  * Optimized for debugging with:
  * - Traces on all failures (not just retries)
  * - Video recording on failure
@@ -12,6 +19,15 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * @see https://playwright.dev/docs/test-configuration
  */
+
+// Port configuration - Claude Code uses different ports to avoid conflicts with user's dev server
+// User dev: Astro on 3000, API on 4000, Edge on 8787
+// Claude Code / CI: Astro on 4321, API on 4001, Edge on 8788
+const ASTRO_PORT = process.env.ASTRO_PORT || '4321';
+const API_PORT = process.env.API_PORT || '4001';
+const EDGE_PORT = process.env.EDGE_PORT || '8788';
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || `https://localhost:${ASTRO_PORT}`;
+
 export default defineConfig({
   testDir: './cases',
 
@@ -56,7 +72,7 @@ export default defineConfig({
 
   use: {
     /* Base URL for navigation */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'https://localhost:4321',
+    baseURL: BASE_URL,
 
     /*
      * Tracing: Capture on first failure AND retries
@@ -115,15 +131,39 @@ export default defineConfig({
    * Web server configuration
    * Note: For full observability, run `docker-compose up -d` first
    * to ensure Prometheus/Grafana/Loki are available
+   *
+   * Starts the Zig API server, Astro dev server, and edge worker on configured ports
+   * Order matters: Astro must start before edge worker (edge proxies to Astro)
+   * Claude Code uses different ports (4001/4321/8788) to avoid conflicts with user's dev server (4000/3000/8787)
    */
-  webServer: {
-    command: 'pnpm --filter plue run dev',
-    cwd: '..',
-    url: 'https://localhost:4321',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    ignoreHTTPSErrors: true,
-  },
+  webServer: [
+    {
+      command: `PORT=${API_PORT} zig build run`,
+      cwd: '..',
+      url: `http://localhost:${API_PORT}/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180 * 1000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: `PUBLIC_API_URL=http://localhost:${API_PORT} EDGE_URL=http://localhost:${EDGE_PORT} pnpm run dev --port ${ASTRO_PORT}`,
+      cwd: '..',
+      url: `https://localhost:${ASTRO_PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      ignoreHTTPSErrors: true,
+    },
+    {
+      command: `pnpm dev --port ${EDGE_PORT} --var ORIGIN_HOST:localhost:${ASTRO_PORT}`,
+      cwd: '../edge',
+      url: `http://localhost:${EDGE_PORT}/api/auth/nonce`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60 * 1000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  ],
 });

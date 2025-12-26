@@ -75,6 +75,7 @@ const DEV_LOGIN_ALLOWLIST = [_][]const u8{
     "testuser",
     "testadmin",
     "demo",
+    "e2etest",
 };
 
 /// POST /auth/dev-login

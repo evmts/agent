@@ -1212,16 +1212,16 @@ export async function removeLabelFromIssue(
  * TODO: Migrate to API endpoint when available
  */
 export async function recordIssueEvent(
-  user: string,
-  repo: string,
-  issueNumber: number,
+  _user: string,
+  _repo: string,
+  _issueNumber: number,
   eventType: IssueEventType,
-  actorId: number | null,
+  _actorId: number | null,
   metadata: Record<string, unknown> = {}
 ): Promise<void> {
   // TODO: Call API endpoint to record event
   // For now, just log - don't fail the operation
-  console.log(`[Issue Event] ${user}/${repo}#${issueNumber}: ${eventType}`, metadata);
+  console.log(`[Issue Event] ${eventType}`, metadata);
 }
 
 /**
@@ -1230,9 +1230,9 @@ export async function recordIssueEvent(
  * TODO: Migrate to API endpoint when available
  */
 export async function getIssueEvents(
-  user: string,
-  repo: string,
-  issueNumber: number
+  _user: string,
+  _repo: string,
+  _issueNumber: number
 ): Promise<IssueEvent[]> {
   // TODO: Call API endpoint to fetch events
   // For now, return empty array

@@ -9,10 +9,11 @@ import Header from "../../../../components/Header.astro";
 import TabNav from "../../../../components/TabNav.astro";
 import DiffView from "../../../../components/DiffView.astro";
 import StatusChecks from "../../../../components/StatusChecks.astro";
+import ChangeStack from "../../../../components/ChangeStack.astro";
 import type { Tab } from "../../../../components/TabNav.astro";
-import { getLandingRequest } from "../../../../lib/api";
+import { getLandingRequest, getLineComments, getChangeStack, getCommitStatuses, type LandingReview, type LineComment as ApiLineComment, type ChangeStack as ChangeStackType, type CommitStatus } from "../../../../lib/api";
 import * as jj from "../../../../lib/jj";
-import type { Change, FileDiff } from "../../../../lib/jj-types";
+import type { Change, FileDiff, LineComment } from "../../../../lib/jj-types";
 
 const { user: username, repo: reponame, id } = Astro.params;
 
@@ -29,7 +30,7 @@ if (!result || 'status' in result) {
   return Astro.redirect("/404");
 }
 
-const { request } = result;
+const { request, reviews } = result;
 
 const authorUsername = request.authorUsername || 'unknown';
 
@@ -43,13 +44,30 @@ try {
   // Change details not available
 }
 
-// TODO: Get reviews from API
-// For now, use empty arrays
-const reviews: any[] = [];
-
-// TODO: Get line comments from API
-// For now, use empty array
-const comments: any[] = [];
+// Get line comments from API and transform to jj-types format
+let comments: LineComment[] = [];
+try {
+  const commentsResult = await getLineComments(username, reponame, parseInt(id));
+  comments = commentsResult.comments.map((c: ApiLineComment): LineComment => ({
+    id: c.id,
+    landingId: c.landingId,
+    authorId: c.authorId,
+    filePath: c.filePath,
+    lineNumber: c.lineNumber,
+    side: c.side as 'old' | 'new',
+    body: c.body,
+    resolved: c.resolved,
+    createdAt: new Date(c.createdAt),
+    updatedAt: new Date(c.updatedAt),
+    author: c.author ? {
+      id: c.authorId,
+      username: c.author.username,
+      displayName: null,
+    } : undefined,
+  }));
+} catch (e) {
+  // Line comments not available
+}
 
 // Count comments per file
 const commentCountsByFile = new Map<string, number>();
@@ -60,16 +78,14 @@ comments.forEach(c => {
 
 const totalCommentCount = comments.length;
 
-// TODO: Get commit statuses from API
-// For now, use empty array
-let commitStatuses: Array<{
-  id: number;
-  context: string;
-  state: string;
-  description: string | null;
-  targetUrl: string | null;
-  workflowRunId: number | null;
-}> = [];
+// Get commit statuses from API
+let commitStatuses: CommitStatus[] = [];
+try {
+  const statusResult = await getCommitStatuses(username, reponame, request.changeId);
+  commitStatuses = statusResult.statuses;
+} catch (e) {
+  // Commit statuses not available
+}
 
 // Get ancestor changes (commits) - changes between target bookmark and this change
 let commits: Change[] = [];
@@ -82,6 +98,17 @@ try {
   commits = commits.filter(c => c.changeId !== request.changeId);
 } catch (e) {
   // Commits not available
+}
+
+// Get change stack for sidebar context
+let changeStack: ChangeStackType | null = null;
+try {
+  changeStack = await getChangeStack(username, reponame, request.changeId, {
+    ancestors: 5,
+    descendants: 3
+  });
+} catch (e) {
+  // Stack not available
 }
 
 // Default bookmark - we'll default to 'main' for now
@@ -233,7 +260,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
                 {reviews.map(review => (
                   <div class={`review-item ${review.type}`}>
                     <div class="review-header">
-                      <span class="reviewer">{review.reviewer_username}</span>
+                      <span class="reviewer">{review.reviewer_username || `User #${review.reviewerId}`}</span>
                       <span class="review-type">{review.type}</span>
                       <span class="review-date">{new Date(review.createdAt).toLocaleDateString()}</span>
                     </div>
@@ -269,7 +296,7 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
                               {comment.resolved && <span class="resolved-badge">Resolved</span>}
                             </div>
                             <div class="comment-author">
-                              {comment.author?.username} · {new Date(comment.createdAt).toLocaleDateString()}
+                              {comment.author?.username || `User #${comment.authorId}`} · {new Date(comment.createdAt).toLocaleDateString()}
                             </div>
                             <div class="comment-body">{comment.body}</div>
                           </div>
@@ -405,6 +432,16 @@ const isClosed = ['landed', 'cancelled'].includes(request.status);
               showSummary={true}
             />
           </div>
+        )}
+
+        <!-- Change Stack Context -->
+        {changeStack && (changeStack.ancestors.length > 0 || changeStack.descendants.length > 0) && (
+          <ChangeStack
+            current={changeStack.current}
+            ancestors={changeStack.ancestors}
+            descendants={changeStack.descendants}
+            baseUrl={`/${username}/${reponame}/changes/${defaultBookmark}`}
+          />
         )}
 
         <!-- Review Actions -->

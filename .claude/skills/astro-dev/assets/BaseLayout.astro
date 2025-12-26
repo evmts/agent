@@ -1,0 +1,48 @@
+---
+import { ViewTransitions } from 'astro:transitions';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = 'My Astro Site' } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="description" content={description} />
+    <meta name="viewport" content="width=device-width" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <ViewTransitions />
+  </head>
+  <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <header class="border-b border-gray-200 dark:border-gray-800" transition:persist>
+      <nav class="container mx-auto px-4 py-4">
+        <div class="flex items-center justify-between">
+          <a href="/" class="text-xl font-bold">My Site</a>
+          <div class="space-x-4">
+            <a href="/" class="hover:text-primary-600">Home</a>
+            <a href="/blog" class="hover:text-primary-600">Blog</a>
+            <a href="/about" class="hover:text-primary-600">About</a>
+          </div>
+        </div>
+      </nav>
+    </header>
+    
+    <main class="container mx-auto px-4 py-8" transition:animate="slide">
+      <slot />
+    </main>
+    
+    <footer class="border-t border-gray-200 dark:border-gray-800 mt-12">
+      <div class="container mx-auto px-4 py-8 text-center text-gray-600 dark:text-gray-400">
+        <p>&copy; {new Date().getFullYear()} My Site. All rights reserved.</p>
+      </div>
+    </footer>
+  </body>
+</html>

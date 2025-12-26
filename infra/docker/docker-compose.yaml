@@ -28,8 +28,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
       target: api
     environment:
       NODE_ENV: production
@@ -51,18 +51,18 @@ services:
 
   web:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
       target: web
     environment:
       NODE_ENV: production
       PORT: 5173
       HOST: 0.0.0.0
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-plue}?sslmode=disable
-      # API endpoints for SSR
-      PUBLIC_API_URL: http://localhost:5173
+      # API endpoint for SSR (internal Docker network)
+      PUBLIC_API_URL: http://api:4000
       # Client-side URLs (browser accessible)
-      PUBLIC_CLIENT_API_URL: ${PUBLIC_CLIENT_API_URL:-http://localhost:5173}
+      PUBLIC_CLIENT_API_URL: ${PUBLIC_CLIENT_API_URL:-http://localhost:4000}
     ports:
       - '5173:5173'
     depends_on:
@@ -70,10 +70,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  edge:
+    image: node:20-slim
+    working_dir: /app
+    volumes:
+      - ../../edge:/app
+      - edge_node_modules:/app/node_modules
+    environment:
+      WRANGLER_SEND_METRICS: 'false'
+    command: >
+      sh -c "npm install -g pnpm && pnpm install &&
+             npx wrangler dev --env dev --local --ip 0.0.0.0 --var ORIGIN_HOST:web:5173 --var JWT_SECRET:${JWT_SECRET:?JWT_SECRET must be set}"
+    ports:
+      - '8787:8787'
+    depends_on:
+      - web
+    restart: unless-stopped
+
   tui:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
       target: tui
     environment:
       PLUE_API_URL: http://api:4000
@@ -201,6 +218,7 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  edge_node_modules:
 
 networks:
   default:

@@ -10,17 +10,17 @@ const testing = std.testing;
 fn containsSqlInjection(input: []const u8) bool {
     // Common SQL injection patterns
     const patterns = [_][]const u8{
-        "';",        // Quote termination
-        "--",        // SQL comments
-        "/*",        // Multi-line comments
+        "';", // Quote termination
+        "--", // SQL comments
+        "/*", // Multi-line comments
         "*/",
-        "UNION",     // UNION attacks
-        "SELECT",    // Stacked queries
+        "UNION", // UNION attacks
+        "SELECT", // Stacked queries
         "DROP",
         "DELETE",
         "UPDATE",
         "INSERT",
-        "OR '",      // Boolean injection
+        "OR '", // Boolean injection
         "OR 1=1",
         "' OR '",
     };

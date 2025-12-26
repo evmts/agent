@@ -1,3 +1,6 @@
+// FFI functions intentionally dereference raw pointers - safety is handled by caller
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use jsonschema::{Draft, JSONSchema};
 use minijinja::Environment;
 use serde::{Deserialize, Serialize};
@@ -42,21 +45,27 @@ pub enum TypeDef {
     Object(HashMap<String, TypeDef>), // Nested object
 }
 
+impl std::str::FromStr for TypeDef {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::parse(s))
+    }
+}
+
 impl TypeDef {
     /// Parse type from string (e.g., "string?", "string[]", "a | b | c")
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         let s = s.trim();
 
         // Check for optional (ends with ?)
-        if s.ends_with('?') {
-            let inner = &s[..s.len() - 1];
-            return TypeDef::Optional(Box::new(TypeDef::from_str(inner)));
+        if let Some(inner) = s.strip_suffix('?') {
+            return TypeDef::Optional(Box::new(TypeDef::parse(inner)));
         }
 
         // Check for array (ends with [])
-        if s.ends_with("[]") {
-            let inner = &s[..s.len() - 2];
-            return TypeDef::Array(Box::new(TypeDef::from_str(inner)));
+        if let Some(inner) = s.strip_suffix("[]") {
+            return TypeDef::Array(Box::new(TypeDef::parse(inner)));
         }
 
         // Check for enum (contains |)
@@ -224,7 +233,7 @@ fn parse_schema(yaml: Option<&serde_yaml::Value>) -> Result<JsonValue, PromptErr
 fn parse_schema_value(value: &serde_yaml::Value) -> Result<JsonValue, PromptError> {
     match value {
         serde_yaml::Value::String(s) => {
-            let typedef = TypeDef::from_str(s);
+            let typedef = TypeDef::parse(s);
             Ok(typedef.to_json_schema())
         }
         serde_yaml::Value::Mapping(m) => {
@@ -744,7 +753,7 @@ Answer this: {{ query }}
 
     #[test]
     fn test_typedef_optional() {
-        let typedef = TypeDef::from_str("string?");
+        let typedef = TypeDef::parse("string?");
         match typedef {
             TypeDef::Optional(inner) => {
                 assert!(matches!(*inner, TypeDef::Simple(_)));
@@ -755,7 +764,7 @@ Answer this: {{ query }}
 
     #[test]
     fn test_typedef_array() {
-        let typedef = TypeDef::from_str("string[]");
+        let typedef = TypeDef::parse("string[]");
         match typedef {
             TypeDef::Array(inner) => {
                 assert!(matches!(*inner, TypeDef::Simple(_)));
@@ -766,7 +775,7 @@ Answer this: {{ query }}
 
     #[test]
     fn test_typedef_enum() {
-        let typedef = TypeDef::from_str("info | warning | error");
+        let typedef = TypeDef::parse("info | warning | error");
         match typedef {
             TypeDef::Enum(variants) => {
                 assert_eq!(variants.len(), 3);
