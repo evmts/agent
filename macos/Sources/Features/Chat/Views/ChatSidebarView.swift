@@ -6,6 +6,7 @@ struct ChatSidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            
             SidebarModeBar(mode: $sidebarMode)
             DividerLine()
             Group {
@@ -24,6 +25,8 @@ struct ChatSidebarView: View {
                             .foregroundStyle(Color(nsColor: theme.mutedForeground))
                         Spacer()
                     }.padding(DS.Space._12)
+                        .accessibilityIdentifier("sidebar_content_agents")
+                        .accessibilityIdentifier("sidebar_content_source")
                 case .agents:
                     VStack(alignment: .leading) {
                         Text("Agents").font(.system(size: DS.Typography.s, weight: .medium))
