@@ -1,6 +1,6 @@
 # Zig Rules (LLMs get these wrong)
 
-Target: Zig 0.14. NOT 0.11, 0.12, 0.13, 0.15.
+Target: Zig 0.15. NOT 0.11, 0.12, 0.13, 0.14.
 
 ## Common Mistakes
 - **ArrayList**: 0.14 prefers ArrayListUnmanaged (pass allocator to every method). std.ArrayList transitional.
