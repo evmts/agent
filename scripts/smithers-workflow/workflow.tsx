@@ -13,23 +13,14 @@ import {
 import { typedOutput } from "./components/ctx-type";
 
 export default smithers(db, (ctx) => {
-  // Read discover outputs from both Claude and Codex
-  const claudeDiscover = typedOutput<{
-    tickets: unknown;
-    reasoning?: string;
-    completionEstimate?: string;
-  }>(ctx, discoverTable, { nodeId: "discover-claude" });
-
+  // Read discover output from Codex
   const codexDiscover = typedOutput<{
     tickets: unknown;
     reasoning?: string;
     completionEstimate?: string;
   }>(ctx, discoverTable, { nodeId: "discover-codex" });
 
-  // Combine all tickets from both agents — no deduplication, process all 10
-  const claudeTickets = coerceJsonArray(claudeDiscover?.tickets, ticketSchema);
-  const codexTickets = coerceJsonArray(codexDiscover?.tickets, ticketSchema);
-  const allTickets: Ticket[] = [...claudeTickets, ...codexTickets];
+  const allTickets: Ticket[] = coerceJsonArray(codexDiscover?.tickets, ticketSchema);
 
   const pendingTickets = allTickets.filter(
     (t) => !typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }),
