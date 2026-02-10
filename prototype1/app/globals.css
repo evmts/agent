@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Smithers Dark Theme tokens */
+    --sm-base: #0F111A;
+    --sm-surface1: #141826;
+    --sm-surface2: #1A2030;
+    --sm-border: rgba(255, 255, 255, 0.08);
+    --sm-sidebar-bg: #0C0E16;
+    --sm-sidebar-hover: rgba(255, 255, 255, 0.04);
+    --sm-sidebar-selected: rgba(76, 141, 255, 0.12);
+    --sm-pill-bg: rgba(255, 255, 255, 0.06);
+    --sm-pill-border: rgba(255, 255, 255, 0.10);
+    --sm-pill-active: rgba(76, 141, 255, 0.15);
+    --sm-titlebar-bg: #141826;
+    --sm-titlebar-fg: rgba(255, 255, 255, 0.70);
+    --sm-bubble-assistant: rgba(255, 255, 255, 0.05);
+    --sm-bubble-user: rgba(76, 141, 255, 0.12);
+    --sm-bubble-command: rgba(255, 255, 255, 0.04);
+    --sm-bubble-status: rgba(255, 255, 255, 0.04);
+    --sm-bubble-diff: rgba(255, 255, 255, 0.05);
+    --sm-input-bg: rgba(255, 255, 255, 0.06);
+    --sm-accent: #4C8DFF;
+    --sm-success: #34D399;
+    --sm-warning: #FBBF24;
+    --sm-danger: #F87171;
+    --sm-info: #60A5FA;
+    --sm-text-primary: rgba(255, 255, 255, 0.88);
+    --sm-text-secondary: rgba(255, 255, 255, 0.60);
+    --sm-text-tertiary: rgba(255, 255, 255, 0.45);
+
+    /* Syntax colors */
+    --syn-keyword: #FF5370;
+    --syn-string: #C3E88D;
+    --syn-function: #82AAFF;
+    --syn-comment: #676E95;
+    --syn-type: #FFCB6B;
+    --syn-variable: #F07178;
+    --syn-number: #D4C26A;
+    --syn-operator: #89DDFF;
+    --syn-punctuation: rgba(255, 255, 255, 0.70);
+    --syn-tag: #FF5370;
+
+    /* Override shadcn tokens for dark theme */
+    --background: 225 29% 8%;
+    --foreground: 0 0% 88%;
+    --card: 224 29% 10%;
+    --card-foreground: 0 0% 88%;
+    --popover: 224 29% 10%;
+    --popover-foreground: 0 0% 88%;
+    --primary: 217 100% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 24% 14%;
+    --secondary-foreground: 0 0% 88%;
+    --muted: 224 24% 14%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 224 24% 14%;
+    --accent-foreground: 0 0% 88%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 224 24% 18%;
+    --input: 224 24% 18%;
+    --ring: 217 100% 65%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+  body {
+    background: var(--sm-base);
+    color: var(--sm-text-primary);
+    overflow: hidden;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* Custom scrollbar */
+  .smithers-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .smithers-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .smithers-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.12);
+    border-radius: 3px;
+  }
+  .smithers-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.2);
+  }
+}
