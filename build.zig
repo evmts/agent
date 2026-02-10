@@ -1,5 +1,17 @@
 const std = @import("std");
 
+fn addOptionalShellStep(
+    b: *std.Build,
+    name: []const u8,
+    description: []const u8,
+    script: []const u8,
+) *std.Build.Step {
+    const step = b.step(name, description);
+    const cmd = b.addSystemCommand(&.{ "sh", "-c", script });
+    step.dependOn(&cmd.step);
+    return step;
+}
+
 // Although this function looks imperative, it does not perform the build
 // directly and instead it mutates the build graph (`b`) that will be then
 // executed by an external runner. The functions in `std.Build` implement a DSL
@@ -141,6 +153,67 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+
+    // Optional integration steps (no-ops if directories are missing).
+    const web_step = addOptionalShellStep(
+        b,
+        "web",
+        "Build web app (if web/ exists)",
+        "if [ -d web ]; then cd web && pnpm install && pnpm build; else echo \"skipping web: web/ not found\"; fi",
+    );
+
+    const playwright_step = addOptionalShellStep(
+        b,
+        "playwright",
+        "Run Playwright e2e (if web/ exists)",
+        "if [ -d web ]; then cd web && pnpm install && pnpm exec playwright test; else echo \"skipping playwright: web/ not found\"; fi",
+    );
+
+    _ = playwright_step;
+
+    const codex_step = addOptionalShellStep(
+        b,
+        "codex",
+        "Build codex submodule (if present)",
+        "if [ -d submodules/codex ]; then cd submodules/codex && zig build; else echo \"skipping codex: submodules/codex not found\"; fi",
+    );
+
+    const jj_step = addOptionalShellStep(
+        b,
+        "jj",
+        "Build jj submodule (if present)",
+        "if [ -d submodules/jj ]; then cd submodules/jj && zig build; else echo \"skipping jj: submodules/jj not found\"; fi",
+    );
+
+    const xcode_test_step = addOptionalShellStep(
+        b,
+        "xcode-test",
+        "Run Xcode tests (if macos/ exists)",
+        "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers; else echo \"skipping xcode-test: macos/ not found\"; fi",
+    );
+
+    _ = xcode_test_step;
+
+    const ui_test_step = addOptionalShellStep(
+        b,
+        "ui-test",
+        "Run XCUITests (if macos/ exists)",
+        "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -only-testing:SmithersUITests; else echo \"skipping ui-test: macos/ not found\"; fi",
+    );
+
+    _ = ui_test_step;
+
+    const dev_step = b.step("dev", "Build everything + launch (if macos/ exists)");
+    dev_step.dependOn(b.getInstallStep());
+    dev_step.dependOn(web_step);
+    dev_step.dependOn(codex_step);
+    dev_step.dependOn(jj_step);
+    const xcode_build = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "if [ -d macos ]; then xcodebuild -project macos/Smithers.xcodeproj -scheme Smithers build && if [ -d .build/xcode/Build/Products/Debug/Smithers.app ]; then open .build/xcode/Build/Products/Debug/Smithers.app; else echo \"build succeeded; app not found at .build/xcode/Build/Products/Debug/Smithers.app\"; fi; else echo \"skipping dev: macos/ not found\"; fi",
+    });
+    dev_step.dependOn(&xcode_build.step);
 
     // Format check step (zig fmt --check .)
     const fmt_check = b.addFmt(.{
