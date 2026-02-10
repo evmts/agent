@@ -1,13 +1,13 @@
 import { Sequence } from "smithers";
 import { Research } from "./Research";
-import { researchTable } from "./Research";
+import { researchTable } from "./Research.schema";
 import { Plan } from "./Plan";
-import { planTable } from "./Plan";
+import { planTable } from "./Plan.schema";
 import { ValidationLoop } from "./ValidationLoop";
 import { Report } from "./Report";
-import { reportTable } from "./Report";
-import { implementTable } from "./Implement";
-import { reviewTable } from "./Review";
+import { reportTable } from "./Report.schema";
+import { implementTable } from "./Implement.schema";
+import { reviewTable } from "./Review.schema";
 import { typedOutput, type WorkflowCtx } from "./ctx-type";
 import type {
   Ticket,

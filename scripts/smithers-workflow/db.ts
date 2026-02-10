@@ -4,15 +4,15 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { discoverTable } from "./components/Discover";
-import { researchTable } from "./components/Research";
-import { planTable } from "./components/Plan";
-import { implementTable } from "./components/Implement";
-import { validateTable } from "./components/Validate";
-import { reviewTable } from "./components/Review";
-import { reviewFixTable } from "./components/ReviewFix";
-import { reportTable } from "./components/Report";
-import { outputTable } from "./components/PassTracker";
+import { discoverTable } from "./components/Discover.schema";
+import { researchTable } from "./components/Research.schema";
+import { planTable } from "./components/Plan.schema";
+import { implementTable } from "./components/Implement.schema";
+import { validateTable } from "./components/Validate.schema";
+import { reviewTable } from "./components/Review.schema";
+import { reviewFixTable } from "./components/ReviewFix.schema";
+import { reportTable } from "./components/Report.schema";
+import { outputTable } from "./components/PassTracker.schema";
 
 const inputTable = sqliteTable("input", {
   runId: text("run_id").primaryKey(),

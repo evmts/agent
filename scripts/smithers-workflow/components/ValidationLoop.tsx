@@ -1,14 +1,15 @@
 import { Ralph, Sequence } from "smithers";
 import { z } from "zod";
 import { Implement } from "./Implement";
-import { implementTable } from "./Implement";
+import { implementTable } from "./Implement.schema";
 import { Validate } from "./Validate";
-import { validateTable } from "./Validate";
+import { validateTable } from "./Validate.schema";
 import { Review } from "./Review";
-import { reviewTable } from "./Review";
+import { reviewTable } from "./Review.schema";
 import { ReviewFix } from "./ReviewFix";
 import { typedOutput, type WorkflowCtx } from "./ctx-type";
 import { coerceJsonArray } from "../lib/coerce";
+import { MAX_REVIEW_ROUNDS } from "../config";
 import type {
   Ticket,
   ResearchRow,
@@ -25,8 +26,6 @@ interface ValidationLoopProps {
   latestResearch: ResearchRow | undefined;
   latestPlan: PlanRow | undefined;
 }
-
-const MAX_REVIEW_ROUNDS = 3;
 
 export function ValidationLoop({
   ctx,
@@ -111,9 +110,6 @@ export function ValidationLoop({
               ? {
                   allPassed: latestValidate.allPassed ?? null,
                   failingSummary: latestValidate.failingSummary ?? null,
-                  buildSucceeded: latestValidate.buildSucceeded ?? null,
-                  zigTestsPassed: latestValidate.zigTestsPassed ?? null,
-                  playwrightTestsPassed: latestValidate.playwrightTestsPassed ?? null,
                 }
               : null
           }

@@ -1,45 +1,18 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { render } from "../lib/render";
 import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude } from "../agents";
-import { typedOutput, type WorkflowCtx } from "./ctx-type";
+import { typedOutput, iterationCount, type WorkflowCtx } from "./ctx-type";
 import ReportPrompt from "../prompts/7_report.mdx";
-import { reviewTable } from "./Review";
-import { validateTable } from "./Validate";
+import { reviewTable } from "./Review.schema";
+import { validateTable } from "./Validate.schema";
+import { implementTable } from "./Implement.schema";
 import { coerceJsonArray } from "../lib/coerce";
 import type { ImplementRow, ValidateRow, ReviewRow } from "./types";
-
-export const reportTable = sqliteTable("report", {
-  runId: text("run_id").notNull(),
-  nodeId: text("node_id").notNull(),
-  iteration: integer("iteration").notNull().default(0),
-  ticketId: text("ticket_id").notNull(),
-  ticketTitle: text("ticket_title"),
-  status: text("status"),
-  summary: text("summary"),
-  filesChanged: integer("files_changed"),
-  testsAdded: integer("tests_added"),
-  reviewRounds: integer("review_rounds"),
-  struggles: text("struggles", { mode: "json" }).$type<string[]>(),
-  timeSpent: text("time_spent"),
-  lessonsLearned: text("lessons_learned", { mode: "json" }).$type<string[]>(),
-}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
-
-export const reportOutputSchema = z.object({
-  ticketId: z.string().describe("The ticket this report covers"),
-  ticketTitle: z.string().describe("Title of the ticket"),
-  status: z.enum(["completed", "partial", "failed"]).describe("Final status"),
-  summary: z.string().describe("Concise summary of what was implemented"),
-  filesChanged: z.number().describe("Number of files changed"),
-  testsAdded: z.number().describe("Number of tests added"),
-  reviewRounds: z.number().describe("How many review rounds it took"),
-  struggles: z.array(z.string()).nullable().describe("Any struggles or issues encountered"),
-  timeSpent: z.string().nullable().describe("Approximate time spent"),
-  lessonsLearned: z.array(z.string()).nullable().describe("Lessons for future tickets"),
-});
+export { reportTable, reportOutputSchema } from "./Report.schema";
+import { reportTable, reportOutputSchema } from "./Report.schema";
 
 interface ReportProps {
   ctx: WorkflowCtx;
@@ -87,8 +60,16 @@ export function Report({
   const reviewIssuesSummary =
     allIssues.length > 0 ? JSON.stringify(allIssues, null, 2) : null;
 
-  // Estimate review rounds from iteration count
-  const reviewRounds = 1;
+  // Compute deterministic metrics from stored artifacts
+  const filesCreated = latestImplement?.filesCreated ?? [];
+  const filesModified = latestImplement?.filesModified ?? [];
+  const filesChanged = filesCreated.length + filesModified.length;
+  const testsAdded = latestImplement?.testsWritten?.length ?? 0;
+  const reviewRounds = Math.max(
+    iterationCount(ctx, reviewTable, { nodeId: `${ticketId}:review-claude` }),
+    iterationCount(ctx, implementTable, { nodeId: `${ticketId}:implement` }),
+    1,
+  );
 
   return (
     <Task
@@ -103,13 +84,15 @@ export function Report({
         ticketTitle,
         ticketDescription,
         whatWasDone: latestImplement?.whatWasDone ?? "No implementation data available",
-        filesCreated: latestImplement?.filesCreated ?? [],
-        filesModified: latestImplement?.filesModified ?? [],
+        filesCreated,
+        filesModified,
         commitMessages: latestImplement?.commitMessages ?? [],
         testsWritten: latestImplement?.testsWritten ?? [],
         docsUpdated: latestImplement?.docsUpdated ?? [],
         allTestsPassing: latestImplement?.allTestsPassing ?? false,
         failingSummary: latestValidate?.failingSummary ?? null,
+        filesChanged,
+        testsAdded,
         reviewRounds,
         reviewIssues: reviewIssuesSummary,
         reportSchema: zodSchemaToJsonExample(reportOutputSchema),
