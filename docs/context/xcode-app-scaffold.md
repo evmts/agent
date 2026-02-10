@@ -118,13 +118,8 @@ Ghostty puts its xcframework at `macos/GhosttyKit.xcframework/`.
 
 **Decision needed:** Reference `../dist/SmithersKit.xcframework` from the .xcodeproj, or copy it into `macos/` during build? The `zig build xcframework` already outputs to `dist/`. For the Xcode project, we can reference it with `path = "../dist/SmithersKit.xcframework"; sourceTree = "<group>";`.
 
-### Bridging Header
-Needed to expose `libsmithers.h` to Swift. Ghostty uses `Sources/App/macOS/ghostty-bridging-header.h`.
-For Smithers: `macos/Sources/App/Smithers-Bridging-Header.h` containing `#import "libsmithers.h"`.
-
-BUT — with xcframework, the headers are already inside the framework. The bridging header may not be needed if we use the xcframework's Headers directly. However, for consistency with Ghostty and to allow additional C imports later, a bridging header is cleaner.
-
-Actually, xcframeworks with static libs need the header exposed via the bridging header or a module map. Since we're using a static lib (not a framework bundle), Swift needs to know about the C API through a bridging header.
+### Bridging Header vs. Module Map (Updated)
+Ghostty uses a bridging header, but SmithersKit ships as an xcframework with a `module.modulemap` (placed in `include/` and copied into the xcframework). With the module map in place, Swift can `import SmithersKit` directly and no bridging header is required. This scaffold intentionally omits any bridging header and relies solely on the module map.
 
 ### Generating project.pbxproj
 The `.xcodeproj` format is a proprietary Apple format. Options:

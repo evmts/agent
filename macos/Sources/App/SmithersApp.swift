@@ -3,9 +3,9 @@ import Foundation
 import SmithersKit
 import os
 
-
 @main
 struct SmithersApp: App {
+    @State private var appModel = AppModel()
     private static var didValidateLink = false
     init() {
         guard !Self.didValidateLink else { return }
@@ -23,15 +23,17 @@ struct SmithersApp: App {
     var body: some Scene {
         Window("Smithers", id: "chat") {
             ChatWindowRootView()
-                .frame(minWidth: 800, minHeight: 900)
+                .environment(appModel)
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 800, height: 900)
 
         Window("Smithers IDE", id: "workspace") {
             IDEWindowRootView()
-                .frame(minWidth: 1100, minHeight: 900)
+                .environment(appModel)
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1100, height: 900)
 
         Settings {
             Text("Settings")

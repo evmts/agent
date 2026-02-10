@@ -25,8 +25,8 @@ Scaffold the `macos/Smithers.xcodeproj` Xcode project with a minimal SwiftUI app
 - `scripts/xcode_build_and_open.sh`: checks `macos/` exists, runs `xcodebuild -project macos/Smithers.xcodeproj -scheme Smithers`, opens `.app`
 - Already gracefully skips: `if [[ ! -d macos ]]; then echo "skipping: macos/ not found"; exit 0; fi`
 
-### macos/ Directory (DOES NOT EXIST)
-- This is what needs to be created.
+### macos/ Directory (Created)
+- The SwiftUI scaffold, Info.plist, entitlements, and project now exist.
 
 ## Critical Missing Piece: module.modulemap
 
@@ -51,7 +51,7 @@ module SmithersKit {
 
 This file must be in `include/` alongside `libsmithers.h`, so the xcframework build copies it into `Headers/`. The `addXCFrameworkStep` in build.zig passes `b.path("include")` as the headers dir — it will automatically pick up the modulemap.
 
-After adding this, re-run `zig build xcframework` so the modulemap gets copied into `dist/SmithersKit.xcframework/macos-arm64_x86_64/Headers/`.
+After adding this, run `zig build xcframework` (already wired) so the modulemap is packaged into `dist/SmithersKit.xcframework/macos-arm64_x86_64/Headers/`.
 
 ## Xcode Project Structure (What to Create)
 
