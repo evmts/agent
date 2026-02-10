@@ -8,6 +8,8 @@ export function render(
 ): string {
   const html = renderToStaticMarkup(React.createElement(Component, props));
   return html
+    .replace(/<\/(p|div|h[1-6]|li|ul|ol|pre|blockquote|section)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")

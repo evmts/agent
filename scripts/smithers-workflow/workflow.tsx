@@ -1,45 +1,63 @@
-import { smithers, Workflow, Sequence, Ralph, Branch } from "smithers";
+import { smithers, Workflow, Sequence, Branch } from "smithers";
 import { db } from "./db";
-import { discoverTable } from "./components/Discover";
+import { discoverTable, ticketSchema } from "./components/Discover";
+import { reportTable } from "./components/Report";
+import { outputTable } from "./components/PassTracker";
+import { coerceJsonArray } from "./lib/coerce";
 import {
   Discover,
   TicketPipeline,
   PassTracker,
-  type DiscoverRow,
   type Ticket,
 } from "./components";
-
-function parseJson<T>(raw: string | null | undefined): T | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
+import { typedOutput } from "./components/ctx-type";
 
 export default smithers(db, (ctx) => {
-  const latestDiscover = ctx.outputMaybe(discoverTable, {
-    nodeId: "discover",
-  }) as DiscoverRow | undefined;
+  const latestDiscover = typedOutput<{
+    tickets: unknown;
+    reasoning?: string;
+    completionEstimate?: string;
+  }>(ctx, discoverTable, { nodeId: "discover" });
 
-  const tickets: Ticket[] = parseJson(latestDiscover?.tickets) ?? [];
+  const allTickets = coerceJsonArray(latestDiscover?.tickets, ticketSchema);
 
-  const needsDiscovery = tickets.length === 0;
+  const pendingTickets = allTickets.filter(
+    (t) => !typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }),
+  );
+
+  const completedTicketIds = allTickets
+    .filter((t) => !!typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }))
+    .map((t) => t.id);
+
+  const needsDiscovery = pendingTickets.length === 0;
+
+  const prevPassTracker = typedOutput<{
+    totalIterations?: number;
+    ticketsCompleted?: string[];
+    summary?: string;
+  }>(ctx, outputTable, { nodeId: "pass-tracker" });
+
+  const previousRun = prevPassTracker
+    ? {
+        summary: prevPassTracker.summary ?? "",
+        ticketsCompleted: prevPassTracker.ticketsCompleted ?? [],
+      }
+    : null;
 
   return (
     <Workflow name="smithers-v2-workflow">
-      <Ralph until={false} onMaxReached="return-last">
-        <Sequence>
-          <Branch if={needsDiscovery} then={<Discover />} />
+      <Sequence>
+        <Branch
+          if={needsDiscovery}
+          then={<Discover previousRun={previousRun} />}
+        />
 
-          {tickets.map((ticket) => (
-            <TicketPipeline key={ticket.id} ctx={ctx} ticket={ticket} />
-          ))}
+        {pendingTickets.map((ticket) => (
+          <TicketPipeline key={ticket.id} ctx={ctx} ticket={ticket} />
+        ))}
 
-          <PassTracker ctx={ctx} />
-        </Sequence>
-      </Ralph>
+        <PassTracker ctx={ctx} completedTicketIds={completedTicketIds} />
+      </Sequence>
     </Workflow>
   );
 });
