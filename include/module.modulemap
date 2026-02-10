@@ -1,0 +1,5 @@
+module SmithersKit {
+    umbrella header "libsmithers.h"
+    export *
+}
+
