@@ -1,8 +1,8 @@
 import { smithers, Workflow, Sequence, Branch } from "smithers";
 import { db } from "./db";
-import { discoverTable, ticketSchema } from "./components/Discover";
-import { reportTable } from "./components/Report";
-import { outputTable } from "./components/PassTracker";
+import { discoverTable, ticketSchema } from "./components/Discover.schema";
+import { reportTable } from "./components/Report.schema";
+import { outputTable } from "./components/PassTracker.schema";
 import { coerceJsonArray } from "./lib/coerce";
 import {
   Discover,
@@ -13,19 +13,29 @@ import {
 import { typedOutput } from "./components/ctx-type";
 
 export default smithers(db, (ctx) => {
-  const latestDiscover = typedOutput<{
+  // Read discover outputs from both Claude and Codex
+  const claudeDiscover = typedOutput<{
     tickets: unknown;
     reasoning?: string;
     completionEstimate?: string;
-  }>(ctx, discoverTable, { nodeId: "discover" });
+  }>(ctx, discoverTable, { nodeId: "discover-claude" });
 
-  const allTickets = coerceJsonArray(latestDiscover?.tickets, ticketSchema);
+  const codexDiscover = typedOutput<{
+    tickets: unknown;
+    reasoning?: string;
+    completionEstimate?: string;
+  }>(ctx, discoverTable, { nodeId: "discover-codex" });
+
+  // Combine all tickets from both agents — no deduplication, process all 10
+  const claudeTickets = coerceJsonArray(claudeDiscover?.tickets, ticketSchema);
+  const codexTickets = coerceJsonArray(codexDiscover?.tickets, ticketSchema);
+  const allTickets: Ticket[] = [...claudeTickets, ...codexTickets];
 
   const pendingTickets = allTickets.filter(
     (t) => !typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }),
   );
 
-  const completedTicketIds = allTickets
+  const allCompletedIds = allTickets
     .filter((t) => !!typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }))
     .map((t) => t.id);
 
@@ -44,6 +54,10 @@ export default smithers(db, (ctx) => {
       }
     : null;
 
+  // Compute delta: only tickets completed since last pass
+  const prevCompleted = new Set(prevPassTracker?.ticketsCompleted ?? []);
+  const completedThisPass = allCompletedIds.filter((id) => !prevCompleted.has(id));
+
   return (
     <Workflow name="smithers-v2-workflow">
       <Sequence>
@@ -56,7 +70,7 @@ export default smithers(db, (ctx) => {
           <TicketPipeline key={ticket.id} ctx={ctx} ticket={ticket} />
         ))}
 
-        <PassTracker ctx={ctx} completedTicketIds={completedTicketIds} />
+        <PassTracker ctx={ctx} completedTicketIds={completedThisPass} />
       </Sequence>
     </Workflow>
   );
