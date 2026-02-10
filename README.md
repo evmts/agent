@@ -14,6 +14,23 @@ zig build all      # Build + tests + fmt/lint checks
 zig build xcframework  # Build dist/SmithersKit.xcframework (arm64+x86_64)
 ```
 
+## Web App
+
+Requires pnpm and Node.js.
+
+```bash
+cd web
+pnpm install
+pnpm dev          # Dev server at http://127.0.0.1:5173
+pnpm build        # Production build to web/dist/
+```
+
+Or via Zig:
+
+```bash
+zig build web     # Build web app (requires pnpm)
+```
+
 ## Project Structure
 
 - `src/` — Zig core (libsmithers)

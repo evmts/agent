@@ -2,6 +2,7 @@
 .zig-cache/
 zig-out/
 dist/
+web/dist/
 .build/
 
 # macOS
@@ -25,8 +26,6 @@ prototype1/.next/
 # Backup files
 *.bak
 *.pbxproj-*
-macos/Smithers.xcodeproj/project.pbxproj-*
-macos/Smithers.xcodeproj/project.pbxproj-e
 
 # Objects / build droppings
 *.o

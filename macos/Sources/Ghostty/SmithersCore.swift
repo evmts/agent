@@ -1,8 +1,6 @@
-import Foundation
 import SmithersKit
 
-/// Placeholder C FFI bridge following Ghostty pattern.
-/// Will be expanded when libsmithers C API grows.
+/// Wraps libsmithers C functions for Swift consumption.
 enum SmithersCoreBridge {
     static func smokeInitAndFree() {
         var cfg = smithers_config_s(runtime: smithers_runtime_config_s(wakeup: nil, action: nil, userdata: nil))

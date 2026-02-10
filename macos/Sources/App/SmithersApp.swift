@@ -1,23 +1,15 @@
 import SwiftUI
-import Foundation
 import SmithersKit
 import os
 
 @main
 struct SmithersApp: App {
     @State private var appModel = AppModel()
-    private static var didValidateLink = false
+    nonisolated(unsafe) static var didValidateLink = false
     init() {
         guard !Self.didValidateLink else { return }
         Self.didValidateLink = true
-        let logger = Logger(subsystem: "com.smithers", category: "app")
-        var cfg = smithers_config_s(runtime: smithers_runtime_config_s(wakeup: nil, action: nil, userdata: nil))
-        if let handle = smithers_app_new(&cfg) {
-            smithers_app_free(handle)
-            logger.debug("SmithersKit link OK")
-        } else {
-            logger.error("SmithersKit init failed (nil handle)")
-        }
+        SmithersCoreBridge.smokeInitAndFree()
     }
 
     var body: some Scene {

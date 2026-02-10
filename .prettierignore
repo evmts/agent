@@ -1,0 +1,4 @@
+# Ignore generated lockfiles and build output
+web/pnpm-lock.yaml
+web/dist/
+node_modules/

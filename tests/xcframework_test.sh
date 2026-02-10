@@ -13,7 +13,7 @@ if [[ ! -f "$XCFW/Info.plist" ]]; then
   exit 1
 fi
 
-HEADER_MATCH=( $(find "$XCFW" -type f -path '*/Headers/libsmithers.h' -maxdepth 3) )
+mapfile -t HEADER_MATCH < <(find "$XCFW" -type f -path '*/Headers/libsmithers.h' -maxdepth 3)
 if [[ ${#HEADER_MATCH[@]} -eq 0 ]]; then
   echo "FAIL: Headers/libsmithers.h missing in xcframework" >&2
   exit 1
@@ -22,7 +22,7 @@ else
 fi
 
 # Verify module.modulemap exists for Swift import support
-MODULEMAP=( $(find "$XCFW" -type f -path '*/Headers/module.modulemap' -maxdepth 3) )
+mapfile -t MODULEMAP < <(find "$XCFW" -type f -path '*/Headers/module.modulemap' -maxdepth 3)
 if [[ ${#MODULEMAP[@]} -eq 0 ]]; then
   echo "FAIL: Headers/module.modulemap missing in xcframework (needed for Swift imports)" >&2
   exit 1
@@ -30,7 +30,7 @@ else
   echo "module.modulemap found at: ${MODULEMAP[0]}"
 fi
 
-LIBS=( $(find "$XCFW" -name '*.a' -maxdepth 3) )
+mapfile -t LIBS < <(find "$XCFW" -name '*.a' -maxdepth 3)
 if [[ ${#LIBS[@]} -eq 0 ]]; then
   echo "FAIL: No .a found in xcframework" >&2
   exit 1

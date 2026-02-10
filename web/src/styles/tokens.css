@@ -1,0 +1,136 @@
+:root {
+  /* Core surfaces */
+  --sm-base: #0F111A;
+  --sm-surface1: #141826;
+  --sm-surface2: #1A2030;
+  --sm-border: rgba(255, 255, 255, 0.08);
+
+  /* Chat sidebar */
+  --sm-sidebar-bg: #0C0E16;
+  --sm-sidebar-hover: rgba(255, 255, 255, 0.04);
+  --sm-sidebar-selected: rgba(76, 141, 255, 0.12);
+
+  /* Pills/badges */
+  --sm-pill-bg: rgba(255, 255, 255, 0.06);
+  --sm-pill-border: rgba(255, 255, 255, 0.10);
+  --sm-pill-active: rgba(76, 141, 255, 0.15);
+
+  /* Title bar */
+  --sm-titlebar-bg: #141826;
+  --sm-titlebar-fg: rgba(255, 255, 255, 0.70);
+
+  /* Chat bubbles */
+  --sm-bubble-assistant: rgba(255, 255, 255, 0.05);
+  --sm-bubble-user: rgba(76, 141, 255, 0.12);
+  --sm-bubble-command: rgba(255, 255, 255, 0.04);
+  --sm-bubble-status: rgba(255, 255, 255, 0.04);
+  --sm-bubble-diff: rgba(255, 255, 255, 0.05);
+
+  /* Input */
+  --sm-input-bg: rgba(255, 255, 255, 0.06);
+  --sm-input-border: rgba(255, 255, 255, 0.06);
+
+  /* Semantic colors */
+  --sm-accent: #4C8DFF;
+  --sm-success: #34D399;
+  --sm-warning: #FBBF24;
+  --sm-danger: #F87171;
+  --sm-info: #60A5FA;
+
+  /* Accent composite token */
+  --sm-accent-rgb: 76, 141, 255;
+
+  /* Text opacity levels */
+  --sm-text-primary: rgba(255, 255, 255, 0.88);
+  --sm-text-secondary: rgba(255, 255, 255, 0.60);
+  --sm-text-tertiary: rgba(255, 255, 255, 0.45);
+
+  /* Syntax highlighting (Nova-inspired) */
+  --syn-keyword: #FF5370;
+  --syn-string: #C3E88D;
+  --syn-function: #82AAFF;
+  --syn-comment: #676E95;
+  --syn-type: #FFCB6B;
+  --syn-variable: #F07178;
+  --syn-number: #D4C26A;
+  --syn-operator: #89DDFF;
+  --syn-punctuation: rgba(255, 255, 255, 0.70);
+  --syn-tag: #FF5370;
+
+  /* shadcn HSL tokens (for Tailwind mapping) */
+  --background: 225 29% 8%;
+  --foreground: 0 0% 88%;
+  --primary: 217 100% 65%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 224 24% 14%;
+  --secondary-foreground: 0 0% 88%;
+  --muted: 224 24% 14%;
+  --muted-foreground: 0 0% 60%;
+  /* Accent in Tailwind maps to brand accent per design spec */
+  --accent: 217 100% 65%; /* #4C8DFF */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --card: 224 29% 10%;
+  --card-foreground: 0 0% 88%;
+  --popover: 224 29% 10%;
+  --popover-foreground: 0 0% 88%;
+  --border: 224 24% 18%;
+  --input: 224 24% 18%;
+  --ring: 217 100% 65%;
+  --radius: 0.5rem;
+
+  /* Typography scale (px) */
+  --sm-type-xs: 10px;
+  --sm-type-s: 11px;
+  --sm-type-base: 13px;
+  --sm-type-l: 15px;
+  --sm-type-xl: 20px;
+  --sm-type-chatHeading: 28px;
+  --sm-type-chatSubheading: 16px;
+  --sm-type-chatSidebarTitle: 12px;
+  --sm-type-chatTimestamp: 10px;
+
+  /* Spacing tokens (px) */
+  --sm-space-4: 4px;
+  --sm-space-6: 6px;
+  --sm-space-8: 8px;
+  --sm-space-10: 10px;
+  --sm-space-12: 12px;
+  --sm-space-16: 16px;
+  --sm-space-24: 24px;
+  --sm-space-32: 32px;
+
+  /* Radii */
+  --sm-radius-4: 4px;
+  --sm-radius-6: 6px;
+  --sm-radius-8: 8px;
+  --sm-radius-10: 10px;
+  --sm-radius-12: 12px;
+  --sm-radius-16: 16px;
+}
+
+/* Base styles */
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--sm-base);
+  color: var(--sm-text-primary);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+/* Scrollbar (WebKit) */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.12); border-radius: 10px; }
+*::-webkit-scrollbar-track { background-color: rgba(255,255,255,0.06); }
+
+/*
+  shadcn-solid (via Kobalte) uses Tailwind's HSL design tokens that we map here.
+  These HSL values are derived from the canonical --sm-* tokens above to keep
+  utilities like bg-background/text-foreground consistent with our design system.
+  Example derivations:
+  - --background (225 29% 8%) ← derived from --sm-base #0F111A
+  - --primary (217 100% 65%)  ← brand accent #4C8DFF
+*/
