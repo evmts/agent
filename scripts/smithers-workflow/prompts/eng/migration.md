@@ -6,7 +6,7 @@
 
 `../smithers/apps/desktop/` — ~92 Swift files, ~31K LOC:
 
-- **Chat/AI** (`CodexService.swift`, `ChatView.swift`, `ChatHistoryStore.swift`) — v1 JSON-RPC stdio; v2 in-process Zig. Study event patterns, rendering.
+- **Chat/AI** (`CodexService.swift`, `ChatView.swift`, `ChatHistoryStore.swift`) — v1 JSON-RPC stdio; v2 in-process Zig. JSONRPCTransport remains only for non-Codex providers. Study event patterns, rendering.
 - **Agent orchestration** (`AgentOrchestrator.swift`) — parallel jj workspaces, merge queue
 - **JJ** (`JJService.swift`, `JJPanelView.swift`, `JJSnapshotStore.swift`) — VCS panel, snapshots
 - **Terminal/Ghostty** (`GhosttyApp.swift`, `GhosttyTerminalView.swift`) — C FFI singleton, surface lifecycle, frame scheduling
@@ -28,7 +28,7 @@ Reference (not copy-paste) patterns:
 | `GhosttyInput.swift` | Key map, Option-as-Meta | `Terminal/GhosttyInput.swift` |
 | `NvimRPC.swift` | MessagePack codec | `Neovim/NvimRPC.swift` |
 | `NvimController.swift` | Socket RPC, UI attach, autocmd | `Neovim/NvimController.swift` |
-| `JSONRPCTransport.swift` | Pipe JSON-RPC, correlation, async | `Services/JSONRPCTransport.swift` → `src/codex_client.zig` |
+| `JSONRPCTransport.swift` | Pipe JSON-RPC, correlation, async | `Services/JSONRPCTransport.swift` (external providers). Codex uses `src/codex_client.zig` (in-process Zig API). |
 | `CodexService.swift` | Events, threads, notifications | `Services/CodexService.swift` → `src/orchestrator.zig` |
 | `SmithersCtlInterpreter.swift` | Parsing, vim +line:col | `Services/SmithersCtlInterpreter.swift` |
 | `SyntaxHighlighting.swift` | TreeSitter pipeline, cancellation, registry | `Editor/TreeSitterHighlighter.swift` |

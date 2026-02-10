@@ -8,7 +8,7 @@ Shared `AppModel` injected both window roots.
 
 Recommended structure:
 
-- `AppModel` (ObservableObject)
+- `AppModel` (@Observable)
   - `workspace: WorkspaceModel?`
   - `preferences: PreferencesModel`
   - `windowCoordinator: WindowCoordinator` (show/hide/focus IDE, routing)

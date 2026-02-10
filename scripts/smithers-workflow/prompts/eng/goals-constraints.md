@@ -6,11 +6,11 @@ v1 has single 7,100-line `WorkspaceState` god object owning all state (files, ed
 
 v2 fixes:
 
-1. **Files split for findability, not isolation** — NOT eliminating god object. Single centralized state tree (Flux-style) = fine, desirable. Fix: v1's 7,100-line files. v2 splits code into smaller domain-organized files. SPM targets for basic build structure, but dependency graph intentionally flat/simple — not complex DAG. File needs import → import it. Don't overcomplicate.
+1. **Files split for findability, not isolation** — NOT eliminating god object. Single centralized state tree (Flux-style) = fine, desirable. Fix: v1's 7,100-line files. v2 splits code into smaller domain-organized files. Xcode project with a flat dependency graph — no complex DAG. File needs import → import it. Don't overcomplicate.
 
 2. **Composed state model** — Instead of massive class holding everything, top-level `AppModel` contains smaller sub-models: `ChatModel` (msgs/sessions), `FileTreeModel` (browser), `TabModel` (editor tabs), etc. Each ~100-250 lines, owns one domain. Navigable — understand chat → read `ChatModel`, not 7,000-line file. Compose into single god object (`AppModel`) — by design.
 
-3. **Chrome DevTools window arch** — Main chat = "pane 0" (always present, closing quits app). Workspace panels (editor, terminal, diff, etc.) attach/detach as secondary windows. Not rigid "two windows" — "main chat + N workspace panels" grouped by workspace. Everything = tabs. Second window shows chat, diff, IDE tab, anything. Windows positioned/resized/managed independently, share data via model layer.
+3. **Chrome DevTools window arch** — Main chat = "pane 0" (always present; closing hides to menu bar, does NOT quit). MVP uses two windows (chat + single workspace panel). Architecture should expand to multiple workspace panels later. Everything = tabs. Secondary window shows editor/terminal/diff/chat tabs. Windows positioned/resized/managed independently, share data via model layer.
 
 4. **Workspace-optional** — Works without workspace. Launch → just chat, no folder needed. Create/open workspace via main agent or Cmd+Shift+O. Usually users open in workspace dir.
 

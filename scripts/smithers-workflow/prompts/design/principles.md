@@ -14,7 +14,7 @@ NOT "chat + IDE." A **chat-first agentic coding environment** where AI orchestra
 
 ### Chat sidebar modes
 
-Main chat window sidebar not just chat history. Three modes (visible in `prototype/`):
+Main chat window sidebar not just chat history. Three modes (visible in `prototype1/`):
 
 1. **Chats** — Top-level conversation history grouped by time, ability to **fork** any conversation at any point. User's direct conversations with main agent.
 2. **Source** — JJ (Jujutsu) version control panel: working copy changes, change log, bookmarks, operation log, snapshots.
@@ -24,7 +24,7 @@ Main chat window sidebar not just chat history. Three modes (visible in `prototy
 
 ### Reference prototype
 
-Target look/feel in `prototype/` — Next.js + TypeScript + Tailwind CSS mockup ("Smithers v2 prototype"). Also live v0: https://v0.app/chat/mac-os-ide-prototype-cEqmBbcomU7
+Target look/feel in `prototype1/` — Next.js + TypeScript + Tailwind CSS mockup ("Smithers v2 prototype"). Also live v0: https://v0.app/chat/mac-os-ide-prototype-cEqmBbcomU7
 
 **Prototype = design reference for BOTH native macOS app and SolidJS web app.** Web app (`web/`) should look close to native — same colors, spacing, layout, components. CSS custom properties (`--sm-*`) from prototype used directly in web app.
 

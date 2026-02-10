@@ -14,6 +14,8 @@ Read research context: {props.contextFilePath}
 
 {props.previousImplementation ? `\nPREVIOUS ATTEMPT:\nWhat was done: ${props.previousImplementation.whatWasDone}\nTest output: ${props.previousImplementation.testOutput}\nFix issues from previous attempt.` : ""}
 
+{props.validationFeedback ? `\nVALIDATION RESULTS FROM PREVIOUS ATTEMPT:\n- All passed: ${props.validationFeedback.allPassed}\n- Build succeeded: ${props.validationFeedback.buildSucceeded}\n- Zig tests passed: ${props.validationFeedback.zigTestsPassed}\n- Playwright tests passed: ${props.validationFeedback.playwrightTestsPassed}\n- Failures: ${props.validationFeedback.failingSummary ?? "none"}\nFix ALL validation failures before proceeding.` : ""}
+
 {props.reviewFixes ? `\nREVIEW FIXES NEEDED:\n${props.reviewFixes}` : ""}
 
 BEFORE CODING:
@@ -29,10 +31,9 @@ IMPLEMENTATION RULES:
 3. Test-driven: write tests FIRST, then implementation
 4. Atomic git commits: ✨ feat, 🧪 test, 🐛 fix, 📋 docs, ♻️ refactor, ⚡ perf, 🔧 chore
 5. After implementing, run ALL relevant tests:
-   - zig build test (Zig unit tests)
-   - zig build (ensure build succeeds)
-   - For Swift: xcodebuild test (XCUITest e2e tests)
-   - For web: cd web && pnpm test && pnpm exec playwright test
+   - zig build all (canonical; runs all wired checks)
+   - If `xcode-test` / `ui-test` steps are wired: run them, otherwise `xcodebuild test`
+   - If `playwright` step is wired: run it, otherwise `cd web && pnpm test && pnpm exec playwright test`
 6. If tests fail, fix before moving on. NEVER leave failing tests.
 7. If pre-existing test failures found, fix those too. Codebase ALWAYS green.
 
@@ -75,7 +76,5 @@ Before finishing, self-review. Reviewers check for:
 Fix issues before submitting.
 
 **REQUIRED OUTPUT** — JSON matching this schema:
-```json
 {props.implementSchema}
-```
 DO NOT skip JSON output. Workflow fails without it.

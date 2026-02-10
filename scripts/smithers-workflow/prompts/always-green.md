@@ -4,7 +4,7 @@ Codebase MUST be green. ZERO tolerance for failures (even pre-existing).
 
 ## Canonical Command
 
-**`zig build all`** — Run after EVERY change. Runs ALL checks in parallel.
+**`zig build all`** — Run after EVERY change. Runs ALL checks wired in `build.zig` in parallel.
 Do NOT commit until passes with zero errors.
 
 ## Individual Checks
@@ -13,12 +13,12 @@ Do NOT commit until passes with zero errors.
 
 ### 1. Build
 - `zig build` — zero errors, zero warnings
-- `zig build web` / `zig build codex` / `zig build jj` — all must compile cleanly
+- When `build.zig` defines them: `zig build dev`, `zig build web`, `zig build codex`, `zig build jj`
 
 ### 2. Tests
 - `zig build test` — ALL Zig unit tests pass (use std.testing.allocator for leak detection)
-- `zig build playwright` — ALL e2e tests pass
-- Xcode tests via `zig build test` — ALL Swift tests pass
+- When defined: `zig build playwright`, `zig build xcode-test`, `zig build ui-test`
+- If those steps are not yet wired, run the equivalent manual commands (e.g., `xcodebuild test`, `pnpm exec playwright test`)
 - ANY failure (even pre-existing) — fix before moving on
 
 ### 3. Formatting

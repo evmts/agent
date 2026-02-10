@@ -23,7 +23,7 @@ smithers-v2/
 │       ├── main.zig       # Namespace (re-exports, test discovery)
 │       └── *.zig          # PascalCase.zig=struct, snake_case.zig=module
 ├── include/
-│   └── smithers.h         # C API — contract between Zig/Swift
+│   └── libsmithers.h      # C API — contract between Zig/Swift
 │                          # smithers_ prefix; _e(enum), _s(struct), _t(opaque), _cb(callback)
 ├── pkg/                   # Vendored C/C++ deps + Zig wrappers
 │   ├── sqlite/build.zig   # SQLite amalgamation
@@ -70,13 +70,19 @@ smithers-v2/
 ## Build Commands
 
 ```bash
-zig build              # Everything
-zig build dev          # Build + launch macOS
-zig build test         # ALL tests (Zig + Swift)
-zig build web          # Web only
-zig build playwright   # Web + server + Playwright e2e
-zig build codex        # Codex static lib
-zig build jj           # JJ only
+zig build              # Everything wired in build.zig
+zig build run          # Build + run CLI (current)
+zig build test         # Zig unit tests
+zig build all          # Build + tests + fmt/lint (canonical green check)
+
+# Planned (once build.zig defines these steps):
+# zig build dev          # Build + launch macOS
+# zig build web          # Web only
+# zig build playwright   # Web + server + Playwright e2e
+# zig build codex        # Codex static lib
+# zig build jj           # JJ only
+# zig build xcode-test   # Swift tests
+# zig build ui-test      # XCUITest e2e
 ```
 
 ## Key Principles

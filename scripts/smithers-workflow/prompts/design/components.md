@@ -35,7 +35,7 @@ Bg `surface2` (chrome) or `surface1` (content), border 1px `color.border`, radiu
 ### 4.1 App root / scenes
 
 - `SmithersApp`
-  - `AppModel` (@StateObject shared)
+  - `AppModel` (@State shared)
   - `ChatWindowScene` → `ChatWindowRootView`
   - `IDEWindowScene` (hidden until opened) → `IDEWindowRootView`
   - `SettingsScene` → `SettingsRootView` (standard macOS)

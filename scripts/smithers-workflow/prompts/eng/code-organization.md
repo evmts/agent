@@ -62,8 +62,8 @@ Features/Chat/
 │   │   ├── SlashCommandPopup.swift, MentionPopup.swift, ChatWelcomeScreen.swift
 │   └── DiffSheet/InlineDiffViewer.swift
 └── Services/
-    ├── CodexService.swift               — Thin wrapper over libsmithers Codex C API
-    ├── JSONRPCTransport.swift           — Pipe-based JSON-RPC framing
+    ├── CodexService.swift               — Thin wrapper over libsmithers Codex C API (in-process)
+    ├── JSONRPCTransport.swift           — JSON-RPC framing for non-Codex backends (Claude Code/OpenCode)
     ├── SuggestionService.swift          — AI-generated workspace suggestions
     └── ChatHistoryStore.swift           — SQLite chat persistence
 ```
@@ -98,7 +98,7 @@ External integrations. All async. Classes (ref types) — manage subprocess life
 
 ```
 Services/
-├── CodexService.swift, JSONRPCTransport.swift, CompletionService.swift,
+├── CodexService.swift (in-process), JSONRPCTransport.swift (external providers), CompletionService.swift,
 ├── JJService.swift, JJSnapshotStore.swift, CommitStyleDetector.swift,
 ├── AgentOrchestrator.swift, SearchService.swift, SuggestionService.swift,
 ├── SkillScanner.swift, SkillRegistryClient.swift, SkillInstaller.swift,

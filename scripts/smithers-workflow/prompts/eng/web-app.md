@@ -39,16 +39,16 @@ web/src/
 │   ├── store.ts        — SolidJS stores (createStore — mirrors AppModel/WorkspaceModel)
 │   └── types.ts        — Hand-maintained TS types (synced by AI + e2e tests)
 ├── styles/
-│   └── tokens.css      — CSS vars matching design.md §2.1 (same as prototype)
+│   └── tokens.css      — CSS vars matching design.md §2.1 (same as prototype1)
 └── tests/
     └── e2e/            — Playwright (mirrors features)
 ```
 
 ### 12A.3 Visual Parity
 
-Web looks **as close to native as possible**. `prototype/` = design ref for **both** — same colors, spacing, layout, components. CSS vars (`--sm-base`, `--sm-surface1`, `--sm-accent`, etc) from prototype → `tokens.css` directly.
+Web looks **as close to native as possible**. `prototype1/` = design ref for **both** — same colors, spacing, layout, components. CSS vars (`--sm-base`, `--sm-surface1`, `--sm-accent`, etc) from prototype → `tokens.css` directly.
 
-**Prototype lifecycle:** `prototype/` = frozen ref. **Deleted** once SolidJS fully functional, replaces as visual ref.
+**Prototype lifecycle:** `prototype1/` = frozen ref. **Deleted** once SolidJS fully functional, replaces as visual ref.
 
 ### 12A.4 Communication w/ libsmithers
 
@@ -80,11 +80,13 @@ web/tests/e2e/
 
 **Strategy:** Tests run against real libsmithers (not mocks). Validates: SolidJS → HTTP/WS → Zig → Codex/JJ. Combined w/ Zig unit + Swift XCUITests = three layers.
 
-**CI:** `zig build playwright` starts HTTP server → `pnpm exec playwright test` → teardown
+**CI (once wired):** `zig build playwright` starts HTTP server → `pnpm exec playwright test` → teardown
 
 ### 12A.6 Build Integration
 
-- `zig build web` → `cd web && pnpm install && pnpm build`
-- `zig build dev` includes web step
-- `zig build playwright` → build web + start HTTP + run tests
+- Planned build steps (add to `build.zig`):
+  - `zig build web` → `cd web && pnpm install && pnpm build`
+  - `zig build dev` includes web step
+  - `zig build playwright` → build web + start HTTP + run tests
+- Until wired, run the `pnpm` commands directly in `web/`.
 - HTTP server serves built static files directly (no separate web server)

@@ -163,7 +163,7 @@ test "CircBuf append" {
 - Progressive complexity (simple → edge cases)
 - Descriptive names: `"CircBuf append wraps around"`
 
-## C API Header (`include/smithers.h`)
+## C API Header (`include/libsmithers.h`)
 - Prefix: `smithers_`
 - Types: `_e` (enum), `_s` (struct), `_t` (opaque), `_cb` (callback)
 - Enum values: `SMITHERS_SCREAMING_SNAKE_CASE`

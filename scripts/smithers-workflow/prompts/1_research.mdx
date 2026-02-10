@@ -26,7 +26,7 @@ STEPS:
    - V1 Swift app (prototype0/) for implementation patterns + architecture
    - Next.js UI prototype (prototype1/) for design/layout reference
 5. If Zig stdlib APIs involved, read actual source at /opt/homebrew/lib/zig/std/ to verify API signatures
-6. Write context file: docs/context/{props.ticketId}.md with all findings
+6. Write context file: docs/context/{props.ticketId}.md with all findings (create docs/context if missing)
 
 RESEARCH QUALITY:
 - Find maximum useful context
@@ -37,7 +37,5 @@ RESEARCH QUALITY:
 - For Zig: verify API signatures against stdlib source (LLMs commonly wrong on Zig APIs)
 
 **REQUIRED OUTPUT** — JSON matching this schema:
-```json
 {props.researchSchema}
-```
 DO NOT skip JSON output. Workflow fails without it.

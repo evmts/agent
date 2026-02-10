@@ -9,7 +9,7 @@ smithers/
 ├── AGENTS.md / CLAUDE.md      # Agent / Claude Code instructions
 ├── docs/{design,engineering}.md
 ├── issues/                    # Post-MVP feature specs
-├── prototype/                 # Next.js UI reference
+├── prototype1/                # Next.js UI reference (frozen)
 ├── include/libsmithers.h      # C API header — THE Zig↔Swift contract
 ├── src/                       # Zig (libsmithers logic)
 │   ├── lib.zig               # Root: C API exports
@@ -47,7 +47,7 @@ smithers/
 
 **Vendor + Zig wrap:** C/C++ → `pkg/` + Zig wrappers (SQLite, Zap/facil.io, TreeSitter). Rust → `submodules/` forks + Zig wrappers calling `cargo build` (EVMTS org). Swift → Xcode SPM. Web → npm/pnpm.
 
-**Pattern:** Every dep has `build.zig` wrapper → `zig build dev` builds all from source.
+**Pattern:** Every dep has `build.zig` wrapper → target is `zig build dev` builds all from source once wired. Until then, use `zig build` / `zig build all`.
 
 **Zig→Swift migration:** MVP starts more Swift (v1 is Swift, proven). `src/` Zig grows, `Services/` shrinks. `Ghostty/` Swift wrapper thins as logic migrates.
 
@@ -80,7 +80,9 @@ codex-app-server, jj = submodules built by `build.zig` (`cargo build`) → copie
 7. Build web (optional: `cd web && pnpm install && pnpm build`)
 8. Launch (`open .build/xcode/Build/Products/Debug/Smithers.app`)
 
-**Commands:** `zig build dev` (1-8 full+launch), `zig build test` (Zig unit), `zig build xcode-test` (Swift tests), `zig build ui-test` (XCUITest), `zig build playwright` (web+HTTP+e2e), `zig build web`, `zig build codex`, `zig build jj`.
+**Commands (current build.zig):** `zig build`, `zig build run`, `zig build test`, `zig build all`, `zig build fmt-check`, `zig build prettier-check`, `zig build typos-check`, `zig build shellcheck`.
+
+**Planned (add to build.zig):** `zig build dev` (1-8 full+launch), `zig build web`, `zig build playwright` (web+HTTP+e2e), `zig build codex`, `zig build jj`, `zig build xcode-test` (Swift tests), `zig build ui-test` (XCUITest).
 
 ### 2.5 Binary integration
 
@@ -88,9 +90,9 @@ codex-app-server, jj = submodules built by `build.zig` (`cargo build`) → copie
 
 **SmithersKit.xcframework** — `build.zig` from `src/` Zig → `libsmithers.a` + `include/libsmithers.h`.
 
-**codex-app-server (EVMTS fork)** — small OpenAI Codex fork, EVMTS org submodule `submodules/codex/`. **Wraps Codex in Zig API.** Compiles static lib (not binary), Zig API libsmithers calls direct. Storage handlers as Zig callbacks → `src/storage.zig` writes SQLite (Codex doesn't know SQLite). Fork `build.zig` wraps `cargo build --release --lib` → static → Zig API. `zig build dev` builds+links. Minimal fork rebased upstream. **No child process, no JSON-RPC, no pipes** — in-process linked lib.
+**codex-app-server (EVMTS fork)** — small OpenAI Codex fork, EVMTS org submodule `submodules/codex/`. **Wraps Codex in Zig API.** Compiles static lib (not binary), Zig API libsmithers calls direct. Storage handlers as Zig callbacks → `src/storage.zig` writes SQLite (Codex doesn't know SQLite). Fork `build.zig` wraps `cargo build --release --lib` → static → Zig API. Build pipeline (via `zig build dev` once wired) builds+links. Minimal fork rebased upstream. **No child process, no JSON-RPC, no pipes** — in-process linked lib.
 
-**jj (EVMTS fork)** — Jujutsu fork EVMTS org `submodules/jj/`. **No code changes** — just Zig `build.zig` wrapper. `zig build dev` builds jj binary, copies `.app/Contents/MacOS/`. No user PATH dep.
+**jj (EVMTS fork)** — Jujutsu fork EVMTS org `submodules/jj/`. **No code changes** — just Zig `build.zig` wrapper. Build pipeline (via `zig build dev` once wired) builds jj binary, copies `.app/Contents/MacOS/`. No user PATH dep.
 
 **SQLite (vendored)** — `pkg/sqlite/` + Zig wrapper. Used `src/storage.zig`. Separate from GRDB.swift (Swift layer). Both access same db WAL mode concurrent.
 

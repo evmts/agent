@@ -16,8 +16,8 @@
 - `src/storage.zig`: storage trait + SQLite impl
 - `macos/Sources/Ghostty/SmithersCore.swift`: Unmanaged/callback pattern
 - `macos/Sources/Ghostty/MockSmithersCore.swift`: mock for parallel UI dev
-- Verify `zig build dev` launches empty app + libsmithers linked
-- Verify `zig build test`, `swift test` run (placeholder tests)
+- Verify `zig build` passes (and `zig build dev` once wired) for empty app + libsmithers linked
+- Verify `zig build test` and Swift tests (`xcodebuild test`, or `swift test` if SwiftPM exists) run (placeholder tests)
 
 ### Phase 1: Design system + window shell (2-3 sessions)
 - `DesignSystem/`: tokens, AppTheme, shared components (IconButton, PrimaryButton, PillButton, Badge, Panel, SidebarListRow)
@@ -31,7 +31,7 @@
 ### Phase 2: Chat window (3-4 sessions)
 - `Models/`: ChatMessage, ChatSession, ChatModel
 - `Views/Chat/`: sidebar (mode bar, sessions), detail (messages, composer, welcome)
-- `Services/`: CodexService, JSONRPCTransport, SuggestionService
+- `Services/`: CodexService (in-process), JSONRPCTransport (non-Codex), SuggestionService
 - Wire: send → CodexService → stream → ChatModel → render
 - Chat history persistence
 - Bubbles: user, assistant, command, diff preview, status, starter
@@ -108,7 +108,7 @@ Parallel with Swift. **TDD** — `zig build test` coverage before Swift hooks up
 **TDD:** Zig → tests → C header → Swift bridge → verify vs mock. Swift uses `MockSmithersCore` until real ready.
 
 ### Phase 10: Test + a11y + perf (2-3 sessions)
-- Mock/replay infra (MockCodexTransport, recording, stubs)
+- Mock/replay infra (MockJSONRPCTransport for external providers, Codex stubs/fixtures)
 - Unit tests all models/services
 - XCUITests both windows (replay)
 - A11y identifiers, labels, tooltips (enterprise req)
