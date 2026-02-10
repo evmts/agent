@@ -57,12 +57,19 @@ Reads: `AGENTS.md` (preferred), `CLAUDE.md`, and skills from workspace.
 ## Build
 
 ```bash
-zig build dev        # Build everything + launch
+zig build            # Build everything wired in build.zig
+zig build run        # Build + run CLI (current)
 zig build test       # Zig unit tests
-zig build playwright # Build web + start HTTP server + run Playwright e2e tests
-zig build web        # Build web app only
-zig build codex      # Build codex static lib only
-zig build jj         # Build jj only
+zig build all        # Build + tests + fmt/lint (canonical green check)
+
+# Planned (once build.zig defines these steps):
+# zig build dev        # Build everything + launch
+# zig build web        # Build web app only
+# zig build playwright # Build web + start HTTP server + run Playwright e2e tests
+# zig build codex      # Build codex static lib only
+# zig build jj         # Build jj only
+# zig build xcode-test # Swift tests
+# zig build ui-test    # XCUITest e2e
 ```
 
 ## CI/CD
