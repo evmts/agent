@@ -14,16 +14,16 @@ RESEARCH SUMMARY:
 Read full research context: {props.contextFilePath}
 
 PLANNING RULES:
-1. End-to-end: cover all layers (Zig, Swift, Web, Tests, Docs)
+1. Cover all affected layers (check ticket's `layers` field — may be Zig-only or full e2e)
 2. Each step atomic — one logical change
-3. Documentation FIRST — plan doc writes/updates before implementation
-4. Tests FIRST (TDD) — plan tests before implementation
-5. Consider dependency order — what must exist before what?
-6. Identify exact files to create + modify
-7. Consider integration with existing code
-8. Include Swift XCUITest e2e tests for native UI features
-9. Include Playwright e2e tests for web features
-10. Include Zig unit tests for core logic
+3. Ordering: plan doc FIRST → tests SECOND (TDD) → implementation THIRD → user-facing docs LAST (after tests green)
+4. Consider dependency order — what must exist before what?
+5. Identify exact files to create + modify
+6. Consider integration with existing code
+7. Include tests appropriate to layers touched:
+   - Zig unit tests for core logic
+   - Swift XCUITest for native UI features
+   - Playwright e2e tests for web features
 
 ARCHITECTURE PRINCIPLES:
 - libsmithers (Zig) = source of truth for all business logic

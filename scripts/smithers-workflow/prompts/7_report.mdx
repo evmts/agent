@@ -19,6 +19,11 @@ TEST RESULTS:
 REVIEW ROUNDS: {props.reviewRounds}
 {props.reviewIssues ? `Review issues encountered:\n${props.reviewIssues}` : "No review issues."}
 
+PRE-COMPUTED METRICS (echo these back exactly in your output JSON):
+- filesChanged: {props.filesChanged}
+- testsAdded: {props.testsAdded}
+- reviewRounds: {props.reviewRounds}
+
 Assess:
 - Anything go wrong?
 - Agent struggle with anything?
@@ -26,4 +31,6 @@ Assess:
 
 **REQUIRED OUTPUT** — Must end with JSON matching schema:
 {props.reportSchema}
+Use the pre-computed values above for filesChanged, testsAdded, reviewRounds.
+Only generate: summary, status, struggles, timeSpent, lessonsLearned.
 Don't skip JSON output. Workflow fails without it.

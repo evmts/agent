@@ -8,14 +8,16 @@ TICKET DESCRIPTION:
 ACCEPTANCE CRITERIA:
 {props.acceptanceCriteria}
 
-FILES CHANGED:
+FILES CHANGED (self-reported by implement agent — treat as HINTS, not source of truth):
 Created: {JSON.stringify(props.filesCreated)}
 Modified: {JSON.stringify(props.filesModified)}
 
-TEST RESULTS:
-- Zig tests: {props.zigTests}
-- Playwright tests: {props.playwrightTests}
-- Build: {props.buildStatus}
+IMPORTANT: Run `jj diff --name-only` (or `git diff --name-only HEAD~1`) to get the ACTUAL list of changed files.
+Review ALL files that appear in the diff output, not just those listed above.
+The implement agent may have missed files or reported inaccurately.
+
+VALIDATION RESULT:
+- `zig build all`: {props.validationPassed}
 {props.failingSummary ? `Failures: ${props.failingSummary}` : ""}
 
 Read EVERY file changed. Review against:
@@ -76,9 +78,16 @@ Read EVERY file changed. Review against:
    - Cross-layer features have consistent behavior?
    - TypeScript types match Zig/Swift types?
 
-Flag ALL issues. EXTREMELY strict. Only approve if genuinely ZERO issues.
+APPROVAL POLICY:
+- There is NO such thing as a non-blocking nit or comment.
+- If there is ANY way to improve the code, it MUST be improved. We have the highest standards.
+- Every issue — critical, major, minor, OR nit — MUST be fixed before approval.
+- approved: true ONLY when there are genuinely ZERO issues of any severity.
+- Do not "let things slide" because they seem small. Small issues compound.
 
-If reviewer previously flagged false positive with comment explaining why, don't flag again.
+Flag ALL issues. EXTREMELY strict.
+
+False positives from previous review rounds are tracked in the database and suppressed automatically. Do not re-flag issues that were already identified as false positives.
 
 **REQUIRED OUTPUT** — Must end with JSON matching schema:
 {props.reviewSchema}

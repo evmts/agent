@@ -1,6 +1,6 @@
 RESEARCH PHASE — Ticket: {props.ticketId} — {props.ticketTitle}
 
-Find ALL useful context for implementing ticket. Be thorough — implementation agent relies on this.
+Find useful context for implementing ticket. Be selective — quality over quantity.
 
 TICKET DESCRIPTION:
 {props.ticketDescription}
@@ -28,13 +28,19 @@ STEPS:
 5. If Zig stdlib APIs involved, read actual source at /opt/homebrew/lib/zig/std/ to verify API signatures
 6. Write context file: docs/context/{props.ticketId}.md with all findings (create docs/context if missing)
 
+STOP CONDITIONS — be selective, not exhaustive:
+- Repo references: top 5-10 most relevant files (not every tangentially related file)
+- External docs: 0-5 (only if genuinely needed, not for padding)
+- Gotchas/pitfalls: top 5 max (focus on things that will actually trip up the implementer)
+- API signatures: verify ONLY the Zig/Swift/JS APIs the ticket will actually use
+- Open questions: max 3 unknowns that couldn't be resolved
+
 RESEARCH QUALITY:
-- Find maximum useful context
 - Include specific file paths, function names, line numbers
 - Include code snippets from reference implementations
-- Include API docs for libraries
 - Note potential pitfalls/gotchas
 - For Zig: verify API signatures against stdlib source (LLMs commonly wrong on Zig APIs)
+- Prefer concrete findings over broad surveys
 
 **REQUIRED OUTPUT** — JSON matching this schema:
 {props.researchSchema}

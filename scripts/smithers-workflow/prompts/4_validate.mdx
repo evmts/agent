@@ -15,10 +15,9 @@ Runs ALL quality checks:
 
 `zig build all` fails → validation FAILS. Must:
 1. Read full diagnostics
-2. Identify what failed (build/test/format/lint)
-3. Return JSON with allPassed: false + failingSummary describing EXACTLY what failed
+2. Return JSON with allPassed: false + failingSummary describing EXACTLY what failed (which subsystem, what error)
 
-{props.implementOutput ? `\nIMPLEMENTATION CLAIMS:\nFiles created: ${JSON.stringify(props.implementOutput.filesCreated)}\nFiles modified: ${JSON.stringify(props.implementOutput.filesModified)}\nTests written: ${JSON.stringify(props.implementOutput.testsWritten)}\nDocs updated: ${JSON.stringify(props.implementOutput.docsUpdated)}\nVerify ALL claims accurate. Check files exist + contain what described.` : ""}
+{props.implementOutput ? `\nIMPLEMENTATION CLAIMS (self-reported — verify independently):\nFiles created: ${JSON.stringify(props.implementOutput.filesCreated)}\nFiles modified: ${JSON.stringify(props.implementOutput.filesModified)}\nTests written: ${JSON.stringify(props.implementOutput.testsWritten)}\nDocs updated: ${JSON.stringify(props.implementOutput.docsUpdated)}\nRun \`jj diff --name-only\` (or \`git diff --name-only HEAD~1\`) to verify actual changed files.\nCheck files exist + contain what described. Report discrepancies in failingSummary.` : ""}
 
 ## ZERO TOLERANCE
 

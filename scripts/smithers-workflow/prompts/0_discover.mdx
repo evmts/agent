@@ -12,19 +12,36 @@ STEPS:
 
 {props.previousRun ? `\nPREVIOUS RUN: ${props.previousRun.summary}\nTickets completed: ${JSON.stringify(props.previousRun.ticketsCompleted)}\n\nIf everything appears implemented:\n- Improve test coverage + edge cases\n- Performance optimization\n- Code quality + DRY improvements\n- Missing documentation\n- Better error handling` : "First run. Start from most foundational pieces."}
 
-TASK SELECTION RULES:
-- Every task MUST be end-to-end: Zig core + Swift native + SolidJS web
+TICKET ID RULES:
+- IDs MUST be lowercase kebab-case slugs derived from the title (e.g. "sqlite-wal-init", "chat-sidebar-mode-bar")
+- NEVER use numeric IDs like T-001, T-002 — they collide across runs
+- Keep slugs short but descriptive (2-5 words)
+
+MVP SCOPE GATING (see docs/mvp-scope.md):
+- P0 items that are incomplete = valid tickets (prioritize these)
+- P1 items = valid only after all P0 complete
+- P2 items = stubs only
+- Post-MVP items = NEVER create tickets for these
+
+TICKET SCOPE:
 - Tasks = SMALLEST possible ticket — one logical unit
 - Every task independently testable + verifiable
-- Every task MUST include: doc updates + full test coverage + refactoring cleanup
-- Prioritize foundational work before dependencies
+- Feature slices should be end-to-end (Zig + Swift + Web) when the feature spans layers
+- Infrastructure tickets (storage, build, schemas) MAY be layer-scoped but must declare:
+  - Which layers are affected
+  - What parity debt is created (if any) for other layers
+- Prioritize foundational work before things that depend on it
 - Consider: what unblocks most other work?
-- Write elegant code, minimize total code
+
+DEFINITION OF DONE (applies to all tickets):
+- Tests written and passing
+- Docs updated if behavior changed
+- Cleanup if you touched messy code (don't force cleanup in unrelated areas)
+- Refactoring is a valid standalone ticket — don't bundle it into feature work unless natural
 
 ACCEPTANCE CRITERIA RULES:
 - Include verification method (specific test commands)
 - Include doc updates required
-- Include refactoring/cleanup needed
 - Include edge cases to test
 
 **REQUIRED OUTPUT** — JSON matching this schema:

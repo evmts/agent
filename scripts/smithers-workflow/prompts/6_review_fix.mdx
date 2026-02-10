@@ -8,12 +8,12 @@ REVIEW ISSUES:
 REVIEW FEEDBACK:
 {props.feedback}
 
+{props.previousFalsePositives?.length > 0 ? `\nPREVIOUSLY IDENTIFIED FALSE POSITIVES (do not re-flag these):\n${JSON.stringify(props.previousFalsePositives, null, 2)}` : ""}
+
 RULES:
 1. Fix every legitimate issue
-2. If FALSE POSITIVE, add comment:
-   // NOTE: Reviewer flagged [issue]. Intentional because [reason].
-   Prevents re-flagging.
-3. Atomic commits: 🐛 fix(scope): description
+2. If FALSE POSITIVE: record it in the falsePositiveComments array in your output JSON with file, line, issue, and rationale. Do NOT add comments to source code — false positives are tracked in the database, not in code.
+3. Atomic commits: fix(scope): description
 4. Run ALL tests after fixes. Everything green.
 5. Significant refactoring required? Do it properly. No half-fixes.
 6. Remove verbose/redundant comments flagged. Keep only high-quality comments.
