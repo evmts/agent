@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ChatTitleBarZone: View {
     let onOpenEditor: () -> Void
-    @Environment(AppModel.self) private var appModel
+    @Environment    (.theme) private var theme
 
     var body: some View {
         HStack {
