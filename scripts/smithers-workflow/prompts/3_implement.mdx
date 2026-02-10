@@ -1,0 +1,81 @@
+IMPLEMENTATION PHASE — Ticket: {props.ticketId} — {props.ticketTitle}
+
+Implement FULLY end-to-end. Do NOT stop until fully implemented + ALL tests pass.
+
+TICKET DESCRIPTION:
+{props.ticketDescription}
+
+ACCEPTANCE CRITERIA:
+{props.acceptanceCriteria}
+
+PLAN:
+Read plan: {props.planFilePath}
+Read research context: {props.contextFilePath}
+
+{props.previousImplementation ? `\nPREVIOUS ATTEMPT:\nWhat was done: ${props.previousImplementation.whatWasDone}\nTest output: ${props.previousImplementation.testOutput}\nFix issues from previous attempt.` : ""}
+
+{props.reviewFixes ? `\nREVIEW FIXES NEEDED:\n${props.reviewFixes}` : ""}
+
+BEFORE CODING:
+1. Explore codebase first. Read existing files relevant to ticket.
+2. Understand existing patterns, naming conventions, architecture.
+3. For plan ambiguities, explore codebase to resolve.
+4. If plan wrong or needs adjustment, document why + what you're doing differently.
+5. Read Ghostty source for code style + pattern reference.
+
+IMPLEMENTATION RULES:
+1. Implement plan FULLY — nothing unfinished
+2. Documentation-driven: write/update docs FIRST
+3. Test-driven: write tests FIRST, then implementation
+4. Atomic git commits: ✨ feat, 🧪 test, 🐛 fix, 📋 docs, ♻️ refactor, ⚡ perf, 🔧 chore
+5. After implementing, run ALL relevant tests:
+   - zig build test (Zig unit tests)
+   - zig build (ensure build succeeds)
+   - For Swift: xcodebuild test (XCUITest e2e tests)
+   - For web: cd web && pnpm test && pnpm exec playwright test
+6. If tests fail, fix before moving on. NEVER leave failing tests.
+7. If pre-existing test failures found, fix those too. Codebase ALWAYS green.
+
+CODE QUALITY:
+- Follow existing repo patterns. When unsure, read Ghostty source.
+- DRY — no duplicate code
+- Handle all error cases elegantly
+- Write clear, self-documenting code with minimal comments
+- Only comment where logic truly non-obvious. Remove verbose/redundant comments.
+- Elegant, minimal code. Less code = better.
+
+ARCHITECTURE:
+- libsmithers (Zig) = source of truth for all business logic
+- Use dependency injection for platform-specific concerns
+- Keep Zig platform-agnostic (WASM-compilable in theory)
+- Use comptime dependency injection patterns (vtable pattern)
+
+ZIG-SPECIFIC:
+- Unsure about Zig stdlib API? Read actual source at /opt/homebrew/lib/zig/std/
+- Common APIs LLMs get wrong: std.json, std.ArrayList, std.HashMap — verify against source
+- Use std.testing.allocator in all tests (detects memory leaks)
+- Define explicit error sets, never anyerror
+- Use ArenaAllocator for request-scoped work
+
+SWIFT-SPECIFIC:
+- Use @Observable (NOT ObservableObject)
+- Use NavigationStack (NOT NavigationView)
+- Use Swift Testing (@Test, #expect) for new tests
+- XCUITest with .accessibilityIdentifier() for e2e tests
+- async/await only, no DispatchQueue
+
+SELF-REVIEW:
+Before finishing, self-review. Reviewers check for:
+- Test coverage: all edge cases, error conditions, boundary cases
+- Code cleanliness + DRY principles
+- UX (keyboard navigation, error states, network-down scenarios)
+- Doc accuracy
+- Architectural consistency (Zig as source of truth, dependency injection)
+- Minimal, high-quality comments only
+Fix issues before submitting.
+
+**REQUIRED OUTPUT** — JSON matching this schema:
+```json
+{props.implementSchema}
+```
+DO NOT skip JSON output. Workflow fails without it.

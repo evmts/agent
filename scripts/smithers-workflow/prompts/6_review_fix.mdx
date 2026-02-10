@@ -1,0 +1,25 @@
+REVIEW FIX — Ticket: {props.ticketId} — {props.ticketTitle}
+
+Address ALL issues from code review. Fix every issue unless clear false positive.
+
+REVIEW ISSUES:
+{JSON.stringify(props.issues, null, 2)}
+
+REVIEW FEEDBACK:
+{props.feedback}
+
+RULES:
+1. Fix every legitimate issue
+2. If FALSE POSITIVE, add comment:
+   // NOTE: Reviewer flagged [issue]. Intentional because [reason].
+   Prevents re-flagging.
+3. Atomic commits: 🐛 fix(scope): description
+4. Run ALL tests after fixes. Everything green.
+5. Significant refactoring required? Do it properly. No half-fixes.
+6. Remove verbose/redundant comments flagged. Keep only high-quality comments.
+
+**REQUIRED OUTPUT** — Must end with JSON matching schema:
+```json
+{props.reviewFixSchema}
+```
+Don't skip JSON output. Workflow fails without it.

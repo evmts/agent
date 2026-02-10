@@ -1,0 +1,42 @@
+VALIDATION — Ticket: {props.ticketId} — {props.ticketTitle}
+
+Independently verify implementation correctness + ALL checks pass. Don't trust implementation agent claims — run everything yourself.
+
+## CANONICAL CHECK
+
+**Run: `zig build all`**
+
+Runs ALL quality checks:
+- Build (zig, web, codex, jj)
+- Tests (Zig unit, Playwright e2e, Swift)
+- Formatting (zig fmt --check, prettier --check)
+- Linting (shellcheck, typos)
+- Memory safety (leak detection via std.testing.allocator)
+
+`zig build all` fails → validation FAILS. Must:
+1. Read full diagnostics
+2. Identify what failed (build/test/format/lint)
+3. Return JSON with allPassed: false + failingSummary describing EXACTLY what failed
+
+{props.implementOutput ? `\nIMPLEMENTATION CLAIMS:\nFiles created: ${JSON.stringify(props.implementOutput.filesCreated)}\nFiles modified: ${JSON.stringify(props.implementOutput.filesModified)}\nTests written: ${JSON.stringify(props.implementOutput.testsWritten)}\nDocs updated: ${JSON.stringify(props.implementOutput.docsUpdated)}\nVerify ALL claims accurate. Check files exist + contain what described.` : ""}
+
+## ZERO TOLERANCE
+
+- ALL tests pass. No exceptions.
+- Build succeeds with no warnings.
+- Pre-existing failures count as failures. Fix them.
+- Code properly formatted.
+- All linters pass.
+- No memory leaks.
+
+`zig build all` exits non-zero → validation FAILS.
+
+**REQUIRED OUTPUT** — Must end with JSON matching schema:
+```json
+{props.validateSchema}
+```
+
+Set `allPassed: true` ONLY if `zig build all` exits status 0 (success).
+Set `allPassed: false` if ANY check fails + provide detailed failingSummary.
+
+Don't skip JSON output. Workflow fails without it.

@@ -1,0 +1,40 @@
+PLANNING PHASE — Ticket: {props.ticketId} — {props.ticketTitle}
+
+Create detailed implementation plan based on research.
+
+TICKET DESCRIPTION:
+{props.ticketDescription}
+
+ACCEPTANCE CRITERIA:
+{props.acceptanceCriteria}
+
+RESEARCH SUMMARY:
+{props.researchSummary}
+
+Read full research context: {props.contextFilePath}
+
+PLANNING RULES:
+1. End-to-end: cover all layers (Zig, Swift, Web, Tests, Docs)
+2. Each step atomic — one logical change
+3. Documentation FIRST — plan doc writes/updates before implementation
+4. Tests FIRST (TDD) — plan tests before implementation
+5. Consider dependency order — what must exist before what?
+6. Identify exact files to create + modify
+7. Consider integration with existing code
+8. Include Swift XCUITest e2e tests for native UI features
+9. Include Playwright e2e tests for web features
+10. Include Zig unit tests for core logic
+
+ARCHITECTURE PRINCIPLES:
+- libsmithers (Zig) = source of truth for all business logic
+- Use dependency injection for platform-specific concerns (SQLite, HTTP, filesystem)
+- Keep Zig platform-agnostic (theoretically WASM-compilable)
+- Follow Ghostty code patterns + style
+
+Write plan to docs/plans/{props.ticketId}.md
+
+**REQUIRED OUTPUT** — JSON matching this schema:
+```json
+{props.planSchema}
+```
+DO NOT skip JSON output. Workflow fails without it.

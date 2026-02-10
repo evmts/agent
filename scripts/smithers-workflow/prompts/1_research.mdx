@@ -1,0 +1,43 @@
+RESEARCH PHASE — Ticket: {props.ticketId} — {props.ticketTitle}
+
+Find ALL useful context for implementing ticket. Be thorough — implementation agent relies on this.
+
+TICKET DESCRIPTION:
+{props.ticketDescription}
+
+ACCEPTANCE CRITERIA:
+{props.acceptanceCriteria}
+
+TEST PLAN:
+{props.testPlan}
+
+Engineering + design specs in system prompt. Focus on ADDITIONAL context beyond docs.
+
+STEPS:
+1. Search codebase for related patterns (grep relevant keywords)
+2. Review existing implementations for patterns to follow
+3. Search web for relevant docs:
+   - Zig language patterns + current stdlib APIs (if implementing Zig)
+   - SwiftUI patterns + @Observable (if implementing native UI)
+   - SolidJS patterns (if implementing web UI)
+   - Library-specific docs (Zap, GRDB, shadcn-solid, xterm.js, Monaco, etc.)
+4. Find reference code:
+   - Ghostty source for style, patterns, architecture
+   - V1 Swift app (prototype0/) for implementation patterns + architecture
+   - Next.js UI prototype (prototype1/) for design/layout reference
+5. If Zig stdlib APIs involved, read actual source at /opt/homebrew/lib/zig/std/ to verify API signatures
+6. Write context file: docs/context/{props.ticketId}.md with all findings
+
+RESEARCH QUALITY:
+- Find maximum useful context
+- Include specific file paths, function names, line numbers
+- Include code snippets from reference implementations
+- Include API docs for libraries
+- Note potential pitfalls/gotchas
+- For Zig: verify API signatures against stdlib source (LLMs commonly wrong on Zig APIs)
+
+**REQUIRED OUTPUT** — JSON matching this schema:
+```json
+{props.researchSchema}
+```
+DO NOT skip JSON output. Workflow fails without it.

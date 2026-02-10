@@ -1,0 +1,31 @@
+REPORTING — Ticket: {props.ticketId} — {props.ticketTitle}
+
+Generate concise, easy-to-read report of ticket implementation.
+
+IMPLEMENTATION SUMMARY:
+{props.whatWasDone}
+
+FILES CHANGED:
+Created: {JSON.stringify(props.filesCreated)}
+Modified: {JSON.stringify(props.filesModified)}
+
+COMMITS:
+{JSON.stringify(props.commitMessages)}
+
+TEST RESULTS:
+- All tests passing: {props.allTestsPassing}
+{props.failingSummary ? `- Failures: ${props.failingSummary}` : ""}
+
+REVIEW ROUNDS: {props.reviewRounds}
+{props.reviewIssues ? `Review issues encountered:\n${props.reviewIssues}` : "No review issues."}
+
+Assess:
+- Anything go wrong?
+- Agent struggle with anything?
+- Lessons for future tickets?
+
+**REQUIRED OUTPUT** — Must end with JSON matching schema:
+```json
+{props.reportSchema}
+```
+Don't skip JSON output. Workflow fails without it.

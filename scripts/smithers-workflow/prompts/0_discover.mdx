@@ -1,0 +1,34 @@
+TICKET DISCOVERY — Find next highest-priority tasks
+
+Analyze Smithers v2 codebase, identify next 5 most important tasks.
+
+Full engineering + design specs in system prompt. Compare what SHOULD exist vs what does.
+
+STEPS:
+1. Review engineering/design docs — what SHOULD exist per specs?
+2. Explore repo: list src/, macos/, web/, pkg/, include/, submodules/
+3. Compare PRODUCTION READY vs spec requirements. Incomplete/buggy/not production-quality = NOT done.
+4. Identify next highest-priority items.
+
+{props.previousRun ? `\nPREVIOUS RUN: ${props.previousRun.summary}\nTickets completed: ${JSON.stringify(props.previousRun.ticketsCompleted)}\n\nIf everything appears implemented:\n- Improve test coverage + edge cases\n- Performance optimization\n- Code quality + DRY improvements\n- Missing documentation\n- Better error handling` : "First run. Start from most foundational pieces."}
+
+TASK SELECTION RULES:
+- Every task MUST be end-to-end: Zig core + Swift native + SolidJS web
+- Tasks = SMALLEST possible ticket — one logical unit
+- Every task independently testable + verifiable
+- Every task MUST include: doc updates + full test coverage + refactoring cleanup
+- Prioritize foundational work before dependencies
+- Consider: what unblocks most other work?
+- Write elegant code, minimize total code
+
+ACCEPTANCE CRITERIA RULES:
+- Include verification method (specific test commands)
+- Include doc updates required
+- Include refactoring/cleanup needed
+- Include edge cases to test
+
+**REQUIRED OUTPUT** — JSON matching this schema:
+```json
+{props.discoverSchema}
+```
+DO NOT skip JSON output. Workflow fails without it.
