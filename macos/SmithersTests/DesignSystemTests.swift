@@ -20,7 +20,7 @@ import AppKit
         #expect(AppTheme.light.background.luminance > 0.55)
     }
 
-    @Test func typographyBaseIs13() { #expect(DS.Type.base == 13) }
+    @Test func typographyBaseIs13() { #expect(DS.Typography.base == 13) }
 
     @Test func spacingGridValues() {
         #expect(DS.Space._4 == 4)

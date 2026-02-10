@@ -57,7 +57,7 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: DS.Type.base, weight: .semibold))
+                .font(.system(size: DS.Typography.base, weight: .semibold))
                 .foregroundStyle(Color(nsColor: DS.Color.onAccentText))
                 .frame(height: 32)
                 .padding(.horizontal, 12)
@@ -93,7 +93,7 @@ struct PillButton: View {
             HStack(spacing: 8) {
                 if let name = systemName { Image(systemName: name) }
                 Text(title)
-                    .font(.system(size: DS.Type.s, weight: .medium))
+                    .font(.system(size: DS.Typography.s, weight: .medium))
                     .foregroundStyle(Color(nsColor: theme.foreground))
             }
             .padding(.vertical, 8)
@@ -132,7 +132,7 @@ struct SidebarListRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: DS.Type.chatSidebarTitle, weight: .semibold))
+                    Text(title).font(.system(size: DS.Typography.chatSidebarTitle, weight: .semibold))
                     if let s = subtitle {
                         Text(s)
                             .font(.system(size: 10))

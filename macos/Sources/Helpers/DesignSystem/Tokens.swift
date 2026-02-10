@@ -47,8 +47,8 @@ enum DS {
         static let onAccentText = NSColor.white.withAlphaComponent(0.92)
     }
 
-    // Named `Type` to align with spec (type.xs, type.base). Uppercase avoids keyword collision.
-    enum Type {
+    // Named Typography because 'Type' conflicts with Swift's metatype syntax (DS.Type); mapping: spec type.xs → Typography.xs
+    enum Typography {
         static let xs: CGFloat = 10
         static let s: CGFloat = 11
         static let base: CGFloat = 13
