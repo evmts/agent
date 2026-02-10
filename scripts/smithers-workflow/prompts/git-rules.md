@@ -1,5 +1,6 @@
 # Git Commit Rules
 
+- **ALL commits go directly on `main`. NEVER create feature branches, fix branches, or any other branches. Stay on `main` at all times.**
 - Atomic commits (one logical change)
 - Emoji conventional: `EMOJI type(scope): description`
   - ✨ feat — new feature

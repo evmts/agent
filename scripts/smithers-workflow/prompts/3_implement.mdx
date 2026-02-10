@@ -28,6 +28,7 @@ BEFORE CODING:
 IMPLEMENTATION RULES:
 1. Implement plan FULLY — nothing unfinished
 2. Order: plan doc (docs/plans/) FIRST → tests SECOND (TDD) → implementation THIRD → user-facing docs LAST (after tests green)
+3. **ALL commits go directly on `main`. NEVER create branches. Stay on `main`.**
 4. Atomic git commits: ✨ feat, 🧪 test, 🐛 fix, 📋 docs, ♻️ refactor, ⚡ perf, 🔧 chore
 5. After implementing, run ALL relevant tests:
    - zig build all (canonical; runs all wired checks)

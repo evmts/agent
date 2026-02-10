@@ -13,8 +13,9 @@ REVIEW FEEDBACK:
 RULES:
 1. Fix every legitimate issue
 2. If FALSE POSITIVE: record it in the falsePositiveComments array in your output JSON with file, line, issue, and rationale. Do NOT add comments to source code — false positives are tracked in the database, not in code.
-3. Atomic commits: fix(scope): description
-4. Run ALL tests after fixes. Everything green.
+3. **ALL commits go directly on `main`. NEVER create branches. Stay on `main`.**
+4. Atomic commits: fix(scope): description
+5. Run ALL tests after fixes. Everything green.
 5. Significant refactoring required? Do it properly. No half-fixes.
 6. Remove verbose/redundant comments flagged. Keep only high-quality comments.
 
