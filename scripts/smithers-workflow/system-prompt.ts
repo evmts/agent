@@ -25,6 +25,11 @@ function readPrompt(filename: string): string {
 const claudeMd = readDoc("CLAUDE.md");
 const folderStructure = readPrompt("folder-structure.md");
 
+// Governance docs (from docs/)
+const specPrecedence = readDoc("docs/spec-precedence.md");
+const specIndex = readDoc("docs/spec-index.md");
+const mvpScope = readDoc("docs/mvp-scope.md");
+
 // Modular prompt pieces (existing)
 const alwaysGreen = readPrompt("always-green.md");
 const zigRules = readPrompt("zig-rules.md");
@@ -32,6 +37,7 @@ const swiftRules = readPrompt("swift-rules.md");
 const ghosttyPatterns = readPrompt("ghostty-patterns.md");
 const architecture = readPrompt("architecture.md");
 const gitRules = readPrompt("git-rules.md");
+const securityPosture = readPrompt("eng/security-posture.md");
 
 // Design spec (granular files in design/)
 const designPrinciples = readPrompt("design/principles.md");
@@ -66,8 +72,12 @@ const engMigration = readPrompt("eng/migration.md");
 const engImplementationPhases = readPrompt("eng/implementation-phases.md");
 
 // Component functions for MDX rendering
+const SpecPrecedence = () => specPrecedence;
+const SpecIndex = () => specIndex;
+const MvpScope = () => mvpScope;
 const AlwaysGreen = () => alwaysGreen;
 const Architecture = () => architecture;
+const SecurityPosture = () => securityPosture;
 const ZigRules = () => zigRules;
 const SwiftRules = () => swiftRules;
 const GhosttyPatterns = () => ghosttyPatterns;
@@ -113,8 +123,12 @@ import SystemPromptMdx from "./prompts/system-prompt.mdx";
 // Render the MDX to plain text using shared render utility
 export const SYSTEM_PROMPT = render(SystemPromptMdx, {
   components: {
+    SpecPrecedence,
+    SpecIndex,
+    MvpScope,
     AlwaysGreen,
     Architecture,
+    SecurityPosture,
     ZigRules,
     SwiftRules,
     GhosttyPatterns,
