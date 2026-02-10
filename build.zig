@@ -157,13 +157,17 @@ pub fn build(b: *std.Build) void {
     const shellcheck_step = addOptionalShellStep(b, "shellcheck", "Lint shell scripts (skips if missing)", "if command -v shellcheck >/dev/null 2>&1; then find . -type f -name '*.sh' -exec shellcheck --severity=warning {} +; find . -type f -name '*.bash' -exec shellcheck --severity=warning {} +; else echo 'skipping shellcheck: shellcheck not installed'; fi");
 
     // All
-    const all_step = b.step("all", "Build + tests + fmt + linters");
+    const all_step = b.step("all", "Build + tests + fmt + linters (+ web/codex/jj)");
     all_step.dependOn(b.getInstallStep());
     all_step.dependOn(test_step);
     all_step.dependOn(fmt_check_step);
     all_step.dependOn(prettier_check_step);
     all_step.dependOn(typos_check_step);
     all_step.dependOn(shellcheck_step);
+    // Also build optional subsystems if present to keep the repo green end-to-end.
+    all_step.dependOn(web_step);
+    all_step.dependOn(codex_step);
+    all_step.dependOn(jj_step);
 
     // C header compile smoke test (ensures header is valid C)
     const cc = b.addSystemCommand(&.{
