@@ -112,102 +112,33 @@ Buttons: Fork (branch — new chat session inherits messages to this point, appe
 
 Leading bubble, spinner + "Thinking…", assistant bubble style, 8pt padding
 
-### 5.4 Chat composer (input zone)
+## 5.4 Composer
 
-- `ChatComposerZone` (VStack spacing 8, padding 12–16)
+`ChatComposerZone` (VStack spacing 8, padding 12–16): ComposerContainer (radius 10 — TextField multiline 1–4 + optional AttachmentStrip) + FooterRow (hint text left tertiary, Send/Interrupt right)
 
-  - `ComposerContainer` (rounded, 10 radius)
+Container: `chat.input.bg`, border 1px `white@6%`, padding 10pt; Drop: border accent, bg `accent@6%`
 
-    - `ComposerTextField` (multiline 1–4 lines)
-    - optional `ComposerAttachmentStrip` (if images)
+Action buttons (left row): Attach (paperclip — file picker/paste), @Mention (AtSign — popup files/symbols, inserts `@filename`/`@symbol` context), Skills (sparkles — popover toggles active skills); Always visible left of send
 
-  - `ComposerFooterRow` (HStack)
+Send: 32×32 radius 6 accent solid, up arrow, hover brighten +6%, disabled if empty + no attachments
 
-    - Left: tiny hint text (optional, tertiary)
-    - Right: Send / Interrupt button
+Interrupt: 32×32 `danger@25%` stop icon, visible only while AI processing
 
-**Composer container:**
+Slash popup: `/` at start → autocomplete `/plan` `/review` `/diff` `/fork` `/new` `/resume` `/status` `/compact` `/mention` `/init` `/model`; surface2 radius 8 shadow, max 8 rows, arrows + Enter/Esc; Accepts inline args
 
-- Background: `chat.input.bg`
-- Border: 1px `white@6%`
-- Padding:
+@Mention popup: `@` → file/symbol autocomplete filtered, inserts references; Same style as slash
 
-  - 10pt internal padding around text
+Steer mode (while agent running): composer active, Enter steers real-time, Tab queues follow-up, indicator shows Steer/Queue
 
-- Drop target:
+Keys: Return=Send (or Steer), Tab=Queue (if agent running), Shift+Return=newline, Cmd+Return=Send, Esc=interrupt or clear focus
 
-  - On drag-over: border switches to accent, background accent@6%
+### 5.4.1 Images
 
-**Composer action buttons (below text field, left-aligned row):**
+Accept paste/drag; `AttachmentStrip` 56–72pt: thumbnails 56×56 radius 8, h-scroll if >4, hover x to remove
 
-- **Attach** (Paperclip icon) — opens file picker or triggers paste for images.
-- **@Mention** (AtSign icon) — opens a popup to mention files, functions, or context items. Inserts `@filename` or `@symbol` references into the message that the AI can use for targeted context.
-- **Skills** (Sparkles icon) — opens the skill activation popover. Shows installed skills with toggles to activate/deactivate for the current session. This is a primary entry point for skill discovery and management.
+### 5.4.2 Fullscreen viewer
 
-These buttons are always visible in the composer footer, left of the send button.
-
-**Send button:**
-
-- Size: 32×32
-- Radius: 6
-- Background: accent solid
-- Icon: up arrow
-- Hover: brighten +6%
-- Disabled: if input empty AND no attachments
-
-**Interrupt button:**
-
-- Same size, background danger@25%, icon stop
-- Only visible while AI turn is processing.
-
-**Slash command popup:**
-
-- Typing `/` at the start of the composer opens a slash command autocomplete popup.
-- Commands: `/plan`, `/review`, `/diff`, `/fork`, `/new`, `/resume`, `/status`, `/compact`, `/mention`, `/init`, `/model`.
-- Popup: surface2 background, radius 8, shadow, max 8 visible rows, arrow key navigation, Enter to select, Esc to dismiss.
-- Commands can accept inline arguments (e.g., `/plan refactor the auth module`).
-
-**@Mention popup:**
-
-- Typing `@` opens a file/symbol autocomplete popup.
-- Shows files from the workspace, filtered by typed text after `@`.
-- Select to insert a file reference. Referenced files are included as context for the AI.
-- Popup styled same as slash command popup.
-
-**Steer mode (while agent is running):**
-
-- While AI is streaming/working, the composer remains active.
-- **Enter** sends a message that steers the agent in real-time (mid-turn correction).
-- **Tab** queues a follow-up prompt for the next turn.
-- A subtle indicator shows "Steer" vs "Queue" mode.
-
-**Keyboard behavior:**
-
-- Return: Send (or Steer if agent is running)
-- Tab: Queue follow-up (if agent is running)
-- Shift+Return: newline
-- Cmd+Return: Send (redundant, but common)
-- Esc: if AI streaming, interrupts; else clears focus
-
-### 5.4.1 Image attachments
-
-- Accept paste (Cmd+V), drag drop.
-- `AttachmentStrip`:
-
-  - Height: 56–72pt
-  - Thumbnails: 56×56, radius 8
-  - Horizontal scroll if >4
-  - Each thumbnail has hover "x" to remove.
-
-### 5.4.2 Fullscreen image viewer
-
-- Presented as overlay above chat window (not sheet)
-- Dark scrim: black@60%
-- Centered image with max size 90% of window
-- Close controls:
-
-  - Esc closes
-  - top-right X button
+Overlay (not sheet), scrim `black@60%`, centered image max 90% window; Close: Esc or top-right X
 
 ---
 
