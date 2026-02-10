@@ -7,7 +7,7 @@ import type { OutputRow } from "./types";
 export const outputTable = sqliteTable("output", {
   runId: text("run_id").notNull(),
   nodeId: text("node_id").notNull(),
-  ticketsCompleted: text("tickets_completed"),
+  ticketsCompleted: text("tickets_completed", { mode: "json" }).$type<string[]>(),
   totalIterations: integer("total_iterations").notNull(),
   summary: text("summary").notNull(),
 });

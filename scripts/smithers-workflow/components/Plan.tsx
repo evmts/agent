@@ -12,12 +12,12 @@ export const planTable = sqliteTable("plan", {
   nodeId: text("node_id").notNull(),
   iteration: integer("iteration").notNull().default(0),
   ticketId: text("ticket_id").notNull(),
-  implementationSteps: text("implementation_steps").notNull(),
-  filesToCreate: text("files_to_create").notNull(),
-  filesToModify: text("files_to_modify").notNull(),
-  testsToWrite: text("tests_to_write").notNull(),
-  docsToUpdate: text("docs_to_update").notNull(),
-  risks: text("risks"),
+  implementationSteps: text("implementation_steps", { mode: "json" }).$type<any[]>().notNull(),
+  filesToCreate: text("files_to_create", { mode: "json" }).$type<string[]>().notNull(),
+  filesToModify: text("files_to_modify", { mode: "json" }).$type<string[]>().notNull(),
+  testsToWrite: text("tests_to_write", { mode: "json" }).$type<any[]>().notNull(),
+  docsToUpdate: text("docs_to_update", { mode: "json" }).$type<string[]>().notNull(),
+  risks: text("risks", { mode: "json" }).$type<string[]>(),
   planFilePath: text("plan_file_path").notNull(),
 });
 

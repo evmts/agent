@@ -21,9 +21,9 @@ export const reportTable = sqliteTable("report", {
   filesChanged: integer("files_changed").notNull(),
   testsAdded: integer("tests_added").notNull(),
   reviewRounds: integer("review_rounds").notNull(),
-  struggles: text("struggles"),
+  struggles: text("struggles", { mode: "json" }).$type<string[]>(),
   timeSpent: text("time_spent"),
-  lessonsLearned: text("lessons_learned"),
+  lessonsLearned: text("lessons_learned", { mode: "json" }).$type<string[]>(),
 });
 
 export const reportOutputSchema = z.object({

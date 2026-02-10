@@ -11,9 +11,9 @@ export const discoverTable = sqliteTable("discover", {
   runId: text("run_id").notNull(),
   nodeId: text("node_id").notNull(),
   iteration: integer("iteration").notNull().default(0),
-  tickets: text("tickets").notNull(),
-  reasoning: text("reasoning").notNull(),
-  completionEstimate: text("completion_estimate").notNull(),
+  tickets: text("tickets", { mode: "json" }).$type<any[]>().notNull(),
+  reasoning: text("reasoning"),
+  completionEstimate: text("completion_estimate"),
 });
 
 export const ticketSchema = z.object({

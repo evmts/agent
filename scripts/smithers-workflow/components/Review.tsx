@@ -16,7 +16,7 @@ export const reviewTable = sqliteTable("review", {
   ticketId: text("ticket_id").notNull(),
   reviewer: text("reviewer").notNull(),
   approved: integer("approved").notNull(),
-  issues: text("issues").notNull(),
+  issues: text("issues", { mode: "json" }).$type<any[]>().notNull(),
   testCoverage: text("test_coverage").notNull(),
   codeQuality: text("code_quality").notNull(),
   feedback: text("feedback").notNull(),

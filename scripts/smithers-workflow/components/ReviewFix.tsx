@@ -15,9 +15,9 @@ export const reviewFixTable = sqliteTable("review_fix", {
   nodeId: text("node_id").notNull(),
   iteration: integer("iteration").notNull().default(0),
   ticketId: text("ticket_id").notNull(),
-  fixesMade: text("fixes_made").notNull(),
-  falsePositiveComments: text("false_positive_comments"),
-  commitMessages: text("commit_messages").notNull(),
+  fixesMade: text("fixes_made", { mode: "json" }).$type<any[]>().notNull(),
+  falsePositiveComments: text("false_positive_comments", { mode: "json" }).$type<any[]>(),
+  commitMessages: text("commit_messages", { mode: "json" }).$type<string[]>().notNull(),
   allIssuesResolved: integer("all_issues_resolved").notNull(),
   summary: text("summary").notNull(),
 });
