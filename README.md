@@ -25,4 +25,4 @@ zig build all      # Build + tests + fmt/lint checks
 
 ## License
 
-Proprietary
+[MIT](LICENSE)
