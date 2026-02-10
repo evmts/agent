@@ -104,29 +104,13 @@ Auto-scroll: pin to bottom on new text if at bottom, else show "Jump to latest" 
 
 #### Message hover action bar
 
-- Appears after **150ms hover delay** (prevents flicker when scrolling)
-- Position: floating above bubble, aligned to bubble edge
-- Style:
+150ms delay, floats above bubble edge; `black@30%` bg, `white@6%` border, radius 8
 
-  - Background: `black @ 30%`
-  - Border: `white @ 6%`
-  - Radius: 8
+Buttons: Fork (branch — new chat session inherits messages to this point, appears in sidebar + can open as `.chat` tab), Copy, Retry (assistant/last user), Edit & Resend (user), Revert (if JJ snapshot), More (ellipsis → "Rollback to here"); Dismiss on mouse leave
 
-- Buttons (icon-only):
+### 5.3.3 Thinking
 
-  - **Fork** (branch icon) — creates a **new chat session** forked from this point in the conversation. The new chat inherits all messages up to and including this one, then diverges. Same behavior as forking a conversation in ChatGPT. The forked chat appears in the chat sidebar as a new session and can also be opened as a `.chat` tab in the workspace panel.
-  - Copy
-  - Retry (assistant only, or last user)
-  - Edit & Resend (user only)
-  - Revert (if message corresponds to JJ snapshot)
-  - More (ellipsis) → menu: "Rollback to here"
-
-- Dismiss: mouse leaves bubble area
-
-### 5.3.3 Thinking indicator
-
-- Leading bubble with spinner + "Thinking…"
-- Uses assistant bubble styling but smaller padding (8pt)
+Leading bubble, spinner + "Thinking…", assistant bubble style, 8pt padding
 
 ### 5.4 Chat composer (input zone)
 
