@@ -142,34 +142,15 @@ Overlay (not sheet), scrim `black@60%`, centered image max 90% window; Close: Es
 
 ---
 
-## 5.5 Chat empty / welcome screen
+## 5.5 Welcome screen
 
-Shown for:
+Shown: new chat or no messages; Centered VStack max width 640
 
-- new chat
-- no messages yet in selected session
+1. Heading 28pt semibold "How can I help you?"
+2. Subheading 16pt secondary project name (if workspace)
+3. Category pills (Create / Explore / Code / Learn)
+4. AI-generated prompts (4 rows): `white@6%` bg/border radius 8, padding 12pt, trailing arrow
 
-Layout: centered VStack with fixed max width 640.
+Prompts AI-generated workspace-aware (NOT hardcoded). `SuggestionService` analyzes: recent files/edits, JJ status (uncommitted/conflicts/commits), project type (language/framework), recent/repeated prompts; Cached per-workspace 5min refresh; Defaults if not ready: "Explore codebase" "Review changes" "Fix bug" "Write docs"
 
-1. Heading: 28pt semibold "How can I help you?"
-2. Subheading: 16pt secondary project name (only if workspace open)
-3. Category pills row (Create / Explore / Code / Learn)
-4. **AI-generated suggested prompts** (4 rows)
-
-   - Card bg: white@6%, border white@6%, radius 8
-   - Row padding: 12pt
-   - Trailing arrow icon
-
-**Suggested prompts are AI-generated and workspace-aware, NOT hardcoded.** The `SuggestionService` analyzes the workspace on open and generates contextual suggestions based on:
-
-- Recent files and edits (what the user has been working on)
-- JJ status (uncommitted changes, conflicts, recent commits)
-- Project type (detected language/framework — e.g., "Write tests for your new React component")
-- Recent and repeated prompts (suggest follow-ups to common workflows)
-
-Suggestions are cached per-workspace with a **5-minute refresh interval**. On first launch or before suggestions are ready, show polished defaults (e.g., "Explore this codebase", "Review recent changes", "Help me fix a bug", "Write documentation").
-
-Interaction:
-
-- Clicking a pill filters suggestions by category.
-- Clicking a suggestion inserts full text into composer and focuses input.
+Interaction: click pill filters, click suggestion inserts text + focuses composer

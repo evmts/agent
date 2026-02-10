@@ -1,501 +1,197 @@
-# Design IDE Window Spec (Secondary)
+# IDE Window Spec (Secondary)
 
-## 6) IDE Window spec (Secondary)
+## 6.1 Layout
 
-### 6.1 Layout overview
+Root: `NavigationSplitView` — sidebar 180–400pt (default 240pt), detail flexible
 
-Root container: `NavigationSplitView`
+`IDEWindowRootView` → `FileTreeSidebar` + `IDEWorkspaceDetailView`
 
-- Sidebar width: **180–400pt** (default 240pt)
-- Detail area: flexible
+## 6.2 File tree sidebar
 
-**Structure:**
+### Empty state
 
-- `IDEWindowRootView` (NavigationSplitView)
+Centered: folder icon, "No Folder Open", "Open Folder…" button, "⌘⇧O" hint
 
-  - Sidebar: `FileTreeSidebar`
-  - Detail: `IDEWorkspaceDetailView`
+### Tree appearance
 
-### 6.2 File tree sidebar
+Bg `surface1`, root header `surface2`; Indent 16pt per level, guides 1px `border@35%`; Row height 28–32pt
 
-#### Empty state
+### Row spec
 
-- Centered icon + text:
+HStack: disclosure chevron (folders, 12pt), file/folder icon 16pt colored (Swift orange, TS/JS blue/yellow, Python green, Rust red-brown, Zig orange-gold, JSON/YAML gray, Markdown light blue, folders accent when expanded, SF Symbols fallback `doc`), name 11pt, spacer, modified dot 6pt `color.warning` (unsaved)
 
-  - Icon: `folder`
-  - Title: "No Folder Open"
-  - Button: "Open Folder…"
-  - Shortcut hint: "⌘⇧O"
+States: Hover `white@4%`, selected accent capsule 3pt width radius 2 full height minus 6pt inset; Current file `accent@6%` bg + capsule
 
-#### Tree appearance
+Context: Folders (New File/Folder, Copy Path, Reveal, Rename, Delete), Files (Copy Path, Reveal, Open in Terminal, Rename, Delete); Inline rename Enter commits Esc cancels
 
-- Background: `surface1`
-- Root header (folder name) uses `surface2`
-- Indentation:
+### Keyboard nav
 
-  - 16pt per depth level
-  - Indent guides: 1px line `border @ 35%` opacity
+Arrows Up/Down move; Right expands folder or first child; Left collapses or parent; Enter opens; Space quick-look; Delete confirms
 
-- Row height: 28–32pt (files), 28–32pt (folders)
+### Lazy loading & auto-refresh
 
-#### Row spec: `FileTreeRow`
-
-- Layout (HStack):
-
-  - Disclosure chevron (folders only), 12pt icon
-  - **File/folder icon (16pt, colored by file type):**
-
-    - Swift: orange
-    - TypeScript/JavaScript: blue/yellow
-    - Python: green
-    - Rust: red-brown
-    - Zig: orange-gold
-    - JSON/YAML: gray
-    - Markdown: light blue
-    - Folders: default folder icon, accent when expanded
-    - Use SF Symbols where possible; fall back to generic `doc` icon
-
-  - Name text (11pt)
-  - Spacer
-  - **Modified dot** (files only): 6pt circle, `color.warning` (yellow), visible when file has unsaved changes
-
-- States:
-
-  - Hover: white@4%
-  - Selected: accent "capsule" indicator on left edge
-
-    - Indicator: 3pt wide, radius 2, full row height minus 6pt inset
-
-  - **Current file:** The file open in the active editor tab gets a subtle background highlight (`accent@6%`) in addition to the capsule indicator.
-
-- Context menus:
-
-  - Folders: New File, New Folder, Copy Path, Reveal in Finder, Rename, Delete
-  - Files: Copy Path, Reveal in Finder, Open in Terminal, Rename, Delete
-
-- **Inline rename:** On "Rename", the name label becomes a focused text field. Enter commits, Esc cancels.
-
-#### Keyboard navigation
-
-- **Arrow Up/Down:** Move selection through visible rows.
-- **Arrow Right:** Expand folder (if collapsed) or move to first child.
-- **Arrow Left:** Collapse folder (if expanded) or move to parent.
-- **Enter:** Open selected file in editor tab.
-- **Space:** Quick-look preview (optional).
-- **Delete/Backspace:** Delete with confirmation.
-
-#### Lazy loading & auto-refresh
-
-- Expand folder triggers children load (lazy, not preloaded).
-- Chevron rotates 90° on expand, animation 0.15s ease-in-out.
-- **Auto-refresh:** File tree watches the workspace directory via `FSEvents`. When files are created, deleted, or renamed on disk (by the AI agent, terminal, or external tools), the tree updates automatically without manual refresh. Debounce filesystem events by 250ms to avoid flicker during rapid changes.
-- **`.gitignore` / `.jj/ignore` respect:** Hidden files and ignored patterns are excluded by default. Toggle "Show Hidden Files" in context menu or command palette.
+Expand triggers children load, chevron rotates 90° 0.15s ease-in-out; Auto-refresh via `FSEvents` 250ms debounce; Respects `.gitignore`/`.jj/ignore`, toggle "Show Hidden Files" in context/palette
 
 ---
 
-## 6.3 IDE detail view
+## 6.3 IDE detail
 
-`IDEWorkspaceDetailView` (VStack spacing 0)
-
-1. `IDETabBar` (32pt) — only if at least one tab open
-2. `BreadcrumbBar` (18–22pt) — only for file tabs
-3. Divider
-4. `IDEContentArea` (fills)
-5. Divider
-6. `IDEStatusBar` (22pt)
+`IDEWorkspaceDetailView` (VStack spacing 0): TabBar (32pt if tabs) + BreadcrumbBar (18–22pt if file) + Divider + ContentArea (fills) + Divider + StatusBar (22pt)
 
 ### 6.3.1 Tab bar
 
-Tab types allowed:
+Types: file, terminal, diff, webview, chat (sub-agents, forked chats — any chat can open as tab)
 
-- file
-- terminal
-- diff
-- webview
-- chat (sub-agent conversations, forked chats — any chat can be opened as a tab in the workspace panel)
+Nova-like: bg `surface2`; Selected `white@6%` + accent underline 2pt; Unselected secondary text; Geometry 28–30pt in 32pt bar, radius 8, padding 10pt h, min 120pt max 220pt; Distribute evenly if fits else h-scroll
 
-**Tab bar styling (Nova-like):**
+Contents: leading icon (colored), filename 11pt, modified dot OR close on hover; Tooltip shows path
 
-- Background: `surface2`
-- Selected tab:
+Interactions: Click selects, drag reorder (insertion highlight, animate swap), middle-click closes; Context: Close / Close Others / All / to Right, Copy Path, Reveal Finder/Sidebar
 
-  - subtle brighter background (white@6% over surface2)
-  - accent underline capsule 2pt height
-
-- Unselected:
-
-  - text secondary
-
-- Tab geometry:
-
-  - Height: 28–30pt inside a 32pt bar
-  - Radius: 8
-  - Padding: 10pt horizontal per tab
-  - Min width: 120pt, max width: 220pt
-  - If total tabs <= available width: distribute evenly
-  - Else: horizontal scroll
-
-**Tab item contents:**
-
-- Leading file type icon (colored)
-- Filename (11pt)
-- Modified dot OR close button on hover
-- Optional subtitle (path) appears in tooltip rather than constant UI to reduce noise.
-
-**Interactions:**
-
-- Click selects tab
-- Drag reorder:
-
-  - show insertion highlight
-  - animate swap
-
-- Middle-click closes
-- Context menu:
-
-  - Close / Close Others / Close All / Close to Right
-  - Copy Path
-  - Reveal in Finder
-  - Reveal in Sidebar
-
-Right side:
-
-- Overflow menu button (ellipsis.circle)
-
-  - "Switch To" list of tabs
-  - "Close" actions
+Right: overflow menu (ellipsis — "Switch To" list, close actions)
 
 ### 6.3.2 Breadcrumb bar
 
-- Background: `surface1` (or surface2 if you want chrome continuity)
-- Font: 10pt
-- Path segments are clickable
-- Last segment bold
-- Opacity gradient: earlier segments tertiary, later segments secondary/primary
+Bg `surface1` (or `surface2`), 10pt font, clickable segments, last bold, opacity gradient (earlier tertiary, later secondary/primary)
 
-### 6.3.3 Content area (switch by selected tab)
+### 6.3.3 Content area
 
 #### A) Code editor
 
-This describes the visual contract; your current STTextView/TextKit2-based editor already supports much of it.
+Bg `surface1`; Gutter 44–56pt line numbers, bg `surface1`, divider 1px `border`; Current line `white@6–10%`, matching bracket `white@16%`, indent guides 1px `border@35%`; Minimap optional 70pt + separator 1px; Scrollbar overlay (always/auto/never)
 
-- Background: `surface1`
-- Gutter:
+**Multi-cursor:** Opt+Click add cursor, Opt+Shift+Up/Down adjacent line, Cmd+D next occurrence, Cmd+Shift+L all occurrences, Esc collapse; All cursors type/delete/select together, grouped undo, multi-clipboard; Each cursor identical blink/block per pref
 
-  - Line numbers width: 44–56pt depending on digits
-  - Background: `surface1`
-  - Divider: 1px `border`
+**Ghost text:** `GhostTextOverlayView` dim `white@35–45%` overlay at cursor, pass-through no hit; Fade in 0.12s ease-out, fade out 0.12s dismiss/accept; Tab accepts, Esc dismisses, typing advances or cancels; `CompletionService` 300ms debounce to codex-app-server, streaming updates, generation counter cancels previous; Not in Neovim mode
 
-- Current line highlight: `white@6–10%`
-- Matching bracket highlight: `white@16%`
-- Indent guides: 1px `border @ 35%`
-- Minimap (optional):
+**Pinch-to-zoom:** trackpad adjusts font 8–48pt real-time, persists on gesture end, smooth no flicker
 
-  - Width: 70pt
-  - Separator: 1px `border`
+**Press-and-hold disable:** macOS accent popup disabled (`ApplePressAndHoldEnabled = false` scoped), ensures key repeat for vim (holding j/h/etc)
 
-- Scrollbar overlay:
+**Smooth scrolling:** `SmoothScrollController` velocity-based easing (not jarring jumps); Terminal snaps to cell grid; Integrated with Neovim mouse scroll RPC; Respects natural/inverted system pref
 
-  - right edge overlay
-  - modes: always / automatic / never
+**Link detection:** File paths `path:line:col` clickable (accent underline hover, opens IDE via `showInEditor()`); URLs in chat/terminal clickable (browser or webview tab per pref); Terminal Cmd+Click paths/URLs, Ghostty handles URLs natively, add file path detection workspace-relative
 
-#### Multi-cursor support
-
-- **Option+Click:** Add a cursor at click position.
-- **Option+Shift+Up/Down:** Add cursor on adjacent line above/below.
-- **Cmd+D:** Select next occurrence of current selection (adds cursor).
-- **Cmd+Shift+L:** Select all occurrences of current selection (adds cursors at each).
-- **Escape:** Collapse all cursors back to a single primary cursor.
-- All cursors type, delete, and select simultaneously.
-- Grouped undo: a multi-cursor edit is one undo step.
-- Multi-cursor copy/paste: each cursor gets its own clipboard line.
-- Visual: each cursor rendered identically (blinking bar/block per preference). Selections at each cursor highlighted with `selectionBackground`.
-
-#### Ghost text completions (AI inline suggestions)
-
-- **`GhostTextOverlayView`** renders dimmed preview text at the cursor position.
-- Display: dim text (`white@35–45%`) overlaid at cursor, pass-through to editor (no hit testing).
-- **Fade in:** 0.12s ease-out when suggestion arrives.
-- **Fade out:** 0.12s when dismissed or accepted.
-- **Accept:** Tab inserts the full suggestion.
-- **Dismiss:** Esc clears the suggestion.
-- **Typing:** If user types characters that match the suggestion, advance through it. If user diverges, cancel the suggestion and request a new one.
-- **Completion pipeline:** `CompletionService` sends requests to codex-app-server after **300ms debounce**. Streaming partial results update the ghost text in real time. Each keystroke cancels the previous request (generation counter pattern).
-- **No ghost text in Neovim mode** — Neovim has its own completion system.
-
-#### Pinch-to-zoom
-
-- **Pinch gesture** (trackpad) adjusts editor font size in real time.
-- Range: 8pt–48pt (matches font size preference range).
-- Persists the new font size to preferences on gesture end.
-- Smooth scaling with no layout flicker.
-
-#### Press-and-hold disable
-
-- macOS normally shows an accent character popup when you press-and-hold a key (e.g., holding "e" shows é, ê, ë, etc.).
-- Smithers **disables this behavior** globally for the editor and terminal views. This ensures key repeat works correctly for vim-style navigation (holding `j` to scroll down, holding `h` to move left, etc.).
-- Implemented via `NSUserDefaults` `ApplePressAndHoldEnabled = false` scoped to the app.
-
-#### Smooth scrolling
-
-- **`SmoothScrollController`** provides velocity-based animated scrolling for the editor and terminal.
-- Scroll events are interpolated with easing (not jarring pixel jumps).
-- Terminal scrolling snaps to cell grid boundaries for clean rendering.
-- Integrated with Neovim mouse scroll RPC when in Neovim mode.
-- Direction detection: natural vs. inverted scrolling respects system preference.
-
-#### Link detection
-
-- **File paths** in assistant chat messages: Recognize `path:line:col` patterns, render as clickable links (accent color, underline on hover). Click opens IDE to location via `showInEditor()`.
-- **URLs** in chat messages and terminal output: Recognized and rendered as clickable links. Click opens in default browser or as a webview tab (user preference).
-- **Terminal link detection:** Cmd+Click on file paths or URLs in terminal output. Ghostty handles URL detection natively; we add file path detection for workspace-relative paths.
-
-#### Neovim mode parity
-
-Every editor feature must be considered through the lens of Neovim mode. When Neovim mode is active, the STTextView editor is **replaced** by a Ghostty terminal running embedded Neovim. Features that are editor-only vs. shared:
+**Neovim mode parity:** When active, STTextView replaced by Ghostty terminal running embedded Neovim
 
 | Feature | Editor mode | Neovim mode |
 |---------|-------------|-------------|
-| Syntax highlighting | TreeSitter (Swift-side) | Neovim's built-in |
-| Multi-cursor | Custom implementation | Neovim plugins (vim-visual-multi, etc.) |
-| Ghost text | GhostTextOverlayView | Not applicable (Neovim has own completion) |
-| Auto-save | Editor auto-save on interval | **Also works** — BufWritePost detected |
-| JJ auto-snapshot | Triggered on save | **Also works** — BufWritePost triggers snapshot |
-| Pinch-to-zoom | Trackpad gesture | Not applicable (terminal font size) |
-| Line numbers | Editor gutter | Neovim's `set number` |
-| Current line highlight | Editor feature | Neovim's `cursorline` |
-| Bracket matching | Editor feature | Neovim's `matchparen` |
-| Find/replace | Command palette search | Neovim's `/` and `:%s` |
-| Undo/redo | Editor undo stack | Neovim's undo tree |
+| Syntax highlight | TreeSitter Swift-side | Neovim built-in |
+| Multi-cursor | Custom | Plugins (vim-visual-multi) |
+| Ghost text | GhostTextOverlayView | N/A (Neovim completion) |
+| Auto-save | Editor interval | BufWritePost detected |
+| JJ auto-snapshot | On save | BufWritePost triggers |
+| Pinch-to-zoom | Trackpad gesture | N/A (terminal font) |
+| Line numbers | Editor gutter | `set number` |
+| Current line | Editor feature | `cursorline` |
+| Bracket matching | Editor feature | `matchparen` |
+| Find/replace | Command palette | `/` and `:%s` |
+| Undo/redo | Editor stack | Undo tree |
 
-#### Loading state
-
-- Skeleton lines with shimmer:
-
-  - pulsing opacity 0.8s autoreverse
+**Loading:** skeleton lines shimmer pulse 0.8s autoreverse
 
 #### B) Terminal (Ghostty)
 
-- Full terminal view; tab title updates live.
-- Use same scrollbar overlay style for consistency.
-- **Smooth scrolling:** Velocity-based with grid snapping (see Smooth scrolling above).
-- **Link detection:** Cmd+Click on URLs and file paths. Workspace-relative paths open in editor.
+Full terminal, tab title updates live; Same scrollbar overlay; Smooth scrolling velocity + grid snap; Link detection Cmd+Click URLs + workspace-relative file paths open editor
 
-#### C) Diff viewer (unified)
+#### C) Diff viewer
 
-Standalone component used in IDE tabs, chat sheet previews, and inline diff cards.
+Standalone for IDE tabs, chat sheets, inline cards
 
-**Header bar (32pt):**
+**Header 32pt:** left filename 13pt medium + `+N −M` mono success/danger, right hunk arrows up/down + counter "3/12", "Open in Tab" if inline/sheet
 
-- Left: filename (13pt medium) + `+N −M` summary (monospace, success/danger tint)
-- Right: hunk navigation arrows (up/down icon buttons) + hunk counter ("3/12")
-- "Open in Tab" button if diff appears as inline panel or chat sheet
+**Content:** Syntax highlighting within diffs — added/removed retain TreeSitter syntax under tint; Line bg: additions `success@12%`, deletions `danger@12%`, hunks `@@` `accent@8%` bg `info` text, context no tint; Line numbers dual gutter (old | new) mono 10pt tertiary; Long lines h-scroll (no wrap default)
 
-**Diff content:**
+**Controls (toolbar trailing):** Wrap toggle (icon `text.word.spacing`), Compact toggle (hides context, icon `arrow.up.and.down.text.horizontal`), Full-screen (fills area, hides sidebar/tabs, Esc or button)
 
-- **Syntax highlighting within diffs:** Added/removed lines retain full syntax coloring from TreeSitter, not just green/red tinting. The background tint is applied underneath the syntax colors.
-- Diff line backgrounds:
+**Keyboard:** `]c` / `[c` vim-style next/prev hunk; Arrows Up/Down scroll; Cmd+Up/Down next/prev file (multi-file)
 
-  - Additions: `success@12%` background
-  - Deletions: `danger@12%` background
-  - Hunk headers (`@@`): `accent@8%` background, `info` text
-  - Context lines: no background tint
+**Sources:** AI changes (Codex), JJ working copy diffs, JJ change-to-change, session diffs, manual `smithers-ctl diff show`
 
-- Line numbers: dual gutter (old line number | new line number), monospace 10pt, tertiary
-- Long lines: horizontal scroll (no wrapping by default)
+**Multi-file:** left sidebar 200pt file list `+N −M` per-file; Click scrolls diff pane to file section; Order: modified > added > deleted
 
-**Controls (toolbar, trailing):**
+#### D) Webview
 
-- **Wrap lines toggle:** Wraps long lines instead of horizontal scroll. Icon: `text.word.spacing`.
-- **Compact mode toggle:** Hides context lines, shows only changed hunks. Icon: `arrow.up.and.down.text.horizontal`.
-- **Full-screen mode:** Expands diff to fill the entire content area (hides sidebar, tab bar). Toggle with Escape or button.
-
-**Keyboard navigation:**
-
-- **]c / [c** (vim-style): Jump to next/previous hunk.
-- **Arrow Up/Down:** Scroll through diff lines.
-- **Cmd+Up/Down:** Jump to next/previous file (multi-file diffs).
-
-**Diff sources:**
-
-- AI file changes (from Codex turn)
-- JJ working copy diffs
-- JJ change-to-change diffs
-- Session diffs (before/after a chat session)
-- Manual `smithers-ctl diff show` invocation
-
-**Multi-file diff:**
-
-- Left sidebar (200pt) shows file list with per-file `+N −M` counts.
-- Clicking a file scrolls the diff pane to that file's section.
-- Files ordered by: modified > added > deleted.
-
-#### D) Webview tab
-
-- `WKWebView` with title observation
-- Tab label uses page title
-- Back/forward buttons are hidden by default (reduce noise); accessible via command palette commands or context menu.
+`WKWebView` title observation, tab uses page title; Back/forward hidden default (reduce noise, accessible via palette/context)
 
 ---
 
 ## 6.4 Status bar
 
-Height: 22pt
-Background: `surface2`
-Top divider: 1px border
+22pt, `surface2`, top divider 1px
 
-Sections:
+Left: `Ln X, Col Y | UTF-8 | LF` mono 10pt secondary; Center: Skills "Skills: a, b +N" (click popover); Right: `Language | Spaces: 4` 10pt secondary
 
-- Left: `Ln X, Col Y | UTF-8 | LF` (monospace, 10pt secondary)
-- Center: Skills indicator (if any active)
+**Additional indicators:**
 
-  - "Skills: a, b +N"
-  - click opens skills popover
-
-- Right: `Language | Spaces: 4` (10pt secondary)
-
-**Additional status bar indicators:**
-
-- **Neovim mode indicator** (left, after line/col): When Neovim mode is active, shows current vim mode in a small badge:
-
-  - NORMAL: `accent@15%` background, accent text
-  - INSERT: `success@15%` background, success text
-  - VISUAL: `warning@15%` background, warning text
-  - COMMAND: `info@15%` background, info text
-
-- **Tmux prefix indicator** (left): When tmux prefix key (Ctrl+A) is pressed and awaiting follow-up, shows "PREFIX" badge with `accent@20%` background. Auto-dismisses after 1s timeout.
+- **Neovim mode** (left after line/col): badge shows vim mode — NORMAL `accent@15%` bg accent text, INSERT `success@15%` success text, VISUAL `warning@15%` warning text, COMMAND `info@15%` info text
+- **Tmux prefix** (left): "PREFIX" badge `accent@20%` bg when Ctrl+A pressed awaiting follow-up, auto-dismiss 1s
 
 ---
 
 ## 6.5 Neovim mode
 
-Neovim mode is a **major feature** — not a secondary concern. Many Smithers users will spend most of their editing time in Neovim mode. When enabled, the STTextView-based code editor is **replaced** by a Ghostty terminal running an embedded Neovim instance with full UI extensions.
+Major feature — many users spend most time here. When enabled, STTextView replaced by Ghostty terminal running embedded Neovim with full UI extensions.
 
 ### 6.5.1 Activation
 
-- Toggle: **Cmd+Shift+N** (global shortcut, both windows).
-- When activated, the current file tab's content view switches from `CodeEditorView` to `NvimTerminalView`.
-- When deactivated, switches back. File state (cursor position, unsaved changes) is preserved across transitions.
-- Persisted per-workspace (if you enable Neovim mode, it stays enabled next launch).
+Toggle Cmd+Shift+N (global both windows); Switches `CodeEditorView` ↔ `NvimTerminalView`; File state (cursor, unsaved) preserved across transitions; Persisted per-workspace
 
-### 6.5.2 Architecture overview
+### 6.5.2 Architecture
 
-1. `NvimController` creates a Unix domain socket at `/tmp/smithers-nvim-<uuid>.sock`.
-2. Launches Neovim in a hidden Ghostty terminal with `--listen <socket>`.
-3. Connects to the socket with retry (10 attempts, 100ms backoff).
-4. Attaches UI with extensions: `ext_multigrid`, `ext_cmdline`, `ext_popupmenu`, `ext_messages`, `ext_hlstate`.
-5. Installs autocmds for `BufEnter`/`BufLeave`/`BufWritePost` to track file changes.
-6. Starts a notification loop to handle Neovim events.
+1. `NvimController` creates Unix socket `/tmp/smithers-nvim-<uuid>.sock`
+2. Launches Neovim hidden Ghostty terminal `--listen <socket>`
+3. Connects retry (10 attempts, 100ms backoff)
+4. Attaches UI extensions: `ext_multigrid`, `ext_cmdline`, `ext_popupmenu`, `ext_messages`, `ext_hlstate`
+5. Installs autocmds `BufEnter`/`BufLeave`/`BufWritePost` track file changes
+6. Starts notification loop handle events
 
 ### 6.5.3 Bidirectional sync
 
-Neovim and the Smithers UI must stay in sync at all times:
-
-- **User selects file in sidebar →** NvimController sends `:edit <path>` via RPC. Neovim opens the file.
-- **User opens file in Neovim →** `BufEnter` autocmd fires → NvimController updates `TabModel` (ensures tab exists and is selected) and `EditorStateModel`.
-- **User saves in Neovim →** `BufWritePost` autocmd fires → NvimController marks file as clean in tab model. This **also triggers JJ auto-snapshot** (same 2s debounce as editor auto-save). This ensures JJ snapshotting works identically whether the user saves from the editor or from Neovim.
-- **Tab model changes →** If user switches tabs via the tab bar (clicking, keyboard), NvimController sends `:edit <path>` to sync Neovim to the new tab.
-- **File tree, terminal, and tab model** all coordinate with NvimController as the source of truth for which file is active when in Neovim mode.
+- User selects file sidebar → NvimController `:edit <path>` RPC, Neovim opens
+- User opens file Neovim → `BufEnter` autocmd → update `TabModel` (ensure tab exists/selected) + `EditorStateModel`
+- User saves Neovim → `BufWritePost` → mark clean tab model, triggers JJ auto-snapshot (2s debounce same as editor)
+- Tab model changes → switch tabs bar click/keyboard → NvimController `:edit <path>` sync
+- File tree, terminal, tab model coordinate with NvimController as source of truth active file Neovim mode
 
 ### 6.5.4 External UI overlays
 
-Neovim's ext_ui extensions allow Smithers to render Neovim's UI elements as native SwiftUI overlays on top of the terminal view, rather than inside the terminal character grid:
+Neovim ext_ui render native SwiftUI overlays on terminal (not in char grid)
 
-**Command line overlay (`NvimCmdlineOverlay`):**
+**Cmdline (`NvimCmdlineOverlay`):** bottom editor area above status, `surface2` radius 8 1px `border`, shows current cmdline (`:` `/` `?` `!`), mono same font editor, cursor visible blinking, dismisses on exec/cancel
 
-- Position: bottom of editor area, above status bar.
-- Background: `surface2`, radius 8, 1px `border`.
-- Shows the current command line (`:`, `/`, `?`, `!` prompts).
-- Monospace text, same font as editor.
-- Cursor visible and blinking.
-- Dismisses when command is executed or cancelled.
+**Popup menu (`NvimPopupMenuOverlay`):** anchored cursor position, `surface2` radius 8 shadow, completion candidates Neovim native; Rows icon (type) + text + detail (secondary trailing); Selected `accent@12%`; Max 10 rows scrollable; Arrows + Enter/Esc
 
-**Popup menu overlay (`NvimPopupMenuOverlay`):**
+**Message (`NvimMessageOverlay`):** floating notifications top-right editor; Max 6 visible, oldest auto-expire 4s; `surface2` radius 8 shadow; Levels → colors: error danger, warning warning, info/echo primary; Slide-in right, fade-out dismiss
 
-- Position: anchored at cursor position in the terminal.
-- Background: `surface2`, radius 8, shadow (overlay spec).
-- Shows completion candidates from Neovim's native completion.
-- Rows: icon (type) + text + detail (secondary, trailing).
-- Selected row: `accent@12%` background.
-- Max visible rows: 10 (scrollable).
-- Arrow keys navigate, Enter selects, Esc dismisses.
+**Floating windows (`NvimFloatingWindowView`):** plugin floats (hover docs, signature help); Native views on terminal; Configurable: blur 0–30pt (pref default 10), shadow 0–30pt (pref default 8), corner radius 0–20pt (pref default 8); Bg `surface2` blur vibrancy, border 1px `border`
 
-**Message overlay (`NvimMessageOverlay`):**
+### 6.5.5 Theme sync
 
-- Position: floating notifications, top-right of editor area.
-- Max 6 visible simultaneously; oldest auto-expire after 4s.
-- Background: `surface2`, radius 8, shadow.
-- Message levels map to semantic colors: error → danger, warning → warning, info/echo → primary.
-- Slide-in from right, fade-out on dismiss.
+Neovim mode reads highlight groups derives `AppTheme`: `Normal.bg` → `background`, `Normal.fg` → `foreground`, `Visual.bg` → `selectionBackground`, `CursorLine.bg` → `lineHighlight`, `TabLine*` → tab bars, `Pmenu*` → popup/panels, `LineNr`/`CursorLineNr` → line numbers; Missing derived via alpha blend bg+fg
 
-**Floating windows (`NvimFloatingWindowView`):**
-
-- Plugin-created floating windows (hover docs, signature help, etc.).
-- Rendered as native views on top of the terminal.
-- Configurable appearance:
-
-  - **Blur:** 0–30pt radius (preference, default 10).
-  - **Shadow:** 0–30pt radius (preference, default 8).
-  - **Corner radius:** 0–20pt (preference, default 8).
-
-- Background: `surface2` with blur effect (vibrancy).
-- Border: 1px `border`.
-
-### 6.5.5 Theme synchronization
-
-When Neovim mode is activated, Smithers reads Neovim's highlight groups and derives an `AppTheme`:
-
-- `Normal.bg` → `background`, `Normal.fg` → `foreground`
-- `Visual.bg` → `selectionBackground`
-- `CursorLine.bg` → `lineHighlight`
-- `TabLine*` → tab bar colors
-- `Pmenu*` → popup/panel colors
-- `LineNr` / `CursorLineNr` → line number colors
-- Missing groups: derived via alpha blending from background + foreground.
-
-This theme **overrides the default app theme** while Neovim mode is active, so the entire UI matches the user's Neovim colorscheme. When Neovim mode is deactivated, the app reverts to the standard theme.
+Overrides app theme while active, reverts on deactivate
 
 ### 6.5.6 Mode indicator
 
-The current Neovim mode is displayed in the status bar (see section 6.4). Additionally:
+Status bar (6.4) + cursor shape changes mode: bar (insert), block (normal), underline (replace) — Ghostty handles via escape sequences; Real-time updates
 
-- **Cursor shape changes** with mode: bar (insert), block (normal), underline (replace). Ghostty handles this natively via terminal escape sequences.
-- The mode indicator updates in real-time as the user switches between normal/insert/visual/command modes.
+### 6.5.7 Input method (CJK)
 
-### 6.5.7 Input method switching (CJK support)
-
-**Critical for CJK (Chinese/Japanese/Korean) users.** `InputMethodSwitcher` automatically:
-
-- Switches to an **ASCII-capable input source** when entering Neovim normal mode (so `j`, `k`, `dd`, etc. work without interference from IME).
-- **Restores the previous input source** when entering insert mode (so the user can type in their language).
-- This behavior is automatic and requires no user configuration.
+**Critical CJK.** `InputMethodSwitcher` auto: switches ASCII-capable input source entering normal mode (so j/k/dd work without IME), restores previous input source entering insert mode (type native language); Automatic no config
 
 ### 6.5.8 Crash recovery
 
-If the Neovim process dies unexpectedly, show a **recovery view** (`NvimRecoveryView`) instead of silently failing:
+If Neovim dies, `NvimRecoveryView` instead silent fail: centered editor area, `surface1` bg; Warning icon large `color.warning`, title "Neovim crashed unexpectedly", subtitle crash type (startup/runtime/unexpected exit); Actions: Restart Neovim (PrimaryButton — attempts restart full state restoration same files/positions), Disable Neovim Mode (secondary — switches standard editor preserves files), Reveal Crash Report (tertiary link — opens Finder `~/Library/Application Support/Smithers/Nvim/Reports/`)
 
-- Centered in the editor area where Neovim was running.
-- Background: `surface1`.
-- Content:
+Crash report: captures logs, workspace state, open files, last RPC messages → `~/Library/Application Support/Smithers/Nvim/Reports/`; Neovim logs → `~/Library/Application Support/Smithers/Nvim/Logs/`
 
-  - Warning icon (large, `color.warning`)
-  - Title: "Neovim crashed unexpectedly"
-  - Subtitle: crash type (startup failure / runtime crash / unexpected exit)
-  - Three action buttons:
+### 6.5.9 Settings
 
-    - **Restart Neovim** (PrimaryButton): Attempts to restart with full workspace state restoration (same files, same positions).
-    - **Disable Neovim Mode** (secondary button): Switches back to the standard editor, preserving all open files.
-    - **Reveal Crash Report** (tertiary link): Opens Finder to `~/Library/Application Support/Smithers/Nvim/Reports/`.
+Neovim category in Preferences:
 
-- **Crash report generation:** Captures Neovim logs, workspace state, open files, and last RPC messages. Saved to `~/Library/Application Support/Smithers/Nvim/Reports/`.
-- **Neovim log routing:** All Neovim output is routed to `~/Library/Application Support/Smithers/Nvim/Logs/` for debugging.
-
-### 6.5.9 Neovim settings (Preferences)
-
-Under the "Neovim" category in Settings:
-
-- **Nvim binary path:** Text field with file picker. Validates that the path points to a working `nvim` binary. Default: system `nvim` from PATH.
-- **Option-as-Meta:** Dropdown (Left / Right / Both / None). Controls whether Option key sends Meta in the Neovim terminal. Same setting as Terminal preferences.
-- **Floating window blur:** Toggle + radius slider (0–30pt).
-- **Floating window shadow:** Toggle + radius slider (0–30pt).
-- **Floating window corner radius:** Slider (0–20pt).
+- Nvim binary path: text field + file picker, validates working `nvim`, default system PATH
+- Option-as-Meta: dropdown Left/Right/Both/None, controls Option→Meta terminal (same as Terminal prefs)
+- Floating window blur: toggle + slider 0–30pt
+- Floating window shadow: toggle + slider 0–30pt
+- Floating window corner radius: slider 0–20pt
