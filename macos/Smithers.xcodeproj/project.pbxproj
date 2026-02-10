@@ -118,7 +118,7 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		CODE_SIGN_STYLE = Manual;
 		DEVELOPMENT_TEAM = "";
 		ENABLE_PREVIEWS = YES;
-		NO;
+		GENERATE_INFOPLIST_FILE = NO;
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		INFOPLIST_FILE = "Smithers-Info.plist";
 		LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );
@@ -136,7 +136,7 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		CODE_SIGN_STYLE = Manual;
 		DEVELOPMENT_TEAM = "";
 		ENABLE_PREVIEWS = YES;
-		NO;
+		GENERATE_INFOPLIST_FILE = NO;
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		INFOPLIST_FILE = "Smithers-Info.plist";
 		LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );
@@ -157,7 +157,7 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
 		SWIFT_VERSION = 6.0;
-		LD_RUNPATH_SEARCH_PATHS = ( "", "@executable_path/../Frameworks", "@loader_path/../Frameworks" );
+		LD_RUNPATH_SEARCH_PATHS = ( "@executable_path/../Frameworks", "@loader_path/../Frameworks" );
 	}; name = Debug; };
 	B11111111111111111111118 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
 		ALWAYS_SEARCH_USER_PATHS = NO;
@@ -169,7 +169,7 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
 		SWIFT_VERSION = 6.0;
-		LD_RUNPATH_SEARCH_PATHS = ( "", "@executable_path/../Frameworks", "@loader_path/../Frameworks" );
+		LD_RUNPATH_SEARCH_PATHS = ( "@executable_path/../Frameworks", "@loader_path/../Frameworks" );
 	}; name = Release; };
 /* End XCBuildConfiguration section */
 
