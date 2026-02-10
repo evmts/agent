@@ -74,6 +74,23 @@ Normalized token table + semantic/system tokens for all states.
 | Punctuation | `gray@70%` |
 | Tags (JSX/HTML) | coral/red family |
 
+### 2.3.1 Token Math Contract
+
+Tint shorthand (`white@X%`, `accent@X%`) is unambiguous across platforms:
+
+| Shorthand | Meaning | Swift | CSS |
+|-----------|---------|-------|-----|
+| `white@X%` | White with X% opacity | `NSColor.white.withAlphaComponent(X/100)` | `rgba(255, 255, 255, X/100)` |
+| `black@X%` | Black with X% opacity | `NSColor.black.withAlphaComponent(X/100)` | `rgba(0, 0, 0, X/100)` |
+| `accent@X%` | Accent (#4C8DFF) with X% opacity | `NSColor(accent).withAlphaComponent(X/100)` | `rgba(var(--sm-accent-rgb), X/100)` |
+| `gray@X%` | Mid-gray with X% opacity | `NSColor.gray.withAlphaComponent(X/100)` | `rgba(128, 128, 128, X/100)` |
+
+**Application method:** Direct background fill (NOT overlay compositing). These are background colors applied via `backgroundColor` / `background-color`, not blended on top of existing surfaces.
+
+**CSS variable convention:** `--sm-accent-rgb: 76, 141, 255;` (comma-separated for use in `rgba()`).
+
+**SwiftUI:** Use `.background(Color.white.opacity(0.06))` for `white@6%`.
+
 ### 2.4 Light theme derivation
 
 Deterministic derivation so engineering not hand-tuning 30 colors.

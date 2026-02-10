@@ -20,7 +20,7 @@
 
 ## UI
 - SF Symbols for icons
-- NO hardcoded font sizes — Dynamic Type
+- No arbitrary font literals — use design tokens (`type.xs`, `type.base`, etc.) from `design/system-tokens.md`. Prefer SwiftUI text styles (`.caption`, `.body`) where appropriate. macOS does not have iOS Dynamic Type, but support user-configurable font scaling via preferences.
 - `Button` (NOT onTapGesture) for tappables
 - Extract views >100 lines
 - `guard` for early exits

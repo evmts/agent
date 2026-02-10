@@ -46,6 +46,13 @@ Do NOT commit until passes with zero errors.
 - NEVER accept failing test (even pre-existing)
 - NEVER leave build broken
 - NEVER commit code that doesn't compile
-- Pre-existing failure → fix as part of current work
+- Pre-existing failure → fix as part of current work WHEN TRIVIAL
 - Run full check suite after EVERY change; failures → fix before moving on
 - When in doubt, run more checks, not fewer
+
+## Escape Hatch for Pre-Existing Failures
+If `zig build all` fails due to unrelated pre-existing failures AND fixing them is non-trivial (would significantly expand ticket scope):
+1. Document the failure in `docs/triage/preexisting-failures.md` (append, don't overwrite)
+2. Note it in the validation failingSummary so a dedicated ticket is created in the next Discover pass
+3. Continue with the current ticket — do NOT go down unrelated rabbit holes
+This keeps the workflow from stalling on issues orthogonal to the current work.

@@ -40,10 +40,18 @@ Translates "chat‑as‑primary" paradigm into implementable pixel‑precise UI 
 
 1. **Chat default workspace.** User never opens IDE window, app still feels complete.
 2. **Secondary tools on-demand.** IDE window revealed only when human wants inspect/edit or AI produces work worth reviewing.
-3. **Least-noisy UI.** No persistent clutter. Controls contextual, hover-revealed, or consolidated overlays/command palette.
+3. **Least-noisy UI.** No persistent clutter. Observable constraints:
+   - Hover-only action bars appear within 100ms of hover
+   - No more than 3 persistent toolbar buttons in composer/footer
+   - Chrome controls hidden until hover or focus; no always-visible icons for actions used <20% of the time
 4. **macOS-native behaviors.** Traffic lights, standard Cmd shortcuts, proper focus rings, contextual menus, draggable window background.
-5. **Performance-first rendering.** Virtualize long lists; debounce expensive ops; avoid heavy blur except small overlays.
-6. **One design system shared.** Same tokens, same components, "Nova-like" IDE chrome + "T3.chat-like" chat density.
+5. **Performance-first rendering.** Observable constraints:
+   - Chat list uses `LazyVStack` (Swift) / virtualized list (web) — no full DOM/view tree for off-screen messages
+   - No full markdown reparse on each streaming token delta — append-only rendering
+   - File tree loads children on expand (lazy), no eager recursion of entire workspace
+   - Debounce search/filter inputs by 150ms
+   - No blur effects except small overlays (<400x400px)
+6. **One design system shared.** Same tokens, same components. IDE chrome uses Nova-inspired syntax palette (see `system-tokens.md` §2.3). Chat density follows compact messaging app conventions (8-12px vertical padding between messages).
 7. **TUI-native feel.** Keyboard-first nav, tmux-compatible prefix keys, terminal always one keystroke away. GUI exists as harness making complex workflows possible — orchestrating multiple agents, visual diff review, long-running parallel tasks — things painful in raw terminal.
 
 ---
