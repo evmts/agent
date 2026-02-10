@@ -192,10 +192,9 @@ pub fn build(b: *std.Build) void {
     const arm64_fat = addLibtoolStep(b, "libsmithers-arm64-fat.a", &.{ arm64_build.lib_output, arm64_build.sqlite_output });
     const x86_64_fat = addLibtoolStep(b, "libsmithers-x86_64-fat.a", &.{ x86_64_build.lib_output, x86_64_build.sqlite_output });
 
-    // Produce a universal archive and package as a single macOS slice for maximum compatibility.
-    const universal = addLipoStep(b, "libsmithers-universal.a", arm64_fat, x86_64_fat);
+    // Package per-arch libraries directly for clearer slices (avoids lipo quirks).
     const xcfw_out = "dist/SmithersKit.xcframework"; // Resolved against build root below.
-    const xcfw_create = addXCFrameworkStep(b, &.{universal}, b.path("include"), xcfw_out);
+    const xcfw_create = addXCFrameworkStep(b, &.{ arm64_fat, x86_64_fat }, b.path("include"), xcfw_out);
     xcframework_step.dependOn(xcfw_create);
 
     // Optional: run xcframework validation scripts
