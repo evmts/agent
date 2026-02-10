@@ -1,0 +1,19 @@
+# Zig
+.zig-cache/
+zig-out/
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+
+# Smithers workflow runtime
+scripts/smithers-workflow/.smithers/
+scripts/smithers-workflow/*.db
+
+# Prototype1 (Next.js)
+prototype1/.next/
+
+# Environment
+.env*.local
