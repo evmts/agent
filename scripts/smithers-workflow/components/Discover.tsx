@@ -1,7 +1,7 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { render } from "../lib/render";
 import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude } from "../agents";
@@ -14,7 +14,7 @@ export const discoverTable = sqliteTable("discover", {
   tickets: text("tickets", { mode: "json" }).$type<any[]>().notNull(),
   reasoning: text("reasoning"),
   completionEstimate: text("completion_estimate"),
-});
+}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const ticketSchema = z.object({
   id: z.string().describe("Unique ticket identifier (e.g. 'T-001')"),
@@ -29,12 +29,16 @@ export const ticketSchema = z.object({
 });
 
 export const discoverOutputSchema = z.object({
-  tickets: z.array(ticketSchema).min(1).max(5).describe("The next 1-5 tickets to implement"),
+  tickets: z.array(ticketSchema).max(5).describe("The next 0-5 tickets to implement"),
   reasoning: z.string().describe("Why these tickets were chosen and in this order"),
   completionEstimate: z.string().describe("Overall progress estimate for the project"),
 });
 
-export function Discover() {
+interface DiscoverProps {
+  previousRun?: { summary: string; ticketsCompleted: string[] } | null;
+}
+
+export function Discover({ previousRun }: DiscoverProps) {
   return (
     <Task
       id="discover"
@@ -43,6 +47,7 @@ export function Discover() {
       agent={claude}
     >
       {render(DiscoverPrompt, {
+        previousRun,
         discoverSchema: zodSchemaToJsonExample(discoverOutputSchema),
       })}
     </Task>

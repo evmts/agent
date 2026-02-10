@@ -1,7 +1,7 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { render } from "../lib/render";
 import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { codex } from "../agents";
@@ -13,14 +13,14 @@ export const validateTable = sqliteTable("validate", {
   nodeId: text("node_id").notNull(),
   iteration: integer("iteration").notNull().default(0),
   ticketId: text("ticket_id").notNull(),
-  zigTestsPassed: integer("zig_tests_passed").notNull(),
-  playwrightTestsPassed: integer("playwright_tests_passed"),
-  buildSucceeded: integer("build_succeeded").notNull(),
-  lintPassed: integer("lint_passed").notNull(),
-  allPassed: integer("all_passed").notNull(),
+  zigTestsPassed: integer("zig_tests_passed", { mode: "boolean" }),
+  playwrightTestsPassed: integer("playwright_tests_passed", { mode: "boolean" }),
+  buildSucceeded: integer("build_succeeded", { mode: "boolean" }),
+  lintPassed: integer("lint_passed", { mode: "boolean" }),
+  allPassed: integer("all_passed", { mode: "boolean" }),
   failingSummary: text("failing_summary"),
-  fullOutput: text("full_output").notNull(),
-});
+  fullOutput: text("full_output"),
+}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const validateOutputSchema = z.object({
   ticketId: z.string().describe("The ticket being validated"),

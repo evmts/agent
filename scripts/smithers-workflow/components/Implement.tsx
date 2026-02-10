@@ -1,7 +1,7 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { render } from "../lib/render";
 import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { codex } from "../agents";
@@ -14,13 +14,13 @@ export const implementTable = sqliteTable("implement", {
   ticketId: text("ticket_id").notNull(),
   filesCreated: text("files_created", { mode: "json" }).$type<string[]>(),
   filesModified: text("files_modified", { mode: "json" }).$type<string[]>(),
-  commitMessages: text("commit_messages", { mode: "json" }).$type<string[]>().notNull(),
-  whatWasDone: text("what_was_done").notNull(),
-  testsWritten: text("tests_written", { mode: "json" }).$type<string[]>().notNull(),
-  docsUpdated: text("docs_updated", { mode: "json" }).$type<string[]>().notNull(),
-  allTestsPassing: integer("all_tests_passing").notNull(),
-  testOutput: text("test_output").notNull(),
-});
+  commitMessages: text("commit_messages", { mode: "json" }).$type<string[]>(),
+  whatWasDone: text("what_was_done"),
+  testsWritten: text("tests_written", { mode: "json" }).$type<string[]>(),
+  docsUpdated: text("docs_updated", { mode: "json" }).$type<string[]>(),
+  allTestsPassing: integer("all_tests_passing", { mode: "boolean" }),
+  testOutput: text("test_output"),
+}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const implementOutputSchema = z.object({
   ticketId: z.string().describe("The ticket being implemented"),
@@ -40,9 +40,19 @@ interface ImplementProps {
   ticketDescription: string;
   acceptanceCriteria: string;
   contextFilePath: string;
-  planSummary: string;
-  approachDecisions: string;
-  filesAffected: string;
+  planFilePath: string;
+  previousImplementation: {
+    whatWasDone: string | null;
+    testOutput: string | null;
+  } | null;
+  reviewFixes: string | null;
+  validationFeedback: {
+    allPassed: boolean | null;
+    failingSummary: string | null;
+    buildSucceeded: boolean | null;
+    zigTestsPassed: boolean | null;
+    playwrightTestsPassed: boolean | null;
+  } | null;
 }
 
 export function Implement({
@@ -51,9 +61,10 @@ export function Implement({
   ticketDescription,
   acceptanceCriteria,
   contextFilePath,
-  planSummary,
-  approachDecisions,
-  filesAffected,
+  planFilePath,
+  previousImplementation,
+  reviewFixes,
+  validationFeedback,
 }: ImplementProps) {
   return (
     <Task
@@ -68,9 +79,10 @@ export function Implement({
         ticketDescription,
         acceptanceCriteria,
         contextFilePath,
-        planSummary,
-        approachDecisions,
-        filesAffected,
+        planFilePath,
+        previousImplementation,
+        reviewFixes,
+        validationFeedback,
         implementSchema: zodSchemaToJsonExample(implementOutputSchema),
       })}
     </Task>

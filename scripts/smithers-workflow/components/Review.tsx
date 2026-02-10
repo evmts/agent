@@ -1,10 +1,10 @@
 
 import { Task, Parallel } from "smithers";
 import { z } from "zod";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { render } from "../lib/render";
 import { zodSchemaToJsonExample } from "../lib/zod-to-example";
-import { claude, codex, gemini } from "../agents";
+import { claude, codex } from "../agents";
 import type { WorkflowCtx } from "./ctx-type";
 import ReviewPrompt from "../prompts/5_review.mdx";
 import type { Ticket, ImplementRow, ValidateRow } from "./types";
@@ -14,17 +14,17 @@ export const reviewTable = sqliteTable("review", {
   nodeId: text("node_id").notNull(),
   iteration: integer("iteration").notNull().default(0),
   ticketId: text("ticket_id").notNull(),
-  reviewer: text("reviewer").notNull(),
-  approved: integer("approved").notNull(),
-  issues: text("issues", { mode: "json" }).$type<any[]>().notNull(),
-  testCoverage: text("test_coverage").notNull(),
-  codeQuality: text("code_quality").notNull(),
-  feedback: text("feedback").notNull(),
-});
+  reviewer: text("reviewer"),
+  approved: integer("approved", { mode: "boolean" }),
+  issues: text("issues", { mode: "json" }).$type<any[]>(),
+  testCoverage: text("test_coverage"),
+  codeQuality: text("code_quality"),
+  feedback: text("feedback"),
+}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const reviewOutputSchema = z.object({
   ticketId: z.string().describe("The ticket being reviewed"),
-  reviewer: z.string().describe("Which agent reviewed (claude, codex, gemini)"),
+  reviewer: z.string().describe("Which agent reviewed (claude, codex)"),
   approved: z.boolean().describe("Whether the reviewer approves (LGTM)"),
   issues: z.array(z.object({
     severity: z.enum(["critical", "major", "minor", "nit"]),
@@ -47,14 +47,6 @@ interface ReviewProps {
   validationPassed: boolean;
 }
 
-function parseJson<T>(raw: string | null | undefined): T | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
 
 export function Review({
   ctx,
@@ -64,6 +56,9 @@ export function Review({
   latestValidate,
   validationPassed,
 }: ReviewProps) {
+  if (!validationPassed) {
+    return null;
+  }
   const reviewSchema = zodSchemaToJsonExample(reviewOutputSchema);
 
   const reviewProps = {
@@ -71,8 +66,8 @@ export function Review({
     ticketTitle: ticket.title,
     ticketDescription: ticket.description,
     acceptanceCriteria: ticket.acceptanceCriteria?.join("\n- ") ?? "",
-    filesCreated: parseJson(latestImplement?.filesCreated) ?? [],
-    filesModified: parseJson(latestImplement?.filesModified) ?? [],
+    filesCreated: latestImplement?.filesCreated ?? [],
+    filesModified: latestImplement?.filesModified ?? [],
     zigTests: latestValidate?.zigTestsPassed ? "PASS" : "FAIL",
     playwrightTests:
       latestValidate?.playwrightTestsPassed == null
@@ -86,7 +81,7 @@ export function Review({
   };
 
   return (
-    <Parallel skipIf={!validationPassed}>
+    <Parallel>
       <Task
         id={`${ticketId}:review-claude`}
         output={reviewTable}
@@ -103,15 +98,6 @@ export function Review({
         agent={codex}
       >
         {render(ReviewPrompt, { ...reviewProps, reviewer: "codex" })}
-      </Task>
-
-      <Task
-        id={`${ticketId}:review-gemini`}
-        output={reviewTable}
-        outputSchema={reviewOutputSchema}
-        agent={gemini}
-      >
-        {render(ReviewPrompt, { ...reviewProps, reviewer: "gemini" })}
       </Task>
     </Parallel>
   );

@@ -1,7 +1,7 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { render } from "../lib/render";
 import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude } from "../agents";
@@ -16,9 +16,9 @@ export const researchTable = sqliteTable("research", {
   externalDocs: text("external_docs", { mode: "json" }).$type<any[]>(),
   referenceCode: text("reference_code", { mode: "json" }).$type<any[]>(),
   existingImplementation: text("existing_implementation", { mode: "json" }).$type<string[]>(),
-  contextFilePath: text("context_file_path").notNull(),
-  summary: text("summary").notNull(),
-});
+  contextFilePath: text("context_file_path"),
+  summary: text("summary"),
+}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const researchOutputSchema = z.object({
   ticketId: z.string().describe("The ticket being researched"),
