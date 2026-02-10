@@ -11,6 +11,7 @@ zig build          # Build everything
 zig build run      # Build + run CLI
 zig build test     # Run tests
 zig build all      # Build + tests + fmt/lint checks
+zig build xcframework  # Build dist/SmithersKit.xcframework (arm64+x86_64)
 ```
 
 ## Project Structure
@@ -20,8 +21,17 @@ zig build all      # Build + tests + fmt/lint checks
 - `web/` — SolidJS web app
 - `pkg/` — Vendored C/C++ dependencies
 - `include/` — C API header
+- `dist/` — Build artifacts (e.g., SmithersKit.xcframework)
 - `submodules/` — Git submodules (Codex fork, JJ fork)
 - `scripts/` — Automation and workflow tooling
+
+## Using SmithersKit.xcframework in Xcode
+
+1. Build the framework: `zig build xcframework` (outputs to `dist/SmithersKit.xcframework`).
+2. In Xcode, drag `dist/SmithersKit.xcframework` into your project (Embed & Sign not required for static libs).
+3. In Swift, a bridging header is only needed if mixing Objective‑C(++) — Xcode exposes C headers from xcframeworks automatically. You can also use a module map.
+4. Linker: the xcframework archive bundles compiler-rt and SQLite. If you consume the raw Zig static library from `zig-out/`, you may need to link these yourself.
+5. Minimum macOS: 14.0 (Sonoma). For manual `clang` link tests add `-mmacosx-version-min=14.0` to silence ld warnings.
 
 ## License
 

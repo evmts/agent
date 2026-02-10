@@ -16,7 +16,6 @@ export const planTable = sqliteTable("plan", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const planOutputSchema = z.object({
-  ticketId: z.string().default("unknown").describe("The ticket being planned"),
   implementationSteps: z.array(z.object({
     step: z.number(),
     description: z.string(),

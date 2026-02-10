@@ -14,7 +14,6 @@ export const reviewFixTable = sqliteTable("review_fix", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const reviewFixOutputSchema = z.object({
-  ticketId: z.string().default("unknown").describe("The ticket being fixed"),
   fixesMade: z.array(z.object({
     issue: z.string(),
     fix: z.string(),

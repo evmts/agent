@@ -1,0 +1,11 @@
+.{
+    .name = .sqlite,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "sqlite3.c",
+        "sqlite3.h",
+    },
+}

@@ -17,7 +17,6 @@ export const implementTable = sqliteTable("implement", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const implementOutputSchema = z.object({
-  ticketId: z.string().default("unknown").describe("The ticket being implemented"),
   filesCreated: z.array(z.string()).nullable().describe("Files created"),
   filesModified: z.array(z.string()).nullable().describe("Files modified"),
   commitMessages: z.array(z.string()).describe("Git commit messages made"),

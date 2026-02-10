@@ -15,7 +15,6 @@ export const researchTable = sqliteTable("research", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const researchOutputSchema = z.object({
-  ticketId: z.string().default("unknown").describe("The ticket being researched"),
   referenceFiles: z.array(z.string()).describe("Files in the repo that are relevant"),
   externalDocs: z.array(z.object({
     url: z.string(),
