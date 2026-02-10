@@ -1,5 +1,5 @@
-
 import { Ralph, Sequence } from "smithers";
+import { z } from "zod";
 import { Implement } from "./Implement";
 import { implementTable } from "./Implement";
 import { Validate } from "./Validate";
@@ -7,7 +7,8 @@ import { validateTable } from "./Validate";
 import { Review } from "./Review";
 import { reviewTable } from "./Review";
 import { ReviewFix } from "./ReviewFix";
-import type { WorkflowCtx } from "./ctx-type";
+import { typedOutput, type WorkflowCtx } from "./ctx-type";
+import { coerceJsonArray } from "../lib/coerce";
 import type {
   Ticket,
   ResearchRow,
@@ -34,36 +35,56 @@ export function ValidationLoop({
   latestResearch,
   latestPlan,
 }: ValidationLoopProps) {
-  const latestImplement = ctx.outputMaybe(implementTable, {
+  const latestImplement = typedOutput<ImplementRow>(ctx, implementTable, {
     nodeId: `${ticketId}:implement`,
-  }) as ImplementRow | undefined;
+  });
 
-  const latestValidate = ctx.outputMaybe(validateTable, {
+  const latestValidate = typedOutput<ValidateRow>(ctx, validateTable, {
     nodeId: `${ticketId}:validate`,
-  }) as ValidateRow | undefined;
+  });
 
-  const claudeReview = ctx.outputMaybe(reviewTable, {
+  const claudeReview = typedOutput<ReviewRow>(ctx, reviewTable, {
     nodeId: `${ticketId}:review-claude`,
-  }) as ReviewRow | undefined;
-  const codexReview = ctx.outputMaybe(reviewTable, {
+  });
+  const codexReview = typedOutput<ReviewRow>(ctx, reviewTable, {
     nodeId: `${ticketId}:review-codex`,
-  }) as ReviewRow | undefined;
-  const geminiReview = ctx.outputMaybe(reviewTable, {
-    nodeId: `${ticketId}:review-gemini`,
-  }) as ReviewRow | undefined;
+  });
 
   const allApproved =
-    (claudeReview?.approved ?? 0) === 1 &&
-    (codexReview?.approved ?? 0) === 1 &&
-    (geminiReview?.approved ?? 0) === 1;
+    !!claudeReview?.approved &&
+    !!codexReview?.approved;
 
-  const validationPassed = (latestValidate?.allPassed ?? 0) === 1;
+  const validationPassed = !!latestValidate?.allPassed;
+
+  const issueItem = z.object({
+    severity: z.string(),
+    file: z.string(),
+    line: z.number().nullable(),
+    description: z.string(),
+    suggestion: z.string().nullable(),
+  });
+  const reviewIssues = [
+    ...coerceJsonArray(claudeReview?.issues, issueItem),
+    ...coerceJsonArray(codexReview?.issues, issueItem),
+  ];
+
+  const reviewFeedback = [
+    claudeReview?.feedback,
+    codexReview?.feedback,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const reviewFixesSummary =
+    reviewIssues.length > 0
+      ? `Issues from review:\n${JSON.stringify(reviewIssues, null, 2)}\n\nFeedback:\n${reviewFeedback}`
+      : null;
 
   return (
     <Ralph
       id={`${ticketId}:impl-review-loop`}
       until={allApproved}
-      maxIterations={MAX_REVIEW_ROUNDS * 3}
+      maxIterations={MAX_REVIEW_ROUNDS}
       onMaxReached="return-last"
     >
       <Sequence>
@@ -75,9 +96,27 @@ export function ValidationLoop({
           contextFilePath={
             latestResearch?.contextFilePath ?? `docs/context/${ticketId}.md`
           }
-          planSummary={latestPlan?.planFilePath ?? ""}
-          approachDecisions={latestPlan?.implementationSteps ?? ""}
-          filesAffected={`Files to create: ${latestPlan?.filesToCreate ?? ""}\nFiles to modify: ${latestPlan?.filesToModify ?? ""}`}
+          planFilePath={latestPlan?.planFilePath ?? `docs/plans/${ticketId}.md`}
+          previousImplementation={
+            latestImplement
+              ? {
+                  whatWasDone: latestImplement.whatWasDone ?? null,
+                  testOutput: latestImplement.testOutput ?? null,
+                }
+              : null
+          }
+          reviewFixes={reviewFixesSummary}
+          validationFeedback={
+            latestValidate
+              ? {
+                  allPassed: latestValidate.allPassed ?? null,
+                  failingSummary: latestValidate.failingSummary ?? null,
+                  buildSucceeded: latestValidate.buildSucceeded ?? null,
+                  zigTestsPassed: latestValidate.zigTestsPassed ?? null,
+                  playwrightTestsPassed: latestValidate.playwrightTestsPassed ?? null,
+                }
+              : null
+          }
         />
 
         <Validate
@@ -100,6 +139,7 @@ export function ValidationLoop({
           ticketId={ticketId}
           ticketTitle={ticket.title}
           allApproved={allApproved}
+          validationPassed={validationPassed}
         />
       </Sequence>
     </Ralph>

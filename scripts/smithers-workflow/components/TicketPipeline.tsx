@@ -1,4 +1,3 @@
-
 import { Sequence } from "smithers";
 import { Research } from "./Research";
 import { researchTable } from "./Research";
@@ -8,13 +7,15 @@ import { ValidationLoop } from "./ValidationLoop";
 import { Report } from "./Report";
 import { reportTable } from "./Report";
 import { implementTable } from "./Implement";
-import type { WorkflowCtx } from "./ctx-type";
+import { reviewTable } from "./Review";
+import { typedOutput, type WorkflowCtx } from "./ctx-type";
 import type {
   Ticket,
   ResearchRow,
   PlanRow,
   ImplementRow,
   ReportRow,
+  ReviewRow,
 } from "./types";
 
 interface TicketPipelineProps {
@@ -25,23 +26,35 @@ interface TicketPipelineProps {
 export function TicketPipeline({ ctx, ticket }: TicketPipelineProps) {
   const tid = ticket.id;
 
-  const latestResearch = ctx.outputMaybe(researchTable, {
+  const latestResearch = typedOutput<ResearchRow>(ctx, researchTable, {
     nodeId: `${tid}:research`,
-  }) as ResearchRow | undefined;
+  });
 
-  const latestPlan = ctx.outputMaybe(planTable, {
+  const latestPlan = typedOutput<PlanRow>(ctx, planTable, {
     nodeId: `${tid}:plan`,
-  }) as PlanRow | undefined;
+  });
 
-  const latestImplement = ctx.outputMaybe(implementTable, {
+  const latestImplement = typedOutput<ImplementRow>(ctx, implementTable, {
     nodeId: `${tid}:implement`,
-  }) as ImplementRow | undefined;
+  });
 
-  const latestReport = ctx.outputMaybe(reportTable, {
+  const latestReport = typedOutput<ReportRow>(ctx, reportTable, {
     nodeId: `${tid}:report`,
-  }) as ReportRow | undefined;
+  });
 
   const ticketComplete = latestReport != null;
+
+  const claudeReview = typedOutput<ReviewRow>(ctx, reviewTable, {
+    nodeId: `${tid}:review-claude`,
+  });
+  const codexReview = typedOutput<ReviewRow>(ctx, reviewTable, {
+    nodeId: `${tid}:review-codex`,
+  });
+
+  const allApproved = !!claudeReview?.approved && !!codexReview?.approved;
+
+  const hasReviews = claudeReview != null || codexReview != null;
+  const loopExhausted = hasReviews && !allApproved;
 
   return (
     <Sequence key={tid} skipIf={ticketComplete}>
@@ -78,6 +91,7 @@ export function TicketPipeline({ ctx, ticket }: TicketPipelineProps) {
         ticketTitle={ticket.title}
         ticketDescription={ticket.description}
         latestImplement={latestImplement}
+        loopExhausted={loopExhausted}
       />
     </Sequence>
   );
