@@ -23,3 +23,20 @@ export function typedOutput<T>(
   }
   return latest as T | undefined;
 }
+
+/** Count distinct iterations for a given nodeId prefix (e.g. "ticket:review-claude"). */
+export function iterationCount(
+  ctx: WorkflowCtx,
+  table: SQLiteTable,
+  args: { nodeId: string },
+): number {
+  const rows = (ctx.outputs as any)(table) as any[] | undefined;
+  if (!rows || rows.length === 0) return 0;
+  const seen = new Set<number>();
+  for (const row of rows) {
+    if (!row || row.nodeId !== args.nodeId) continue;
+    const iter = Number.isFinite(Number(row.iteration)) ? Number(row.iteration) : 0;
+    seen.add(iter);
+  }
+  return seen.size;
+}

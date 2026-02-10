@@ -9,7 +9,7 @@ export type Ticket = {
   title: string;
   description: string;
   scope: "zig" | "swift" | "web" | "e2e" | "docs" | "build";
-  endToEnd: boolean;
+  layers: ("zig" | "swift" | "web")[];
   acceptanceCriteria: string[];
   testPlan: string;
   estimatedComplexity: "trivial" | "small" | "medium" | "large";
@@ -57,10 +57,6 @@ export type ImplementRow = {
 
 export type ValidateRow = {
   ticketId: string;
-  zigTestsPassed: boolean;
-  playwrightTestsPassed: boolean | null;
-  buildSucceeded: boolean;
-  lintPassed: boolean;
   allPassed: boolean;
   failingSummary: string | null;
   fullOutput: string;
@@ -79,7 +75,7 @@ export type ReviewRow = {
 export type ReviewFixRow = {
   ticketId: string;
   fixesMade: { issue: string; fix: string; file: string }[];
-  falsePositiveComments: { file: string; line: number; comment: string }[] | null;
+  falsePositiveComments: { file: string; line: number; issue: string; rationale: string }[] | null;
   commitMessages: string[];
   allIssuesResolved: boolean;
   summary: string;
