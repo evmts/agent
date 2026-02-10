@@ -1,40 +1,39 @@
-# Zig Coding Rules (Critical — LLMs commonly get these wrong)
+# Zig Rules (LLMs get these wrong)
 
-This project targets Zig 0.14. Do NOT use APIs from 0.11, 0.12, 0.13, or 0.15.
+Target: Zig 0.14. NOT 0.11, 0.12, 0.13, 0.15.
 
-## Common Mistakes to Avoid
-- **ArrayList**: In 0.14, prefer ArrayListUnmanaged (pass allocator to every method). std.ArrayList still works but is transitional.
-- **JSON**: Use `std.json.parseFromSlice(T, allocator, input, .{})` — returns `Parsed(T)` with `.value` and `.deinit()`. Do NOT forget `defer parsed.deinit()`.
-- **HashMap**: Use AutoHashMap for integer keys, StringHashMap for `[]const u8` keys. NEVER use AutoHashMap with string keys.
-- **Type introspection**: In 0.14+, use `.int`, `.@"struct"`, `.@"enum"` (lowercase with @ prefix for keywords). NOT `.Int`, `.Struct`, `.Enum`.
-- `std.mem.page_size` is now `std.heap.pageSize()` or `page_size_min`/`page_size_max`.
-- `std.rand` is now `std.Random`.
-- `std.TailQueue` is now `std.DoublyLinkedList`.
-- `std.ChildProcess` is now `std.process.Child`.
-- `@setCold(true)` is now `@branchHint(.cold)`.
+## Common Mistakes
+- **ArrayList**: 0.14 prefers ArrayListUnmanaged (pass allocator to every method). std.ArrayList transitional.
+- **JSON**: `std.json.parseFromSlice(T, allocator, input, .{})` returns `Parsed(T)` with `.value` + `.deinit()`. NEVER forget `defer parsed.deinit()`.
+- **HashMap**: AutoHashMap for integer keys, StringHashMap for `[]const u8`. NEVER AutoHashMap with string keys.
+- **Type introspection**: 0.14+ uses `.int`, `.@"struct"`, `.@"enum"` (lowercase + @ prefix for keywords). NOT `.Int`, `.Struct`, `.Enum`.
+- `std.mem.page_size` → `std.heap.pageSize()` or `page_size_min`/`page_size_max`
+- `std.rand` → `std.Random`
+- `std.TailQueue` → `std.DoublyLinkedList`
+- `std.ChildProcess` → `std.process.Child`
+- `@setCold(true)` → `@branchHint(.cold)`
 
 ## Allocator Patterns
-- Pass allocators explicitly. Never use global state.
-- Use ArenaAllocator for batch allocations with shared lifetime (request-scoped, JSON parsing).
-- Use `std.testing.allocator` in ALL tests (detects leaks).
-- Use `defer`/`errdefer` immediately after allocation.
+- Pass explicitly. NO global state.
+- ArenaAllocator for batch allocations with shared lifetime (request-scoped, JSON parsing).
+- `std.testing.allocator` in ALL tests (leak detection).
+- `defer`/`errdefer` immediately after allocation.
 
 ## Error Handling
-- Define explicit error sets. NEVER use `anyerror`.
-- Handle all error cases. NEVER use `catch {}` or `catch |_| {}`.
-- Use `errdefer` for cleanup on error paths.
+- Explicit error sets. NEVER `anyerror`.
+- Handle all cases. NEVER `catch {}` or `catch |_| {}`.
+- `errdefer` for cleanup on error paths.
 
 ## Comptime
-- Prefer `comptime T: type` over `anytype` for generics.
-- Use comptime for dependency injection (vtable pattern like in `src/host.zig`).
+- `comptime T: type` (NOT `anytype`) for generics.
+- Use for dependency injection (vtable like `src/host.zig`).
 
 ## Style
-- Prefer `const` over `var`. Prefer slices over raw pointers.
-- Use `std.log.scoped` for namespaced loggers.
-- Handle all switch branches exhaustively.
+- `const` over `var`; slices over raw pointers
+- `std.log.scoped` for namespaced loggers
+- Exhaustive switches
 
-## When Stuck on Stdlib APIs
-The Zig standard library changes frequently. If you're unsure about an API, read the actual source files.
-On macOS with Homebrew, the Zig stdlib is at: `/opt/homebrew/lib/zig/std/`
-Read the actual `.zig` files there as the source of truth.
-Common files to check: `std/json.zig`, `std/array_list.zig`, `std/hash_map.zig`, `std/io.zig`, `std/heap.zig`
+## Stdlib API Help
+Zig stdlib changes frequently. Unsure → read source.
+macOS Homebrew: `/opt/homebrew/lib/zig/std/`
+Check: `std/json.zig`, `std/array_list.zig`, `std/hash_map.zig`, `std/io.zig`, `std/heap.zig`
