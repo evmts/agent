@@ -3,17 +3,17 @@ import AppKit
 enum DS {
     enum Color {
         // Core surfaces
-        static let base = NSColor.fromHex("#0F111A")!
-        static let surface1 = NSColor.fromHex("#141826")!
-        static let surface2 = NSColor.fromHex("#1A2030")!
+        static let base = mustHex("#0F111A")
+        static let surface1 = mustHex("#141826")
+        static let surface2 = mustHex("#1A2030")
         static let border = NSColor.white.withAlphaComponent(0.08)
 
         // Accent & semantic
-        static let accent = NSColor.fromHex("#4C8DFF")!
-        static let success = NSColor.fromHex("#34D399")!
-        static let warning = NSColor.fromHex("#FBBF24")!
-        static let danger  = NSColor.fromHex("#F87171")!
-        static let info    = NSColor.fromHex("#60A5FA")!
+        static let accent = mustHex("#4C8DFF")
+        static let success = mustHex("#34D399")
+        static let warning = mustHex("#FBBF24")
+        static let danger  = mustHex("#F87171")
+        static let info    = mustHex("#60A5FA")
 
         // Chat surfaces
         static let chatSidebarBg = NSColor.fromHex("#0C0E16")!
@@ -29,7 +29,7 @@ enum DS {
 
         // Chat bubbles
         static let chatBubbleAssistant = NSColor.white.withAlphaComponent(0.05)
-        static let chatBubbleUser = accent.withAlphaComponent(0.12) // v2 spec change
+        static let chatBubbleUser = accent.withAlphaComponent(0.12)
         static let chatBubbleCommand = NSColor.white.withAlphaComponent(0.04)
         static let chatBubbleStatus = NSColor.white.withAlphaComponent(0.04)
         static let chatBubbleDiff = NSColor.white.withAlphaComponent(0.05)
@@ -39,9 +39,16 @@ enum DS {
         static let textPrimary = NSColor.white.withAlphaComponent(0.88)
         static let textSecondary = NSColor.white.withAlphaComponent(0.60)
         static let textTertiary = NSColor.white.withAlphaComponent(0.45)
+
+        // Overlay helpers
+        static let overlayWhite06 = NSColor.white.withAlphaComponent(0.06)
+        static let overlayWhite10 = NSColor.white.withAlphaComponent(0.10)
+        // Text on accent background
+        static let onAccentText = NSColor.white.withAlphaComponent(0.92)
     }
 
-    enum Typography {
+    // Named `Type` to align with spec (type.xs, type.base). Uppercase avoids keyword collision.
+    enum Type {
         static let xs: CGFloat = 10
         static let s: CGFloat = 11
         static let base: CGFloat = 13
@@ -78,3 +85,8 @@ enum DS {
     }
 }
 
+// Helper to fail fast if a token hex is malformed.
+private func mustHex(_ s: String) -> NSColor {
+    guard let c = NSColor.fromHex(s) else { preconditionFailure("Invalid design token hex: \(s)") }
+    return c
+}

@@ -33,19 +33,19 @@
 	B11111111111111111111111 /* SmithersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithersTests.swift; sourceTree = "<group>"; };
 	C11111111111111111111121 /* SmithersCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithersCore.swift; sourceTree = "<group>"; };
 	C44444444444444444444441 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-	D20000000000000000000001 /* Helpers */ = {isa = PBXGroup; children = (
-		D20000000000000000000002 /* Extensions */,
-		D00000000000000000000005 /* DesignSystem */,
-	); path = Helpers; sourceTree = "<group>"; };
+		D20000000000000000000001 /* Helpers */ = {isa = PBXGroup; children = (
+			D20000000000000000000002 /* Extensions */,
+			D20000000000000000000003 /* DesignSystem */,
+		); path = Helpers; sourceTree = "<group>"; };
 	D20000000000000000000002 /* Extensions */ = {isa = PBXGroup; children = (
 		D00000000000000000000001 /* NSColor+Hex.swift */,
 	); path = Extensions; sourceTree = "<group>"; };
 	D00000000000000000000006 /* DesignSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystemTests.swift; sourceTree = "<group>"; };
-	D00000000000000000000005 /* DesignSystem */ = {isa = PBXGroup; children = (
-		D00000000000000000000002 /* Tokens.swift */,
-		D00000000000000000000003 /* AppTheme.swift */,
-		D00000000000000000000004 /* Components.swift */,
-	); path = DesignSystem; sourceTree = "<group>"; };
+		D20000000000000000000003 /* DesignSystem */ = {isa = PBXGroup; children = (
+			D00000000000000000000002 /* Tokens.swift */,
+			D00000000000000000000003 /* AppTheme.swift */,
+			D00000000000000000000004 /* Components.swift */,
+		); path = DesignSystem; sourceTree = "<group>"; };
 	D00000000000000000000004 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 	D00000000000000000000003 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 	D00000000000000000000002 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
@@ -78,7 +78,8 @@
 		A00000000000000000000018 /* App */,
 		C11111111111111111111123 /* Ghostty */,
 	
-		D20000000000000000000001 /* Helpers */,); path = Sources; sourceTree = "<group>"; };
+		D20000000000000000000001 /* Helpers */,
+		); path = Sources; sourceTree = "<group>"; };
 	A00000000000000000000005 /* Frameworks */ = {isa = PBXGroup; children = (
 		A00000000000000000000014 /* SmithersKit.xcframework */,
 	); name = Frameworks; sourceTree = "<group>"; };
@@ -89,7 +90,8 @@
 	B1111111111111111111111B /* Tests */ = {isa = PBXGroup; children = (
 		B11111111111111111111111 /* SmithersTests.swift */,
 	
-		D00000000000000000000006 /* DesignSystemTests.swift */,); name = Tests; path = SmithersTests; sourceTree = "<group>"; };
+		D00000000000000000000006 /* DesignSystemTests.swift */,
+		); name = Tests; path = SmithersTests; sourceTree = "<group>"; };
 	C11111111111111111111123 /* Ghostty */ = {isa = PBXGroup; children = (
 		C11111111111111111111121 /* SmithersCore.swift */,
 	); path = Ghostty; sourceTree = "<group>"; };
@@ -131,14 +133,16 @@
 		D10000000000000000000001 /* NSColor+Hex.swift in Sources */,
 		D10000000000000000000002 /* Tokens.swift in Sources */,
 		D10000000000000000000003 /* AppTheme.swift in Sources */,
-		D10000000000000000000004 /* Components.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		D10000000000000000000004 /* Components.swift in Sources */,
+		); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		B11111111111111111111112 /* SmithersTests.swift in Sources */,
 	
 		D10000000000000000000006 /* DesignSystemTests.swift in Sources */,
 		D10000000000000000000014 /* NSColor+Hex.swift in Sources (Tests) */,
 		D10000000000000000000012 /* Tokens.swift in Sources (Tests) */,
-		D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */,); runOnlyForDeploymentPostprocessing = 0; };
+		D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */,
+		); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 /* Begin PBXShellScriptBuildPhase section */
 	C22222222222222222222224 /* Verify SmithersKit.xcframework */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = ( ); inputFileListPaths = ( ); inputPaths = ( ); name = "Verify SmithersKit.xcframework"; outputFileListPaths = ( ); outputPaths = ( ); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "if [ ! -d \"${SRCROOT}/../dist/SmithersKit.xcframework\" ]; then\n  echo \"SmithersKit.xcframework not found at ../dist. Building via 'zig build xcframework'...\"\n  ROOT=\"$(cd \"${SRCROOT}/..\"; pwd)\"\n  cd \"$ROOT\"\n  if ! command -v zig >/dev/null 2>&1; then\n    echo \"zig not found. Install Zig or build xcframework manually.\" >&2\n    exit 1\n  fi\n  zig build xcframework || { echo \"zig build xcframework failed\"; exit 1; }\nfi\n"; };
@@ -177,8 +181,7 @@ A0000000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSetting
         ENABLE_PREVIEWS = YES;
         GENERATE_INFOPLIST_FILE = YES;
         ENABLE_TESTABILITY = YES;
-        DEFINES_MODULE = YES;
-		ENABLE_TESTABILITY = YES;
+        
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		INFOPLIST_FILE = "Smithers-Info.plist";
         LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );

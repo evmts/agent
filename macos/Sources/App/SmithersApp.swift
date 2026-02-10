@@ -43,7 +43,7 @@ struct ChatWindowRootView: View {
             theme.backgroundColor
             Text("Chat Window")
                 .foregroundStyle(theme.foregroundColor)
-                .padding(24)
+                .padding(DS.Space._24)
         }
     }
 }
@@ -55,7 +55,7 @@ struct IDEWindowRootView: View {
             theme.backgroundColor
             Text("IDE Window")
                 .foregroundStyle(theme.foregroundColor)
-                .padding(24)
+                .padding(DS.Space._24)
         }
     }
 }

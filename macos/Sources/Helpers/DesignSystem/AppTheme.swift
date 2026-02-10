@@ -27,6 +27,7 @@ struct AppTheme: Equatable, Sendable {
     let inputFieldBackground: NSColor
 
     // Derived
+    // Threshold chosen to align with derived light theme surface stack; backgrounds above ~0.55 luminance are treated as light.
     var isLight: Bool { background.luminance > 0.55 }
     var colorScheme: ColorScheme { isLight ? .light : .dark }
 
@@ -89,10 +90,38 @@ private struct ThemeKey: EnvironmentKey {
     static let defaultValue: AppTheme = .dark
 }
 
+
+
+// Value-based Equatable: compare color values approximately in sRGB
+extension AppTheme {
+    static func == (lhs: AppTheme, rhs: AppTheme) -> Bool {
+        let pairs: [(NSColor, NSColor)] = [
+            (lhs.background, rhs.background),
+            (lhs.foreground, rhs.foreground),
+            (lhs.mutedForeground, rhs.mutedForeground),
+            (lhs.secondaryBackground, rhs.secondaryBackground),
+            (lhs.panelBackground, rhs.panelBackground),
+            (lhs.border, rhs.border),
+            (lhs.accent, rhs.accent),
+            (lhs.selectionBackground, rhs.selectionBackground),
+            (lhs.matchingBracket, rhs.matchingBracket),
+            (lhs.lineHighlight, rhs.lineHighlight),
+            (lhs.lineNumberForeground, rhs.lineNumberForeground),
+            (lhs.lineNumberSelectedForeground, rhs.lineNumberSelectedForeground),
+            (lhs.chatAssistantBubble, rhs.chatAssistantBubble),
+            (lhs.chatUserBubble, rhs.chatUserBubble),
+            (lhs.chatCommandBubble, rhs.chatCommandBubble),
+            (lhs.chatStatusBubble, rhs.chatStatusBubble),
+            (lhs.chatDiffBubble, rhs.chatDiffBubble),
+            (lhs.inputFieldBackground, rhs.inputFieldBackground),
+        ]
+        for (a, b) in pairs { if !a.isApproximatelyEqual(to: b) { return false } }
+        return true
+    }
+}
 extension EnvironmentValues {
     var theme: AppTheme {
         get { self[ThemeKey.self] }
         set { self[ThemeKey.self] = newValue }
     }
 }
-

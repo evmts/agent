@@ -1,7 +1,7 @@
 import AppKit
 
 extension NSColor {
-    /// Create an NSColor from a hex string like "#RRGGBB" or "#RRGGBBAA" or "0xRRGGBB".
+    /// Create an NSColor from a hex string like #RRGGBB or #RRGGBBAA or 0xRRGGBB.
     /// Returns nil if parsing fails.
     static func fromHex(_ hex: String) -> NSColor? {
         var s = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -29,9 +29,11 @@ extension NSColor {
         return NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
 
+    // Removed unused convenience init?(hex:) to keep API minimal
+
     /// Returns an uppercase hex string (RRGGBB or RRGGBBAA) in sRGB space.
     func toHexString(includeAlpha: Bool = false) -> String {
-        guard let c = usingColorSpace(.sRGB) else { return "" }
+        guard let c = usingColorSpace(.sRGB) else { preconditionFailure("NSColor not convertible to sRGB") }
         let r = Int(round(c.redComponent * 255))
         let g = Int(round(c.greenComponent * 255))
         let b = Int(round(c.blueComponent * 255))
@@ -57,5 +59,11 @@ extension NSColor {
                abs(a.blueComponent - b.blueComponent) <= tolerance &&
                abs(a.alphaComponent - b.alphaComponent) <= tolerance
     }
-}
 
+    /// Blends receiver with another color in sRGB color space.
+    func blended(with color: NSColor, fraction: CGFloat) -> NSColor {
+        let base = usingColorSpace(.sRGB) ?? self
+        let other = color.usingColorSpace(.sRGB) ?? color
+        return base.blended(withFraction: fraction, of: other) ?? base
+    }
+}

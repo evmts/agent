@@ -20,9 +20,7 @@ import AppKit
         #expect(AppTheme.light.background.luminance > 0.55)
     }
 
-    @Test func typographyBaseIs13() {
-        #expect(DS.Typography.base == 13)
-    }
+    @Test func typographyBaseIs13() { #expect(DS.Type.base == 13) }
 
     @Test func spacingGridValues() {
         #expect(DS.Space._4 == 4)
@@ -47,5 +45,20 @@ import AppKit
         // v2 spec: chat.bubble.user = accent@12%, not white@8%
         let expected = DS.Color.accent.withAlphaComponent(0.12)
         #expect(DS.Color.chatBubbleUser.isApproximatelyEqual(to: expected))
+    }
+    @Test func hexParsingInvalidReturnsNil() {
+        #expect(NSColor.fromHex("ZZZZZZ") == nil)
+        #expect(NSColor.fromHex("#12345") == nil)
+        #expect(NSColor.fromHex("") == nil)
+    }
+
+    @Test func approximateEqualityRejectsDifferentColors() {
+        let red = NSColor.fromHex("#FF0000")!
+        let blue = NSColor.fromHex("#0000FF")!
+        #expect(!red.isApproximatelyEqual(to: blue))
+    }
+
+    @Test func lightThemeKeepsAccent() {
+        #expect(AppTheme.light.accent.isApproximatelyEqual(to: AppTheme.dark.accent))
     }
 }
