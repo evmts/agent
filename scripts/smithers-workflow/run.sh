@@ -9,14 +9,14 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 cd "$SCRIPT_DIR"
 
-# Use CLI agents
-unset ANTHROPIC_API_KEY
-
+export USE_CLI_AGENTS=1
 export SMITHERS_DEBUG=1
+
+SMITHERS_CLI="${SMITHERS_CLI:-smithers}"
 
 echo "Starting Smithers v2 build workflow"
 echo "Root directory: $ROOT_DIR"
 echo "Press Ctrl+C to stop."
 echo ""
 
-bun run /Users/williamcory/guillotine-mini/smithers/src/cli/index.ts run workflow.tsx --input '{}' --root-dir "$ROOT_DIR"
+bun run "$SMITHERS_CLI" run workflow.tsx --input '{}' --root-dir "$ROOT_DIR"
