@@ -2,6 +2,7 @@
 .zig-cache/
 zig-out/
 dist/
+.build/
 
 # macOS
 .DS_Store

@@ -21,6 +21,15 @@ else
   echo "Header found at: ${HEADER_MATCH[0]}"
 fi
 
+# Verify module.modulemap exists for Swift import support
+MODULEMAP=( $(find "$XCFW" -type f -path '*/Headers/module.modulemap' -maxdepth 3) )
+if [[ ${#MODULEMAP[@]} -eq 0 ]]; then
+  echo "FAIL: Headers/module.modulemap missing in xcframework (needed for Swift imports)" >&2
+  exit 1
+else
+  echo "module.modulemap found at: ${MODULEMAP[0]}"
+fi
+
 LIBS=( $(find "$XCFW" -name '*.a' -maxdepth 3) )
 if [[ ${#LIBS[@]} -eq 0 ]]; then
   echo "FAIL: No .a found in xcframework" >&2

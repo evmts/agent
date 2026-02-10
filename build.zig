@@ -197,6 +197,9 @@ pub fn build(b: *std.Build) void {
     const xcfw_out = "dist/SmithersKit.xcframework"; // Resolved against build root below.
     const xcfw_create = addXCFrameworkStep(b, &.{universal}, b.path("include"), xcfw_out);
     xcframework_step.dependOn(xcfw_create);
+    // Ensure `zig build dev` builds the xcframework before invoking Xcode.
+    dev_step.dependOn(xcframework_step);
+    xcode_build.step.dependOn(xcframework_step);
 
     // Optional: run xcframework validation scripts
     const xcfw_test = b.step("xcframework-test", "Validate SmithersKit.xcframework (headers, symbols, link)");
