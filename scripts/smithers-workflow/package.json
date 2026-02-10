@@ -4,7 +4,10 @@
   "scripts": {
     "start": "bun run workflow.tsx",
     "resume": "smithers resume workflow.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.36",
@@ -24,6 +27,7 @@
     "@types/node": "^25.2.2",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.1",
     "typescript": "^5.9.3"
   }
 }
