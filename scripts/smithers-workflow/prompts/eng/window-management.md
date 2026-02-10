@@ -2,7 +2,7 @@
 
 ## Scene Definitions
 
-The chat window is a fixed `Window` scene. The workspace panel is a second `Window` (single workspace MVP).
+Chat = fixed `Window`. Workspace panel = second `Window` (single workspace MVP).
 
 ```swift
 @main
@@ -10,73 +10,61 @@ struct SmithersApp: App {
     @State private var appModel = AppModel()
 
     var body: some Scene {
-        // Chat window (primary, pane 0 — always present)
+        // Chat (primary, pane 0 — always present)
         Window("Smithers", id: "chat") {
-            ChatWindowRootView()
-                .environment(appModel)
+            ChatWindowRootView().environment(appModel)
         }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultSize(width: 800, height: 900)
-        .commands { appMenuCommands }
+        .windowStyle(.hiddenTitleBar).windowResizability(.contentSize)
+        .defaultSize(width: 800, height: 900).commands { appMenuCommands }
 
-        // Workspace panel window (on-demand, shows when workspace is open)
+        // Workspace panel (on-demand, shows when workspace open)
         Window("Smithers IDE", id: "workspace") {
-            IDEWindowRootView()
-                .environment(appModel)
+            IDEWindowRootView().environment(appModel)
         }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar).windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 900)
 
-        // Settings
-        Settings {
-            SettingsView()
-                .environment(appModel)
-        }
+        Settings { SettingsView().environment(appModel) }
     }
 }
 ```
 
-Future multi-workspace: workspace panel becomes `WindowGroup("Workspace", id: "workspace", for: UUID.self)`.
+Future multi-workspace: panel → `WindowGroup("Workspace", id: "workspace", for: UUID.self)`
 
 ## WindowCoordinator
 
-Manages the workspace panel window. Chat window is always present (managed by SwiftUI scene lifecycle).
+Manages workspace panel. Chat always present (SwiftUI scene lifecycle).
 
 ```swift
-@Observable
-@MainActor
+@Observable @MainActor
 final class WindowCoordinator {
     private(set) var isWorkspacePanelVisible: Bool = false
 
     func showWorkspacePanel() {
-        // Use NSApp.windows to find the workspace window by identifier
-        // If not found, use OpenWindowAction to create it
-        // If found but hidden, orderFront and makeKey
+        // NSApp.windows find by identifier → if not found OpenWindowAction create
+        // If found but hidden → orderFront+makeKey
         isWorkspacePanelVisible = true
     }
 
     func hideWorkspacePanel() {
-        // Find and orderOut the panel window
-        // Do NOT close it — closing triggers SwiftUI scene teardown
+        // Find+orderOut panel. Do NOT close (triggers scene teardown)
         isWorkspacePanelVisible = false
     }
 
     func showInEditor(fileURL: URL, line: Int? = nil, column: Int? = nil) {
         showWorkspacePanel()
-        // Route to workspace's TabModel and EditorStateModel
+        // Route to workspace TabModel+EditorStateModel
     }
 }
 ```
 
-**Chrome DevTools analogy:** Chat window = main Chrome window, workspace panel = DevTools. Everything is tabs — the workspace panel can show chat, diff, editor, terminal, anything.
+**Chrome DevTools analogy:** Chat = main Chrome, workspace panel = DevTools. Everything = tabs (chat, diff, editor, terminal, anything).
 
-**Window access pattern:** Access `NSWindow` via `NSApp.windows.first { $0.identifier?.rawValue == "workspace-\(id)" }` in `onAppear`. Requires retry-with-delay pattern (SwiftUI creates windows asynchronously).
+**Window access:** `NSApp.windows.first { $0.identifier?.rawValue == "workspace-\(id)" }` in `onAppear`. Retry-with-delay (SwiftUI creates async).
 
-## Window Chrome Setup
+## Window Chrome
 
-Both windows need:
+Both windows:
 
 ```swift
 .onAppear {
@@ -85,25 +73,25 @@ Both windows need:
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.titleVisibility = .hidden
-        // Install NSWindowDelegate for close guards and frame persistence
+        // Install NSWindowDelegate for close guards + frame persistence
     }
 }
 ```
 
 ## Close Behavior
 
-**Chat window close → background the app (not quit):**
-`NSWindowDelegate.windowShouldClose` hides the window but does NOT quit. Smithers continues with a menu bar icon (for scheduled agents). Quitting is explicit via Cmd+Q or menu bar icon's "Quit".
+**Chat close → background (not quit):**
+`NSWindowDelegate.windowShouldClose` hides, does NOT quit. Smithers continues w/ menu bar icon (scheduled agents). Quit = explicit Cmd+Q or menu "Quit".
 
-**Workspace panel close → hide:**
-`windowShouldClose` returns `false`, calls `windowCoordinator.hideWorkspacePanel()`. Window hidden, not destroyed. Tab state, scroll positions, sidebar width preserved in memory.
+**Workspace close → hide:**
+`windowShouldClose` returns `false`, calls `windowCoordinator.hideWorkspacePanel()`. Hidden not destroyed. Tab state, scroll, sidebar width preserved in memory.
 
 **App termination:**
-`NSApplicationDelegate.applicationShouldTerminate` returns `.terminateLater`, runs close guard, persists session state, then calls `NSApp.reply(toApplicationShouldTerminate: true)`.
+`NSApplicationDelegate.applicationShouldTerminate` returns `.terminateLater`, runs close guard, persists session state → `NSApp.reply(toApplicationShouldTerminate: true)`
 
 ## Frame Persistence
 
-`WindowFrameStore` saves frames keyed by window type + workspace path:
+`WindowFrameStore` saves frames keyed by type+workspace path:
 
 ```swift
 enum WindowFrameStore {
@@ -112,32 +100,25 @@ enum WindowFrameStore {
     static func saveFrame(_ frame: NSRect, window: WindowKind, workspace: URL?) { ... }
     static func loadFrame(window: WindowKind, workspace: URL?) -> NSRect? { ... }
 
-    enum WindowKind: String {
-        case chat
-        case workspacePanel
-    }
+    enum WindowKind: String { case chat, workspacePanel }
 }
 ```
 
-Debounced 250ms on `windowDidResize` / `windowDidMove`. Validates against current screen geometry on load.
+250ms debounce on `windowDidResize`/`windowDidMove`. Validates vs screen geometry on load.
 
 ## Default Sizing
 
 ```swift
 static func defaultFrame(for kind: WindowKind, screen: NSScreen) -> NSRect {
-    let visible = screen.visibleFrame
+    let vis = screen.visibleFrame
     switch kind {
     case .chat:
-        let w = visible.width * 0.45
-        let h = visible.height * 0.85
-        let x = visible.midX - (visible.width * 0.06) - (w / 2)
-        let y = visible.midY - (h / 2)
+        let w = vis.width * 0.45, h = vis.height * 0.85
+        let x = vis.midX - (vis.width * 0.06) - (w / 2), y = vis.midY - (h / 2)
         return NSRect(x: x, y: y, width: w, height: h)
     case .workspacePanel:
-        let w = visible.width * 0.55
-        let h = visible.height * 0.85
-        let x = visible.midX + (visible.width * 0.06) - (w / 2)
-        let y = visible.midY - (h / 2)
+        let w = vis.width * 0.55, h = vis.height * 0.85
+        let x = vis.midX + (vis.width * 0.06) - (w / 2), y = vis.midY - (h / 2)
         return NSRect(x: x, y: y, width: w, height: h)
     }
 }

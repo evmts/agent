@@ -1,62 +1,44 @@
 # Editor Subsystem
 
-## 8. Editor Subsystem
+## 8.1 CodeEditorView (NSViewRepresentable)
 
-### 8.1 CodeEditorView (NSViewRepresentable)
+`NSViewRepresentable` wrapping `MultiCursorTextView` (subclass of `STTextView`). Most complex view in app.
 
-The editor is an `NSViewRepresentable` wrapping `MultiCursorTextView` (a subclass of `STTextView`). This is the most complex view in the app.
+**Inputs (bindings/params):**
+- `text: Binding<String>`, `language: SupportedLanguage?`, `theme: AppTheme`, `font: NSFont`, `lineSpacing: CGFloat`, `characterSpacing: CGFloat`, `ligaturesEnabled: Bool`, `cursorStyle: CursorStyle`, `showLineNumbers: Bool`, `highlightCurrentLine: Bool`, `showIndentGuides: Bool`, `showMinimap: Bool`, `scrollbarMode: ScrollbarVisibilityMode`, `scrollToRequest: ScrollToRequest?` (line/col, set by showInEditor), `ghostText: String?` (AI completion), `onTextChange: (String) -> Void`, `onCursorChange: (Int, Int) -> Void`
 
-**Inputs (bindings/parameters):**
-- `text: Binding<String>` — bidirectional text content
-- `language: SupportedLanguage?` — for syntax highlighting
-- `theme: AppTheme` — colors
-- `font: NSFont` — resolved from preferences
-- `lineSpacing: CGFloat`
-- `characterSpacing: CGFloat`
-- `ligaturesEnabled: Bool`
-- `cursorStyle: CursorStyle`
-- `showLineNumbers: Bool`
-- `highlightCurrentLine: Bool`
-- `showIndentGuides: Bool`
-- `showMinimap: Bool`
-- `scrollbarMode: ScrollbarVisibilityMode`
-- `scrollToRequest: ScrollToRequest?` — line/column to scroll to (set by showInEditor)
-- `ghostText: String?` — AI completion preview
-- `onTextChange: (String) -> Void` — callback when user edits text
-- `onCursorChange: (Int, Int) -> Void` — callback with (line, column)
+**makeNSView:** Creates STTextView via `MultiCursorTextView.scrollableTextView()`, extracts text view + scroll view, creates line number ruler (`STLineNumberRulerView`), custom `ScrollbarOverlayView`, `GhostTextOverlayView`, wraps in `ScrollbarHostingView`.
 
-**makeNSView:** Creates the STTextView via `MultiCursorTextView.scrollableTextView()`, extracts the text view and scroll view, creates the line number ruler (`STLineNumberRulerView`), creates the custom `ScrollbarOverlayView`, creates the `GhostTextOverlayView`, wraps everything in a `ScrollbarHostingView` container.
+**Coordinator:** Weak refs to subviews. Caches highlighters per language. `STTextViewDelegate` for text change notifications. Manages highlight → apply cycle. Tracks file URL changes → save/restore view state (scroll, selection).
 
-**Coordinator:** Holds weak references to all subviews. Caches highlighters per language. Implements `STTextViewDelegate` for text change notifications. Manages the highlight → apply cycle. Tracks file URL changes to save/restore view state (scroll position and selection).
+**updateNSView:** Handles theme changes (reapply colors), font changes (reload with new attrs), text changes from outside (AI wrote file), scroll requests (animate to line/col).
 
-**updateNSView:** Handles theme changes (reapply colors to existing text), font changes (reload content with new attributes), text changes from outside (e.g., AI wrote to the file), and scroll requests (animate to line/column).
-
-### 8.2 TreeSitter highlighting pipeline
+## 8.2 TreeSitter Highlighting Pipeline
 
 ```
-User types → onTextChange callback fires
+User types → onTextChange callback
 → EditorStateModel updates activeFileContent
-→ CodeEditorView.updateNSView detects text change
-→ Coordinator.scheduleHighlight() called
-→ 250ms debounce (cancels previous request)
+→ CodeEditorView.updateNSView detects change
+→ Coordinator.scheduleHighlight()
+→ 250ms debounce (cancels previous)
 → Increment requestID
 → Dispatch to parseQueue (background, .userInitiated QoS)
-→ Parse text with TreeSitter parser
+→ Parse with TreeSitter
 → Run highlight query, collect captures
 → Map captures to colors via syntax palette
 → Check requestID still matches (not stale)
 → Dispatch to main thread
-→ Apply attributes to NSTextStorage via setAttributes(_:range:)
+→ Apply attrs to NSTextStorage via setAttributes(_:range:)
 ```
 
-**Cancellation:** Incrementing `requestID`. Before applying results, check `currentID == self.requestID`. Stale results are discarded.
+**Cancellation:** Increment `requestID`. Before apply, check `currentID == self.requestID`. Stale discarded.
 
-**Size limit:** Skip highlighting for files > 200,000 characters. Apply plain foreground color only.
+**Size limit:** Skip highlighting if > 200,000 chars. Plain foreground only.
 
-**Language registry:** `SupportedLanguages.swift` maps file extensions to TreeSitter `Language` instances:
+**Language registry:** `SupportedLanguages.swift` maps extensions to TreeSitter `Language`:
 
-| Extension | Language |
-|-----------|----------|
+| Ext | Language |
+|-----|----------|
 | `.swift` | TreeSitterSwift |
 | `.js` | TreeSitterJavaScript |
 | `.ts` | TreeSitterTypeScript |
@@ -69,70 +51,70 @@ User types → onTextChange callback fires
 | `.rs` | TreeSitterRust |
 | `.go` | TreeSitterGo |
 
-### 8.3 Multi-cursor support
+## 8.3 Multi-Cursor Support
 
-`MultiCursorTextView` subclasses `STTextView`. Overrides `mouseDown`, `keyDown`, `insertText`, delete methods, and `doCommand`.
+`MultiCursorTextView` subclasses `STTextView`. Overrides `mouseDown`, `keyDown`, `insertText`, delete, `doCommand`.
 
-- **Option+Click:** Add insertion point at click location.
-- **Option+Shift+Up/Down:** Add cursor on adjacent line.
-- **Cmd+D:** Select next occurrence of current selection.
-- **Cmd+Shift+L:** Select all occurrences.
-- **Escape:** Collapse to single cursor.
+- **Option+Click:** Add insertion at click
+- **Option+Shift+Up/Down:** Add cursor on adjacent line
+- **Cmd+D:** Select next occurrence
+- **Cmd+Shift+L:** Select all occurrences
+- **Escape:** Collapse to single cursor
 
-All multi-cursor edits are grouped into a single undo action via `groupedUndoIfNeeded`.
+All edits grouped into single undo via `groupedUndoIfNeeded`.
 
-Copy/paste with multiple cursors: creates one pasteboard item per selection. Paste distributes items across cursors.
+Copy/paste with multi-cursor: one pasteboard item per selection. Paste distributes across cursors.
 
-### 8.4 Ghost text (AI completions)
+## 8.4 Ghost Text (AI Completions)
 
-`GhostTextOverlayView` is an `NSView` subclass positioned over the editor. It renders dimmed preview text at the cursor position using `NSTextStorage` + `NSLayoutManager` + `NSTextContainer` for layout.
+`GhostTextOverlayView` = `NSView` subclass over editor. Renders dimmed preview at cursor using `NSTextStorage` + `NSLayoutManager` + `NSTextContainer`.
 
-- Visibility: fade in/out with `NSAnimationContext` (0.12s duration).
-- Hit testing: always returns `nil` (pass-through to editor).
-- Tab accepts the completion (inserts text into editor).
-- Escape dismisses.
-- Typing advances through the suggestion or cancels if it diverges.
+- Visibility: fade in/out with `NSAnimationContext` (0.12s)
+- Hit testing: always nil (pass-through)
+- Tab accepts (inserts into editor)
+- Escape dismisses
+- Typing advances through suggestion or cancels if diverges
 
-The completion pipeline: `CompletionService` sends requests to codex-app-server after 300ms debounce. Streaming partial results update the ghost text in real time. Each keystroke cancels the previous request and starts a new one.
+Pipeline: `CompletionService` sends requests to codex-app-server after 300ms debounce. Streaming partial results update ghost text real-time. Each keystroke cancels previous, starts new.
 
-### 8.5 Scrollbar overlay
+## 8.5 Scrollbar Overlay
 
-`ScrollbarOverlayView` — custom `NSView` with manual drawing. Replaces the native macOS scrollbar.
+`ScrollbarOverlayView` — custom `NSView`, manual drawing. Replaces native macOS scrollbar.
 
-- Modes: always (always visible), automatic (shows on scroll, fades after 1.5s), never (hidden).
-- Knob sizing: proportional to viewport/content ratio, minimum 24pt.
-- Interaction: click track for page scroll, drag knob for continuous scroll.
-- Drawing: filled rounded rect (4pt radius), alpha varies by state (0.38 idle, 0.55 hover/drag).
-- Hit testing: returns nil when invisible (alpha < 0.01).
+- Modes: always (visible), automatic (shows on scroll, fades after 1.5s), never (hidden)
+- Knob sizing: proportional to viewport/content ratio, min 24pt
+- Interaction: click track for page scroll, drag knob for continuous
+- Drawing: filled rounded rect (4pt radius), alpha varies (0.38 idle, 0.55 hover/drag)
+- Hit testing: nil when invisible (alpha < 0.01)
 
-### 8.6 Bracket matching
+## 8.6 Bracket Matching
 
-`BracketMatcher` scans outward from cursor position to find matching bracket pairs: `()`, `[]`, `{}`, `<>`. Scans up to 10,000 characters in each direction. Matching bracket highlighted with `white@16%` background.
+`BracketMatcher` scans outward from cursor for matching pairs: `()`, `[]`, `{}`, `<>`. Scans up to 10,000 chars each direction. Matching bracket highlighted with `white@16%` bg.
 
-### 8.7 Neovim mode
+## 8.7 Neovim Mode
 
-Toggled via Cmd+Shift+N. When enabled, the `CodeEditorView` is replaced by a `GhosttyTerminalView` running an embedded Neovim instance.
+Toggled via Cmd+Shift+N. When enabled, `CodeEditorView` replaced by `GhosttyTerminalView` running embedded Neovim.
 
-**NvimController** (lives in SmithersApp, not SmithersEditor):
+**NvimController** (in SmithersApp, not SmithersEditor):
 
-1. Creates a Unix domain socket in `/tmp/smithers-nvim-<uuid>.sock`.
-2. Launches Neovim in a hidden Ghostty terminal with `--listen <socket>`.
-3. Connects to the socket with retry (10 attempts, 100ms backoff).
-4. Attaches UI with ext_multigrid, ext_cmdline, ext_popupmenu, ext_messages, ext_hlstate.
-5. Installs autocmds for BufEnter/BufLeave to track file changes.
-6. Starts a notification loop to handle Neovim events.
+1. Creates Unix socket `/tmp/smithers-nvim-<uuid>.sock`
+2. Launches Neovim in hidden Ghostty terminal with `--listen <socket>`
+3. Connects with retry (10 attempts, 100ms backoff)
+4. Attaches UI with ext_multigrid, ext_cmdline, ext_popupmenu, ext_messages, ext_hlstate
+5. Installs autocmds for BufEnter/BufLeave → track file changes
+6. Starts notification loop for Neovim events
 
 **Bidirectional sync:**
-- User selects file in sidebar → NvimController sends `:edit <path>` via RPC.
-- User opens file in Neovim → BufEnter autocmd fires → NvimController updates `TabModel` and `EditorStateModel`.
-- User saves in Neovim → BufWritePost autocmd fires → NvimController marks file as clean.
+- User selects file in sidebar → NvimController sends `:edit <path>` via RPC
+- User opens in Neovim → BufEnter autocmd → NvimController updates `TabModel` + `EditorStateModel`
+- User saves in Neovim → BufWritePost → NvimController marks clean
 
 **External UI overlays** (`NvimExtUIOverlay`):
-- Command line: SwiftUI overlay at bottom of editor area.
-- Popup menu: SwiftUI list overlay positioned at cursor.
-- Messages: floating notifications (max 6 visible, auto-expire after 4s).
-- Floating windows: plugin popups with blur, rounded corners, shadow.
+- Cmdline: SwiftUI overlay at bottom
+- Popup menu: SwiftUI list at cursor
+- Messages: floating notifications (max 6, auto-expire 4s)
+- Floating windows: plugin popups with blur, rounded corners, shadow
 
-**Theme derivation:** On UI attach, NvimController reads highlight groups (Normal, Visual, CursorLine, TabLine, etc.) and derives an `AppTheme` using `ThemeDerived.fromNvimHighlights()`. This overrides the default theme while Neovim mode is active.
+**Theme derivation:** On UI attach, NvimController reads highlight groups (Normal, Visual, CursorLine, TabLine, etc.), derives `AppTheme` via `ThemeDerived.fromNvimHighlights()`. Overrides default theme while Neovim active.
 
-**Crash recovery:** If the Neovim process dies unexpectedly, show a recovery view with: Restart Neovim, Disable Neovim Mode, Reveal Crash Report.
+**Crash recovery:** If Neovim dies → recovery view: Restart Neovim, Disable Neovim Mode, Reveal Crash Report.

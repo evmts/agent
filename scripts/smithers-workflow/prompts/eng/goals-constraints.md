@@ -1,70 +1,47 @@
-# Smithers v2 — Engineering Specification
+# Goals & Constraints
 
-## Chat-First, TUI-Native macOS IDE
+## 1.1 What v2 Solves
 
-**Goal: Build the ultimate UX for agentic coding that evolves from TUI to GUI.**
+v1 has single 7,100-line `WorkspaceState` god object owning all state (files, editor, chat, terminals, VCS, themes, search, UI chrome). 2,500-line `ContentView` contains editor `NSViewRepresentable`, tab bar, breadcrumbs, status bar, overlays. One target, no module boundaries → theme change recompiles entire app.
 
-This document specifies the complete engineering architecture for Smithers v2, a ground-up rewrite as a native macOS IDE built in SwiftUI. The app is a native Swift GUI that *feels* like a TUI — keyboard first, one keystroke from a real terminal (via GhosttyKit), Neovim mode for file editing, tmux shortcuts everywhere — with a chat-first agentic approach. It covers repository structure, module decomposition, state management, window coordination, and implementation details for every subsystem. An engineering team should be able to build the app from this spec plus the companion design spec (`docs/design.md`) without ambiguity.
+v2 fixes:
 
-**Target platform:** macOS 14+ (Sonoma)
-**UI layer:** Swift 5.10+ / SwiftUI / AppKit interop
-**Logic layer:** Zig (business logic, state management, subprocess orchestration) — Swift syncs with Zig
-**Design reference:** `docs/design.md`
-**UI prototype:** `prototype/` (Next.js + TypeScript + shadcn/ui prototype — reference for layout, colors, component structure). Also available live at: https://v0.app/chat/mac-os-ide-prototype-cEqmBbcomU7
-**v1 reference code:** `../smithers/apps/desktop/` (read-only reference, not imported — contains ~92 Swift files, ~31K LOC with working implementations of chat, agents, JJ, terminal/Ghostty, Neovim, editor, skills, and all major features. Architecture has been significantly improved for v2 but v1 has useful implementation patterns.)
+1. **Files split for findability, not isolation** — NOT eliminating god object. Single centralized state tree (Flux-style) = fine, desirable. Fix: v1's 7,100-line files. v2 splits code into smaller domain-organized files. SPM targets for basic build structure, but dependency graph intentionally flat/simple — not complex DAG. File needs import → import it. Don't overcomplicate.
 
-### Target user
+2. **Composed state model** — Instead of massive class holding everything, top-level `AppModel` contains smaller sub-models: `ChatModel` (msgs/sessions), `FileTreeModel` (browser), `TabModel` (editor tabs), etc. Each ~100-250 lines, owns one domain. Navigable — understand chat → read `ChatModel`, not 7,000-line file. Compose into single god object (`AppModel`) — by design.
 
-Smithers targets **TUI-power-users who want a bit more** — people who already use Claude Code in a terminal and want a better harness, not VS Code users looking for an AI plugin. It's a native Swift/SwiftUI app — not a terminal app — but it's designed to *feel* like a terminal. The terminal is always one keystroke away (via GhosttyKit embedded terminal surfaces), keyboard navigation is first-class, Tmux-compatible prefix keys work everywhere, and Neovim mode makes file editing feel like vim. The GUI exists as a **harness** that makes complex workflows possible — orchestrating multiple agents, visual diff review, quad-pane layouts, long-running parallel tasks — things that are painful in a raw terminal. We're iterating on Claude Code via GUI without throwing the baby out with the bathwater.
+3. **Chrome DevTools window arch** — Main chat = "pane 0" (always present, closing quits app). Workspace panels (editor, terminal, diff, etc.) attach/detach as secondary windows. Not rigid "two windows" — "main chat + N workspace panels" grouped by workspace. Everything = tabs. Second window shows chat, diff, IDE tab, anything. Windows positioned/resized/managed independently, share data via model layer.
 
-Think of it as **Chrome DevTools for AI coding**: the main chat is pane 0 (always there), and workspace panels can attach/detach as secondary windows. Not just "chat + IDE" but "main chat + N workspace panels."
+4. **Workspace-optional** — Works without workspace. Launch → just chat, no folder needed. Create/open workspace via main agent or Cmd+Shift+O. Usually users open in workspace dir.
 
----
+5. **Zig as logic layer (libghostty model)** — Ideal arch = libghostty pattern: Zig lib (`libsmithers`) handles business logic, Swift = thin UI syncing with it. Zig = source of truth (state, subprocess mgmt, agent orchestration, protocols). Swift observes Zig state, renders UI. Evaluated case-by-case — some stays Swift (UI-adjacent: scroll positions, animation), but default direction = push to Zig. Key reason: **cross-platform portability**. Smithers on Linux eventually → Zig core unchanged, only UI replatformed. See 2.6 for Zig ↔ Swift arch.
 
-## 1. Goals & Constraints
+6. **Testability** — Models/services in own files with clear boundaries → unit tests run instantly with `swift test` (no simulator, no Xcode). Zig logic tested with `zig build test`. v1: testing service = import entire app.
 
-### 1.1 What v2 solves
+## 1.2 Hard Constraints
 
-v1 has a single 7,100-line `WorkspaceState` god object that owns all app state — files, editor, chat, terminals, VCS, themes, search, and UI chrome. A 2,500-line `ContentView` contains the editor's `NSViewRepresentable`, tab bar, breadcrumbs, status bar, and overlays. Everything compiles as one target with no module boundaries, meaning a change to the theme system recompiles the entire app.
+### macOS 14+ (Sonoma) + `@Observable` Macro
 
-v2 fixes this with:
+Target macOS 14 (Sonoma) min. Important: macOS 14 introduced **Observation framework** with `@Observable` macro — fundamentally better than old approach.
 
-1. **Files split for findability, not strict isolation** — We are NOT trying to eliminate the god object pattern. A single, centralized state tree (Flux-style) is fine and actually desirable. What we're fixing is that v1's `WorkspaceState.swift` is 7,100 lines in one file, and `ContentView.swift` is 2,500 lines in one file. v2 splits code into smaller files organized by domain so you can find things easily. The codebase uses SPM targets for basic build structure, but the dependency graph is intentionally flat and simple — not a complex DAG of isolated modules. If a file needs to import something, it imports it. Don't make it complicated.
+**Background — SwiftUI updates:**
 
-2. **Composed state model** — Instead of one massive class that holds every piece of state in the app, we have a top-level `AppModel` that contains smaller, focused sub-models: `ChatModel` (chat messages and sessions), `FileTreeModel` (the file browser), `TabModel` (open editor tabs), etc. Each sub-model is ~100-250 lines and owns exactly one domain. This makes the code navigable — when you need to understand how chat works, you read `ChatModel`, not a 7,000-line file. But they all compose into a single god object (`AppModel`) — and that's by design.
+SwiftUI = declarative. Describe UI given data, SwiftUI figures out changes, re-renders affected parts. Critical: how does SwiftUI know data changed?
 
-3. **Chrome DevTools window architecture** — The app follows a Chrome DevTools-style model. The main chat is "pane 0" — always present, closing it quits the app. Workspace panels (editor, terminal, diff viewer, etc.) can attach/detach as secondary windows. It's not a rigid "two windows" system — it's "main chat + N workspace panels" where panels are grouped by workspace. Everything is tabs. The second window can show a chat, a diff, an IDE tab, anything. Windows can be positioned, resized, and managed independently, but they share the same underlying data through the model layer.
-
-4. **Workspace-optional** — The app works without a workspace open. You can launch Smithers and just chat — no folder needed. Creating or opening a workspace can happen by talking to the main agent, or via Cmd+Shift+O. But most of the time, users will open the app in a workspace directory.
-
-5. **Zig as the logic layer (libghostty model)** — The ideal architecture follows the same pattern as **libghostty**: a Zig library (`libsmithers`) handles business logic, and Swift is a thin UI layer that syncs with it. Zig is the source of truth for state, subprocess management, agent orchestration, and protocol handling. Swift observes Zig's state and renders the UI. This is evaluated case-by-case — some things make sense to stay in Swift (especially UI-adjacent state like scroll positions and animation), but the default direction is to push logic into Zig. The key reason: **cross-platform portability**. When Smithers eventually ships on Linux, the Zig core stays unchanged — only the UI layer is replatformed. See Section 2.6 for the full Zig ↔ Swift architecture.
-
-6. **Testability** — Because models and services are in their own files with clear boundaries, we can write unit tests that run instantly with `swift test` (no simulator, no Xcode project needed). Zig logic is tested independently with `zig build test`. In v1, testing a service meant importing the entire app.
-
-### 1.2 Hard constraints
-
-#### macOS 14+ (Sonoma) and the `@Observable` macro
-
-We target macOS 14 (Sonoma) as the minimum OS version. This is important because macOS 14 introduced the **Observation framework** with the `@Observable` macro, which is a fundamentally better way to connect data to UI than the older approach.
-
-**Background — how SwiftUI updates the screen:**
-
-SwiftUI is a *declarative* UI framework. You describe what the UI should look like given some data, and SwiftUI figures out what changed and re-renders only the affected parts. The critical question is: *how does SwiftUI know when data changed?*
-
-**The old way (v1): `ObservableObject` + `@Published` (Combine framework)**
+**Old way (v1): `ObservableObject` + `@Published` (Combine)**
 
 ```swift
 class WorkspaceState: ObservableObject {
     @Published var editorText: String = ""
     @Published var chatMessages: [ChatMessage] = []
     @Published var selectedFileURL: URL?
-    // ... 100+ more @Published properties
+    // ... 100+ @Published properties
 }
 ```
 
-The problem: when ANY `@Published` property changes, SwiftUI re-evaluates EVERY view that observes this object. So if `chatMessages` changes, the editor view (which only reads `editorText`) still gets re-evaluated. With 100+ published properties on one object, this causes constant unnecessary work.
+Problem: when ANY `@Published` changes, SwiftUI re-evaluates EVERY view observing object. `chatMessages` changes → editor (only reads `editorText`) still re-evaluated. 100+ published props on one object = constant unnecessary work.
 
-**The new way (v2): `@Observable` macro (Observation framework)**
+**New way (v2): `@Observable` macro (Observation framework)**
 
 ```swift
 @Observable
@@ -75,76 +52,74 @@ class WorkspaceModel {
 }
 ```
 
-With `@Observable`, SwiftUI tracks which specific properties each view actually reads during its last render. If a view only reads `editorText`, it will ONLY re-render when `editorText` changes — not when `chatMessages` changes. This is called *fine-grained observation* and it's dramatically more efficient.
+`@Observable` → SwiftUI tracks which specific props each view reads during last render. View only reads `editorText` → ONLY re-renders when `editorText` changes, not `chatMessages`. *Fine-grained observation* — dramatically more efficient.
 
-The syntax is also simpler: no `@Published` wrapper needed, just plain `var` properties. The `@Observable` macro generates the tracking code at compile time.
+Simpler syntax: no `@Published` wrapper, just plain `var`. `@Observable` macro generates tracking at compile time.
 
-#### Other constraints
+### Other Constraints
 
-- **Same feature set as v1:** editor with TreeSitter syntax highlighting, Ghostty terminal emulator, Neovim modal editing mode, JJ version control integration, Codex AI chat, skills plugin system, agent orchestration (parallel AI workers), command palette, workspace-wide search, diff viewer.
-- **JJ (Jujutsu) is bundled.** The `jj` binary is built and included inside the `.app` bundle. Users do not need to install jj separately — Smithers ships it. This is a hard dependency: the agent orchestration, snapshot system, and version control UI all depend on jj.
-- **TUI-native interaction model.** The app is a native GUI that must feel familiar to TUI users: terminal is always one keystroke away (Ctrl+A c or Cmd+`), Neovim mode for file editing, all common actions have keyboard shortcuts, Tmux-compatible prefix keys, no mouse required for core workflows. The GUI adds value through visual diff review, multi-agent orchestration dashboards, quad-pane layouts, and parallel workspace management — not by replacing the terminal.
-- **Native macOS behavior:** Standard macOS window chrome (the red/yellow/green "traffic light" buttons), standard keyboard shortcuts (Cmd+S, Cmd+C, etc.), proper window management (resize, minimize, fullscreen), focus rings on focused elements, right-click contextual menus, drag-and-drop.
-- **Bundled binaries (all shipped inside the `.app` bundle):**
-  - **GhosttyKit** — The terminal emulator is a C library (written in Zig, compiled to a C-compatible framework). We use a pre-built `.xcframework` (Apple's format for distributing pre-compiled libraries). Our Swift code calls Ghostty's C functions directly through Swift's C interop (called "FFI" — Foreign Function Interface).
-  - **codex-app-server** — A **small fork of OpenAI's Codex** (Rust binary, git submodule in EVMTS org). The fork wraps the entire Codex in a **Zig API** — that's the only thing the fork does. libsmithers calls this Zig API directly (no JSON-RPC, no child process). Storage handlers (SQLite writes) are passed into the Zig API as callbacks. Built from source by `build.zig`, linked as a static library into libsmithers.
-  - **jj** — The Jujutsu VCS binary. Pre-built and copied into `Contents/MacOS/` during the build. Located at runtime via `Bundle.main.path(forAuxiliaryExecutable: "jj")`. JJService always uses this bundled binary, never the user's PATH version.
+- **Same features as v1:** editor with TreeSitter syntax, Ghostty terminal, Neovim modal editing, JJ version control, Codex AI chat, skills plugins, agent orchestration (parallel AI workers), command palette, workspace search, diff viewer.
+- **JJ bundled.** `jj` binary built + included in `.app` bundle. Users don't install separately — Smithers ships it. Hard dependency: agent orchestration, snapshot system, VCS UI all depend on jj.
+- **TUI-native interaction.** Native GUI must feel familiar to TUI users: terminal one keystroke away (Ctrl+A c or Cmd+`), Neovim mode for editing, all actions have keyboard shortcuts, Tmux-compat prefix keys, no mouse required for core workflows. GUI adds value via visual diff review, multi-agent dashboards, quad-pane layouts, parallel workspace mgmt — not replacing terminal.
+- **Native macOS:** Standard window chrome (traffic lights), standard keyboard shortcuts (Cmd+S, Cmd+C, etc.), proper window mgmt (resize, minimize, fullscreen), focus rings, right-click context menus, drag-drop.
+- **Bundled binaries (shipped inside `.app`):**
+  - **GhosttyKit** — Terminal = C lib (Zig, compiled to C-compat framework). Pre-built `.xcframework` (Apple format for pre-compiled libs). Swift calls Ghostty C functions via C interop (FFI).
+  - **codex-app-server** — Small fork of OpenAI Codex (Rust binary, git submodule in EVMTS org). Fork wraps Codex in **Zig API** — ONLY thing it does. libsmithers calls Zig API directly (no JSON-RPC, no child process). Storage handlers (SQLite) passed as callbacks. Built from source by `build.zig`, linked as static lib into libsmithers.
+  - **jj** — Jujutsu VCS binary. Pre-built, copied into `Contents/MacOS/` during build. Located at runtime via `Bundle.main.path(forAuxiliaryExecutable: "jj")`. JJService always uses bundled binary, never user's PATH version.
 
-### 1.3 Non-goals
+## 1.3 Non-Goals
 
-These are things we are explicitly NOT doing in v2 to keep scope manageable:
+Explicitly NOT doing in v2 (scope mgmt):
 
-- **Cross-platform (iOS, Linux) — deferred, not abandoned.** v2 ships macOS-only. SwiftUI technically supports iOS, but our app uses heavy AppKit interop (the native macOS UI framework) for the editor and terminal, which has no iOS equivalent. **However**, cross-platform (especially Linux) is an explicit future goal. This is why libsmithers is written in Zig — the Zig core is fully portable. When we ship on Linux, only the UI layer is replatformed; the entire Zig business logic layer stays unchanged. Architect all libsmithers code with this portability in mind.
-- **Rewriting Ghostty or Neovim.** We wrap these external tools as black boxes. Our code manages their lifecycle (start, stop, communicate) but doesn't modify their internals. (Note: codex-app-server IS forked — but only to add a Zig API wrapper and storage callbacks. The Codex internals themselves are not rewritten.)
-- **LSP integration (Language Server Protocol).** This is the protocol that powers features like "go to definition", "find references", and rich autocompletion in editors like VS Code. It's deferred to v2.1+ because it's a large subsystem that can be added non-disruptively later.
-- **Native git support.** We use jj (Jujutsu) exclusively. jj has a "colocated" mode that maintains a `.git` directory alongside its own `.jj` directory, so users can still `git push` / `git pull` through jj. We don't need a separate git integration.
-- **Custom font bundling.** We use the system monospace font (SF Mono on macOS) and system UI font (SF Pro). No need to ship font files.
+- **Cross-platform (iOS, Linux) — deferred, not abandoned.** v2 ships macOS-only. SwiftUI technically supports iOS, but heavy AppKit interop (native macOS UI framework) for editor/terminal has no iOS equivalent. **However**, cross-platform (esp Linux) = explicit future goal. Why libsmithers in Zig — Zig core fully portable. Smithers on Linux → only UI replatformed; entire Zig business logic unchanged. Architect libsmithers with portability in mind.
+- **Rewriting Ghostty or Neovim.** Wrap as black boxes. Manage lifecycle (start, stop, communicate), don't modify internals. (Note: codex-app-server IS forked — only for Zig API wrapper + storage callbacks. Codex internals not rewritten.)
+- **LSP integration (Language Server Protocol).** Powers "go to definition", "find references", rich autocompletion in VS Code. Deferred to v2.1+ — large subsystem, can be added non-disruptively later.
+- **Native git support.** Use jj exclusively. jj "colocated" mode maintains `.git` alongside `.jj` → users can `git push`/`pull` through jj. No separate git integration needed.
+- **Custom font bundling.** Use system monospace (SF Mono on macOS) + system UI font (SF Pro). No font files shipped.
 
-### 1.3.1 Features from issues directory
+## 1.3.1 Features from Issues Directory
 
-The `issues/` directory contains feature specs originally written for the v1 architecture. **Take the feature descriptions literally but NOT the implementation details** — those are stale and based on the old architecture. Implementation for v2 follows this spec.
+`issues/` contains feature specs from v1 arch. **Take feature descriptions literally, NOT implementation details** — stale, based on old arch. v2 impl follows this spec.
 
 **MVP features (from issues):**
-- **007** — Background and scheduled agents (tab-based agents, cron schedules)
-- **004** — Claude Code / OpenCode integration (support multiple agent backends, not just Codex)
+- **007** — Background + scheduled agents (tab-based agents, cron schedules)
+- **004** — Claude Code / OpenCode integration (multiple agent backends, not just Codex)
 
-**Post-MVP features:**
+**Post-MVP:**
 - **038** — Multi-workspace + Conductor parity (workspace switcher, cross-workspace search)
 - **039** — Workflow Studio (Bun workflow engine, AI-powered workflow creation)
-- **020** — Workspace tools sidebar panels (buffer list, markdown preview, search results panel)
+- **020** — Workspace tools sidebar panels (buffer list, markdown preview, search results)
 - **013** — MiniApps (local-first web apps with JS bridge to Smithers SDK)
 - **010** — Telegram agent bridge (mobile access to coding agents)
 - **033** — Remote development (SSH/TCP Neovim sessions)
 
 **Explicitly NOT MVP:**
-- JJ merge queue UI (agent work merges via simple jj operations, no dedicated queue view)
+- JJ merge queue UI (agent work merges via simple jj ops, no dedicated queue view)
 - MiniApps
 - Multi-workspace
 - Remote development
 
-### 1.4 Key terminology
+## 1.4 Key Terminology
 
-Terms used throughout this document:
-
-| Term | What it means |
-|------|---------------|
-| **SwiftUI** | Apple's declarative UI framework (like React for macOS/iOS). You describe views as a function of state, and the framework handles rendering and updates. |
-| **AppKit** | The older, imperative macOS UI framework. Still needed for things SwiftUI can't do well (custom text editors, terminal rendering). SwiftUI can embed AppKit views via `NSViewRepresentable`. |
-| **NSViewRepresentable** | A SwiftUI protocol that wraps an AppKit `NSView` so it can be used inside SwiftUI layouts. Has a `Coordinator` object that acts as the bridge between SwiftUI's declarative world and AppKit's delegate-based world. |
-| **NSWindow** | The native macOS window object. Each window on screen is one `NSWindow`. We have two: one for the main chat (pane 0), one for the workspace panel. Tabs can also be detached into additional windows. |
-| **@MainActor** | A Swift annotation that ensures code runs on the main thread (the UI thread). All UI updates must happen on the main thread. Background work (file I/O, network calls, process spawning) happens on other threads and dispatches results back to `@MainActor`. |
-| **async/await** | Swift's structured concurrency. `async` functions can pause (e.g., waiting for a network response) without blocking the thread. `await` marks the point where a function might pause. `Task { }` creates a new concurrent work unit. `Task.detached { }` creates one that doesn't inherit the current actor context (useful for running blocking work off the main thread). |
-| **SPM (Swift Package Manager)** | Swift's built-in dependency manager and build system (like npm/cargo). Configured via `Package.swift`. Defines targets (libraries/executables), their source directories, and dependencies on other targets or external packages. |
-| **xcodegen** | A tool that generates Xcode project files (`.xcodeproj`) from a YAML config (`project.yml`). We need this because SPM alone can't define XCUITest targets (Apple's UI testing framework requires an Xcode project). |
-| **xcframework** | Apple's format for distributing pre-compiled libraries that work across architectures (Intel + Apple Silicon). GhosttyKit is distributed this way. |
-| **TreeSitter** | A parser generator that produces fast, incremental parsers. We use it for syntax highlighting — it parses source code into a syntax tree, and we map tree nodes to colors. Each language (Swift, Python, JS, etc.) has its own TreeSitter grammar. |
-| **FFI (Foreign Function Interface)** | Calling functions written in one language from another. We call Ghostty's C functions from Swift and Neovim's MessagePack RPC from Swift. |
-| **JSON-RPC** | A protocol for remote procedure calls using JSON. Used for communication with secondary agent backends (Claude Code, OpenCode). The primary Codex integration is in-process via Zig API (no JSON-RPC). |
-| **MessagePack RPC** | Similar to JSON-RPC but uses MessagePack (a binary serialization format, like compressed JSON) instead of text JSON. This is Neovim's native protocol. |
-| **Sendable** | A Swift protocol that marks a type as safe to pass between concurrent threads. Value types (structs, enums) are usually automatically Sendable. Reference types (classes) need explicit thread-safety to be Sendable. |
-| **UserDefaults** | macOS's built-in key-value storage for app preferences. Simple and persistent across app launches, but only suitable for small data (settings, window positions). Not for large data like chat history. |
-| **libsmithers** | The Zig core library. Contains business logic, agent orchestration, protocol handling. Swift calls into it via C FFI. Follows the same pattern as libghostty. |
-| **Zig** | A systems programming language with no runtime, no GC, and C-compatible ABI. We use it as the portable logic layer (like how Ghostty uses libghostty). Compiles to any target, enabling future cross-platform support. |
-| **C FFI** | The interface between Swift and Zig. Zig exposes C-compatible functions that Swift calls directly. State change notifications flow back via callback function pointers with opaque `userdata` pointers (same pattern as GhosttyKit). |
-| **Orchestrator** | The main chat's role. It can answer simple questions directly (using MCP tools to read state), but primarily delegates work tasks to sub-agents. It has full context of the app state and coordinates everything. Everything is async — delegate fast, respond immediately, process results as they come back. |
-| **Sub-agent** | An ephemeral CodexService instance spawned by the orchestrator to handle a specific task. Appears as a `.chat` tab in the workspace panel. Has its own jj workspace branch. |
+| Term | Meaning |
+|------|---------|
+| **SwiftUI** | Apple's declarative UI framework (React for macOS/iOS). Describe views as function of state, framework handles render/updates. |
+| **AppKit** | Older imperative macOS UI framework. Needed for things SwiftUI can't do well (custom text editors, terminal rendering). SwiftUI embeds AppKit via `NSViewRepresentable`. |
+| **NSViewRepresentable** | SwiftUI protocol wrapping AppKit `NSView` for use in SwiftUI layouts. `Coordinator` object = bridge between SwiftUI declarative world + AppKit delegate-based world. |
+| **NSWindow** | Native macOS window object. Each on-screen window = one `NSWindow`. Two: main chat (pane 0), workspace panel. Tabs can detach into additional windows. |
+| **@MainActor** | Swift annotation ensuring code runs on main thread (UI thread). All UI updates on main thread. Background work (file I/O, network, process spawn) on other threads, dispatch results to `@MainActor`. |
+| **async/await** | Swift structured concurrency. `async` functions can pause (e.g., wait for network) without blocking thread. `await` marks pause point. `Task { }` creates concurrent work unit. `Task.detached { }` creates one not inheriting current actor context (for blocking work off main thread). |
+| **SPM (Swift Package Manager)** | Swift's built-in dependency mgr + build system (like npm/cargo). Config via `Package.swift`. Defines targets (libs/executables), source dirs, dependencies on other targets/external packages. |
+| **xcodegen** | Generates Xcode project files (`.xcodeproj`) from YAML config (`project.yml`). Needed because SPM alone can't define XCUITest targets (Apple's UI testing requires Xcode project). |
+| **xcframework** | Apple format for distributing pre-compiled libs across architectures (Intel + Apple Silicon). GhosttyKit distributed this way. |
+| **TreeSitter** | Parser generator producing fast, incremental parsers. Syntax highlighting — parses code into syntax tree, map nodes to colors. Each language (Swift, Python, JS, etc.) has own TreeSitter grammar. |
+| **FFI (Foreign Function Interface)** | Calling functions written in one language from another. Call Ghostty C functions from Swift, Neovim MessagePack RPC from Swift. |
+| **JSON-RPC** | Protocol for remote procedure calls using JSON. For communication with secondary agent backends (Claude Code, OpenCode). Primary Codex integration = in-process via Zig API (no JSON-RPC). |
+| **MessagePack RPC** | Like JSON-RPC but uses MessagePack (binary serialization, like compressed JSON) instead of text JSON. Neovim's native protocol. |
+| **Sendable** | Swift protocol marking type as safe to pass between concurrent threads. Value types (structs, enums) usually auto-Sendable. Ref types (classes) need explicit thread-safety. |
+| **UserDefaults** | macOS built-in key-value storage for app preferences. Simple, persistent across launches, only for small data (settings, window positions). Not for large data (chat history). |
+| **libsmithers** | Zig core lib. Contains business logic, agent orchestration, protocol handling. Swift calls via C FFI. Follows libghostty pattern. |
+| **Zig** | Systems programming language with no runtime, no GC, C-compatible ABI. Portable logic layer (like libghostty). Compiles to any target → future cross-platform support. |
+| **C FFI** | Interface between Swift + Zig. Zig exposes C-compat functions Swift calls directly. State change notifications via callback function pointers with opaque `userdata` pointers (GhosttyKit pattern). |
+| **Orchestrator** | Main chat's role. Answers simple questions directly (via MCP tools to read state), primarily delegates work tasks to sub-agents. Has full app state context, coordinates everything. All async — delegate fast, respond immediately, process results as they come. |
+| **Sub-agent** | Ephemeral CodexService instance spawned by orchestrator for specific task. Appears as `.chat` tab in workspace panel. Has own jj workspace branch. |

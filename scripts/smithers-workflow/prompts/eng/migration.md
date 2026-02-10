@@ -1,109 +1,85 @@
-# Migration & Reference Code / Features from v1 Git History Audit
+# Migration & Reference
 
-## 16. Migration & Reference Code
+## 16. Migration & Reference
 
-### 16.0 v1 reference codebase location
+### 16.0 v1 location
 
-The v1 Smithers desktop app lives at **`../smithers/apps/desktop/`** (relative to this repo root). It contains ~92 Swift files and ~31K LOC with working implementations of:
+`../smithers/apps/desktop/` — ~92 Swift files, ~31K LOC:
 
-- **Chat + AI integration** (`CodexService.swift`, `ChatView.swift`, `ChatHistoryStore.swift`) — v1 used JSON-RPC over stdio; v2 uses in-process Zig API. Study event patterns and message rendering.
-- **Agent orchestration** (`AgentOrchestrator.swift`) — parallel agent workspaces via jj, merge queue
-- **JJ version control** (`JJService.swift`, `JJPanelView.swift`, `JJSnapshotStore.swift`) — full VCS panel, snapshot persistence
+- **Chat/AI** (`CodexService.swift`, `ChatView.swift`, `ChatHistoryStore.swift`) — v1 JSON-RPC stdio; v2 in-process Zig. Study event patterns, rendering.
+- **Agent orchestration** (`AgentOrchestrator.swift`) — parallel jj workspaces, merge queue
+- **JJ** (`JJService.swift`, `JJPanelView.swift`, `JJSnapshotStore.swift`) — VCS panel, snapshots
 - **Terminal/Ghostty** (`GhosttyApp.swift`, `GhosttyTerminalView.swift`) — C FFI singleton, surface lifecycle, frame scheduling
-- **Neovim** (`NvimController.swift`, `NvimRPC.swift`) — MessagePack RPC, bidirectional buffer sync, ext UI overlays
-- **Editor** (`MultiCursorTextView.swift`, `SyntaxHighlighting.swift`) — STTextView, TreeSitter pipeline
-- **Skills** (`SkillScanner.swift`, skill UI views) — discovery, activation, creation wizard
-- **IPC** (`SmithersCtlInterpreter.swift`, `SmithersIPCServer.swift`) — Unix socket, command parsing
+- **Neovim** (`NvimController.swift`, `NvimRPC.swift`) — MessagePack RPC, buffer sync, ext UI
+- **Editor** (`MultiCursorTextView.swift`, `SyntaxHighlighting.swift`) — STTextView, TreeSitter
+- **Skills** (`SkillScanner.swift`, views) — discovery, activation, wizard
+- **IPC** (`SmithersCtlInterpreter.swift`, `SmithersIPCServer.swift`) — Unix socket, parsing
 
-The v1 architecture uses a single 7,100-line `WorkspaceState` god object and a 2,500-line `ContentView`. v2 decomposes these, but the individual service/integration implementations are excellent reference code. **Study the patterns, don't copy-paste.**
+v1: 7.1K-line `WorkspaceState` god object, 2.5K-line `ContentView`. v2 decomposes. Services/integrations = excellent reference. **Study patterns, don't copy-paste.**
 
-### 16.1 Code to study from v1
+### 16.1 v1 study guide
 
-These v1 files contain implementation patterns that should be understood and referenced (not copy-pasted) when building v2:
+Reference (not copy-paste) patterns:
 
-| v1 File | What to study | v2 Target |
-|---------|---------------|-----------|
-| `GhosttyApp.swift` | C FFI singleton, callback pattern, tick scheduling | `Terminal/GhosttyApp.swift` |
-| `GhosttyTerminalView.swift` | NSView surface lifecycle, userdata pattern, frame scheduler | `Terminal/GhosttyTerminalView.swift` |
-| `GhosttyInput.swift` | Key mapping, Option-as-Meta translation | `Terminal/GhosttyInput.swift` |
-| `NvimRPC.swift` | MessagePack encoder/decoder | `Neovim/NvimRPC.swift` |
-| `NvimController.swift` | Socket RPC, UI attachment, autocmd installation | `Neovim/NvimController.swift` |
-| `JSONRPCTransport.swift` | Pipe-based JSON-RPC, request/response correlation, async streams | `Services/JSONRPCTransport.swift` → eventually `src/codex_client.zig` |
-| `CodexService.swift` | Event types, thread management, notification routing | `Services/CodexService.swift` → eventually `src/orchestrator.zig` |
-| `SmithersCtlInterpreter.swift` | Command parsing, vim-style +line:col | `Services/SmithersCtlInterpreter.swift` |
-| `SyntaxHighlighting.swift` | TreeSitter pipeline, requestID cancellation, language registry | `Editor/TreeSitterHighlighter.swift` |
-| `ContentView.swift` (CodeEditor) | STTextView NSViewRepresentable, Coordinator pattern, view state save/restore | `Editor/CodeEditorView.swift` |
-| `MultiCursorTextView.swift` | STTextView subclass, multi-cursor undo grouping | `Editor/MultiCursorTextView.swift` |
-| `GhostTextOverlayView.swift` | NSView overlay, NSLayoutManager text layout | `Editor/GhostTextOverlayView.swift` |
-| `ScrollbarOverlayView.swift` | Custom NSView scrollbar, knob drawing, hit testing | `Editor/ScrollbarOverlayView.swift` |
-| `JJService.swift` | jj CLI invocation, template-based JSON parsing | `Services/JJService.swift` → eventually `src/jj.zig` |
-| `JJSnapshotStore.swift` | GRDB setup, migration, async wrappers | `Services/JJSnapshotStore.swift` |
-| `SmithersIPCServer.swift` | NWListener socket server, wait-for-close pattern | `Services/IPCServer.swift` |
-| `CloseGuard.swift` | NSWindowDelegate, async confirmation with bypass flag | `App/CloseGuard.swift` |
-| `WindowFrameStore.swift` | Per-workspace frame persistence, screen adjustment | `Services/WindowFrameStore.swift` |
-| `AppTheme.swift` | Theme struct, NSColor hex parsing, Neovim derivation | `DesignSystem/Theme/AppTheme.swift` |
-| `ChatHistoryStore.swift` | SHA256 workspace hash, image storage, versioned format | `Services/ChatHistoryStore.swift` |
+| v1 | Study | v2 |
+|---|---|---|
+| `GhosttyApp.swift` | C FFI singleton, callbacks, tick sched | `Terminal/GhosttyApp.swift` |
+| `GhosttyTerminalView.swift` | NSView lifecycle, userdata, frame sched | `Terminal/GhosttyTerminalView.swift` |
+| `GhosttyInput.swift` | Key map, Option-as-Meta | `Terminal/GhosttyInput.swift` |
+| `NvimRPC.swift` | MessagePack codec | `Neovim/NvimRPC.swift` |
+| `NvimController.swift` | Socket RPC, UI attach, autocmd | `Neovim/NvimController.swift` |
+| `JSONRPCTransport.swift` | Pipe JSON-RPC, correlation, async | `Services/JSONRPCTransport.swift` → `src/codex_client.zig` |
+| `CodexService.swift` | Events, threads, notifications | `Services/CodexService.swift` → `src/orchestrator.zig` |
+| `SmithersCtlInterpreter.swift` | Parsing, vim +line:col | `Services/SmithersCtlInterpreter.swift` |
+| `SyntaxHighlighting.swift` | TreeSitter pipeline, cancellation, registry | `Editor/TreeSitterHighlighter.swift` |
+| `ContentView.swift` (editor) | STTextView NSViewRep, Coordinator, state | `Editor/CodeEditorView.swift` |
+| `MultiCursorTextView.swift` | STTextView subclass, multi-cursor undo | `Editor/MultiCursorTextView.swift` |
+| `GhostTextOverlayView.swift` | NSView overlay, NSLayoutManager | `Editor/GhostTextOverlayView.swift` |
+| `ScrollbarOverlayView.swift` | Custom NSView scrollbar, drawing, hit test | `Editor/ScrollbarOverlayView.swift` |
+| `JJService.swift` | CLI invoke, template JSON parse | `Services/JJService.swift` → `src/jj.zig` |
+| `JJSnapshotStore.swift` | GRDB, migration, async | `Services/JJSnapshotStore.swift` |
+| `SmithersIPCServer.swift` | NWListener socket, wait-close | `Services/IPCServer.swift` |
+| `CloseGuard.swift` | NSWindowDelegate, async confirm, bypass | `App/CloseGuard.swift` |
+| `WindowFrameStore.swift` | Per-workspace frame, screen adjust | `Services/WindowFrameStore.swift` |
+| `AppTheme.swift` | Theme, hex parse, Neovim derive | `DesignSystem/Theme/AppTheme.swift` |
+| `ChatHistoryStore.swift` | SHA256 hash, image storage, version | `Services/ChatHistoryStore.swift` |
 
-### 16.2 What NOT to carry forward
+### 16.2 NOT carry forward
 
-- **WorkspaceState.swift** — the 7,100-line god object. Decomposed into AppModel + WorkspaceModel + sub-models across multiple files. (The god object pattern is fine — the 7,100-line single file is not.)
-- **ContentView.swift** — the 2,500-line monolith. Split into smaller view files: IDEWorkspaceDetailView, CodeEditorView, IDETabBar, BreadcrumbBar, IDEStatusBar.
-- **`ObservableObject` + `@Published` pattern** — replaced by `@Observable`.
-- **Single-window architecture** — replaced by Chrome DevTools-style multi-window with scene-based management.
-- **SmithersShared compiled as sources in both targets** — in v2, shared code lives in `macos/Sources/` with a single Xcode app target. The Zig core (`libsmithers`) handles shared logic.
-- **Hardcoded welcome screen suggestions** — replaced by AI-generated, workspace-aware suggestions via `SuggestionService`.
-- **External binary dependencies** — v1 relied on PATH lookup for some tools. v2 builds `codex-app-server` and `jj` from source (git submodules) and bundles them inside the `.app` bundle. Users install nothing beyond Smithers itself.
+- **WorkspaceState.swift** — 7.1K-line god object. Decompose → AppModel + WorkspaceModel + sub-models. (God object pattern OK, 7K-line file not.)
+- **ContentView.swift** — 2.5K monolith. Split → IDEWorkspaceDetailView, CodeEditorView, IDETabBar, BreadcrumbBar, IDEStatusBar.
+- **`ObservableObject` + `@Published`** → replaced `@Observable`.
+- **Single-window** → multi-window scene-based (Chrome DevTools style).
+- **SmithersShared compiled both targets** → v2 shared in `macos/Sources/`, single Xcode target. Zig core handles logic.
+- **Hardcoded welcome** → AI-generated workspace-aware (`SuggestionService`).
+- **External binaries** — v1 PATH lookup. v2 builds codex-app-server, jj from source (submodules), bundles in `.app`. Users install Smithers only.
 
 ---
 
-## 18. Features from v1 Git History Audit
+## 18. v1 Features (297 commits, ~250 features)
 
-The following features were found in the v1 codebase (297 commits, ~250 features) and must be present in v2. Features already covered in earlier sections are not repeated here — this section captures features that were under-specified or missing.
+Under-specified features from v1 audit (others covered earlier):
 
-### 18.1 Auto-update system
-- **Sparkle integration** via `SPUStandardUpdaterController`. Ships in v2 via `UpdateController.swift`.
-- **Update channels:** Release vs. Snapshot enum (`UpdateChannel`). Persisted to UserDefaults. Changes which feed URL is checked.
-- **Manual check:** "Check for Updates..." menu item.
-- **Feed URL:** Configured per-channel in Info.plist. Snapshot channel may include pre-release builds.
+### 18.1 Auto-update
+Sparkle `SPUStandardUpdaterController` → `UpdateController.swift`. Channels: Release/Snapshot enum `UpdateChannel` (UserDefaults) → feed URL. Manual "Check for Updates..." menu. Feed URL per-channel Info.plist, Snapshot = pre-release.
 
-### 18.2 URL scheme deep linking
-- **`smithers://` and `smithers-open-file://`** URL schemes registered in Info.plist.
-- **`smithers-chat://`** scheme for opening specific chat sessions.
-- **External file opening:** Finder, CLI, and URL scheme all funnel through `ExternalOpenRequest` with batch support.
-- **Pending URL queue:** If files are opened before workspace is ready, they queue and process once workspace loads.
-- **Workspace root inference:** When opening a file, infer the workspace root from the file's directory hierarchy.
+### 18.2 URL schemes
+`smithers://`, `smithers-open-file://`, `smithers-chat://` registered Info.plist. External opens (Finder, CLI, URL) → `ExternalOpenRequest` batch. Pending queue if pre-workspace, process on load. Workspace root inferred from file hierarchy.
 
-### 18.3 File operations (CRUD)
-- **Create file/folder** from file tree context menu.
-- **Rename file/folder** with inline text field.
-- **Delete to Trash** (not permanent delete) from context menu.
-- **Non-UTF-8 file detection:** Read-only placeholder display. Prevents saving/auto-saving non-UTF-8 files.
+### 18.3 File ops
+Create file/folder (tree context). Rename inline. Delete → Trash (not permanent). Non-UTF-8 detection → read-only placeholder, no save/auto-save.
 
 ### 18.4 Auto-save
-- **Configurable interval:** 5s, 10s, 30s options.
-- **Toggle on/off** in preferences.
-- **Toast notification** on auto-save.
-- **Guard:** Never auto-saves non-UTF-8 files.
+Intervals: 5s, 10s, 30s. Toggle prefs. Toast on save. Guard: never non-UTF-8.
 
-### 18.5 Session persistence (full)
-- **Open tabs + selected tab + sidebar widths** saved per workspace.
-- **Terminal state** preserved across restarts.
-- **Last opened workspace** restored on launch.
-- **Chat session ID** persisted for thread resume.
-- **Editor view state** (scroll position, selection range) per file.
-- **Shortcuts panel visibility** persisted.
-- **Sidebar mode** (Chats/Source/Agents) persisted.
-- **Debounced persistence** on tab/selection changes. Explicit save on window/app close.
+### 18.5 Session persist
+Tabs + selected + sidebar widths per workspace. Terminal state across restarts. Last workspace on launch. Chat session ID → thread resume. Editor state (scroll, selection) per file. Shortcuts panel visibility. Sidebar mode (Chats/Source/Agents). Debounced on changes, explicit on close.
 
-### 18.6 Performance monitoring (debug)
-- **PerformanceMonitor** singleton tracks FPS, frame time, render time, syntax highlight time, glyph cache hits/misses.
-- **PerformanceOverlayView** — debug HUD displaying live metrics.
-- **Performance logging** to file with JSON encoding.
-- **Toggle** via preferences (debug builds only).
-- **Instrumented points:** syntax highlighting, Ghostty render calls, glyph frame cache.
+### 18.6 Perf monitor (debug)
+`PerformanceMonitor` singleton: FPS, frame, render, highlight, glyph cache. `PerformanceOverlayView` debug HUD. Log JSON. Toggle prefs (debug only). Instrumented: highlight, Ghostty render, glyph cache.
 
-### 18.7 Pinch-to-zoom
-- **Editor magnification gesture** with live preview. Adjusts font size temporarily.
+### 18.7 Pinch-zoom
+Editor magnification gesture, live preview, temp font size adjust.
 
-### 18.8 Press-and-hold disable
-- **`PressAndHoldDisabler`** — disables macOS press-and-hold accent popup so key repeat works in the editor and terminal. Required for vim-style navigation.
+### 18.8 Press-hold disable
+`PressAndHoldDisabler` — disable macOS accent popup → key repeat works (editor/terminal). Required vim nav.
