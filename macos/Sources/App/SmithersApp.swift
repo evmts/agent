@@ -16,6 +16,7 @@ struct SmithersApp: App {
         Window("Smithers", id: "chat") {
             ChatWindowRootView()
                 .environment(appModel)
+                .environment(\.theme, appModel.theme)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 800, height: 900)
@@ -23,6 +24,7 @@ struct SmithersApp: App {
         Window("Smithers IDE", id: "workspace") {
             IDEWindowRootView()
                 .environment(appModel)
+                .environment(\.theme, appModel.theme)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 900)
@@ -35,22 +37,24 @@ struct SmithersApp: App {
 }
 
 struct ChatWindowRootView: View {
+    @Environment(\.theme) private var theme
     var body: some View {
         ZStack {
-            Color.black.opacity(0.94)
+            theme.backgroundColor
             Text("Chat Window")
-                .foregroundStyle(.white.opacity(0.88))
+                .foregroundStyle(theme.foregroundColor)
                 .padding(24)
         }
     }
 }
 
 struct IDEWindowRootView: View {
+    @Environment(\.theme) private var theme
     var body: some View {
         ZStack {
-            Color.black.opacity(0.94)
+            theme.backgroundColor
             Text("IDE Window")
-                .foregroundStyle(.white.opacity(0.88))
+                .foregroundStyle(theme.foregroundColor)
                 .padding(24)
         }
     }
