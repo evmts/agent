@@ -15,7 +15,7 @@ export const ticketSchema = z.object({
   title: z.string().describe("Short imperative title (e.g. 'Add SQLite WAL mode initialization')"),
   description: z.string().describe("Detailed description of what needs to be implemented"),
   scope: z.enum(["zig", "swift", "web", "e2e", "docs", "build"]).describe("Primary scope of the ticket (use 'e2e' when spanning Zig+Swift+Web)"),
-  layers: z.array(z.enum(["zig", "swift", "web"])).describe("Which layers this ticket touches (e.g. ['zig'] for infra, ['zig','swift','web'] for e2e)"),
+  layers: z.array(z.string()).describe("Which layers this ticket touches (e.g. ['zig'] for infra, ['zig','swift','web'] for e2e)"),
   acceptanceCriteria: z.array(z.string()).describe("List of acceptance criteria"),
   testPlan: z.string().describe("How to validate: unit tests, e2e tests, manual verification"),
   estimatedComplexity: z.enum(["trivial", "small", "medium", "large"]).describe("Estimated complexity"),

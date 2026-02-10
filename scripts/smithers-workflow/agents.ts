@@ -40,7 +40,7 @@ export const claude = USE_CLI ? claudeCli : claudeApi;
 
 // --- Codex ---
 
-const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-5.2-codex";
+const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-5.3-codex";
 
 const codexApi = new Agent({
   model: openai(CODEX_MODEL),
@@ -55,7 +55,7 @@ const codexCli = new CodexAgent({
   systemPrompt: SYSTEM_PROMPT,
   yolo: UNSAFE,
   cwd: REPO_ROOT,
-  config: { model_reasoning_effort: "xhigh" },
+  config: { model_reasoning_effort: "high" },
 });
 
 export const codex = USE_CLI ? codexCli : codexApi;

@@ -18,7 +18,7 @@ export const reportTable = sqliteTable("report", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const reportOutputSchema = z.object({
-  ticketId: z.string().describe("The ticket this report covers"),
+  ticketId: z.string().default("unknown").describe("The ticket this report covers"),
   ticketTitle: z.string().describe("Title of the ticket"),
   status: z.enum(["completed", "partial", "failed"]).describe("Final status"),
   summary: z.string().describe("Concise summary of what was implemented"),

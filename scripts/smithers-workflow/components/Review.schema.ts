@@ -15,8 +15,8 @@ export const reviewTable = sqliteTable("review", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const reviewOutputSchema = z.object({
-  ticketId: z.string().describe("The ticket being reviewed"),
-  reviewer: z.string().describe("Which agent reviewed (claude, codex)"),
+  ticketId: z.string().default("unknown").describe("The ticket being reviewed"),
+  reviewer: z.string().default("unknown").describe("Which agent reviewed (claude, codex)"),
   approved: z.boolean().describe("Whether the reviewer approves (LGTM)"),
   issues: z.array(z.object({
     severity: z.enum(["critical", "major", "minor", "nit"]),

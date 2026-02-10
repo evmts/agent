@@ -12,7 +12,7 @@ export const validateTable = sqliteTable("validate", {
 }, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
 
 export const validateOutputSchema = z.object({
-  ticketId: z.string().describe("The ticket being validated"),
+  ticketId: z.string().default("unknown").describe("The ticket being validated"),
   allPassed: z.boolean().describe("Whether `zig build all` exited with status 0"),
   failingSummary: z.string().nullable().describe("Summary of what failed and why (null if all passed)"),
   fullOutput: z.string().describe("Full output from `zig build all`"),
