@@ -1,10 +1,8 @@
 # Design System Implementation
 
-## 13. Design System Implementation
+## 13.1 Token Definitions
 
-### 13.1 Token definitions
-
-All tokens live in `SmithersDesignSystem/Tokens/`. Implemented as static constants on namespaced enums:
+All tokens in `SmithersDesignSystem/Tokens/`. Static constants on namespaced enums:
 
 ```swift
 enum DS {
@@ -14,7 +12,7 @@ enum DS {
         static let surface2 = NSColor(hex: "#1A2030")!
         static let border = NSColor.white.withAlphaComponent(0.08)
         static let accent = NSColor(hex: "#4C8DFF")!
-        // ... all tokens from design spec section 2.1
+        // ... all tokens from design spec 2.1
     }
     enum Type {
         static let xs: CGFloat = 10
@@ -23,7 +21,7 @@ enum DS {
         static let l: CGFloat = 15
         static let xl: CGFloat = 20
         static let chatHeading: CGFloat = 28
-        // ... all tokens from design spec section 2.5
+        // ... all from design spec 2.5
     }
     enum Space {
         static let _4: CGFloat = 4
@@ -39,9 +37,9 @@ enum DS {
 }
 ```
 
-### 13.2 AppTheme
+## 13.2 AppTheme
 
-Struct containing all resolved colors for the current appearance (dark/light). Injected into the SwiftUI environment via a custom `EnvironmentKey`.
+Struct with all resolved colors for current appearance (dark/light). Injected via custom `EnvironmentKey`.
 
 ```swift
 struct AppTheme: Equatable {
@@ -49,10 +47,10 @@ struct AppTheme: Equatable {
     let foreground: NSColor
     let mutedForeground: NSColor
     let secondaryBackground: NSColor
-    // ... all 24+ color properties
+    // ... 24+ color properties
 
-    static let dark = AppTheme(...)   // default dark theme
-    static let light = AppTheme(...)  // derived light theme
+    static let dark = AppTheme(...)   // default dark
+    static let light = AppTheme(...)  // derived light
 }
 
 private struct ThemeKey: EnvironmentKey {
@@ -67,11 +65,11 @@ extension EnvironmentValues {
 }
 ```
 
-Views access the theme via `@Environment(\.theme) private var theme`.
+Views access via `@Environment(\.theme) private var theme`.
 
-### 13.3 Light theme derivation
+## 13.3 Light Theme Derivation
 
-Per the design spec (section 2.4):
+Per design spec 2.4:
 
 ```swift
 extension AppTheme {
@@ -83,8 +81,8 @@ extension AppTheme {
             secondaryBackground: NSColor(hex: "#FFFFFF")!,
             panelBackground: NSColor(hex: "#EEF1F7")!,
             border: NSColor.black.withAlphaComponent(0.10),
-            accent: DS.Color.accent,  // same accent in both themes
-            // Hover states use black@3-4% instead of white
+            accent: DS.Color.accent,  // same accent both themes
+            // Hover: black@3-4% instead of white
             // Chat bubbles: assistant → black@4%, user → accent@12%
             // ...
         )
@@ -92,9 +90,9 @@ extension AppTheme {
 }
 ```
 
-### 13.4 Neovim theme derivation
+## 13.4 Neovim Theme Derivation
 
-`ThemeDerived.fromNvimHighlights()` takes a dictionary of Neovim highlight group colors and maps them to `AppTheme` properties:
+`ThemeDerived.fromNvimHighlights()` takes Neovim highlight group colors → maps to `AppTheme`:
 
 - `Normal.bg` → `background`, `Normal.fg` → `foreground`
 - `Visual.bg` → `selectionBackground`
@@ -104,6 +102,6 @@ extension AppTheme {
 - `LineNr` / `CursorLineNr` → line number colors
 - Missing groups: derive via alpha blending from background + foreground.
 
-### 13.5 Shared components
+## 13.5 Shared Components
 
-All components in `SmithersDesignSystem/Components/` read the theme from the environment. They are purely presentational — no business logic, no dependencies on models or services.
+All in `SmithersDesignSystem/Components/`, read theme from environment. Purely presentational — no business logic, no dependencies on models/services.
