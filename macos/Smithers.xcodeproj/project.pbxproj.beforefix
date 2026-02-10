@@ -6,10 +6,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* SmithersApp.swift */; };
+	A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* SmithersApp.swift */; };
 	A00000000000000000000016 /* SmithersKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* SmithersKit.xcframework */; };
 	B11111111111111111111112 /* SmithersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11111111111111111111111 /* SmithersTests.swift */; };
 	B1111111111111111111111A /* SmithersKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* SmithersKit.xcframework */; };
+	C11111111111111111111122 /* SmithersCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11111111111111111111121 /* SmithersCore.swift */; };
+	C44444444444444444444442 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44444444444444444444441 /* AppModel.swift */; };
+	D10000000000000000000006 /* DesignSystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000006 /* DesignSystemTests.swift */; };
+	D10000000000000000000004 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* Components.swift */; };
+	D10000000000000000000003 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000003 /* AppTheme.swift */; };
+	D10000000000000000000002 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* Tokens.swift */; };
+	D10000000000000000000001 /* NSColor+Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* NSColor+Hex.swift */; };
+
+	D10000000000000000000012 /* Tokens.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* Tokens.swift */; };
+	D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000003 /* AppTheme.swift */; };
+	D10000000000000000000014 /* NSColor+Hex.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* NSColor+Hex.swift */; };
+D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000007 /* ComponentsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +32,26 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 	A00000000000000000000017 /* Smithers.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Smithers.entitlements"; sourceTree = "<group>"; };
 	B11111111111111111111110 /* SmithersTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SmithersTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 	B11111111111111111111111 /* SmithersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithersTests.swift; sourceTree = "<group>"; };
+	C11111111111111111111121 /* SmithersCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithersCore.swift; sourceTree = "<group>"; };
+	C44444444444444444444441 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		D20000000000000000000001 /* Helpers */ = {isa = PBXGroup; children = (
+			D20000000000000000000002 /* Extensions */,
+			D20000000000000000000003 /* DesignSystem */,
+		); path = Helpers; sourceTree = "<group>"; };
+	D20000000000000000000002 /* Extensions */ = {isa = PBXGroup; children = (
+		D00000000000000000000001 /* NSColor+Hex.swift */,
+	); path = Extensions; sourceTree = "<group>"; };
+	D00000000000000000000006 /* DesignSystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystemTests.swift; sourceTree = "<group>"; };
+D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComponentsTests.swift; sourceTree = "<group>"; };
+		D20000000000000000000003 /* DesignSystem */ = {isa = PBXGroup; children = (
+			D00000000000000000000002 /* Tokens.swift */,
+			D00000000000000000000003 /* AppTheme.swift */,
+			D00000000000000000000004 /* Components.swift */,
+		); path = DesignSystem; sourceTree = "<group>"; };
+	D00000000000000000000004 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+	D00000000000000000000003 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+	D00000000000000000000002 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
+	D00000000000000000000001 /* NSColor+Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSColor+Hex.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,31 +78,44 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 	); name = Products; sourceTree = "<group>"; };
 	A00000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (
 		A00000000000000000000018 /* App */,
-	); path = Sources; sourceTree = "<group>"; }; 
+		C11111111111111111111123 /* Ghostty */,
+	
+		D20000000000000000000001 /* Helpers */,
+		); path = Sources; sourceTree = "<group>"; };
 	A00000000000000000000005 /* Frameworks */ = {isa = PBXGroup; children = (
 		A00000000000000000000014 /* SmithersKit.xcframework */,
 	); name = Frameworks; sourceTree = "<group>"; };
 	A00000000000000000000018 /* App */ = {isa = PBXGroup; children = (
 		A00000000000000000000011 /* SmithersApp.swift */,
+		C44444444444444444444441 /* AppModel.swift */,
 	); path = App; sourceTree = "<group>"; };
 	B1111111111111111111111B /* Tests */ = {isa = PBXGroup; children = (
 		B11111111111111111111111 /* SmithersTests.swift */,
-	); name = Tests; path = SmithersTests; sourceTree = "<group>"; };
+	
+		D00000000000000000000006 /* DesignSystemTests.swift */,
+		); name = Tests; path = SmithersTests; sourceTree = "<group>"; };
+	C11111111111111111111123 /* Ghostty */ = {isa = PBXGroup; children = (
+		C11111111111111111111121 /* SmithersCore.swift */,
+	); path = Ghostty; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
 	A00000000000000000000006 /* Smithers */ = {isa = PBXNativeTarget; buildConfigurationList = A0000000000000000000000D /* Build configuration list for PBXNativeTarget "Smithers" */; buildPhases = (
-		A00000000000000000000007 /* Sources */, 
-		A00000000000000000000008 /* Frameworks */, 
-		A00000000000000000000009 /* Resources */, 
+		C22222222222222222222224 /* Verify SmithersKit.xcframework */,
+		A00000000000000000000007 /* Sources */,
+		A00000000000000000000008 /* Frameworks */,
+		A00000000000000000000009 /* Resources */,
 	); buildRules = ( ); dependencies = ( ); name = Smithers; productName = Smithers; productReference = A00000000000000000000010 /* Smithers.app */; productType = "com.apple.product-type.application"; };
 	B11111111111111111111116 /* SmithersTests */ = {isa = PBXNativeTarget; buildConfigurationList = B11111111111111111111119 /* Build configuration list for PBXNativeTarget "SmithersTests" */; buildPhases = (
 		B11111111111111111111113 /* Sources */,
 		B11111111111111111111114 /* Frameworks */,
 		B11111111111111111111115 /* Resources */,
-	); buildRules = ( ); dependencies = ( ); name = SmithersTests; productName = SmithersTests; productReference = B11111111111111111111110 /* SmithersTests.xctest */; productType = "com.apple.product-type.bundle.unit-test"; };
+	); buildRules = ( ); dependencies = ( C33333333333333333333326 /* PBXTargetDependency */ ); name = SmithersTests; productName = SmithersTests; productReference = B11111111111111111111110 /* SmithersTests.xctest */; productType = "com.apple.product-type.bundle.unit-test"; };
 /* End PBXNativeTarget section */
 
+/* Begin PBXContainerItemProxy section */
+	C33333333333333333333325 /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = A00000000000000000000006; remoteInfo = Smithers; };
+/* End PBXContainerItemProxy section */
 /* Begin PBXProject section */
 	A00000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = { LastUpgradeCheck = 1530; TargetAttributes = { A00000000000000000000006 = { ProvisioningStyle = Manual; }; B11111111111111111111116 = { ProvisioningStyle = Manual; }; }; }; buildConfigurationList = A0000000000000000000000A /* Build configuration list for PBXProject "Smithers" */; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = ( en ); mainGroup = A00000000000000000000002; productRefGroup = A00000000000000000000003 /* Products */; projectDirPath = ""; projectRoot = ""; targets = ( A00000000000000000000006 /* Smithers */, B11111111111111111111116 /* SmithersTests */ ); };
 /* End PBXProject section */
@@ -84,12 +129,35 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 /* Begin PBXSourcesBuildPhase section */
 	A00000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		A00000000000000000000015 /* SmithersApp.swift in Sources */,
-	); runOnlyForDeploymentPostprocessing = 0; };
+		C44444444444444444444442 /* AppModel.swift in Sources */,
+		C11111111111111111111122 /* SmithersCore.swift in Sources */,
+	
+		D10000000000000000000001 /* NSColor+Hex.swift in Sources */,
+		D10000000000000000000002 /* Tokens.swift in Sources */,
+		D10000000000000000000003 /* AppTheme.swift in Sources */,
+		D10000000000000000000004 /* Components.swift in Sources */,
+		); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		B11111111111111111111112 /* SmithersTests.swift in Sources */,
-	); runOnlyForDeploymentPostprocessing = 0; };
+			D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */,
+	
+		D10000000000000000000006 /* DesignSystemTests.swift in Sources */,
+		D10000000000000000000014 /* NSColor+Hex.swift in Sources (Tests) */,
+		D10000000000000000000012 /* Tokens.swift in Sources (Tests) */,
+		D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */,
+		); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
+/* Begin PBXShellScriptBuildPhase section */
+	C22222222222222222222224 /* Verify SmithersKit.xcframework */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = ( ); inputFileListPaths = ( ); inputPaths = ( ); name = "Verify SmithersKit.xcframework"; outputFileListPaths = ( ); outputPaths = ( "${SRCROOT}/../dist/SmithersKit.stamp" ); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "if [ ! -d \"${SRCROOT}/../dist/SmithersKit.xcframework\" ]; then\n  echo \"SmithersKit.xcframework not found at ../dist. Building via 'zig build xcframework'...\"\n  ROOT=\"$(cd \"${SRCROOT}/..\"; pwd)\"\n  cd \"$ROOT\"\n  if ! command -v zig >/dev/null 2>&1; then\n    echo \"zig not found. Install Zig or build xcframework manually.\" >&2\n    exit 1\n  fi\n  zig build xcframework || { echo \"zig build xcframework failed\"; exit 1; }\nfi\n
 
+# Emit stamp for incremental builds
+/usr/bin/touch "${SRCROOT}/../dist/SmithersKit.stamp"
+"; };
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+	C33333333333333333333326 /* PBXTargetDependency */ = {isa = PBXTargetDependency; name = Smithers; target = A00000000000000000000006 /* Smithers */; targetProxy = C33333333333333333333325 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
 /* Begin XCBuildConfiguration section */
 	A0000000000000000000000B /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
 		ALWAYS_SEARCH_USER_PATHS = NO;
@@ -111,17 +179,20 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		SDKROOT = macosx;
 		SWIFT_VERSION = 6.0;
 		}; name = Release; };
-	A0000000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+A0000000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
 		ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 		CODE_SIGN_ENTITLEMENTS = "Smithers.entitlements";
 		CODE_SIGN_IDENTITY = "-";
 		CODE_SIGN_STYLE = Manual;
 		DEVELOPMENT_TEAM = "";
-		ENABLE_PREVIEWS = YES;
-		GENERATE_INFOPLIST_FILE = NO;
+        ENABLE_PREVIEWS = YES;
+        GENERATE_INFOPLIST_FILE = YES;
+        ENABLE_TESTABILITY = YES;
+        
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		INFOPLIST_FILE = "Smithers-Info.plist";
-		LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );
+        LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );
+            OTHER_LDFLAGS = "-lstdc++";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop;
 		PRODUCT_NAME = Smithers;
@@ -129,17 +200,19 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		SWIFT_STRICT_CONCURRENCY = complete;
 		SWIFT_VERSION = 6.0;
 		}; name = Debug; };
-	A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
 		ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 		CODE_SIGN_ENTITLEMENTS = "Smithers.entitlements";
 		CODE_SIGN_IDENTITY = "-";
 		CODE_SIGN_STYLE = Manual;
 		DEVELOPMENT_TEAM = "";
-		ENABLE_PREVIEWS = YES;
-		GENERATE_INFOPLIST_FILE = NO;
+        ENABLE_PREVIEWS = YES;
+        GENERATE_INFOPLIST_FILE = YES;
+        DEFINES_MODULE = YES;
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		INFOPLIST_FILE = "Smithers-Info.plist";
 		LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );
+			OTHER_LDFLAGS = "-lstdc++";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop;
 		PRODUCT_NAME = Smithers;
@@ -153,6 +226,7 @@ A00000000000000000000015 /* SmithersApp.swift in Sources */ = {isa = PBXBuildFil
 		INFOPLIST_KEY_CFBundleName = "SmithersTests";
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		GENERATE_INFOPLIST_FILE = YES;
+		EXCLUDED_ARCHS = x86_64;
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;

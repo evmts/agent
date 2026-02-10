@@ -16,7 +16,7 @@ enum DS {
         static let info    = mustHex("#60A5FA")
 
         // Chat surfaces
-        static let chatSidebarBg = NSColor.fromHex("#0C0E16")!
+        static let chatSidebarBg = mustHex("#0C0E16")
         static let chatSidebarHover = NSColor.white.withAlphaComponent(0.04)
         static let chatSidebarSelected = accent.withAlphaComponent(0.12)
 
@@ -47,7 +47,8 @@ enum DS {
         static let onAccentText = NSColor.white.withAlphaComponent(0.92)
     }
 
-    // Named Typography because 'Type' conflicts with Swift's metatype syntax (DS.Type); mapping: spec type.xs → Typography.xs
+    // Named Typography because 'Type' cannot be declared as a nested type in Swift (conflicts with metatype syntax `Foo.Type`).
+    // Maps 1:1 to the spec's `type.*` tokens.
     enum Typography {
         static let xs: CGFloat = 10
         static let s: CGFloat = 11

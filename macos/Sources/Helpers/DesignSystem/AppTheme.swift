@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct AppTheme: Equatable, Sendable {
+struct AppTheme: Equatable {
     // Core
     let background: NSColor
     let foreground: NSColor
@@ -89,8 +89,6 @@ extension AppTheme {
 private struct ThemeKey: EnvironmentKey {
     static let defaultValue: AppTheme = .dark
 }
-
-
 
 // Value-based Equatable: compare color values approximately in sRGB
 extension AppTheme {

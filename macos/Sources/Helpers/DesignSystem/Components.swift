@@ -29,7 +29,7 @@ struct IconButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(Color(nsColor: theme.foreground))
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: DS.Radius._6)
                 .fill(
                     Color(nsColor: hovering ? (pressing ? DS.Color.overlayWhite10 : DS.Color.overlayWhite06) : .clear)
                 )
@@ -59,13 +59,13 @@ struct PrimaryButton: View {
             Text(title)
                 .font(.system(size: DS.Typography.base, weight: .semibold))
                 .foregroundStyle(Color(nsColor: DS.Color.onAccentText))
-                .frame(height: 32)
-                .padding(.horizontal, 12)
+                .frame(height: DS.Space._32)
+                .padding(.horizontal, DS.Space._12)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: DS.Radius._8)
                         .fill(Color(nsColor: theme.accent).opacity(0.90))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
+                            RoundedRectangle(cornerRadius: DS.Radius._8)
                                 .fill(Color(nsColor: DS.Color.overlayWhite06).opacity(hovering ? 1.0 : 0))
                         )
                 )
@@ -96,7 +96,7 @@ struct PillButton: View {
                     .font(.system(size: DS.Typography.s, weight: .medium))
                     .foregroundStyle(Color(nsColor: theme.foreground))
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, DS.Space._8)
             .padding(.horizontal, 14)
             .background(
                 Capsule()
@@ -135,20 +135,20 @@ struct SidebarListRow: View {
                     Text(title).font(.system(size: DS.Typography.chatSidebarTitle, weight: .semibold))
                     if let s = subtitle {
                         Text(s)
-                            .font(.system(size: 10))
+                            .font(.system(size: DS.Typography.xs))
                             .foregroundStyle(Color(nsColor: DS.Color.textTertiary))
                     }
                 }
                 Spacer(minLength: 0)
             }
             .frame(height: 44)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, DS.Space._12)
             .background(
                 ZStack {
                     if isSelected {
-                        RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: DS.Color.chatSidebarSelected))
+                        RoundedRectangle(cornerRadius: DS.Radius._6).fill(Color(nsColor: DS.Color.chatSidebarSelected))
                     } else if hovering {
-                        RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: DS.Color.chatSidebarHover))
+                        RoundedRectangle(cornerRadius: DS.Radius._6).fill(Color(nsColor: DS.Color.chatSidebarHover))
                     }
                 }
             )
