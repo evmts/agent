@@ -11,9 +11,19 @@ node_modules/
 # Smithers workflow runtime
 scripts/smithers-workflow/.smithers/
 scripts/smithers-workflow/*.db
+scripts/smithers-workflow/*.db-shm
+scripts/smithers-workflow/*.db-wal
 
 # Prototype1 (Next.js)
 prototype1/.next/
 
 # Environment
 .env*.local
+
+# Backup files
+*.bak
+
+# Objects / build droppings
+*.o
+*.db-shm
+*.db-wal
