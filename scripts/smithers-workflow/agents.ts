@@ -1,0 +1,72 @@
+import { ToolLoopAgent as Agent, stepCountIs, type ToolSet } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { openai } from "@ai-sdk/openai";
+import { ClaudeCodeAgent, CodexAgent, GeminiAgent } from "smithers";
+import { tools as smithersTools } from "smithers/tools";
+import { SYSTEM_PROMPT } from "./system-prompt";
+
+// The ai SDK's ToolSet type uses `Tool<never, never>` in a union which creates
+// a variance mismatch with concrete tool types like `Tool<{ path: string }, string>`.
+// This is a known limitation — we widen the type once here at the import boundary.
+const tools = smithersTools as ToolSet;
+
+const USE_CLI =
+  process.env.USE_CLI_AGENTS !== "0" &&
+  process.env.USE_CLI_AGENTS !== "false";
+
+const REPO_ROOT = new URL("../..", import.meta.url).pathname.replace(
+  /\/$/,
+  "",
+);
+
+// --- Claude ---
+
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-opus-4-6";
+
+const claudeApi = new Agent({
+  model: anthropic(CLAUDE_MODEL),
+  tools,
+  instructions: SYSTEM_PROMPT,
+  stopWhen: stepCountIs(100),
+  maxOutputTokens: 8192,
+});
+
+const claudeCli = new ClaudeCodeAgent({
+  model: CLAUDE_MODEL,
+  systemPrompt: SYSTEM_PROMPT,
+  dangerouslySkipPermissions: true,
+});
+
+export const claude = USE_CLI ? claudeCli : claudeApi;
+
+// --- Codex ---
+
+const CODEX_MODEL = process.env.CODEX_MODEL ?? "gpt-5.2-codex";
+
+const codexApi = new Agent({
+  model: openai(CODEX_MODEL),
+  tools,
+  instructions: SYSTEM_PROMPT,
+  stopWhen: stepCountIs(100),
+  maxOutputTokens: 8192,
+});
+
+const codexCli = new CodexAgent({
+  model: CODEX_MODEL,
+  systemPrompt: SYSTEM_PROMPT,
+  yolo: true,
+  cwd: REPO_ROOT,
+  config: { model_reasoning_effort: "xhigh" },
+});
+
+export const codex = USE_CLI ? codexCli : codexApi;
+
+// --- Gemini (CLI only) ---
+
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-pro";
+
+export const gemini = new GeminiAgent({
+  model: GEMINI_MODEL,
+  systemPrompt: SYSTEM_PROMPT,
+  yolo: true,
+});
