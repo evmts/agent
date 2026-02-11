@@ -60,7 +60,8 @@ final class SmithersCore {
     }
 
     // MARK: Callbacks
-    nonisolated(unsafe) deinit {
+    deinit {
+        // Free on main actor; acceptable since deinit runs when UI tears down.
         if let app = app { smithers_app_free(app) }
     }
 
