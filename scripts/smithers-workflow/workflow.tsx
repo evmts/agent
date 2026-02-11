@@ -1,67 +1,21 @@
-import { smithers, Workflow, Sequence, Branch } from "smithers";
-import { db } from "./db";
-import { discoverTable, ticketSchema } from "./components/Discover.schema";
-import { reportTable } from "./components/Report.schema";
-import { outputTable } from "./components/PassTracker.schema";
-import { coerceJsonArray } from "./lib/coerce";
-import {
-  Discover,
-  TicketPipeline,
-  PassTracker,
-  type Ticket,
-} from "./components";
-import { typedOutput } from "./components/ctx-type";
+import { Sequence, Branch } from "smithers";
+import { Discover, TicketPipeline } from "./components";
+import { Ticket } from "./components/Discover.schema";
+import { Workflow, smithers, tables } from "./smithers";
 
-export default smithers(db, (ctx) => {
-  // Read discover output from Codex
-  const codexDiscover = typedOutput<{
-    tickets: unknown;
-    reasoning?: string;
-    completionEstimate?: string;
-  }>(ctx, discoverTable, { nodeId: "discover-codex" });
-
-  const allTickets: Ticket[] = coerceJsonArray(codexDiscover?.tickets, ticketSchema);
-
-  const pendingTickets = allTickets.filter(
-    (t) => !typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }),
-  );
-
-  const allCompletedIds = allTickets
-    .filter((t) => !!typedOutput(ctx, reportTable, { nodeId: `${t.id}:report` }))
-    .map((t) => t.id);
-
-  const needsDiscovery = pendingTickets.length === 0;
-
-  const prevPassTracker = typedOutput<{
-    totalIterations?: number;
-    ticketsCompleted?: string[];
-    summary?: string;
-  }>(ctx, outputTable, { nodeId: "pass-tracker" });
-
-  const previousRun = prevPassTracker
-    ? {
-        summary: prevPassTracker.summary ?? "",
-        ticketsCompleted: prevPassTracker.ticketsCompleted ?? [],
-      }
-    : null;
-
-  // Compute delta: only tickets completed since last pass
-  const prevCompleted = new Set(prevPassTracker?.ticketsCompleted ?? []);
-  const completedThisPass = allCompletedIds.filter((id) => !prevCompleted.has(id));
+export default smithers((ctx) => {
+  const discoverOutput = ctx.latest(tables.discover, "discover-codex");
+  const unfinishedTickets = ctx
+    .latestArray(discoverOutput?.tickets, Ticket)
+    .filter((t) => !ctx.latest(tables.report, `${t.id}:report`)) as Ticket[];
 
   return (
     <Workflow name="smithers-v2-workflow">
       <Sequence>
-        <Branch
-          if={needsDiscovery}
-          then={<Discover previousRun={previousRun} />}
-        />
-
-        {pendingTickets.map((ticket) => (
-          <TicketPipeline key={ticket.id} ctx={ctx} ticket={ticket} />
+        <Branch if={unfinishedTickets.length === 0} then={<Discover />} />
+        {unfinishedTickets.map((ticket) => (
+          <TicketPipeline key={ticket.id} ticket={ticket} />
         ))}
-
-        <PassTracker ctx={ctx} completedTicketIds={completedThisPass} />
       </Sequence>
     </Workflow>
   );

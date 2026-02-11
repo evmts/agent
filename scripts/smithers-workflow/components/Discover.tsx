@@ -1,30 +1,29 @@
-
 import { Task } from "smithers";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { codex } from "../agents";
-import DiscoverPrompt from "../prompts/0_discover.mdx";
-export { discoverTable, ticketSchema, discoverOutputSchema } from "./Discover.schema";
-import { discoverTable, discoverOutputSchema } from "./Discover.schema";
+import DiscoverPrompt from "./Discover.mdx";
+import { Ticket } from "./Discover.schema";
+import { useCtx, tables } from "../smithers";
 
-interface DiscoverProps {
-  previousRun?: { summary: string; ticketsCompleted: string[] } | null;
-}
+export function Discover() {
+  const ctx = useCtx();
 
-export function Discover({ previousRun }: DiscoverProps) {
-  const prompt = render(DiscoverPrompt, {
-    previousRun,
-    discoverSchema: zodSchemaToJsonExample(discoverOutputSchema),
-  });
+  const discoverOutput = ctx.latest(tables.discover, "discover-codex");
+  const allTickets = ctx.latestArray(discoverOutput?.tickets, Ticket);
+  const completedIds = allTickets
+    .filter((t) => !!ctx.latest(tables.report, `${t.id}:report`))
+    .map((t) => t.id);
+
+  const previousRun =
+    completedIds.length > 0
+      ? {
+          summary: `Tickets completed: ${completedIds.join(", ")}`,
+          ticketsCompleted: completedIds,
+        }
+      : null;
 
   return (
-    <Task
-      id="discover-codex"
-      output={discoverTable}
-      outputSchema={discoverOutputSchema}
-      agent={codex}
-    >
-      {prompt}
+    <Task id="discover-codex" output={tables.discover} agent={codex}>
+      <DiscoverPrompt previousRun={previousRun} />
     </Task>
   );
 }
