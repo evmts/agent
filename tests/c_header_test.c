@@ -4,6 +4,7 @@
 
 // Verify enum value stability for tooling/tests relying on numeric tags.
 _Static_assert(SMITHERS_ACTION_STATUS == 12, "SMITHERS_ACTION_STATUS must equal 12");
+_Static_assert(SMITHERS_EVENT_TURN_COMPLETE == 14, "SMITHERS_EVENT_TURN_COMPLETE must equal 14");
 
 static void test_types(void) {
     smithers_app_t app = (smithers_app_t)0;

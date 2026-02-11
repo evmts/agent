@@ -3,6 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const configpkg = @import("config.zig");
 const action = @import("action.zig");
+const codex = @import("codex_client.zig");
 const log = std.log.scoped(.app);
 
 const App = @This();
@@ -51,6 +52,13 @@ pub fn performAction(self: *App, payload: action.Payload) void {
     const tag = std.meta.activeTag(payload);
     // For now just log; wire real routing later.
     log.info("performAction tag={s}", .{@tagName(tag)});
+    switch (payload) {
+        .chat_send => |cs| {
+            // Spawn stub orchestrator streaming on background thread.
+            codex.streamChat(self.runtime, cs.message);
+        },
+        else => {},
+    }
     if (self.runtime.wakeup) |cb| cb(self.runtime.userdata);
 }
 

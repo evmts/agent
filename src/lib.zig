@@ -66,6 +66,9 @@ fn payloadFromC(tag: action.Tag, payload: capi.smithers_action_payload_u) action
         .settings_change => .{ .settings_change = .{ .key = cStringToSlice(payload.settings_change.key), .value = cStringToSlice(payload.settings_change.value) } },
         .suggestion_refresh => .{ .suggestion_refresh = {} },
         .status => .{ .status = {} },
+        // Events are not expected over C->Zig dispatch; map to empty payloads to satisfy exhaustiveness.
+        .event_chat_delta => .{ .event_chat_delta = .{ .text = &[_]u8{} } },
+        .event_turn_complete => .{ .event_turn_complete = {} },
     };
 }
 

@@ -1,3 +1,4 @@
+
 //
 // libsmithers C API — THE Zig↔Swift contract
 //
@@ -32,7 +33,8 @@ typedef struct smithers_string_s { // pointer + length (no NUL contract)
 } smithers_string_s;
 
 //-------------------------------------------------------------------
-// Action tag (keep in sync with Zig action.Tag)
+// Action and Event tags (unified enum; actions = host→Zig, events = Zig→host).
+// Keep action values in sync with Zig action.Tag. Events are appended.
 //-------------------------------------------------------------------
 typedef enum smithers_action_tag_e {
     SMITHERS_ACTION_CHAT_SEND = 0,
@@ -48,6 +50,13 @@ typedef enum smithers_action_tag_e {
     SMITHERS_ACTION_SETTINGS_CHANGE = 10,
     SMITHERS_ACTION_SUGGESTION_REFRESH = 11,
     SMITHERS_ACTION_STATUS = 12,
+    // --- Events (Zig → host via smithers_action_cb) ---
+    // SMITHERS_EVENT_CHAT_DELTA: UTF-8 text chunk streamed during a turn.
+    //   - callback payload: data=ptr to bytes, len=byte count
+    // SMITHERS_EVENT_TURN_COMPLETE: signals the end of the turn.
+    //   - callback payload: data=NULL, len=0
+    SMITHERS_EVENT_CHAT_DELTA = 13,
+    SMITHERS_EVENT_TURN_COMPLETE = 14,
 } smithers_action_tag_e;
 
 //-------------------------------------------------------------------
@@ -74,6 +83,8 @@ typedef struct smithers_config_s {
 
 //-------------------------------------------------------------------
 // Payload union (C ABI)
+// Note: Events use the raw (data,len) params of smithers_action_cb and do not
+// require entries in this union. The union is defined for actions only.
 //-------------------------------------------------------------------
 typedef union smithers_action_payload_u {
     // string payloads

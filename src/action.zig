@@ -16,6 +16,9 @@ pub const Tag = enum(u32) {
     settings_change,
     suggestion_refresh,
     status,
+    // events (Zig -> host)
+    event_chat_delta,
+    event_turn_complete,
 };
 
 /// Tagged payload union. Each variant corresponds to an action.Tag.
@@ -34,6 +37,9 @@ pub const Payload = union(Tag) {
     settings_change: struct { key: []const u8, value: []const u8 },
     suggestion_refresh: void,
     status: void,
+    // events
+    event_chat_delta: struct { text: []const u8 },
+    event_turn_complete: void,
 };
 
 // No helper needed: use @tagName(tag) directly at call sites.

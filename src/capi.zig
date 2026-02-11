@@ -38,6 +38,9 @@ pub const smithers_action_tag_e = enum(u32) {
     settings_change,
     suggestion_refresh,
     status,
+    // events (Zig -> host)
+    event_chat_delta,
+    event_turn_complete,
 };
 
 pub const smithers_action_payload_u = extern union {
