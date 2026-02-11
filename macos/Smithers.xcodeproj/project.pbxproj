@@ -39,6 +39,8 @@ D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa =
     TSB00000000000000000001 /* ChatModelTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000001 /* ChatModelTests.swift */; };
     TSB00000000000000000002 /* SmithersCoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000002 /* SmithersCoreTests.swift */; };
     SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = SVF00000000000000000001 /* ChatHistoryStore.swift */; };
+	PBF0000000000000APPGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD0000000000000APPGRDB /* GRDB */; };
+	PBF000000000000TESTGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD000000000000TESTGRDB /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -90,10 +92,12 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
 /* Begin PBXFrameworksBuildPhase section */
 	A00000000000000000000008 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
 		A00000000000000000000016 /* SmithersKit.xcframework in Frameworks */,
-	); runOnlyForDeploymentPostprocessing = 0; };
+	
+				PBF0000000000000APPGRDB /* GRDB in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111114 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
 		B1111111111111111111111A /* SmithersKit.xcframework in Frameworks */,
-	); runOnlyForDeploymentPostprocessing = 0; };
+	
+				PBF000000000000TESTGRDB /* GRDB in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -170,12 +174,12 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		A00000000000000000000007 /* Sources */,
 		A00000000000000000000008 /* Frameworks */,
 		A00000000000000000000009 /* Resources */,
-	); buildRules = ( ); dependencies = ( ); name = Smithers; productName = Smithers; productReference = A00000000000000000000010 /* Smithers.app */; productType = "com.apple.product-type.application"; };
+	); buildRules = ( ); dependencies = ( ); name = Smithers; packageProductDependencies = ( PPD0000000000000APPGRDB /* GRDB */, ); productName = Smithers; productReference = A00000000000000000000010 /* Smithers.app */; productType = "com.apple.product-type.application"; };
 	B11111111111111111111116 /* SmithersTests */ = {isa = PBXNativeTarget; buildConfigurationList = B11111111111111111111119 /* Build configuration list for PBXNativeTarget "SmithersTests" */; buildPhases = (
 		B11111111111111111111113 /* Sources */,
 		B11111111111111111111114 /* Frameworks */,
 		B11111111111111111111115 /* Resources */,
-	); buildRules = ( ); dependencies = ( C33333333333333333333326 /* PBXTargetDependency */ ); name = SmithersTests; productName = SmithersTests; productReference = B11111111111111111111110 /* SmithersTests.xctest */; productType = "com.apple.product-type.bundle.unit-test"; };
+	); buildRules = ( ); dependencies = ( C33333333333333333333326 /* PBXTargetDependency */ ); name = SmithersTests; packageProductDependencies = ( PPD000000000000TESTGRDB /* GRDB */, ); productName = SmithersTests; productReference = B11111111111111111111110 /* SmithersTests.xctest */; productType = "com.apple.product-type.bundle.unit-test"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXContainerItemProxy section */
@@ -235,6 +239,13 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 /* Begin PBXTargetDependency section */
 	C33333333333333333333326 /* PBXTargetDependency */ = {isa = PBXTargetDependency; name = Smithers; target = A00000000000000000000006 /* Smithers */; targetProxy = C33333333333333333333325 /* PBXContainerItemProxy */; };
 /* End PBXTargetDependency section */
+/* Begin XCSwiftPackageProductDependency section */
+	PPD0000000000000APPGRDB /* GRDB */ = {isa = XCSwiftPackageProductDependency; package = PKG000000000000000GRDB00 /* GRDB.swift */; productName = GRDB; };
+	PPD000000000000TESTGRDB /* GRDB */ = {isa = XCSwiftPackageProductDependency; package = PKG000000000000000GRDB00 /* GRDB.swift */; productName = GRDB; };
+/* End XCSwiftPackageProductDependency section */
+/* Begin XCRemoteSwiftPackageReference section */
+	PKG000000000000000GRDB00 /* GRDB.swift */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/groue/GRDB.swift"; requirement = {kind = upToNextMajorVersion; minimumVersion = 7.0.0; }; };
+/* End XCRemoteSwiftPackageReference section */
 /* Begin XCBuildConfiguration section */
 	A0000000000000000000000B /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
 		ALWAYS_SEARCH_USER_PATHS = NO;
