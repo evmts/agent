@@ -28,7 +28,7 @@ final class ChatHistoryStore: @unchecked Sendable {
     init(databaseURL: URL? = nil) throws {
         let url = try databaseURL ?? Self.defaultDatabaseURL()
         var config = Configuration()
-        config.prepareDatabase = { db in
+        config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA journal_mode=WAL;")
             try db.execute(sql: "PRAGMA synchronous=NORMAL;")
             try db.execute(sql: "PRAGMA foreign_keys=ON;")
@@ -194,4 +194,3 @@ final class Debouncer: @unchecked Sendable {
         }
     }
 }
-
