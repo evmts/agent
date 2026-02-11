@@ -5,7 +5,7 @@ import SwiftUI
 /// row states and uses design tokens for surfaces/borders.
 struct FileTreeSidebar: View {
     @Environment(\.theme) private var theme
-    @State private var selected: UUID? = nil
+    @State private var selectedId: String? = nil
 
     private let items: [Node] = [
         .folder("app"),
@@ -35,8 +35,8 @@ struct FileTreeSidebar: View {
                     ForEach(items) { item in
                         FileTreeRow(
                             item: item,
-                            isSelected: item.id == selected,
-                            onSelect: { selected = item.id }
+                            isSelected: item.id == selectedId,
+                            onSelect: { selectedId = item.id }
                         )
                     }
                     Spacer(minLength: 0)

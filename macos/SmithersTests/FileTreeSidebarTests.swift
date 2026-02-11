@@ -1,7 +1,8 @@
 import Testing
+import AppKit
 @testable import Smithers
 
-@Suite struct FileTreeSidebarTests {
+@Suite @MainActor struct FileTreeSidebarTests {
     @Test func instantiateSidebar_viewTypeExists() {
         // Smoke: ensure the view type exists and can be constructed.
         let view = FileTreeSidebar()
