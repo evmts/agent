@@ -168,9 +168,7 @@ pub fn build(b: *std.Build) void {
         b,
         "playwright",
         "Run Playwright e2e (if web/ + pnpm)",
-        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; \
-         elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; \
-         else cd web && pnpm install && if ! pnpm exec playwright --version >/dev/null 2>&1; then echo 'skipping playwright: playwright not installed'; else pnpm exec playwright test; fi; fi",
+        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && if ! pnpm exec playwright --version >/dev/null 2>&1; then echo 'skipping playwright: playwright not installed'; else pnpm exec playwright test; fi; fi",
     );
 
     _ = playwright_step;
