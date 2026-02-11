@@ -107,6 +107,7 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
     ); path = Features; sourceTree = "<group>"; };
 E50000000000000000000002 /* Chat */ = {isa = PBXGroup; children = (
         E50000000000000000000003 /* Views */,
+        E50000000000000000000004 /* Models */,
     ); path = Chat; sourceTree = "<group>"; };
 E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
         F20000000000000000000001 /* ChatWindowRootView.swift */,
@@ -115,6 +116,10 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
         F20000000000000000000005 /* ChatTitleBarZone.swift */,
         F20000000000000000000006 /* SidebarModeBar.swift */,
     ); path = Views; sourceTree = "<group>"; };
+    E50000000000000000000004 /* Models */ = {isa = PBXGroup; children = (
+        CMF00000000000000000001 /* ChatMessage.swift */,
+        CMF00000000000000000002 /* ChatModel.swift */,
+    ); path = Models; sourceTree = "<group>"; };
     E50000000000000000000005 /* IDE */ = {isa = PBXGroup; children = (
             E50000000000000000000006 /* Views */,
         ); path = IDE; sourceTree = "<group>"; };
