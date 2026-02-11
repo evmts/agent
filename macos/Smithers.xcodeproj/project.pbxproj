@@ -41,6 +41,7 @@ D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa =
     SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = SVF00000000000000000001 /* ChatHistoryStore.swift */; };
 	PBF0000000000000APPGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD0000000000000APPGRDB /* GRDB */; };
 	PBF000000000000TESTGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD000000000000TESTGRDB /* GRDB */; };
+	CTB00000000000000000001 /* ChatHistoryStoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CTF00000000000000000001 /* ChatHistoryStoreTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -87,6 +88,7 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
     CMF00000000000000000002 /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
     TST00000000000000000001 /* ChatModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatModelTests.swift; path = SmithersTests/ChatModelTests.swift; sourceTree = SOURCE_ROOT; };
     TST00000000000000000002 /* SmithersCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SmithersCoreTests.swift; path = SmithersTests/SmithersCoreTests.swift; sourceTree = SOURCE_ROOT; };
+	CTF00000000000000000001 /* ChatHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatHistoryStoreTests.swift; path = SmithersTests/ChatHistoryStoreTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -161,6 +163,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		WC0000000000000000000001 /* WindowCoordinator.swift */,
 	); path = App; sourceTree = "<group>"; };
 	B1111111111111111111111B /* Tests */ = {isa = PBXGroup; children = (
+			CTF00000000000000000001 /* ChatHistoryStoreTests.swift */,
 		B11111111111111111111111 /* SmithersTests.swift */,
 
 		D00000000000000000000006 /* DesignSystemTests.swift */,
