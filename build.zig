@@ -8,6 +8,10 @@ const sqlite_flags = [_][]const u8{
     "-DSQLITE_ENABLE_FTS5",
     "-DSQLITE_ENABLE_JSON1",
     "-DSQLITE_DQS=0",
+    // Prevent unresolved UBSan symbols when linking with Apple clang/Xcode.
+    // Zig's toolchain may auto-link UBSan, but Xcode does not.
+    "-fno-sanitize=undefined",
+    "-fno-sanitize=integer",
 };
 
 fn addOptionalShellStep(
@@ -64,13 +68,16 @@ fn buildLibSmithersForArch(
         .name = "sqlite3",
         .root_module = b.createModule(.{ .target = resolved, .optimize = optimize }),
         .linkage = .static,
+        .use_llvm = true,
     });
     sqlite_lib.addIncludePath(b.path("pkg/sqlite"));
     sqlite_lib.addCSourceFile(.{ .file = b.path("pkg/sqlite/sqlite3.c"), .flags = &sqlite_flags });
     sqlite_lib.linkLibC();
 
     // smithers static lib (per-arch). Root module = arch_mod (no redundant self-import).
-    const lib = b.addLibrary(.{ .name = "smithers", .root_module = arch_mod, .linkage = .static });
+    const lib = b.addLibrary(.{ .name = "smithers", .root_module = arch_mod, .linkage = .static, .use_llvm = true });
+    lib.bundle_compiler_rt = true;
+    lib.bundle_ubsan_rt = true;
     lib.addIncludePath(b.path("pkg/sqlite"));
     lib.linkLibC();
     lib.linkLibrary(sqlite_lib);
@@ -117,6 +124,7 @@ pub fn build(b: *std.Build) void {
         .name = "sqlite3",
         .root_module = b.createModule(.{ .target = target, .optimize = optimize }),
         .linkage = .static,
+        .use_llvm = true,
     });
     sqlite_lib.addIncludePath(b.path("pkg/sqlite"));
     sqlite_lib.addCSourceFile(.{ .file = b.path("pkg/sqlite/sqlite3.c"), .flags = &sqlite_flags });
@@ -184,7 +192,8 @@ pub fn build(b: *std.Build) void {
         "Run Xcode tests (if macos/ exists)",
         "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers; else echo \"skipping xcode-test: macos/ not found\"; fi",
     );
-    _ = xcode_test_step;
+    // Wire into all-step so Xcode regressions are caught by the canonical check
+    // while remaining a no-op on machines without Xcode/macOS.
 
     const ui_test_step = addOptionalShellStep(
         b,
@@ -228,6 +237,7 @@ pub fn build(b: *std.Build) void {
     all_step.dependOn(typos_check_step);
     all_step.dependOn(shellcheck_step);
     all_step.dependOn(web_step);
+    all_step.dependOn(xcode_test_step);
 
     // --- xcframework pipeline ---
     // Build per-arch static libraries, merge with libtool, create universal .a, then package.
@@ -263,6 +273,7 @@ pub fn build(b: *std.Build) void {
 
     const xcfw_output_path = "dist/SmithersKit.xcframework";
     const mkdist_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "dist" });
+    mkdist_cmd.has_side_effects = true;
     const rm_cmd = b.addSystemCommand(&.{ "rm", "-rf", xcfw_output_path });
     rm_cmd.has_side_effects = true;
 
@@ -270,6 +281,9 @@ pub fn build(b: *std.Build) void {
     xcf_cmd.addFileArg(universal_out);
     xcf_cmd.addArgs(&.{ "-headers", "include", "-output", xcfw_output_path });
     xcf_cmd.has_side_effects = true;
+    xcf_cmd.expectExitCode(0);
+    _ = xcf_cmd.captureStdOut();
+    _ = xcf_cmd.captureStdErr();
     xcf_cmd.step.dependOn(&lipo_cmd.step);
     xcf_cmd.step.dependOn(&mkdist_cmd.step);
     xcf_cmd.step.dependOn(&rm_cmd.step);

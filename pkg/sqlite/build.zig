@@ -21,6 +21,9 @@ pub fn build(b: *std.Build) void {
             "-DSQLITE_ENABLE_FTS5",
             "-DSQLITE_ENABLE_JSON1",
             "-DSQLITE_DQS=0",
+            // Avoid UBSan symbol requirements when linking into Xcode-built targets.
+            "-fno-sanitize=undefined",
+            "-fno-sanitize=integer",
         },
     });
     lib.addIncludePath(b.path("."));

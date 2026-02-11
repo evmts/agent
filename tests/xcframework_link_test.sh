@@ -22,8 +22,9 @@ if [[ ! -d "$XCFW_ROOT" ]]; then
   exit 1
 fi
 
-TMP_C=$(mktemp -t sm_link).c
-trap 'rm -f "$TMP_C"' EXIT
+TMP_BASE=$(mktemp -t sm_link)
+TMP_C="${TMP_BASE}.c"
+trap 'rm -f "$TMP_BASE" "$TMP_C"' EXIT
 cat > "$TMP_C" <<'C'
 #include "libsmithers.h"
 #include <stddef.h>
@@ -50,20 +51,24 @@ link_arch() {
   local out
   out=$(mktemp -t sm_link_bin)
   echo "Linking test for $arch using $lib"
-  if command -v zig >/dev/null 2>&1; then
-    # Map arch to zig triple
-    local target="$arch-macos"
-    if [[ "$arch" == "arm64" ]]; then target="aarch64-macos"; fi
-    zig cc -target "$target" -mmacosx-version-min=14.0 -I"$HDR" "$TMP_C" "$lib" -o "$out"
-  else
+  # Prefer Apple clang to catch UBSan link issues matching Xcode behavior.
+  if command -v clang >/dev/null 2>&1; then
     clang -arch "$arch" -mmacosx-version-min=14.0 -I"$HDR" "$TMP_C" "$lib" -o "$out"
+  else
+    # Fallback: zig cc
+    if command -v zig >/dev/null 2>&1; then
+      local target="$arch-macos"; [[ "$arch" == "arm64" ]] && target="aarch64-macos"
+      zig cc -target "$target" -mmacosx-version-min=14.0 -I"$HDR" "$TMP_C" "$lib" -o "$out"
+    else
+      echo "No suitable C compiler found (clang or zig)" >&2; exit 1
+    fi
   fi
   echo "Link OK ($arch): $out"
   rm -f "$out"
 }
 
 if [[ -f "$LIB_UNI" ]]; then
-  # Try both arches against the universal lib if toolchain supports it
+  # Try both arches against the universal lib using Apple clang first
   for a in "${MAC_ARCHES[@]}"; do
     if lipo -info "$LIB_UNI" 2>/dev/null | grep -q "$a"; then
       link_arch "$a" "$LIB_UNI"

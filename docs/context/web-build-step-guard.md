@@ -73,7 +73,7 @@ Key details:
 1. **Exact skip message** -- test greps for `"skipping web: pnpm not installed"` exactly. Must match character-for-character.
 2. **Nested if/else one-liner** -- web step needs TWO checks (directory + tool). Watch semicolons and `fi` placement in the single shell string.
 3. **dev_step depends on web_step** (line 213) -- skip must exit 0, not fail. The echo + fi pattern ensures this.
-4. **all_step does NOT depend on web_step** (lines 239-245) -- so `zig build all` is unaffected.
+4. **all_step depends on web_step** now (see build.zig ~line 220) -- `zig build all` runs the guard step which skips cleanly without pnpm.
 5. **Playwright step unused** -- `_ = playwright_step` (line 177), not wired into any composite. Fix for consistency.
 
 ## No External Docs Needed

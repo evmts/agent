@@ -4,7 +4,7 @@
 
 ### Build System (build.zig)
 - `zig build xcframework` step already exists and works — produces `dist/SmithersKit.xcframework`
-- xcframework is universal (arm64 + x86_64), contains `libsmithers-universal.a` + `Headers/libsmithers.h`
+- xcframework is universal (arm64 + x86_64), contains `libsmithers.a` + `Headers/libsmithers.h`
 - Verified symbols: `_smithers_app_new`, `_smithers_app_free`, `_smithers_app_action` are exported
 - `zig build dev` step exists at line 143-149 — calls `bash scripts/xcode_build_and_open.sh`
 - `zig build all` does NOT include xcframework or dev — only build+test+format+lint (line 160-173)

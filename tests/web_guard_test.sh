@@ -12,7 +12,7 @@ case "$ZIG_BIN" in
 esac
 PATH="$SAFE_PATH"; export PATH
 
-out=$($ZIG_BIN build web 2>&1 || true)
+out="$("$ZIG_BIN" build web 2>&1 || true)"
 echo "$out" | grep -q "skipping web: pnpm not installed" && echo "web_guard_test: PASS" || {
   echo "web_guard_test: FAIL"; echo "$out"; exit 1;
 }

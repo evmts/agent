@@ -32,7 +32,7 @@ dist/SmithersKit.xcframework/
     ├── Headers/
     │   ├── libsmithers.h
     │   └── module.modulemap
-    └── libsmithers-universal.a
+        └── libsmithers.a
 ```
 
 ## Implementation Steps
@@ -72,7 +72,7 @@ dist/SmithersKit.xcframework/
     Use `b.addSystemCommand` with `addFileArg` for Zig-managed lazy paths
   - **Lipo** (creates universal binary from two arch-specific .a):
     ```
-    lipo -create -output libsmithers-universal.a libsmithers-merged-arm64.a libsmithers-merged-x86_64.a
+    lipo -create -output libsmithers.a libsmithers-merged-arm64.a libsmithers-merged-x86_64.a
     ```
     Use `addOutputFileArg` for the output so Zig manages the cache path
   - **xcframework creation:**

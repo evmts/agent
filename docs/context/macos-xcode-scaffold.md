@@ -9,7 +9,7 @@ Scaffold the `macos/Smithers.xcodeproj` Xcode project with a minimal SwiftUI app
 ### xcframework (DONE)
 - `dist/SmithersKit.xcframework/` — fully built, contains:
   - `Info.plist` — declares `macos-arm64_x86_64` slice
-  - `macos-arm64_x86_64/libsmithers-universal.a` (45MB universal binary)
+  - `macos-arm64_x86_64/libsmithers.a` (universal binary)
   - `macos-arm64_x86_64/Headers/libsmithers.h` (C API header)
 - Built by `zig build xcframework` (build.zig lines 176-199)
 - Validated by `tests/xcframework_test.sh` and `tests/xcframework_link_test.sh`

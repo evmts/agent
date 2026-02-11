@@ -7,7 +7,7 @@ Add `zig build xcframework` step that builds libsmithers for arm64 + x86_64, mer
 ## Current State
 
 ### What Exists Already
-- **Pre-built xcframework** at `dist/SmithersKit.xcframework/` with universal `libsmithers-universal.a` (45MB, arm64+x86_64)
+- **Pre-built xcframework** at `dist/SmithersKit.xcframework/` with universal `libsmithers.a` (arm64+x86_64)
 - **Xcode project** references `../dist/SmithersKit.xcframework` and has "Verify SmithersKit.xcframework" build phase that auto-runs `zig build xcframework` if missing
 - **Test scripts** at `tests/xcframework_test.sh` (structure validation) and `tests/xcframework_link_test.sh` (link test against both arches)
 - **C header** at `include/libsmithers.h` (120 lines, 3 exported functions)
@@ -205,11 +205,11 @@ For each arch (aarch64, x86_64):
 ```
 dist/SmithersKit.xcframework/
 ├── Info.plist
-└── macos-arm64_x86_64/
-    ├── Headers/
-    │   ├── libsmithers.h
-    │   └── module.modulemap
-    └── libsmithers-universal.a
+    └── macos-arm64_x86_64/
+        ├── Headers/
+        │   ├── libsmithers.h
+        │   └── module.modulemap
+        └── libsmithers.a
 ```
 
 ### Acceptance Criteria Checklist

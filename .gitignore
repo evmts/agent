@@ -31,6 +31,7 @@ prototype1/.next/
 
 # Objects / build droppings
 *.o
+# SQLite journaling (consolidated here as canonical entries)
 *.db-shm
 *.db-wal
 
