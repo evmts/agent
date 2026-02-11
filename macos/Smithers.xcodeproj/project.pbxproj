@@ -98,24 +98,27 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
 
 /* Begin PBXGroup section */
 	E50000000000000000000001 /* Features */ = {isa = PBXGroup; children = (
-		E50000000000000000000002 /* Chat */,
-		E50000000000000000000005 /* IDE */,
-	); path = Features; sourceTree = "<group>"; };
+        E50000000000000000000002 /* Chat */,
+        E50000000000000000000005 /* IDE */,
+    ); path = Features; sourceTree = "<group>"; };
 E50000000000000000000002 /* Chat */ = {isa = PBXGroup; children = (
-		E50000000000000000000003 /* Views */,
-	E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
-		F20000000000000000000001 /* ChatWindowRootView.swift */,
-		F20000000000000000000003 /* ChatComposerZone.swift */,
-		F20000000000000000000004 /* ChatSidebarView.swift */,
-		F20000000000000000000005 /* ChatTitleBarZone.swift */,
-		F20000000000000000000006 /* SidebarModeBar.swift */,
-	); path = Views; sourceTree = "<group>"; };
-	E50000000000000000000005 /* IDE */ = {isa = PBXGroup; children = (
-		E50000000000000000000006 /* Views */,
-	); path = IDE; sourceTree = "<group>"; };
-	E50000000000000000000006 /* Views */ = {isa = PBXGroup; children = (
-		F20000000000000000000002 /* IDEWindowRootView.swift */,
-	); path = Views; sourceTree = "<group>"; };
+        E50000000000000000000003 /* Views */,
+    ); path = Chat; sourceTree = "<group>"; };
+E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
+        F20000000000000000000001 /* ChatWindowRootView.swift */,
+        F20000000000000000000003 /* ChatComposerZone.swift */,
+        F20000000000000000000004 /* ChatSidebarView.swift */,
+        F20000000000000000000005 /* ChatTitleBarZone.swift */,
+        F20000000000000000000006 /* SidebarModeBar.swift */,
+    ); path = Views; sourceTree = "<group>"; };
+    E50000000000000000000005 /* IDE */ = {isa = PBXGroup; children = (
+            E50000000000000000000006 /* Views */,
+        ); path = IDE; sourceTree = "<group>"; };
+        E50000000000000000000006 /* Views */ = {isa = PBXGroup; children = (
+            F20000000000000000000002 /* IDEWindowRootView.swift */,
+        ); path = Views; sourceTree = "<group>"; };
+
+
 
 	A00000000000000000000002 = {isa = PBXGroup; children = (
 		B1111111111111111111111B /* Tests */,
