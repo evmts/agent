@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
     // Build options for conditional compilation
     const build_opts = b.addOptions();
     build_opts.addOption(bool, "enable_http_server_tests", false);
+    build_opts.addOption(bool, "enable_storage_module", false);
 
     // It's also possible to define more custom flags to toggle optional features
     // of this build script using `b.option()`. All defined flags (including
@@ -167,7 +168,9 @@ pub fn build(b: *std.Build) void {
         b,
         "playwright",
         "Run Playwright e2e (if web/ + pnpm)",
-        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && pnpm exec playwright --version >/dev/null 2>&1 && pnpm exec playwright test; fi",
+        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; \
+         elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; \
+         else cd web && pnpm install && if ! pnpm exec playwright --version >/dev/null 2>&1; then echo 'skipping playwright: playwright not installed'; else pnpm exec playwright test; fi; fi",
     );
 
     _ = playwright_step;

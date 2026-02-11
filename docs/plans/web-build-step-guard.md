@@ -54,6 +54,11 @@ Run `zig build all` — must pass with zero errors. The web step should either:
 3. `zig build web` individually prints skip or runs correctly
 4. No other build steps regressed
 
-## Why no test file changes
+## Tests
 
-The guard is purely shell logic inside `addOptionalShellStep` string arguments. The existing `zig build all` integration test (running the full build) validates correctness. Adding a Zig unit test for a shell string would be testing the wrong abstraction — the shell interpreter is the test harness.
+A minimal shell test `tests/web_guard_test.sh` was restored to validate the skip behavior without requiring Node tooling:
+
+- Simulates a PATH without `pnpm` and runs `zig build web`.
+- Asserts the output contains `"skipping web: pnpm not installed"`.
+
+This keeps coverage for the guard behavior at the right abstraction level (shell), while Zig tests remain focused on Zig modules.
