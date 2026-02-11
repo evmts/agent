@@ -74,14 +74,14 @@ thread.detach();  // or thread.join();
 
 ### 4. Sleep API (Zig 0.15.2 — CHANGED from older versions)
 
-**`std.time.sleep` does NOT exist in 0.15.** Use `std.posix.nanosleep` instead:
+Use `std.Thread.sleep` (preferred on Zig 0.15.2) for millisecond delays:
 
 ```zig
-// std.posix.nanosleep (posix.zig:4955)
-pub fn nanosleep(seconds: u64, nanoseconds: u64) void
+// std.Thread.sleep (Thread.zig)
+pub fn sleep(nanoseconds: u64) void
 ```
 
-Usage: `std.posix.nanosleep(0, 10 * std.time.ns_per_ms);` for 10ms sleep.
+Usage: `std.Thread.sleep(10 * std.time.ns_per_ms);` for 10ms sleep.
 
 ### 5. Struct-as-File Pattern (App.zig)
 

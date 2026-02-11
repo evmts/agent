@@ -3,28 +3,32 @@ const std = @import("std");
 const capi = @import("capi.zig");
 const configpkg = @import("config.zig");
 
-pub fn streamChat(runtime: configpkg.RuntimeConfig, message: []const u8) void {
+/// Start streaming chat on a background thread and return it for tests.
+pub fn streamChatJoinable(runtime: configpkg.RuntimeConfig, message: []const u8) !std.Thread {
     _ = message; // unused in stub
-    // Spawn a background thread that emits 2–4 deltas then a completion event.
     const Spawn = struct {
         fn run(rt: configpkg.RuntimeConfig) void {
-            // 3 fixed chunks to satisfy ">=2" for tests.
             const chunks = [_][]const u8{ "Thinking… ", "Okay. ", "Done." };
             if (rt.action) |cb| {
                 for (chunks) |ch| {
                     cb(rt.userdata, .event_chat_delta, ch.ptr, ch.len);
-                    std.posix.nanosleep(0, 10 * std.time.ns_per_ms);
+                    std.Thread.sleep(10 * std.time.ns_per_ms);
                 }
                 cb(rt.userdata, .event_turn_complete, null, 0);
             }
         }
     };
-    // Ignore spawn errors in stub; production should handle errors.
-    const th = std.Thread.spawn(.{}, Spawn.run, .{runtime}) catch return;
-    th.detach();
+    return try std.Thread.spawn(.{}, Spawn.run, .{runtime});
 }
 
-test "streaming emits >=2 deltas then complete" {
+/// Convenience wrapper used in production: fire-and-forget.
+pub fn streamChat(runtime: configpkg.RuntimeConfig, message: []const u8) void {
+    if (streamChatJoinable(runtime, message)) |th| {
+        th.detach();
+    } else |_| {}
+}
+
+test "streaming emits >=2 deltas then complete (deterministic join)" {
     const testing = std.testing;
     const Ctx = struct {
         mutex: std.Thread.Mutex = .{},
@@ -50,19 +54,8 @@ test "streaming emits >=2 deltas then complete" {
 
     var ctx: Ctx = .{};
     const rt: configpkg.RuntimeConfig = .{ .action = Ctx.cb, .userdata = @ptrCast(&ctx) };
-    streamChat(rt, "hi");
-
-    // Wait until completion fires or timeout (500ms)
-    var i: usize = 0;
-    while (i < 100) : (i += 1) {
-        {
-            ctx.mutex.lock();
-            const done = ctx.complete_count == 1;
-            ctx.mutex.unlock();
-            if (done) break;
-        }
-        std.posix.nanosleep(0, 5 * std.time.ns_per_ms);
-    }
+    const th = try streamChatJoinable(rt, "hi");
+    th.join();
 
     ctx.mutex.lock();
     defer ctx.mutex.unlock();
