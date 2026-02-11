@@ -3,19 +3,22 @@ import SwiftUI
 struct ChatWindowRootView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.theme) private var theme
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationSplitView {
             ChatSidebarView()
         } detail: {
             VStack(spacing: 0) {
-                ChatTitleBarZone(onOpenEditor: { appModel.windowCoordinator.showWorkspacePanel() })
+                ChatTitleBarZone(onOpenEditor: {
+                    appModel.windowCoordinator.showWorkspacePanel(openWindow)
+                })
                 DividerLine()
                 MessagesZone()
                 DividerLine()
                 ChatComposerZone(onSend: { _ in /* stub */ })
             }
-            .background(Color(nsColor: theme.backgroundColor))
+            .background(theme.backgroundColor)
         }
         .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 360)
     }
@@ -52,7 +55,7 @@ private struct UserBubble: View {
     var body: some View {
         Text(text)
             .font(.system(size: DS.Typography.base))
-            .foregroundStyle(Color(nsColor: theme.foregroundColor))
+            .foregroundStyle(theme.foregroundColor)
             .padding(DS.Space._12)
             .background(
                 UnevenRoundedRectangle(
@@ -73,7 +76,7 @@ private struct AssistantBubble: View {
     var body: some View {
         Text(text)
             .font(.system(size: DS.Typography.base))
-            .foregroundStyle(Color(nsColor: theme.foregroundColor))
+            .foregroundStyle(theme.foregroundColor)
             .padding(DS.Space._12)
             .background(
                 UnevenRoundedRectangle(
