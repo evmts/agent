@@ -2,11 +2,12 @@ import XCTest
 @testable import Smithers
 
 final class ChatHistoryStoreXCTest: XCTestCase {
-    func testCRUDRoundTrip() throws {
-        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("smithers-tests-")
-        let dbURL = tmpDir.appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("db")
+    func testCRUDRoundTrip() async throws {
+        let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+        let tmpDir = tmpRoot.appendingPathComponent("smithers-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: tmpDir) }
+        let dbURL = tmpDir.appendingPathComponent("db.sqlite")
         let store = try ChatHistoryStore(databaseURL: dbURL)
 
         // Create session
@@ -21,9 +22,7 @@ final class ChatHistoryStoreXCTest: XCTestCase {
         )
         store.enqueueSaveMessage(msg)
         // Allow debounce to flush (max 1s configured)
-        let exp = expectation(description: "debounced write")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) { exp.fulfill() }
-        wait(for: [exp], timeout: 2.0)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
 
         // Load
         let loaded = try store.loadMessages(sessionId: sess.id)
@@ -41,4 +40,3 @@ final class ChatHistoryStoreXCTest: XCTestCase {
         XCTAssertTrue(after.isEmpty)
     }
 }
-

@@ -133,8 +133,19 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
 
     // Optional integrations
-    const web_step = addOptionalShellStep(b, "web", "Build web app (if web/ exists)", "if [ -d web ]; then cd web && pnpm install && pnpm build; else echo 'skipping web: web/ not found'; fi");
-    const playwright_step = addOptionalShellStep(b, "playwright", "Run Playwright e2e (if web/ exists)", "if [ -d web ]; then cd web && pnpm install && pnpm exec playwright test; else echo 'skipping playwright: web/ not found'; fi");
+    // Harden web/playwright steps: check both web/ existence and pnpm availability.
+    const web_step = addOptionalShellStep(
+        b,
+        "web",
+        "Build web app (if web/ + pnpm)",
+        "if [ ! -d web ]; then echo 'skipping web: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping web: pnpm not installed'; else cd web && pnpm install && pnpm build; fi",
+    );
+    const playwright_step = addOptionalShellStep(
+        b,
+        "playwright",
+        "Run Playwright e2e (if web/ + pnpm)",
+        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && pnpm exec playwright test; fi",
+    );
     _ = playwright_step;
     const codex_step = addOptionalShellStep(b, "codex", "Build codex submodule (if present)", "if [ -d submodules/codex ]; then cd submodules/codex && zig build; else echo 'skipping codex: submodules/codex not found'; fi");
     const jj_step = addOptionalShellStep(b, "jj", "Build jj submodule (if present)", "if [ -d submodules/jj ]; then cd submodules/jj && zig build; else echo 'skipping jj: submodules/jj not found'; fi");

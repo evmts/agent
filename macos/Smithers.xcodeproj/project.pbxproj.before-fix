@@ -44,11 +44,9 @@ D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa =
 	CTB00000000000000000001 /* ChatHistoryStoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CTF00000000000000000001 /* ChatHistoryStoreTests.swift */; };
 	CTXF000000000000000001 /* ChatHistoryStoreXCTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatHistoryStoreXCTest.swift; path = SmithersTests/ChatHistoryStoreXCTest.swift; sourceTree = SOURCE_ROOT; };
 	CTXB000000000000000001 /* ChatHistoryStoreXCTest.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CTXF000000000000000001 /* ChatHistoryStoreXCTest.swift */; };
-CHDB000000000000000001 /* ChatHistoryStoreDebounceTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CHDF000000000000000001 /* ChatHistoryStoreDebounceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-	CHDF000000000000000001 /* ChatHistoryStoreDebounceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatHistoryStoreDebounceTests.swift; path = SmithersTests/ChatHistoryStoreDebounceTests.swift; sourceTree = SOURCE_ROOT; };
 	A00000000000000000000010 /* Smithers.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Smithers.app; sourceTree = BUILT_PRODUCTS_DIR; };
 	A00000000000000000000011 /* SmithersApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmithersApp.swift; sourceTree = "<group>"; };
 	A00000000000000000000013 /* Smithers-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Smithers-Info.plist"; sourceTree = "<group>"; };
@@ -231,6 +229,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */,
 			); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+		CTXB000000000000000001 /* ChatHistoryStoreXCTest.swift in Sources (Tests) */,
 		B11111111111111111111112 /* SmithersTests.swift in Sources */,
 			D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */,
 			E21989350555044847403895 /* ChatViewTests.swift in Sources */,
@@ -243,9 +242,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		D10000000000000000000014 /* NSColor+Hex.swift in Sources (Tests) */,
 		D10000000000000000000012 /* Tokens.swift in Sources (Tests) */,
 		D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */,
-			
-		CTXB000000000000000001 /* ChatHistoryStoreXCTest.swift in Sources (Tests) */,
-		CHDB000000000000000001 /* ChatHistoryStoreDebounceTests.swift in Sources (Tests) */,); runOnlyForDeploymentPostprocessing = 0; };
+			); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 /* Begin PBXShellScriptBuildPhase section */
     C22222222222222222222224 /* Verify SmithersKit.xcframework */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = ( ); inputFileListPaths = ( ); inputPaths = ( "${SRCROOT}/../dist/SmithersKit.xcframework/Info.plist" ); name = "Verify SmithersKit.xcframework"; outputFileListPaths = ( ); outputPaths = ( "${SRCROOT}/../dist/SmithersKit.stamp" ); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "if [ ! -d \"${SRCROOT}/../dist/SmithersKit.xcframework\" ]; then\n  echo \"SmithersKit.xcframework not found at ../dist. Building via 'zig build xcframework'...\"\n  ROOT=\"$(cd \"${SRCROOT}/..\"; pwd)\"\n  cd \"$ROOT\"\n  if ! command -v zig >/dev/null 2>&1; then\n    echo \"zig not found. Install Zig or build xcframework manually.\" >&2\n    exit 1\n  fi\n  zig build xcframework || { echo \"zig build xcframework failed\"; exit 1; }\nfi\n\n# Emit stamp for incremental builds\n/usr/bin/touch \"${SRCROOT}/../dist/SmithersKit.stamp\"\n"; };

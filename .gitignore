@@ -4,6 +4,7 @@ zig-out/
 dist/
 web/dist/
 .build/
+.smithers/
 
 # macOS
 .DS_Store

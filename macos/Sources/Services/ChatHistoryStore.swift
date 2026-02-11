@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import OSLog
 
 // ChatHistoryStore — GRDB-backed chat persistence layer.
 // Mirrors Zig schema in src/storage.zig ensureSchema():
@@ -10,10 +11,11 @@ import GRDB
 //          metadata_json TEXT NULL, timestamp INTEGER NOT NULL)
 // Indexes: idx_messages_session, idx_messages_timestamp, idx_sessions_workspace
 
-final class ChatHistoryStore: @unchecked Sendable {
+final class ChatHistoryStore {
     enum StoreError: Error { case openFailed }
 
     private let dbPool: DatabasePool
+    private let logger = Logger(subsystem: "com.smithers", category: "storage")
     private let debounce: Debouncer
 
     // Default path per spec: ~/Library/Application Support/Smithers/smithers.db
@@ -27,6 +29,10 @@ final class ChatHistoryStore: @unchecked Sendable {
 
     init(databaseURL: URL? = nil) throws {
         let url = try databaseURL ?? Self.defaultDatabaseURL()
+        if let custom = databaseURL {
+            let dir = custom.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
         var config = Configuration()
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA journal_mode=WAL;")
@@ -95,7 +101,8 @@ final class ChatHistoryStore: @unchecked Sendable {
     func latestSession() throws -> SessionRecord? {
         try dbPool.read { db in
             let row = try Row.fetchOne(db, sql: "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT 1")
-            return row.map(Self.sessionFromRow)
+            if let r = row, let srec = Self.sessionFromRow(r) { return srec }
+            return nil
         }
     }
 
@@ -116,19 +123,51 @@ final class ChatHistoryStore: @unchecked Sendable {
         }
     }
 
+    func loadAllSessions() throws -> [SessionRecord] {
+        try dbPool.read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM sessions ORDER BY updated_at DESC")
+            return rows.compactMap(Self.sessionFromRow)
+        }
+    }
+
+    func updateSession(_ id: UUID, title: String?) throws {
+        try dbPool.write { db in
+            try db.execute(sql: "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?",
+                           arguments: [title, Self.now(), id.uuidString])
+        }
+    }
+
+    func updateMessage(id: UUID, newContent: String, metadataJSON: String?, timestamp: Int64) throws {
+        try dbPool.write { db in
+            try db.execute(sql: "UPDATE messages SET content = ?, metadata_json = ?, timestamp = ? WHERE id = ?",
+                           arguments: [newContent, metadataJSON, timestamp, id.uuidString])
+        }
+    }
+
+    func deleteMessage(id: UUID) throws {
+        try dbPool.write { db in
+            try db.execute(sql: "DELETE FROM messages WHERE id = ?", arguments: [id.uuidString])
+        }
+    }
+
+
     // MARK: Messages
     func loadMessages(sessionId: UUID) throws -> [MessageRecord] {
         try dbPool.read { db in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC", arguments: [sessionId.uuidString])
-            return rows.map(Self.messageFromRow)
+            return rows.compactMap(Self.messageFromRow)
         }
     }
 
     func enqueueSaveMessage(_ msg: MessageRecord) {
-        debounce.schedule { [dbPool] in
-            try dbPool.write { db in
-                try db.execute(sql: "INSERT OR REPLACE INTO messages(id, session_id, turn_id, role, kind, content, metadata_json, timestamp) VALUES (?,?,?,?,?,?,?,?)",
-                               arguments: [msg.id.uuidString, msg.sessionId.uuidString, msg.turnId, msg.role, msg.kind, msg.content, msg.metadataJSON, msg.timestamp])
+        let args = StatementArguments([msg.id.uuidString as Any, msg.sessionId.uuidString as Any, msg.turnId as Any, msg.role as Any, msg.kind as Any, msg.content as Any, msg.metadataJSON as Any, msg.timestamp as Any])!
+        let debouncer = self.debounce
+        Task.detached { [dbPool, debouncer, args] in
+            await debouncer.schedule {
+                try dbPool.write { db in
+                    try db.execute(sql: "INSERT OR REPLACE INTO messages(id, session_id, turn_id, role, kind, content, metadata_json, timestamp) VALUES (?,?,?,?,?,?,?,?)",
+                                   arguments: args)
+                }
             }
         }
     }
@@ -142,9 +181,14 @@ final class ChatHistoryStore: @unchecked Sendable {
     // MARK: Helpers
     private static func now() -> Int64 { Int64(Date().timeIntervalSince1970) }
 
-    private static func sessionFromRow(_ row: Row) -> SessionRecord {
-        .init(
-            id: UUID(uuidString: row["id"]) ?? UUID(),
+    private static func sessionFromRow(_ row: Row) -> SessionRecord? {
+        let idStr: String = row["id"]
+        guard let uuid = UUID(uuidString: idStr) else {
+            Logger(subsystem: "com.smithers", category: "storage").error("Invalid session UUID: \(idStr, privacy: .public)")
+            return nil
+        }
+        return .init(
+            id: uuid,
             threadId: row["thread_id"],
             title: row["title"],
             workspacePath: row["workspace_path"],
@@ -153,26 +197,32 @@ final class ChatHistoryStore: @unchecked Sendable {
         )
     }
 
-    private static func messageFromRow(_ row: Row) -> MessageRecord {
-        .init(
-            id: UUID(uuidString: row["id"]) ?? UUID(),
-            sessionId: UUID(uuidString: row["session_id"]) ?? UUID(),
-            turnId: row["turn_id"],
-            role: row["role"],
-            kind: row["kind"],
-            content: row["content"],
-            metadataJSON: row["metadata_json"],
-            timestamp: row["timestamp"]
-        )
+    private static func messageFromRow(_ row: Row) -> MessageRecord? {
+        let idStr: String = row["id"]; let sessStr: String = row["session_id"]
+        guard let mid = UUID(uuidString: idStr), let sid = UUID(uuidString: sessStr) else {
+            Logger(subsystem: "com.smithers", category: "storage").error("Invalid message/session UUID: \(idStr, privacy: .public) / \(sessStr, privacy: .public)")
+            return nil
+        }
+        let turnId: String? = row["turn_id"]
+        let role: String = row["role"]
+        let kind: String = row["kind"]
+        let content: String = row["content"]
+        let metadata: String? = row["metadata_json"]
+        let ts: Int64 = row["timestamp"]
+        return MessageRecord(id: mid, sessionId: sid, turnId: turnId, role: role, kind: kind, content: content, metadataJSON: metadata, timestamp: ts)
     }
 }
 
-// Simple async/await debouncer with max wait.
-final class Debouncer: @unchecked Sendable {
+// Simple async/await debouncer with max wait and batching.
+import Foundation
+
+actor Debouncer {
     private let minDelay: Duration
     private let maxDelay: Duration
-    private var scheduled: Task<Void, Never>?
-    private var firstAt: ContinuousClock.Instant?
+    private var scheduled: Task<Void, Never>? = nil
+    private var firstAt: ContinuousClock.Instant? = nil
+    private var ops: [@Sendable () throws -> Void] = []
+    private let logger = Logger(subsystem: "com.smithers", category: "storage")
 
     init(minDelay: Duration, maxDelay: Duration) {
         self.minDelay = minDelay
@@ -180,17 +230,28 @@ final class Debouncer: @unchecked Sendable {
     }
 
     func schedule(operation: @escaping @Sendable () throws -> Void) {
-        scheduled?.cancel()
+        ops.append(operation)
+        guard scheduled == nil else { return }
         let now = ContinuousClock.now
         if firstAt == nil { firstAt = now }
-        let elapsed = now.duration(to: ContinuousClock.now)
-        let remaining = maxDelay - elapsed
-        let delay = remaining > minDelay ? minDelay : remaining
-
+        let elapsed = firstAt.map { $0.duration(to: now) } ?? .zero
+        let remaining: Duration = elapsed >= maxDelay ? .zero : maxDelay - elapsed
+        let delay: Duration = elapsed >= maxDelay ? .zero : min(minDelay, remaining)
         scheduled = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            do { try operation() } catch { /* swallow, tests cover correctness */ }
-            self?.firstAt = nil
+            await self?.flush()
+        }
+    }
+
+    private func flush() {
+        let current = ops
+        ops.removeAll()
+        firstAt = nil
+        scheduled = nil
+        for op in current {
+            do { try op() } catch {
+                logger.error("Debounced operation failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 }

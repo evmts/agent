@@ -4,8 +4,10 @@ import Testing
 @Suite struct ChatHistoryStoreTests {
     @Test func open_migrates_and_crud_roundtrip() throws {
         // Use a temp db under /tmp to avoid touching user AppSupport.
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("smithers-tests-")
-        let dbURL = tmp.appendingPathComponent(UUID().uuidString).appendingPathExtension("db")
+        let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+        let tmp = tmpRoot.appendingPathComponent("smithers-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let dbURL = tmp.appendingPathComponent("db.sqlite")
         let store = try ChatHistoryStore(databaseURL: dbURL)
 
         // Create session
@@ -37,4 +39,3 @@ import Testing
         #expect(after.isEmpty)
     }
 }
-
