@@ -28,11 +28,10 @@ final class ChatModel {
     }
 
     func completeTurn() {
-        if let idx = streamingIndex {
-            messages[idx].isStreaming = false
-        } else if let idx = messages.lastIndex(where: { $0.role == .assistant && $0.isStreaming }) {
-            messages[idx].isStreaming = false
-        }
+        if let idx = streamingIndex { messages[idx].isStreaming = false }
+        else if let idx = messages.lastIndex(where: { $0.role == .assistant && $0.isStreaming }) { messages[idx].isStreaming = false }
+        // Persist the completed assistant message text via AppModel (store is owned there).
+        // Model remains UI-focused; persistence orchestration done by AppModel.
         streamingIndex = nil
         isStreaming = false
     }

@@ -5,6 +5,9 @@ import Foundation
 final class SmithersCore {
     private let app: smithers_app_t
     private let chat: ChatModel
+    // Optional event hooks set by AppModel for persistence and analytics.
+    var onAssistantDelta: ((String) -> Void)?
+    var onTurnComplete: (() -> Void)?
 
     init(chat: ChatModel) throws {
         self.chat = chat
@@ -65,9 +68,13 @@ final class SmithersCore {
     @MainActor private func handleAction(tag: smithers_action_tag_e, text: String?) {
         switch tag {
         case SMITHERS_EVENT_CHAT_DELTA:
-            if let t = text { chat.appendDelta(t) }
+            if let t = text {
+                chat.appendDelta(t)
+                onAssistantDelta?(t)
+            }
         case SMITHERS_EVENT_TURN_COMPLETE:
             chat.completeTurn()
+            onTurnComplete?()
         default:
             break
         }

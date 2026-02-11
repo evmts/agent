@@ -18,8 +18,7 @@
 	D10000000000000000000002 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* Tokens.swift */; };
 	D10000000000000000000001 /* NSColor+Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* NSColor+Hex.swift */; };
 
-    // Added by swift-chat-stream-bridge
-    // (deduplicated) build file entries kept once above; removed duplicate definitions here
+    /* swift-chat-stream-bridge notes removed: keep pbxproj parseable */
 
 	D10000000000000000000012 /* Tokens.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* Tokens.swift */; };
 	D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000003 /* AppTheme.swift */; };
@@ -39,6 +38,7 @@ D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa =
     CMB00000000000000000002 /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CMF00000000000000000002 /* ChatModel.swift */; };
     TSB00000000000000000001 /* ChatModelTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000001 /* ChatModelTests.swift */; };
     TSB00000000000000000002 /* SmithersCoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000002 /* SmithersCoreTests.swift */; };
+    SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = SVF00000000000000000001 /* ChatHistoryStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -129,12 +129,17 @@ E50000000000000000000002 /* Chat */ = {isa = PBXGroup; children = (
 		A00000000000000000000010 /* Smithers.app */,
 		B11111111111111111111110 /* SmithersTests.xctest */,
 	); name = Products; sourceTree = "<group>"; };
-	A00000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (
-		A00000000000000000000018 /* App */,
-		C11111111111111111111123 /* Ghostty */,
-		D20000000000000000000001 /* Helpers */,
-		E50000000000000000000001 /* Features */,
-	); path = Sources; sourceTree = "<group>"; };
+    A00000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (
+        A00000000000000000000018 /* App */,
+        C11111111111111111111123 /* Ghostty */,
+        D20000000000000000000001 /* Helpers */,
+        SVC00000000000000000001 /* Services */,
+        E50000000000000000000001 /* Features */,
+    ); path = Sources; sourceTree = "<group>"; };
+    SVC00000000000000000001 /* Services */ = {isa = PBXGroup; children = (
+        SVF00000000000000000001 /* ChatHistoryStore.swift */,
+    ); path = Services; sourceTree = "<group>"; };
+    SVF00000000000000000001 /* ChatHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryStore.swift; sourceTree = "<group>"; };
 	A00000000000000000000005 /* Frameworks */ = {isa = PBXGroup; children = (
 		A00000000000000000000014 /* SmithersKit.xcframework */,
 	); name = Frameworks; sourceTree = "<group>"; };
@@ -203,6 +208,7 @@ E50000000000000000000002 /* Chat */ = {isa = PBXGroup; children = (
 		D10000000000000000000002 /* Tokens.swift in Sources */,
 		D10000000000000000000003 /* AppTheme.swift in Sources */,
 		D10000000000000000000004 /* Components.swift in Sources */,
+		SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */,
 			); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		B11111111111111111111112 /* SmithersTests.swift in Sources */,
