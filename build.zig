@@ -12,6 +12,12 @@ fn addOptionalShellStep(
     return step;
 }
 
+// Although this function looks imperative, it does not perform the build
+// directly and instead it mutates the build graph (`b`) that will be then
+// executed by an external runner. The functions in `std.Build` implement a DSL
+// for defining build steps and express dependencies between them, allowing the
+// build runner to parallelize the build automatically (and the cache system to
+// know when a step doesn't need to be re-run).
 pub fn build(b: *std.Build) void {
     // Standard target options allow the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -22,37 +28,34 @@ pub fn build(b: *std.Build) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
-    // Build options for conditional compilation
-    const build_opts = b.addOptions();
-    build_opts.addOption(bool, "enable_http_server_tests", false);
-    build_opts.addOption(bool, "enable_storage_module", false);
-
     // It's also possible to define more custom flags to toggle optional features
     // of this build script using `b.option()`. All defined flags (including
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
 
     // This creates a module, which represents a collection of source files alongside
+    // Build options consumed by src/lib.zig
+    const build_opts = b.addOptions();
+    build_opts.addOption(bool, "enable_http_server_tests", false);
+    build_opts.addOption(bool, "enable_storage_module", true);
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
     // addModule defines a module that we intend to make available for importing
     // to our consumers. We must give it a name because a Zig package can expose
     // multiple modules and consumers will need to be able to specify which
     // module they want to access.
-    const mod = b.addModule("smithers", .{
+    const mod = b.addModule("agent", .{
         // The root source file is the "entry point" of this module. Users of
         // this module will only be able to access public declarations contained
         // in this file, which means that if you have declarations that you
         // intend to expose to consumers that were defined in other files part
         // of this module, you will have to make sure to re-export them from
         // the root file.
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/lib.zig"),
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
     });
-
-    // Attach build options module for conditional compilation
     mod.addOptions("build_options", build_opts);
 
     // Here we define an executable. An executable needs to have a root module
@@ -72,7 +75,7 @@ pub fn build(b: *std.Build) void {
     // If neither case applies to you, feel free to delete the declaration you
     // don't need and to put everything under a single module.
     const exe = b.addExecutable(.{
-        .name = "agent",
+        .name = "smithers-ctl",
         .root_module = b.createModule(.{
             // b.createModule defines a new module just like b.addModule but,
             // unlike b.addModule, it does not expose the module to consumers of
@@ -160,15 +163,15 @@ pub fn build(b: *std.Build) void {
     const web_step = addOptionalShellStep(
         b,
         "web",
-        "Build web app (if web/ + pnpm)",
+        "Build web app (if web/ exists)",
         "if [ ! -d web ]; then echo 'skipping web: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping web: pnpm not installed'; else cd web && pnpm install && pnpm build; fi",
     );
 
     const playwright_step = addOptionalShellStep(
         b,
         "playwright",
-        "Run Playwright e2e (if web/ + pnpm)",
-        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && if ! pnpm exec playwright --version >/dev/null 2>&1; then echo 'skipping playwright: playwright not installed'; else pnpm exec playwright test; fi; fi",
+        "Run Playwright e2e (if web/ exists)",
+        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && pnpm exec playwright test; fi",
     );
 
     _ = playwright_step;
@@ -240,7 +243,6 @@ pub fn build(b: *std.Build) void {
     all_step.dependOn(prettier_check_step); // Prettier check
     all_step.dependOn(typos_check_step); // Spell check
     all_step.dependOn(shellcheck_step); // Shell lint
-    all_step.dependOn(web_step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
