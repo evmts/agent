@@ -1,45 +1,37 @@
 
 import { Task } from "smithers";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude } from "../agents";
-import PlanPrompt from "../prompts/2_plan.mdx";
-export { planTable, planOutputSchema } from "./Plan.schema";
-import { planTable, planOutputSchema } from "./Plan.schema";
+import PlanPrompt from "./Plan.mdx";
+export { PlanOutput } from "./Plan.schema";
+import { useCtx, tables } from "../smithers";
+import type { Ticket } from "./Discover.schema";
+import type { ResearchOutput } from "./Research.schema";
 
 interface PlanProps {
-  ticketId: string;
-  ticketTitle: string;
-  ticketDescription: string;
-  acceptanceCriteria: string;
-  contextFilePath: string;
-  researchSummary: string;
+  ticket: Ticket;
 }
 
-export function Plan({
-  ticketId,
-  ticketTitle,
-  ticketDescription,
-  acceptanceCriteria,
-  contextFilePath,
-  researchSummary,
-}: PlanProps) {
+export function Plan({ ticket }: PlanProps) {
+  const ctx = useCtx();
+  const ticketId = ticket.id;
+  const acceptanceCriteria = ticket.acceptanceCriteria?.join("\n- ") ?? "";
+
+  const latestResearch = ctx.latest(tables.research, `${ticketId}:research`) as ResearchOutput | undefined;
+
   return (
     <Task
       id={`${ticketId}:plan`}
-      output={planTable}
-      outputSchema={planOutputSchema}
+      output={tables.plan}
       agent={claude}
     >
-      {render(PlanPrompt, {
-        ticketId,
-        ticketTitle,
-        ticketDescription,
-        acceptanceCriteria,
-        contextFilePath,
-        researchSummary,
-        planSchema: zodSchemaToJsonExample(planOutputSchema),
-      })}
+      <PlanPrompt
+        ticketId={ticketId}
+        ticketTitle={ticket.title}
+        ticketDescription={ticket.description}
+        acceptanceCriteria={acceptanceCriteria}
+        contextFilePath={latestResearch?.contextFilePath ?? `docs/context/${ticketId}.md`}
+        researchSummary={latestResearch?.summary ?? ""}
+      />
     </Task>
   );
 }

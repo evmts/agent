@@ -1,37 +1,33 @@
 
 import { Task } from "smithers";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { codex } from "../agents";
-import ValidatePrompt from "../prompts/4_validate.mdx";
-export { validateTable, validateOutputSchema } from "./Validate.schema";
-import { validateTable, validateOutputSchema } from "./Validate.schema";
-import type { ImplementRow } from "./types";
+import ValidatePrompt from "./Validate.mdx";
+export { ValidateOutput } from "./Validate.schema";
+import { useCtx, tables } from "../smithers";
+import type { Ticket } from "./Discover.schema";
+import type { ImplementOutput } from "./Implement.schema";
 
 interface ValidateProps {
-  ticketId: string;
-  ticketTitle: string;
-  implementOutput: ImplementRow | undefined;
+  ticket: Ticket;
 }
 
-export function Validate({
-  ticketId,
-  ticketTitle,
-  implementOutput,
-}: ValidateProps) {
+export function Validate({ ticket }: ValidateProps) {
+  const ctx = useCtx();
+  const ticketId = ticket.id;
+
+  const implementOutput = ctx.latest(tables.implement, `${ticketId}:implement`) as ImplementOutput | undefined;
+
   return (
     <Task
       id={`${ticketId}:validate`}
-      output={validateTable}
-      outputSchema={validateOutputSchema}
+      output={tables.validate}
       agent={codex}
     >
-      {render(ValidatePrompt, {
-        ticketId,
-        ticketTitle,
-        implementOutput,
-        validateSchema: zodSchemaToJsonExample(validateOutputSchema),
-      })}
+      <ValidatePrompt
+        ticketId={ticketId}
+        ticketTitle={ticket.title}
+        implementOutput={implementOutput}
+      />
     </Task>
   );
 }

@@ -1,48 +1,34 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude } from "../agents";
-import { typedOutput, iterationCount, type WorkflowCtx } from "./ctx-type";
-import ReportPrompt from "../prompts/7_report.mdx";
-import { reviewTable } from "./Review.schema";
-import { validateTable } from "./Validate.schema";
-import { implementTable } from "./Implement.schema";
-import { coerceJsonArray } from "../lib/coerce";
-import type { ImplementRow, ValidateRow, ReviewRow } from "./types";
-export { reportTable, reportOutputSchema } from "./Report.schema";
-import { reportTable, reportOutputSchema } from "./Report.schema";
+import { useCtx, tables } from "../smithers";
+import ReportPrompt from "./Report.mdx";
+import type { Ticket } from "./Discover.schema";
+import type { ImplementOutput } from "./Implement.schema";
+import type { ValidateOutput } from "./Validate.schema";
+import type { ReviewOutput } from "./Review.schema";
+export { ReportOutput } from "./Report.schema";
 
 interface ReportProps {
-  ctx: WorkflowCtx;
-  ticketId: string;
-  ticketTitle: string;
-  ticketDescription: string;
-  latestImplement: ImplementRow | undefined;
-  loopExhausted: boolean;
+  ticket: Ticket;
 }
 
-export function Report({
-  ctx,
-  ticketId,
-  ticketTitle,
-  ticketDescription,
-  latestImplement,
-  loopExhausted,
-}: ReportProps) {
-  const claudeReview = typedOutput<ReviewRow>(ctx, reviewTable, {
-    nodeId: `${ticketId}:review-claude`,
-  });
-  const codexReview = typedOutput<ReviewRow>(ctx, reviewTable, {
-    nodeId: `${ticketId}:review-codex`,
-  });
+export function Report({ ticket }: ReportProps) {
+  const ctx = useCtx();
+  const ticketId = ticket.id;
 
-  const latestValidate = typedOutput<ValidateRow>(ctx, validateTable, {
-    nodeId: `${ticketId}:validate`,
-  });
+  const latestImplement = ctx.latest(tables.implement, `${ticketId}:implement`) as ImplementOutput | undefined;
+
+  const claudeReview = ctx.latest(tables.review, `${ticketId}:review-claude`) as ReviewOutput | undefined;
+  const codexReview = ctx.latest(tables.review, `${ticketId}:review-codex`) as ReviewOutput | undefined;
+
+  const latestValidate = ctx.latest(tables.validate, `${ticketId}:validate`) as ValidateOutput | undefined;
 
   const allApproved = !!claudeReview?.approved && !!codexReview?.approved;
+
+  const hasReviews = claudeReview != null || codexReview != null;
+  const loopExhausted = hasReviews && !allApproved;
 
   // Collect all review issues for the report
   const issueItem = z.object({
@@ -53,8 +39,8 @@ export function Report({
     suggestion: z.string().nullable(),
   });
   const allIssues = [
-    ...coerceJsonArray(claudeReview?.issues, issueItem),
-    ...coerceJsonArray(codexReview?.issues, issueItem),
+    ...ctx.latestArray(claudeReview?.issues, issueItem),
+    ...ctx.latestArray(codexReview?.issues, issueItem),
   ];
 
   const reviewIssuesSummary =
@@ -66,37 +52,35 @@ export function Report({
   const filesChanged = filesCreated.length + filesModified.length;
   const testsAdded = latestImplement?.testsWritten?.length ?? 0;
   const reviewRounds = Math.max(
-    iterationCount(ctx, reviewTable, { nodeId: `${ticketId}:review-claude` }),
-    iterationCount(ctx, implementTable, { nodeId: `${ticketId}:implement` }),
+    ctx.iterationCount(tables.review, `${ticketId}:review-claude`),
+    ctx.iterationCount(tables.implement, `${ticketId}:implement`),
     1,
   );
 
   return (
     <Task
       id={`${ticketId}:report`}
-      output={reportTable}
-      outputSchema={reportOutputSchema}
+      output={tables.report}
       agent={claude}
       skipIf={!allApproved && !loopExhausted}
     >
-      {render(ReportPrompt, {
-        ticketId,
-        ticketTitle,
-        ticketDescription,
-        whatWasDone: latestImplement?.whatWasDone ?? "No implementation data available",
-        filesCreated,
-        filesModified,
-        commitMessages: latestImplement?.commitMessages ?? [],
-        testsWritten: latestImplement?.testsWritten ?? [],
-        docsUpdated: latestImplement?.docsUpdated ?? [],
-        allTestsPassing: latestImplement?.allTestsPassing ?? false,
-        failingSummary: latestValidate?.failingSummary ?? null,
-        filesChanged,
-        testsAdded,
-        reviewRounds,
-        reviewIssues: reviewIssuesSummary,
-        reportSchema: zodSchemaToJsonExample(reportOutputSchema),
-      })}
+      <ReportPrompt
+        ticketId={ticketId}
+        ticketTitle={ticket.title}
+        ticketDescription={ticket.description}
+        whatWasDone={latestImplement?.whatWasDone ?? "No implementation data available"}
+        filesCreated={filesCreated}
+        filesModified={filesModified}
+        commitMessages={latestImplement?.commitMessages ?? []}
+        testsWritten={latestImplement?.testsWritten ?? []}
+        docsUpdated={latestImplement?.docsUpdated ?? []}
+        allTestsPassing={latestImplement?.allTestsPassing ?? false}
+        failingSummary={latestValidate?.failingSummary ?? null}
+        filesChanged={filesChanged}
+        testsAdded={testsAdded}
+        reviewRounds={reviewRounds}
+        reviewIssues={reviewIssuesSummary}
+      />
     </Task>
   );
 }

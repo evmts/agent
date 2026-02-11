@@ -1,42 +1,27 @@
-
 import { Task } from "smithers";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude } from "../agents";
-import ResearchPrompt from "../prompts/1_research.mdx";
-export { researchTable, researchOutputSchema } from "./Research.schema";
-import { researchTable, researchOutputSchema } from "./Research.schema";
+import ResearchPrompt from "./Research.mdx";
+export { ResearchOutput } from "./Research.schema";
+import { tables } from "../smithers";
+import type { Ticket } from "./Discover.schema";
 
 interface ResearchProps {
-  ticketId: string;
-  ticketTitle: string;
-  ticketDescription: string;
-  acceptanceCriteria: string;
-  testPlan: string;
+  ticket: Ticket;
 }
 
-export function Research({
-  ticketId,
-  ticketTitle,
-  ticketDescription,
-  acceptanceCriteria,
-  testPlan,
-}: ResearchProps) {
+export function Research({ ticket }: ResearchProps) {
+  const ticketId = ticket.id;
+  const acceptanceCriteria = ticket.acceptanceCriteria?.join("\n- ") ?? "";
+
   return (
-    <Task
-      id={`${ticketId}:research`}
-      output={researchTable}
-      outputSchema={researchOutputSchema}
-      agent={claude}
-    >
-      {render(ResearchPrompt, {
-        ticketId,
-        ticketTitle,
-        ticketDescription,
-        acceptanceCriteria,
-        testPlan,
-        researchSchema: zodSchemaToJsonExample(researchOutputSchema),
-      })}
+    <Task id={`${ticketId}:research`} output={tables.research} agent={claude}>
+      <ResearchPrompt
+        ticketId={ticketId}
+        ticketTitle={ticket.title}
+        ticketDescription={ticket.description}
+        acceptanceCriteria={acceptanceCriteria}
+        testPlan={ticket.testPlan}
+      />
     </Task>
   );
 }

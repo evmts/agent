@@ -31,7 +31,7 @@ Runs ALL quality checks:
 `zig build all` exits non-zero → validation FAILS.
 
 **REQUIRED OUTPUT** — Must end with JSON matching schema:
-{props.validateSchema}
+{props.schema}
 
 Set `allPassed: true` ONLY if `zig build all` exits status 0 (success).
 Set `allPassed: false` if ANY check fails + provide detailed failingSummary.

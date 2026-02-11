@@ -1,38 +1,29 @@
 
 import { Task } from "smithers";
 import { z } from "zod";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { codex } from "../agents";
-import { typedOutput, type WorkflowCtx } from "./ctx-type";
-import ReviewFixPrompt from "../prompts/6_review_fix.mdx";
-import { reviewTable } from "./Review.schema";
-import { coerceJsonArray } from "../lib/coerce";
-import type { ReviewRow } from "./types";
-export { reviewFixTable, reviewFixOutputSchema } from "./ReviewFix.schema";
-import { reviewFixTable, reviewFixOutputSchema } from "./ReviewFix.schema";
+import { useCtx, tables } from "../smithers";
+import ReviewFixPrompt from "./ReviewFix.mdx";
+import type { Ticket } from "./Discover.schema";
+import type { ReviewOutput } from "./Review.schema";
+import type { ValidateOutput } from "./Validate.schema";
+export { ReviewFixOutput } from "./ReviewFix.schema";
 
 interface ReviewFixProps {
-  ctx: WorkflowCtx;
-  ticketId: string;
-  ticketTitle: string;
-  allApproved: boolean;
-  validationPassed: boolean;
+  ticket: Ticket;
 }
 
-export function ReviewFix({
-  ctx,
-  ticketId,
-  ticketTitle,
-  allApproved,
-  validationPassed,
-}: ReviewFixProps) {
-  const claudeReview = typedOutput<ReviewRow>(ctx, reviewTable, {
-    nodeId: `${ticketId}:review-claude`,
-  });
-  const codexReview = typedOutput<ReviewRow>(ctx, reviewTable, {
-    nodeId: `${ticketId}:review-codex`,
-  });
+export function ReviewFix({ ticket }: ReviewFixProps) {
+  const ctx = useCtx();
+  const ticketId = ticket.id;
+
+  const claudeReview = ctx.latest(tables.review, `${ticketId}:review-claude`) as ReviewOutput | undefined;
+  const codexReview = ctx.latest(tables.review, `${ticketId}:review-codex`) as ReviewOutput | undefined;
+
+  const allApproved = !!claudeReview?.approved && !!codexReview?.approved;
+
+  const latestValidate = ctx.latest(tables.validate, `${ticketId}:validate`) as ValidateOutput | undefined;
+  const validationPassed = !!latestValidate?.allPassed;
 
   const issueItem = z.object({
     severity: z.string(),
@@ -42,8 +33,8 @@ export function ReviewFix({
     suggestion: z.string().nullable(),
   });
   const allReviewIssues = [
-    ...coerceJsonArray(claudeReview?.issues, issueItem),
-    ...coerceJsonArray(codexReview?.issues, issueItem),
+    ...ctx.latestArray(claudeReview?.issues, issueItem),
+    ...ctx.latestArray(codexReview?.issues, issueItem),
   ];
 
   const allReviewFeedback = [
@@ -54,26 +45,22 @@ export function ReviewFix({
     .join("\n\n");
 
   // Collect previous false positives to pass to prompt for suppression context
-  const prevFalsePositives = typedOutput<{ falsePositiveComments?: any[] }>(
-    ctx, reviewFixTable, { nodeId: `${ticketId}:review-fix` },
-  )?.falsePositiveComments ?? [];
+  const prevFalsePositives = (ctx.latest(tables.reviewFix, `${ticketId}:review-fix`) as { falsePositiveComments?: any[] } | undefined)?.falsePositiveComments ?? [];
 
   return (
     <Task
       id={`${ticketId}:review-fix`}
-      output={reviewFixTable}
-      outputSchema={reviewFixOutputSchema}
+      output={tables.reviewFix}
       agent={codex}
       skipIf={!validationPassed || allApproved || allReviewIssues.length === 0}
     >
-      {render(ReviewFixPrompt, {
-        ticketId,
-        ticketTitle,
-        issues: allReviewIssues,
-        feedback: allReviewFeedback,
-        previousFalsePositives: prevFalsePositives,
-        reviewFixSchema: zodSchemaToJsonExample(reviewFixOutputSchema),
-      })}
+      <ReviewFixPrompt
+        ticketId={ticketId}
+        ticketTitle={ticket.title}
+        issues={allReviewIssues}
+        feedback={allReviewFeedback}
+        previousFalsePositives={prevFalsePositives}
+      />
     </Task>
   );
 }

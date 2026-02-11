@@ -1,36 +1,29 @@
 
 import { Task, Parallel } from "smithers";
-import { render } from "../lib/render";
-import { zodSchemaToJsonExample } from "../lib/zod-to-example";
 import { claude, codex } from "../agents";
-import type { WorkflowCtx } from "./ctx-type";
-import ReviewPrompt from "../prompts/5_review.mdx";
-import type { Ticket, ImplementRow, ValidateRow } from "./types";
-export { reviewTable, reviewOutputSchema } from "./Review.schema";
-import { reviewTable, reviewOutputSchema } from "./Review.schema";
+import ReviewPrompt from "./Review.mdx";
+import type { Ticket } from "./Discover.schema";
+import type { ImplementOutput } from "./Implement.schema";
+import type { ValidateOutput } from "./Validate.schema";
+export { ReviewOutput } from "./Review.schema";
+import { useCtx, tables } from "../smithers";
 
 interface ReviewProps {
-  ctx: WorkflowCtx;
-  ticketId: string;
   ticket: Ticket;
-  latestImplement: ImplementRow | undefined;
-  latestValidate: ValidateRow | undefined;
-  validationPassed: boolean;
 }
 
+export function Review({ ticket }: ReviewProps) {
+  const ctx = useCtx();
+  const ticketId = ticket.id;
 
-export function Review({
-  ctx,
-  ticketId,
-  ticket,
-  latestImplement,
-  latestValidate,
-  validationPassed,
-}: ReviewProps) {
+  const latestImplement = ctx.latest(tables.implement, `${ticketId}:implement`) as ImplementOutput | undefined;
+  const latestValidate = ctx.latest(tables.validate, `${ticketId}:validate`) as ValidateOutput | undefined;
+
+  const validationPassed = !!latestValidate?.allPassed;
+
   if (!validationPassed) {
     return null;
   }
-  const reviewSchema = zodSchemaToJsonExample(reviewOutputSchema);
 
   const reviewProps = {
     ticketId,
@@ -41,27 +34,24 @@ export function Review({
     filesModified: latestImplement?.filesModified ?? [],
     validationPassed: latestValidate?.allPassed ? "PASS" : "FAIL",
     failingSummary: latestValidate?.failingSummary ?? null,
-    reviewSchema,
   };
 
   return (
     <Parallel>
       <Task
         id={`${ticketId}:review-claude`}
-        output={reviewTable}
-        outputSchema={reviewOutputSchema}
+        output={tables.review}
         agent={claude}
       >
-        {render(ReviewPrompt, { ...reviewProps, reviewer: "claude" })}
+        <ReviewPrompt {...reviewProps} reviewer="claude" />
       </Task>
 
       <Task
         id={`${ticketId}:review-codex`}
-        output={reviewTable}
-        outputSchema={reviewOutputSchema}
+        output={tables.review}
         agent={codex}
       >
-        {render(ReviewPrompt, { ...reviewProps, reviewer: "codex" })}
+        <ReviewPrompt {...reviewProps} reviewer="codex" />
       </Task>
     </Parallel>
   );
