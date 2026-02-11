@@ -17,7 +17,9 @@ final class SmithersCore {
 
     init(chat: ChatModel) throws {
         self.chat = chat
-        // All stored properties (including optional `app`) are initialized; safe to reference `self` now.
+        // Initialize box first so `self` has all stored properties before we capture it in callbacks.
+        self.appBox = AppHandleBox(nil)
+        // All stored properties initialized; safe to reference `self` now.
         let runtime = smithers_runtime_config_s(
             wakeup: { userdata in
                 guard let userdata = userdata else { return }
@@ -49,7 +51,7 @@ final class SmithersCore {
         guard let handle = smithers_app_new(&cfg) else {
             throw NSError(domain: "SmithersCore", code: -1, userInfo: [NSLocalizedDescriptionKey: "smithers_app_new failed"])
         }
-        self.appBox = AppHandleBox(handle)
+        self.appBox.app = handle
     }
 
     func sendChatMessage(_ text: String) {
