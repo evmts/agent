@@ -1,4 +1,4 @@
-import { Task } from "smithers";
+import { Task } from "../smithers";
 import { claude } from "../agents";
 import ResearchPrompt from "./Research.mdx";
 export { ResearchOutput } from "./Research.schema";

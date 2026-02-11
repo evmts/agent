@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { render } from "./lib/render";
+import { renderMdx } from "smithers";
 
 const ROOT = resolve(new URL("../..", import.meta.url).pathname);
 const PROMPTS = resolve(new URL("./prompts", import.meta.url).pathname);
@@ -121,7 +121,7 @@ const EngImplementationPhases = () => engImplementationPhases;
 import SystemPromptMdx from "./prompts/system-prompt.mdx";
 
 // Render the MDX to plain text using shared render utility
-export const SYSTEM_PROMPT = render(SystemPromptMdx, {
+export const SYSTEM_PROMPT = renderMdx(SystemPromptMdx, {
   components: {
     SpecPrecedence,
     SpecIndex,

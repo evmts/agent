@@ -1,5 +1,5 @@
 
-import { Task } from "smithers";
+import { Task } from "../smithers";
 import { codex } from "../agents";
 import ValidatePrompt from "./Validate.mdx";
 export { ValidateOutput } from "./Validate.schema";

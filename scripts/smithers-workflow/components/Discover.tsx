@@ -1,8 +1,8 @@
-import { Task } from "smithers";
+
 import { codex } from "../agents";
 import DiscoverPrompt from "./Discover.mdx";
 import { Ticket } from "./Discover.schema";
-import { useCtx, tables } from "../smithers";
+import { Task, useCtx, tables } from "../smithers";
 
 export function Discover() {
   const ctx = useCtx();

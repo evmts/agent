@@ -18,15 +18,27 @@
 	D10000000000000000000002 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* Tokens.swift */; };
 	D10000000000000000000001 /* NSColor+Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* NSColor+Hex.swift */; };
 
+    // Added by swift-chat-stream-bridge
+    // (deduplicated) build file entries kept once above; removed duplicate definitions here
+
 	D10000000000000000000012 /* Tokens.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000002 /* Tokens.swift */; };
 	D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000003 /* AppTheme.swift */; };
 	D10000000000000000000014 /* NSColor+Hex.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* NSColor+Hex.swift */; };
 D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = D00000000000000000000007 /* ComponentsTests.swift */; };
-
-E35107889927682418501213 /* ChatWindowRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E64683943368075852853397 /* ChatWindowRootView.swift */; };
-E41098578599192807997597 /* IDEWindowRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E95175690456350327166398 /* IDEWindowRootView.swift */; };
-E09605018639019478757311 /* DividerLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70934835764107993078525 /* DividerLine.swift */; };
-E21989350555044847403895 /* ChatViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E76934433559908771061589 /* ChatViewTests.swift */; };
+	G20000000000000000000001 /* ChatWindowRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* ChatWindowRootView.swift */; };
+	G20000000000000000000002 /* IDEWindowRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000002 /* IDEWindowRootView.swift */; };
+	G20000000000000000000003 /* ChatComposerZone.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000003 /* ChatComposerZone.swift */; };
+	G20000000000000000000004 /* ChatSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000004 /* ChatSidebarView.swift */; };
+	G20000000000000000000005 /* ChatTitleBarZone.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000005 /* ChatTitleBarZone.swift */; };
+	G20000000000000000000006 /* SidebarModeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000006 /* SidebarModeBar.swift */; };
+	G20000000000000000000007 /* DividerLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000007 /* DividerLine.swift */; };
+	WC0000000000000000000002 /* WindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = WC0000000000000000000001 /* WindowCoordinator.swift */; };
+	WC0000000000000000000004 /* WindowCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = WC0000000000000000000003 /* WindowCoordinatorTests.swift */; };
+	E21989350555044847403895 /* ChatViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E76934433559908771061589 /* ChatViewTests.swift */; };
+    CMB00000000000000000001 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CMF00000000000000000001 /* ChatMessage.swift */; };
+    CMB00000000000000000002 /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CMF00000000000000000002 /* ChatModel.swift */; };
+    TSB00000000000000000001 /* ChatModelTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000001 /* ChatModelTests.swift */; };
+    TSB00000000000000000002 /* SmithersCoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000002 /* SmithersCoreTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,16 +64,27 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
 			D00000000000000000000002 /* Tokens.swift */,
 			D00000000000000000000003 /* AppTheme.swift */,
 			D00000000000000000000004 /* Components.swift */,
+				F20000000000000000000007 /* DividerLine.swift */,
 		); path = DesignSystem; sourceTree = "<group>"; };
 	D00000000000000000000004 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 	D00000000000000000000003 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 	D00000000000000000000002 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
 	D00000000000000000000001 /* NSColor+Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSColor+Hex.swift"; sourceTree = "<group>"; };
 
-	E64683943368075852853397 /* ChatWindowRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWindowRootView.swift; sourceTree = "<group>"; };
-	E95175690456350327166398 /* IDEWindowRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDEWindowRootView.swift; sourceTree = "<group>"; };
-	E70934835764107993078525 /* DividerLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DividerLine.swift; sourceTree = "<group>"; };
+		F20000000000000000000001 /* ChatWindowRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWindowRootView.swift; sourceTree = "<group>"; };
+		F20000000000000000000002 /* IDEWindowRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDEWindowRootView.swift; sourceTree = "<group>"; };
+		F20000000000000000000003 /* ChatComposerZone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposerZone.swift; sourceTree = "<group>"; };
+		F20000000000000000000004 /* ChatSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSidebarView.swift; sourceTree = "<group>"; };
+		F20000000000000000000005 /* ChatTitleBarZone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTitleBarZone.swift; sourceTree = "<group>"; };
+		F20000000000000000000006 /* SidebarModeBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarModeBar.swift; sourceTree = "<group>"; };
+		F20000000000000000000007 /* DividerLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DividerLine.swift; sourceTree = "<group>"; };
 	E76934433559908771061589 /* ChatViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewTests.swift; sourceTree = "<group>"; };
+	WC0000000000000000000001 /* WindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinator.swift; sourceTree = "<group>"; };
+	WC0000000000000000000003 /* WindowCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCoordinatorTests.swift; sourceTree = "<group>"; };
+    CMF00000000000000000001 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
+    CMF00000000000000000002 /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
+    TST00000000000000000001 /* ChatModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatModelTests.swift; path = SmithersTests/ChatModelTests.swift; sourceTree = SOURCE_ROOT; };
+    TST00000000000000000002 /* SmithersCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SmithersCoreTests.swift; path = SmithersTests/SmithersCoreTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +97,26 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+	E50000000000000000000001 /* Features */ = {isa = PBXGroup; children = (
+		E50000000000000000000002 /* Chat */,
+		E50000000000000000000005 /* IDE */,
+	); path = Features; sourceTree = "<group>"; };
+E50000000000000000000002 /* Chat */ = {isa = PBXGroup; children = (
+		E50000000000000000000003 /* Views */,
+	E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
+		F20000000000000000000001 /* ChatWindowRootView.swift */,
+		F20000000000000000000003 /* ChatComposerZone.swift */,
+		F20000000000000000000004 /* ChatSidebarView.swift */,
+		F20000000000000000000005 /* ChatTitleBarZone.swift */,
+		F20000000000000000000006 /* SidebarModeBar.swift */,
+	); path = Views; sourceTree = "<group>"; };
+	E50000000000000000000005 /* IDE */ = {isa = PBXGroup; children = (
+		E50000000000000000000006 /* Views */,
+	); path = IDE; sourceTree = "<group>"; };
+	E50000000000000000000006 /* Views */ = {isa = PBXGroup; children = (
+		F20000000000000000000002 /* IDEWindowRootView.swift */,
+	); path = Views; sourceTree = "<group>"; };
+
 	A00000000000000000000002 = {isa = PBXGroup; children = (
 		B1111111111111111111111B /* Tests */,
 		A00000000000000000000013 /* Smithers-Info.plist */,
@@ -89,43 +132,28 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
 	A00000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (
 		A00000000000000000000018 /* App */,
 		C11111111111111111111123 /* Ghostty */,
-	
 		D20000000000000000000001 /* Helpers */,
-		
-		E43022596692747107705011 /* Features */,); path = Sources; sourceTree = "<group>"; };
+		E50000000000000000000001 /* Features */,
+	); path = Sources; sourceTree = "<group>"; };
 	A00000000000000000000005 /* Frameworks */ = {isa = PBXGroup; children = (
 		A00000000000000000000014 /* SmithersKit.xcframework */,
 	); name = Frameworks; sourceTree = "<group>"; };
 	A00000000000000000000018 /* App */ = {isa = PBXGroup; children = (
 		A00000000000000000000011 /* SmithersApp.swift */,
 		C44444444444444444444441 /* AppModel.swift */,
+		WC0000000000000000000001 /* WindowCoordinator.swift */,
 	); path = App; sourceTree = "<group>"; };
 	B1111111111111111111111B /* Tests */ = {isa = PBXGroup; children = (
 		B11111111111111111111111 /* SmithersTests.swift */,
-		E76934433559908771061589 /* ChatViewTests.swift */,
-	
+
 		D00000000000000000000006 /* DesignSystemTests.swift */,
+			D00000000000000000000007 /* ComponentsTests.swift */,
+			E76934433559908771061589 /* ChatViewTests.swift */,
+			WC0000000000000000000003 /* WindowCoordinatorTests.swift */,
 		); name = Tests; path = SmithersTests; sourceTree = "<group>"; };
 	C11111111111111111111123 /* Ghostty */ = {isa = PBXGroup; children = (
 		C11111111111111111111121 /* SmithersCore.swift */,
 	); path = Ghostty; sourceTree = "<group>"; };
-
-	E43022596692747107705011 /* Features */ = {isa = PBXGroup; children = (
-		E67917935509812531650863 /* Chat */,
-		E54142318959259192779124 /* IDE */,
-	); path = Features; sourceTree = "<group>"; };
-	E67917935509812531650863 /* Chat */ = {isa = PBXGroup; children = (
-		E41187255318532219734785 /* Views */,
-	); path = Chat; sourceTree = "<group>"; };
-	E41187255318532219734785 /* Views */ = {isa = PBXGroup; children = (
-		E64683943368075852853397 /* ChatWindowRootView.swift */
-	); path = Views; sourceTree = "<group>"; };
-	E54142318959259192779124 /* IDE */ = {isa = PBXGroup; children = (
-		E82581908906109446756056 /* Views */,
-	); path = IDE; sourceTree = "<group>"; };
-	E82581908906109446756056 /* Views */ = {isa = PBXGroup; children = (
-		E95175690456350327166398 /* IDEWindowRootView.swift */
-	); path = Views; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -158,34 +186,41 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
 /* Begin PBXSourcesBuildPhase section */
 	A00000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		A00000000000000000000015 /* SmithersApp.swift in Sources */,
-		E35107889927682418501213 /* ChatWindowRootView.swift in Sources */,
-		E41098578599192807997597 /* IDEWindowRootView.swift in Sources */,
-		E09605018639019478757311 /* DividerLine.swift in Sources */,
 		C44444444444444444444442 /* AppModel.swift in Sources */,
 		C11111111111111111111122 /* SmithersCore.swift in Sources */,
-	
+
 		D10000000000000000000001 /* NSColor+Hex.swift in Sources */,
+			G20000000000000000000001 /* ChatWindowRootView.swift in Sources */,
+			G20000000000000000000002 /* IDEWindowRootView.swift in Sources */,
+			G20000000000000000000003 /* ChatComposerZone.swift in Sources */,
+			G20000000000000000000004 /* ChatSidebarView.swift in Sources */,
+			G20000000000000000000005 /* ChatTitleBarZone.swift in Sources */,
+			G20000000000000000000006 /* SidebarModeBar.swift in Sources */,
+			G20000000000000000000007 /* DividerLine.swift in Sources */,
+			CMB00000000000000000001 /* ChatMessage.swift in Sources */,
+			CMB00000000000000000002 /* ChatModel.swift in Sources */,
+			WC0000000000000000000002 /* WindowCoordinator.swift in Sources */,
 		D10000000000000000000002 /* Tokens.swift in Sources */,
 		D10000000000000000000003 /* AppTheme.swift in Sources */,
 		D10000000000000000000004 /* Components.swift in Sources */,
-		); runOnlyForDeploymentPostprocessing = 0; };
+			); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		B11111111111111111111112 /* SmithersTests.swift in Sources */,
-		E21989350555044847403895 /* ChatViewTests.swift in Sources */,
 			D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */,
-	
+			E21989350555044847403895 /* ChatViewTests.swift in Sources */,
+			WC0000000000000000000004 /* WindowCoordinatorTests.swift in Sources */,
+
+		TSB00000000000000000001 /* ChatModelTests.swift in Sources (Tests) */,
+		TSB00000000000000000002 /* SmithersCoreTests.swift in Sources (Tests) */,
+
 		D10000000000000000000006 /* DesignSystemTests.swift in Sources */,
 		D10000000000000000000014 /* NSColor+Hex.swift in Sources (Tests) */,
 		D10000000000000000000012 /* Tokens.swift in Sources (Tests) */,
 		D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */,
-		); runOnlyForDeploymentPostprocessing = 0; };
+			); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 /* Begin PBXShellScriptBuildPhase section */
-	C22222222222222222222224 /* Verify SmithersKit.xcframework */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = ( ); inputFileListPaths = ( ); inputPaths = ( ); name = "Verify SmithersKit.xcframework"; outputFileListPaths = ( ); outputPaths = ( "${SRCROOT}/../dist/SmithersKit.stamp" ); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "if [ ! -d \"${SRCROOT}/../dist/SmithersKit.xcframework\" ]; then\n  echo \"SmithersKit.xcframework not found at ../dist. Building via 'zig build xcframework'...\"\n  ROOT=\"$(cd \"${SRCROOT}/..\"; pwd)\"\n  cd \"$ROOT\"\n  if ! command -v zig >/dev/null 2>&1; then\n    echo \"zig not found. Install Zig or build xcframework manually.\" >&2\n    exit 1\n  fi\n  zig build xcframework || { echo \"zig build xcframework failed\"; exit 1; }\nfi\n
-
-# Emit stamp for incremental builds
-/usr/bin/touch "${SRCROOT}/../dist/SmithersKit.stamp"
-"; };
+    C22222222222222222222224 /* Verify SmithersKit.xcframework */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = ( ); inputFileListPaths = ( ); inputPaths = ( "${SRCROOT}/../dist/SmithersKit.xcframework/Info.plist" ); name = "Verify SmithersKit.xcframework"; outputFileListPaths = ( ); outputPaths = ( "${SRCROOT}/../dist/SmithersKit.stamp" ); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "if [ ! -d \"${SRCROOT}/../dist/SmithersKit.xcframework\" ]; then\n  echo \"SmithersKit.xcframework not found at ../dist. Building via 'zig build xcframework'...\"\n  ROOT=\"$(cd \"${SRCROOT}/..\"; pwd)\"\n  cd \"$ROOT\"\n  if ! command -v zig >/dev/null 2>&1; then\n    echo \"zig not found. Install Zig or build xcframework manually.\" >&2\n    exit 1\n  fi\n  zig build xcframework || { echo \"zig build xcframework failed\"; exit 1; }\nfi\n\n# Emit stamp for incremental builds\n/usr/bin/touch \"${SRCROOT}/../dist/SmithersKit.stamp\"\n"; };
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -232,6 +267,7 @@ A0000000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSetting
 		SDKROOT = macosx;
 		SWIFT_STRICT_CONCURRENCY = complete;
 		SWIFT_VERSION = 6.0;
+			EXCLUDED_ARCHS = x86_64;
 		}; name = Debug; };
 A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
 		ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -245,6 +281,7 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		INFOPLIST_FILE = "Smithers-Info.plist";
 		LD_RUNPATH_SEARCH_PATHS = ( "$(inherited)", "@executable_path/../Frameworks" );
+			EXCLUDED_ARCHS = x86_64;
 			OTHER_LDFLAGS = "-lstdc++";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop;
@@ -260,6 +297,8 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		GENERATE_INFOPLIST_FILE = YES;
 		EXCLUDED_ARCHS = x86_64;
+		TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smithers.app/Contents/MacOS/Smithers";
+		BUNDLE_LOADER = "$(TEST_HOST)";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
@@ -272,6 +311,9 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		INFOPLIST_KEY_CFBundleName = "SmithersTests";
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		GENERATE_INFOPLIST_FILE = YES;
+		EXCLUDED_ARCHS = x86_64;
+		TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smithers.app/Contents/MacOS/Smithers";
+		BUNDLE_LOADER = "$(TEST_HOST)";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;

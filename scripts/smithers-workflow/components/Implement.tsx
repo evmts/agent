@@ -1,5 +1,5 @@
 
-import { Task } from "smithers";
+import { Task } from "../smithers";
 import { z } from "zod";
 import { codex } from "../agents";
 import ImplementPrompt from "./Implement.mdx";

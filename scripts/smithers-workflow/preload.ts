@@ -1,4 +1,3 @@
-import { plugin, type BunPlugin } from "bun";
-import mdx from "@mdx-js/esbuild";
+import { mdxPlugin } from "smithers/mdx-plugin";
 
-plugin(mdx() as unknown as BunPlugin);
+mdxPlugin();

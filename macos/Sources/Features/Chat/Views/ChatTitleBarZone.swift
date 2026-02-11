@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ChatTitleBarZone: View {
     let onOpenEditor: () -> Void
-    @Environment    (.theme) private var theme
+    @Environment(\.theme) private var theme
+    @Environment(AppModel.self) private var appModel
 
     var body: some View {
         HStack {
@@ -19,4 +20,3 @@ struct ChatTitleBarZone: View {
         .background(Color(nsColor: theme.panelBackground))
     }
 }
-

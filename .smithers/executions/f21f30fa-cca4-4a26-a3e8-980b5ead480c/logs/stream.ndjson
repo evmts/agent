@@ -1,0 +1,3 @@
+{"type":"RunStarted","runId":"f21f30fa-cca4-4a26-a3e8-980b5ead480c","timestampMs":1770779054498}
+{"type":"FrameCommitted","runId":"f21f30fa-cca4-4a26-a3e8-980b5ead480c","frameNo":5,"xmlHash":"ba7901c7b8c7be0554e6d9698e610e363f6626a5a920573cbda0a3715ff7c313","timestampMs":1770779054520}
+{"type":"RunFinished","runId":"f21f30fa-cca4-4a26-a3e8-980b5ead480c","timestampMs":1770779054532}

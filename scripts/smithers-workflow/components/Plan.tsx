@@ -1,5 +1,5 @@
 
-import { Task } from "smithers";
+import { Task } from "../smithers";
 import { claude } from "../agents";
 import PlanPrompt from "./Plan.mdx";
 export { PlanOutput } from "./Plan.schema";

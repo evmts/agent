@@ -16,10 +16,26 @@ private struct KeyHandlingTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    private final class HandlerTextView: NSTextView {
+        var onSend: (() -> Void)?
+        override func keyDown(with event: NSEvent) {
+            // 36 = kVK_Return, 76 = kVK_ANSI_KeypadEnter
+            if event.keyCode == 36 || event.keyCode == 76 {
+                if event.modifierFlags.contains(.shift) {
+                    super.insertNewline(nil)
+                } else {
+                    onSend?()
+                }
+            } else {
+                super.keyDown(with: event)
+            }
+        }
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
-        let tv = NSTextView()
+        let tv = HandlerTextView()
         tv.drawsBackground = false
         tv.isRichText = false
         tv.isAutomaticQuoteSubstitutionEnabled = false
@@ -28,18 +44,7 @@ private struct KeyHandlingTextView: NSViewRepresentable {
         tv.delegate = context.coordinator
         tv.textContainerInset = NSSize(width: 0, height: 0)
         tv.string = text
-        // Intercept keyDown
-        tv.performKeyEquivalent = { event in
-            if event.characters == "\r" || event.keyCode == 36 { // Return/Enter
-                if event.modifierFlags.contains(.shift) {
-                    tv.insertNewline(nil)
-                } else {
-                    self.onSend()
-                }
-                return true
-            }
-            return false
-        }
+        tv.onSend = self.onSend
         scroll.documentView = tv
         return scroll
     }

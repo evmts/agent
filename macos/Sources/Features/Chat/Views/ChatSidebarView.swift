@@ -24,15 +24,17 @@ struct ChatSidebarView: View {
                         Text("Source (JJ)").font(.system(size: DS.Typography.s, weight: .medium))
                             .foregroundStyle(Color(nsColor: theme.mutedForeground))
                         Spacer()
-                    }.padding(DS.Space._12)
-                        .accessibilityIdentifier("sidebar_content_agents")
-                        .accessibilityIdentifier("sidebar_content_source")
+                    }
+                    .padding(DS.Space._12)
+                    .accessibilityIdentifier("sidebar_content_source")
                 case .agents:
                     VStack(alignment: .leading) {
                         Text("Agents").font(.system(size: DS.Typography.s, weight: .medium))
                             .foregroundStyle(Color(nsColor: theme.mutedForeground))
                         Spacer()
-                    }.padding(DS.Space._12)
+                    }
+                    .padding(DS.Space._12)
+                    .accessibilityIdentifier("sidebar_content_agents")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -40,4 +42,3 @@ struct ChatSidebarView: View {
         }
     }
 }
-

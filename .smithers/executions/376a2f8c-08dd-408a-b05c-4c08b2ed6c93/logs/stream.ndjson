@@ -1,0 +1,6 @@
+{"type":"RunStarted","runId":"376a2f8c-08dd-408a-b05c-4c08b2ed6c93","timestampMs":1770779088219}
+{"type":"FrameCommitted","runId":"376a2f8c-08dd-408a-b05c-4c08b2ed6c93","frameNo":1,"xmlHash":"f62ec97f938a1c1072eb5323fa7a3754a03849ddd791b8ae873e2a10eb0e9507","timestampMs":1770779088232}
+{"type":"NodeStarted","runId":"376a2f8c-08dd-408a-b05c-4c08b2ed6c93","nodeId":"discover-codex","iteration":0,"attempt":1,"timestampMs":1770779088235}
+{"type":"NodeFinished","runId":"376a2f8c-08dd-408a-b05c-4c08b2ed6c93","nodeId":"discover-codex","iteration":0,"attempt":1,"timestampMs":1770779648736}
+{"type":"FrameCommitted","runId":"376a2f8c-08dd-408a-b05c-4c08b2ed6c93","frameNo":2,"xmlHash":"f62ec97f938a1c1072eb5323fa7a3754a03849ddd791b8ae873e2a10eb0e9507","timestampMs":1770779648920}
+{"type":"RunFinished","runId":"376a2f8c-08dd-408a-b05c-4c08b2ed6c93","timestampMs":1770779649008}

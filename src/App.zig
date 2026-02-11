@@ -54,18 +54,15 @@ pub fn performAction(self: *App, payload: action.Payload) void {
     log.info("performAction tag={s}", .{@tagName(tag)});
     switch (payload) {
         .chat_send => |cs| {
-            // Arena-dupe not needed in stub: pass slice directly to streamer.
-            // Streaming occurs on a background thread and does not mutate
-            // synchronous state here.
+            // Stub discards message; production will arena-dupe.
             codex.streamChat(self.runtime, cs.message);
         },
         else => {
-            // For actions that synchronously mutate observable state (none in
-            // this stub), the host expects a wakeup. Left in place for future
-            // cases.
-            if (self.runtime.wakeup) |cb| cb(self.runtime.userdata);
+            // No action-specific handling needed.
         },
     }
+    // Restore unconditional wakeup semantics: host polls after any action.
+    if (self.runtime.wakeup) |cb| cb(self.runtime.userdata);
 }
 
 /// Convenience: get an arena-backed allocator for request-scoped work.
@@ -79,7 +76,7 @@ test "app create/destroy" {
     defer a.destroy();
 }
 
-test "app does not wakeup on chat_send (no sync state change)" {
+test "app wakes host on chat_send (unconditional wakeup)" {
     const testing = std.testing;
     var called: bool = false;
     const Wake = struct {
@@ -91,7 +88,7 @@ test "app does not wakeup on chat_send (no sync state change)" {
     var a = try App.create(testing.allocator, .{ .wakeup = Wake.cb, .userdata = @ptrCast(&called) });
     defer a.destroy();
     a.performAction(.{ .chat_send = .{ .message = "hi" } });
-    try testing.expect(!called);
+    try testing.expect(called);
 }
 
 test {

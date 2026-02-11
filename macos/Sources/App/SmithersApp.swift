@@ -5,12 +5,7 @@ import os
 @main
 struct SmithersApp: App {
     @State private var appModel = AppModel()
-    nonisolated(unsafe) static var didValidateLink = false
-    init() {
-        guard !Self.didValidateLink else { return }
-        Self.didValidateLink = true
-        SmithersCoreBridge.smokeInitAndFree()
-    }
+    // SmithersCore is initialized by AppModel; remove smoke init.
 
     var body: some Scene {
         Window("Smithers", id: "chat") {
@@ -32,30 +27,6 @@ struct SmithersApp: App {
         Settings {
             Text("Settings")
                 .padding()
-        }
-    }
-}
-
-struct ChatWindowRootView: View {
-    @Environment(\.theme) private var theme
-    var body: some View {
-        ZStack {
-            theme.backgroundColor
-            Text("Chat Window")
-                .foregroundStyle(theme.foregroundColor)
-                .padding(DS.Space._24)
-        }
-    }
-}
-
-struct IDEWindowRootView: View {
-    @Environment(\.theme) private var theme
-    var body: some View {
-        ZStack {
-            theme.backgroundColor
-            Text("IDE Window")
-                .foregroundStyle(theme.foregroundColor)
-                .padding(DS.Space._24)
         }
     }
 }

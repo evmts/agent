@@ -1,5 +1,6 @@
 //! CodexClient stub: emits streaming chat events for SMITHERS_ACTION_CHAT_SEND.
 const std = @import("std");
+const log = std.log.scoped(.codex_client);
 const capi = @import("capi.zig");
 const configpkg = @import("config.zig");
 
@@ -25,7 +26,10 @@ pub fn streamChatJoinable(runtime: configpkg.RuntimeConfig, message: []const u8)
 pub fn streamChat(runtime: configpkg.RuntimeConfig, message: []const u8) void {
     if (streamChatJoinable(runtime, message)) |th| {
         th.detach();
-    } else |_| {}
+    } else |err| {
+        // Do not silently swallow errors; log for diagnostics per project rules.
+        log.warn("failed to spawn chat thread err={}", .{err});
+    }
 }
 
 test "streaming emits >=2 deltas then complete (deterministic join)" {

@@ -1,31 +1,32 @@
-import Testing
-import SwiftUI
+import XCTest
+import AppKit
 @testable import Smithers
 
-@Suite struct ComponentsTests {
-    @Test func iconButtonSizes() async throws {
-        // Verify intrinsic dimensions
-        let small = IconButton(systemName: "gear", size: .small, help: nil, action: {})
-        let med = IconButton(systemName: "gear", size: .medium, help: nil, action: {})
-        let large = IconButton(systemName: "gear", size: .large, help: nil, action: {})
-        _ = small; _ = med; _ = large
-        // Snapshotless: existence/compilation check suffices here
+@MainActor
+final class ComponentsTests: XCTestCase {
+    func testTypographyScale_ordering() {
+        XCTAssertLessThan(DS.Typography.s, DS.Typography.base)
+        XCTAssertGreaterThan(DS.Typography.l, DS.Typography.base)
     }
 
-    @Test func primaryButtonColorsBindToTheme() async throws {
-        // Validate that foreground uses onAccentText and background uses accent 90%
-        let btn = PrimaryButton(title: "Do It", action: {})
-        _ = btn
+    func testPrimaryButton_usesAccentAndOnAccent() {
+        let theme = AppTheme.dark
+        XCTAssertGreaterThan(theme.accent.alphaComponent, 0.0)
+        XCTAssertGreaterThan(DS.Color.onAccentText.alphaComponent, 0.0)
+
+        // Compile-time API surface check: construct a PrimaryButton
+        _ = PrimaryButton(title: "Run", isDisabled: false, action: {})
     }
 
-    @Test func pillButtonUsesPillTokens() async throws {
-        let pill = PillButton(title: "Create", systemName: "plus", action: {})
-        _ = pill
+    func testPillButton_tokensPresent_andAPIInstantiates() {
+        XCTAssertGreaterThan(DS.Color.chatPillBg.alphaComponent, 0.0)
+        XCTAssertGreaterThan(DS.Color.chatPillBorder.alphaComponent, 0.0)
+        XCTAssertGreaterThan(DS.Color.chatPillActive.alphaComponent, 0.0)
+
+        _ = PillButton(title: "Explore", systemName: "sparkles", action: {})
     }
 
-    @Test func sidebarRowUsesTertiarySubtitle() async throws {
-        let row = SidebarListRow(title: "Session", subtitle: "Yesterday", isSelected: false, action: {})
-        _ = row
+    func testSidebarListRow_APIInstantiates() {
+        _ = SidebarListRow(title: "Row", subtitle: "Sub", isSelected: true, action: {})
     }
 }
-

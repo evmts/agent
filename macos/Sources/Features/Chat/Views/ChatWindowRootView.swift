@@ -16,7 +16,9 @@ struct ChatWindowRootView: View {
                 DividerLine()
                 MessagesZone()
                 DividerLine()
-                ChatComposerZone(onSend: { _ in /* stub */ })
+                ChatComposerZone(onSend: { text in
+                    appModel.sendChatMessage(text)
+                })
             }
             .background(theme.backgroundColor)
         }
@@ -25,19 +27,27 @@ struct ChatWindowRootView: View {
 }
 
 private struct MessagesZone: View {
+    @Environment(AppModel.self) private var appModel
     @Environment(\.theme) private var theme
     var body: some View {
         ScrollView {
             LazyVStack(spacing: DS.Space._10) {
-                ForEach(0..<12, id: \.self) { i in
+                ForEach(appModel.chat.messages) { m in
                     HStack {
-                        if i % 2 == 0 {
+                        switch m.role {
+                        case .user:
                             Spacer(minLength: 0)
-                            UserBubble(text: "User message #\(i)")
-                        } else {
-                            AssistantBubble(text: "Assistant message #\(i)")
+                            UserBubble(text: m.text)
+                        case .assistant:
+                            AssistantBubble(text: m.text)
                             Spacer(minLength: 0)
                         }
+                    }
+                }
+                if appModel.chat.isStreaming && !appModel.chat.messages.contains(where: { $0.role == .assistant }) {
+                    HStack {
+                        AssistantBubble(text: "Thinking…")
+                        Spacer(minLength: 0)
                     }
                 }
             }

@@ -14,11 +14,11 @@ export SMITHERS_DEBUG=1
 export SMITHERS_UNSAFE=1
 unset ANTHROPIC_API_KEY
 
-SMITHERS_CLI="${SMITHERS_CLI:-smithers}"
+SMITHERS_CLI="${SMITHERS_CLI:-./node_modules/.bin/smithers}"
 
 echo "Starting Smithers v2 build workflow"
 echo "Root directory: $ROOT_DIR"
 echo "Press Ctrl+C to stop."
 echo ""
 
-bun run "$SMITHERS_CLI" run workflow.tsx --input '{}' --root-dir "$ROOT_DIR"
+bun "$SMITHERS_CLI" run workflow.tsx --input '{}' --root "$ROOT_DIR"
