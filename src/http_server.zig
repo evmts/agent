@@ -63,12 +63,13 @@ pub const Server = struct {
     /// Starts the Zap event loop on a background thread. Non-blocking.
     pub fn start(self: *Self) StartError!void {
         if (self.started) return error.AlreadyStarted;
-
+        log.info("starting http server (port={d})", .{self.cfg.port});
         self.thread = try std.Thread.spawn(.{}, run, .{self});
         self.started = true;
     }
     /// Signals Zap loop to stop and joins the background thread.
     pub fn stop(self: *Self) void {
+        log.info("stopping http server", .{});
         zap.stop();
         if (self.thread) |t| {
             t.join();
@@ -80,7 +81,7 @@ pub const Server = struct {
     fn run(self: *Self) void {
         // Blocks until zap.stop() is called.
         if (self.listener.listen()) |_| {
-            log.info("listening on 127.0.0.1:{}", .{self.cfg.port});
+            log.info("listening on 127.0.0.1:{d}", .{self.cfg.port});
             zap.start(.{ .threads = 2, .workers = 1 });
         } else |err| {
             log.warn("listener.listen() failed: {}", .{err});
@@ -104,8 +105,7 @@ fn onRequest(r: zap.Request) anyerror!void {
     log.debug("{s} {s}", .{ @tagName(method), path });
     if (std.mem.eql(u8, path, "/api/health") and method == .GET) {
         setCorsHeaders(r);
-        try r.setContentType(.JSON);
-        try r.sendBody("{\"status\":\"ok\"}");
+        try r.sendJson("{\"status\":\"ok\"}");
         return;
     }
 

@@ -106,10 +106,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{
-                .{ .name = "smithers", .module = mod },
-                .{ .name = "zap", .module = zap_dep.module("zap") },
-            },
+            .imports = &.{.{ .name = "smithers", .module = mod }},
         }),
     });
     exe.linkLibrary(sqlite_lib);
