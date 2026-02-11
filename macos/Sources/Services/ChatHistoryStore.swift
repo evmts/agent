@@ -150,7 +150,6 @@ final class ChatHistoryStore {
         }
     }
 
-
     // MARK: Messages
     func loadMessages(sessionId: UUID) throws -> [MessageRecord] {
         try dbPool.read { db in
