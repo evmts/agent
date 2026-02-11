@@ -51,7 +51,8 @@ struct FileTreeSidebar: View {
     // MARK: - Local placeholder models
     struct Node: Identifiable, Equatable {
         enum Kind { case folder, file }
-        let id = UUID()
+        // Stable identity derived from semantic fields for predictable diffing
+        var id: String { "\(kind)-\(name)" }
         let name: String
         let kind: Kind
         let depth: Int
@@ -61,35 +62,50 @@ struct FileTreeSidebar: View {
     }
 }
 
-private struct FileTreeRow: View {
+// Internal (not private) so tests can instantiate per review plan
+struct FileTreeRow: View {
     let item: FileTreeSidebar.Node
     let isSelected: Bool
     let onSelect: () -> Void
     @Environment(\.theme) private var theme
     @State private var hovering = false
+    // Exposed constants for tests
+    static let indentPerLevel: CGFloat = DS.Space._16
+    static let rowFontSize: CGFloat = DS.Typography.s
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 8) {
                 // Left accent capsule for selected state per §6.2
-                Rectangle()
+                Capsule()
                     .fill(Color(nsColor: theme.accent))
                     .frame(width: isSelected ? 3 : 0)
+                    // full height minus 6pt inset via vertical padding 3pt
+                    .padding(.vertical, 3)
                     .animation(.easeInOut(duration: 0.12), value: isSelected)
 
                 // Row content
+                if item.kind == .folder {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(nsColor: DS.Color.textTertiary))
+                        .frame(width: 12)
+                } else {
+                    // Spacer to align with folder rows that show chevrons
+                    Color.clear.frame(width: 12, height: 0)
+                }
                 Image(systemName: iconName)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(Color(nsColor: iconColor))
                     .frame(width: 16)
                 Text(item.name.components(separatedBy: "/").last ?? item.name)
-                    .font(.system(size: 11))
+                    .font(.system(size: Self.rowFontSize))
                     .foregroundStyle(Color(nsColor: theme.foreground))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, DS.Space._12)
-            .padding(.leading, CGFloat(item.depth) * 16)
+            .padding(.leading, CGFloat(item.depth) * Self.indentPerLevel)
             .frame(height: 30)
             .background(rowBackground)
             .contentShape(.rect)
@@ -119,4 +135,3 @@ private struct FileTreeRow: View {
         }
     }
 }
-

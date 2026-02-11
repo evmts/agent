@@ -58,6 +58,7 @@ export function Implement({ ticket }: ImplementProps) {
       id={`${ticketId}:implement`}
       output={tables.implement}
       agent={codex}
+      timeoutMs={45 * 60 * 1000}
     >
       <ImplementPrompt
         ticketId={ticketId}

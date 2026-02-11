@@ -186,11 +186,16 @@ pub fn build(b: *std.Build) void {
         "if [ -d submodules/jj ]; then cd submodules/jj && zig build; else echo \"skipping jj: submodules/jj not found\"; fi",
     );
 
+    // Ensure the SmithersKit.xcframework exists BEFORE invoking xcodebuild.
+    // Although we also wire a dependency on the dedicated `xcframework` step,
+    // Xcode may try to resolve the framework reference prior to running our
+    // shell build phase, causing a race in some environments. Guard again here.
     const xcode_test_step = addOptionalShellStep(
         b,
         "xcode-test",
         "Run Xcode tests (if macos/ exists)",
-        "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers; else echo \"skipping xcode-test: macos/ not found\"; fi",
+        // Build the xcframework if it's missing, then run tests (single line to avoid newline escapes).
+        "if [ -d macos ]; then if [ ! -d dist/SmithersKit.xcframework ]; then echo 'xcode-test: SmithersKit.xcframework missing; building via `zig build xcframework`'; zig build xcframework || { echo 'xcode-test: failed to build xcframework' >&2; exit 1; }; fi; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers; else echo \"skipping xcode-test: macos/ not found\"; fi",
     );
     // Wire into all-step so Xcode regressions are caught by the canonical check
     // while remaining a no-op on machines without Xcode/macOS.

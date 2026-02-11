@@ -22,6 +22,7 @@ export function Validate({ ticket }: ValidateProps) {
       id={`${ticketId}:validate`}
       output={tables.validate}
       agent={codex}
+      timeoutMs={20 * 60 * 1000}
     >
       <ValidatePrompt
         ticketId={ticketId}

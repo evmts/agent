@@ -1,14 +1,11 @@
-# Preexisting Failures — Triage Log (2026-02-11)
+# Preexisting Failures
 
-Context: While implementing ticket "web-build-step-guard" we ran the canonical `zig build all` (macOS host, Zig 0.15.2). The build failed in Zig tests due to an unresolved import:
+## 2026-02-11 — zig build all fails in xcode-test (missing SmithersKit.xcframework)
 
-- `src/http_server.zig` imports `zap` (`const zap = @import("zap");`) but the `zap` package/module is not yet wired into `build.zig` (and `pkg/zap/` wrappers are not configured). As a result, the module-level tests for `smithers` failed to compile.
-
-Decision (Safer Indirection): To keep Always Green without inflating scope into HTTP server/package wiring, we:
-- Added a minimal `src/root.zig` that re-exports the public Zig API (`ZigApi`, `CAPI`) without pulling in `zap`-dependent test code, and
-- Gated `http_server` test discovery behind a build option `enable_http_server_tests` (default false) while leaving `zig build all` to run tests again. This avoids the blanket removal of tests from `all`.
-
-Follow-up (new ticket suggested):
-- Ticket: "wire-zap-module-and-http-tests" — Add `pkg/zap/` build wrapper, export a `zap` module in `build.zig`, restore `all_step.dependOn(test_step)`, and add `http_server.zig` unit tests.
-
-Rationale: This failure is orthogonal to the current ticket and non-trivial (requires vendoring/build integration of an external C library). Documenting here keeps the workflow unblocked while ensuring a follow-up is tracked.
+- Command: zig build all
+- Failure: Xcode test step reports: There is no XCFramework found at /Users/williamcory/agent/dist/SmithersKit.xcframework.
+- Observations: Running zig build all can race the xcode-test step before the xcframework step fully materializes the artifact. A subsequent run shows the xcframework directory exists at the expected path, but the earlier test invocation still failed.
+- Evidence: See /tmp/zig_all2.out in this validation and ls dist/SmithersKit.xcframework shows present after failure.
+- Suspected root cause: Step ordering/parallelization in build.zig. Although xcode-test depends on xcframework, execution logs indicate the test may start before the artifact is on disk.
+- Proposed fix: Ensure strict serialization: keep xcode_test_step.dependOn(xc_step) and avoid running web_step (or other independent steps) before xc_step completes; or make xcode-test a script that verifies/creates dist/SmithersKit.xcframework (runs zig build xcframework if missing) before invoking xcodebuild.
+- Scope: Unrelated to current ticket (ide-file-tree-shell).
