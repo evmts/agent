@@ -1,0 +1,3 @@
+[submodule "submodules/smithers"]
+	path = submodules/smithers
+	url = https://github.com/evmts/smithers.git
