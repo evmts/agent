@@ -1,5 +1,6 @@
 # Zig
 .zig-cache/
+.zig-cache-local/
 zig-out/
 dist/
 web/dist/
