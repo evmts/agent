@@ -3,9 +3,13 @@ import Foundation
 
 @MainActor
 final class SmithersCore {
-    // Optional so all stored properties are initialized before referencing `self`
-    // during runtime callback setup. Set after `smithers_app_new` succeeds.
-    private var app: smithers_app_t? = nil
+    // Box frees the C handle in its own deinit, avoiding actor-isolated deinit issues.
+    final class AppHandleBox: @unchecked Sendable {
+        var app: smithers_app_t?
+        init(_ app: smithers_app_t?) { self.app = app }
+        deinit { if let app = app { smithers_app_free(app) } }
+    }
+    private let appBox: AppHandleBox
     private let chat: ChatModel
     // Optional event hooks set by AppModel for persistence and analytics.
     var onAssistantDelta: ((String) -> Void)?
@@ -45,14 +49,14 @@ final class SmithersCore {
         guard let handle = smithers_app_new(&cfg) else {
             throw NSError(domain: "SmithersCore", code: -1, userInfo: [NSLocalizedDescriptionKey: "smithers_app_new failed"])
         }
-        self.app = handle
+        self.appBox = AppHandleBox(handle)
     }
 
     func sendChatMessage(_ text: String) {
         var payload = smithers_action_payload_u()
         // Safety: The stub streamer discards the message argument immediately.
         // Production path must arena-dupe before spawning background work.
-        guard let app = app else { return }
+        guard let app = appBox.app else { return }
         text.withCString { cStr in
             payload.chat_send = smithers_string_s(ptr: UnsafeRawPointer(cStr)?.assumingMemoryBound(to: UInt8.self), len: text.utf8.count)
             smithers_app_action(app, SMITHERS_ACTION_CHAT_SEND, payload)
@@ -60,10 +64,7 @@ final class SmithersCore {
     }
 
     // MARK: Callbacks
-    deinit {
-        // Free on main actor; acceptable since deinit runs when UI tears down.
-        if let app = app { smithers_app_free(app) }
-    }
+    // No deinit needed; AppHandleBox frees the handle.
 
     @MainActor private func handleWakeup() {
         // No-op for now; reserved for future polling.
