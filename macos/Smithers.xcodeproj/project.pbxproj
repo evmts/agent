@@ -43,6 +43,10 @@ D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa =
 	PBF000000000000TESTGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD000000000000TESTGRDB /* GRDB */; };
 	CTB00000000000000000001 /* ChatHistoryStoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CTF00000000000000000001 /* ChatHistoryStoreTests.swift */; };
 CHDB000000000000000001 /* ChatHistoryStoreDebounceTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CHDF000000000000000001 /* ChatHistoryStoreDebounceTests.swift */; };
+
+	F20000000000000000000018 /* FileTreeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000008 /* FileTreeSidebar.swift */; };
+
+	TSB00000000000000000009 /* FileTreeSidebarTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000009 /* FileTreeSidebarTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -91,6 +95,10 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
     TST00000000000000000001 /* ChatModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatModelTests.swift; path = SmithersTests/ChatModelTests.swift; sourceTree = SOURCE_ROOT; };
     TST00000000000000000002 /* SmithersCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SmithersCoreTests.swift; path = SmithersTests/SmithersCoreTests.swift; sourceTree = SOURCE_ROOT; };
 	CTF00000000000000000001 /* ChatHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatHistoryStoreTests.swift; path = SmithersTests/ChatHistoryStoreTests.swift; sourceTree = SOURCE_ROOT; };
+
+    F20000000000000000000008 /* FileTreeSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FileTreeSidebar.swift; path = "../Sidebar/FileTreeSidebar.swift"; sourceTree = "<group>"; };
+
+    TST00000000000000000009 /* FileTreeSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FileTreeSidebarTests.swift; path = SmithersTests/FileTreeSidebarTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,6 +137,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
         ); path = IDE; sourceTree = "<group>"; };
         E50000000000000000000006 /* Views */ = {isa = PBXGroup; children = (
             F20000000000000000000002 /* IDEWindowRootView.swift */,
+            F20000000000000000000008 /* FileTreeSidebar.swift */,
         ); path = Views; sourceTree = "<group>"; };
 
 
@@ -208,6 +217,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 /* Begin PBXSourcesBuildPhase section */
 	A00000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		A00000000000000000000015 /* SmithersApp.swift in Sources */,
+		F20000000000000000000018 /* FileTreeSidebar.swift in Sources */,
 		C44444444444444444444442 /* AppModel.swift in Sources */,
 		C11111111111111111111122 /* SmithersCore.swift in Sources */,
 
@@ -228,6 +238,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */,
 			); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+		TSB00000000000000000009 /* FileTreeSidebarTests.swift in Sources (Tests) */,
 		B11111111111111111111112 /* SmithersTests.swift in Sources */,
 			D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */,
 			E21989350555044847403895 /* ChatViewTests.swift in Sources */,
