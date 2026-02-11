@@ -52,6 +52,7 @@ fn addXCFrameworkStep(
 fn buildStaticLibForTarget(b: *std.Build, resolved_target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) struct { lib_output: std.Build.LazyPath, sqlite_output: std.Build.LazyPath } {
     const sqlite_dep = b.dependency("sqlite", .{ .target = resolved_target, .optimize = optimize });
     const sqlite_lib = sqlite_dep.artifact("sqlite3");
+    const zap_dep = b.dependency("zap", .{ .target = resolved_target, .optimize = optimize, .openssl = false });
 
     const mod = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
@@ -59,6 +60,7 @@ fn buildStaticLibForTarget(b: *std.Build, resolved_target: std.Build.ResolvedTar
         .optimize = optimize,
     });
     mod.addIncludePath(sqlite_dep.path("."));
+    mod.addImport("zap", zap_dep.module("zap"));
 
     const lib = b.addLibrary(.{ .name = "smithers", .root_module = mod, .linkage = .static, .use_llvm = true });
     lib.linkLibrary(sqlite_lib);
@@ -75,6 +77,7 @@ pub fn build(b: *std.Build) void {
     // Bring in vendored SQLite (pkg/sqlite) as a static library dependency
     const sqlite_dep = b.dependency("sqlite", .{ .target = target, .optimize = optimize });
     const sqlite_lib = sqlite_dep.artifact("sqlite3");
+    const zap_dep = b.dependency("zap", .{ .target = target, .optimize = optimize, .openssl = false });
 
     // Core module (source of truth for tests & consumers)
     const mod = b.addModule("smithers", .{
@@ -82,6 +85,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    mod.addImport("zap", zap_dep.module("zap"));
 
     // Static library (xcframework input for Swift)
     const lib = b.addLibrary(.{ .name = "smithers", .root_module = mod, .linkage = .static, .use_llvm = true });
@@ -102,7 +106,10 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "smithers", .module = mod }},
+            .imports = &.{
+                .{ .name = "smithers", .module = mod },
+                .{ .name = "zap", .module = zap_dep.module("zap") },
+            },
         }),
     });
     exe.linkLibrary(sqlite_lib);

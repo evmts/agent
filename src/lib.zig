@@ -7,6 +7,7 @@ const action = @import("action.zig");
 const capi = @import("capi.zig");
 const hostpkg = @import("host.zig");
 const storagepkg = @import("storage.zig");
+const http_server = @import("http_server.zig");
 
 pub const ZigApi = struct {
     /// Preferred initializer: explicit allocator per zig-rules.md.
@@ -162,6 +163,10 @@ test "host module is reachable" {
 
 test "storage module is reachable" {
     std.testing.refAllDecls(storagepkg);
+}
+
+test "http_server module is reachable" {
+    std.testing.refAllDecls(http_server);
 }
 
 // Force-export all CAPI functions to prevent dead code elimination when
