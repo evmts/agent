@@ -237,6 +237,8 @@ pub fn build(b: *std.Build) void {
     all_step.dependOn(typos_check_step);
     all_step.dependOn(shellcheck_step);
     all_step.dependOn(web_step);
+    // Build fresh xcframework before running Xcode tests to avoid stale libs.
+    all_step.dependOn(xc_step);
     all_step.dependOn(xcode_test_step);
 
     // --- xcframework pipeline ---
