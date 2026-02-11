@@ -42,6 +42,8 @@ D10000000000000000000015 /* ComponentsTests.swift in Sources (Tests) */ = {isa =
 	PBF0000000000000APPGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD0000000000000APPGRDB /* GRDB */; };
 	PBF000000000000TESTGRDB /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = PPD000000000000TESTGRDB /* GRDB */; };
 	CTB00000000000000000001 /* ChatHistoryStoreTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CTF00000000000000000001 /* ChatHistoryStoreTests.swift */; };
+	CTXF000000000000000001 /* ChatHistoryStoreXCTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatHistoryStoreXCTest.swift; path = SmithersTests/ChatHistoryStoreXCTest.swift; sourceTree = SOURCE_ROOT; };
+CTXB000000000000000001 /* ChatHistoryStoreXCTest.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = CTXF000000000000000001 /* ChatHistoryStoreXCTest.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -163,6 +165,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		WC0000000000000000000001 /* WindowCoordinator.swift */,
 	); path = App; sourceTree = "<group>"; };
 	B1111111111111111111111B /* Tests */ = {isa = PBXGroup; children = (
+			CTXF000000000000000001 /* ChatHistoryStoreXCTest.swift */ ,
 			CTF00000000000000000001 /* ChatHistoryStoreTests.swift */,
 		B11111111111111111111111 /* SmithersTests.swift */,
 
