@@ -7,6 +7,8 @@ import Testing
         let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory())
         let tmp = tmpRoot.appendingPathComponent("smithers-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        defer { try? FileManager.default.removeItem(at: tmp) }
         let dbURL = tmp.appendingPathComponent("db.sqlite")
         let store = try ChatHistoryStore(databaseURL: dbURL)
 
@@ -22,7 +24,7 @@ import Testing
         )
         store.enqueueSaveMessage(msg)
         try await Task.sleep(nanoseconds: 1_200_000_000) // 1.2s
-
+=
         // Load
         let loaded = try store.loadMessages(sessionId: sess.id)
         #expect(loaded.count == 1)
