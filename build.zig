@@ -205,6 +205,8 @@ pub fn build(b: *std.Build) void {
 
     // Top-level xcframework step (wired later to concrete commands)
     const xc_step = b.step("xcframework", "Build SmithersKit.xcframework (macOS arm64 + x86_64)");
+    // Ensure Xcode tests build after xcframework is produced
+    xcode_test_step.dependOn(xc_step);
 
     // Dev step: ensure xcframework exists before launching Xcode
     const dev_step = b.step("dev", "Build everything + launch (if macos/ exists)");
