@@ -8,5 +8,4 @@ export { ReviewFix } from "./ReviewFix";
 export { Report } from "./Report";
 export { ValidationLoop } from "./ValidationLoop";
 export { TicketPipeline } from "./TicketPipeline";
-export { PassTracker } from "./PassTracker";
-export * from "./types";
+export type { Ticket } from "./Discover.schema";
