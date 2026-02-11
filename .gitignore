@@ -32,3 +32,10 @@ prototype1/.next/
 *.o
 *.db-shm
 *.db-wal
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Backup artifacts
+*.before-fix

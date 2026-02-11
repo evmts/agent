@@ -160,7 +160,10 @@ final class ChatHistoryStore {
     }
 
     func enqueueSaveMessage(_ msg: MessageRecord) {
-        let args = StatementArguments([msg.id.uuidString as Any, msg.sessionId.uuidString as Any, msg.turnId as Any, msg.role as Any, msg.kind as Any, msg.content as Any, msg.metadataJSON as Any, msg.timestamp as Any])!
+        guard let args = StatementArguments([msg.id.uuidString as Any, msg.sessionId.uuidString as Any, msg.turnId as Any, msg.role as Any, msg.kind as Any, msg.content as Any, msg.metadataJSON as Any, msg.timestamp as Any]) else {
+            logger.error("Failed to build SQL args for message \(msg.id.uuidString, privacy: .public)")
+            return
+        }
         let debouncer = self.debounce
         Task.detached { [dbPool, debouncer, args] in
             await debouncer.schedule {
@@ -171,7 +174,7 @@ final class ChatHistoryStore {
             }
         }
     }
-
+    
     func deleteSession(_ id: UUID) throws {
         try dbPool.write { db in
             try db.execute(sql: "DELETE FROM sessions WHERE id = ?", arguments: [id.uuidString])
@@ -214,7 +217,6 @@ final class ChatHistoryStore {
 }
 
 // Simple async/await debouncer with max wait and batching.
-import Foundation
 
 actor Debouncer {
     private let minDelay: Duration

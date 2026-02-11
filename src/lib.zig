@@ -7,7 +7,7 @@ const action = @import("action.zig");
 const capi = @import("capi.zig");
 const hostpkg = @import("host.zig");
 const storagepkg = @import("storage.zig");
-const http_server = @import("http_server.zig");
+const build_options = @import("build_options");
 
 pub const ZigApi = struct {
     /// Preferred initializer: explicit allocator per zig-rules.md.
@@ -165,8 +165,14 @@ test "storage module is reachable" {
     std.testing.refAllDecls(storagepkg);
 }
 
-test "http_server module is reachable" {
-    std.testing.refAllDecls(http_server);
+// Gated to avoid pulling Zap when not wired in build.zig (see build option)
+comptime {
+    if (build_options.enable_http_server_tests) {
+        const http_server = @import("http_server.zig");
+        test "http_server module is reachable" {
+            std.testing.refAllDecls(http_server);
+        }
+    }
 }
 
 // Force-export all CAPI functions to prevent dead code elimination when

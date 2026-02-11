@@ -6,7 +6,7 @@
 
 ## Scope
 
-Single file change: `build.zig` lines 136-137. Two shell string edits. No Zig API, no new files, no test files (shell behavior verified by `zig build all`).
+Primary: `build.zig` web/playwright guards. Also restore a minimal shell test `tests/web_guard_test.sh` validating the skip message when `pnpm` is missing, and add a Playwright presence check so `zig build playwright` fails gracefully when Playwright is not installed.
 
 ## Steps
 
@@ -57,12 +57,3 @@ Run `zig build all` — must pass with zero errors. The web step should either:
 ## Why no test file changes
 
 The guard is purely shell logic inside `addOptionalShellStep` string arguments. The existing `zig build all` integration test (running the full build) validates correctness. Adding a Zig unit test for a shell string would be testing the wrong abstraction — the shell interpreter is the test harness.
-
-## Test Notes (added)
-
-Added `tests/web_guard_test.sh` to exercise both scenarios:
-- Missing pnpm: runs `zig build web` with a sanitized `PATH` and asserts the skip message.
-- With pnpm present: runs `zig build web` and expects a successful Vite build.
-
-This keeps Always Green by skipping the positive test when pnpm isn’t installed on the host.
-MD
