@@ -1,21 +1,6 @@
 import { z } from "zod";
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 
-export const planTable = sqliteTable("plan", {
-  runId: text("run_id").notNull(),
-  nodeId: text("node_id").notNull(),
-  iteration: integer("iteration").notNull().default(0),
-  ticketId: text("ticket_id").notNull(),
-  implementationSteps: text("implementation_steps", { mode: "json" }).$type<any[]>(),
-  filesToCreate: text("files_to_create", { mode: "json" }).$type<string[]>(),
-  filesToModify: text("files_to_modify", { mode: "json" }).$type<string[]>(),
-  testsToWrite: text("tests_to_write", { mode: "json" }).$type<any[]>(),
-  docsToUpdate: text("docs_to_update", { mode: "json" }).$type<string[]>(),
-  risks: text("risks", { mode: "json" }).$type<string[]>(),
-  planFilePath: text("plan_file_path"),
-}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
-
-export const planOutputSchema = z.object({
+export const PlanOutput = z.object({
   implementationSteps: z.array(z.object({
     step: z.number(),
     description: z.string(),
@@ -33,3 +18,4 @@ export const planOutputSchema = z.object({
   risks: z.array(z.string()).nullable().describe("Potential risks or blockers"),
   planFilePath: z.string().describe("Path to the plan file written"),
 });
+export type PlanOutput = z.infer<typeof PlanOutput>;

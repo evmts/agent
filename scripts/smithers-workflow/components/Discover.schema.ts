@@ -1,16 +1,6 @@
 import { z } from "zod";
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 
-export const discoverTable = sqliteTable("discover", {
-  runId: text("run_id").notNull(),
-  nodeId: text("node_id").notNull(),
-  iteration: integer("iteration").notNull().default(0),
-  tickets: text("tickets", { mode: "json" }).$type<any[]>().notNull(),
-  reasoning: text("reasoning"),
-  completionEstimate: text("completion_estimate"),
-}, (t) => [primaryKey({ columns: [t.runId, t.nodeId, t.iteration] })]);
-
-export const ticketSchema = z.object({
+export const Ticket = z.object({
   id: z.string().describe("Unique slug identifier derived from the title (e.g. 'sqlite-wal-init', 'chat-sidebar-mode-bar'). Must be lowercase kebab-case. NEVER use numeric IDs like T-001."),
   title: z.string().describe("Short imperative title (e.g. 'Add SQLite WAL mode initialization')"),
   description: z.string().describe("Detailed description of what needs to be implemented"),
@@ -21,9 +11,11 @@ export const ticketSchema = z.object({
   estimatedComplexity: z.enum(["trivial", "small", "medium", "large"]).describe("Estimated complexity"),
   dependencies: z.array(z.string()).nullable().describe("IDs of tickets this depends on"),
 });
+export type Ticket = z.infer<typeof Ticket>;
 
-export const discoverOutputSchema = z.object({
-  tickets: z.array(ticketSchema).max(5).describe("The next 0-5 tickets to implement"),
+export const DiscoverOutput = z.object({
+  tickets: z.array(Ticket).max(5).describe("The next 0-5 tickets to implement"),
   reasoning: z.string().describe("Why these tickets were chosen and in this order"),
   completionEstimate: z.string().describe("Overall progress estimate for the project"),
 });
+export type DiscoverOutput = z.infer<typeof DiscoverOutput>;
