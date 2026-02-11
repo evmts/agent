@@ -1,0 +1,11 @@
+.{
+    .name = .zap,
+    .version = "0.10.6",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "facil.io",
+    },
+    .fingerprint = 0x8ac41f4ef381871a,
+}

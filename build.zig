@@ -1,5 +1,15 @@
 const std = @import("std");
 
+// Shared SQLite compile flags (DRY across per-arch and root builds)
+const sqlite_flags = [_][]const u8{
+    "-DSQLITE_THREADSAFE=1",
+    "-DSQLITE_OMIT_LOAD_EXTENSION",
+    "-DSQLITE_DEFAULT_SYNCHRONOUS=1",
+    "-DSQLITE_ENABLE_FTS5",
+    "-DSQLITE_ENABLE_JSON1",
+    "-DSQLITE_DQS=0",
+};
+
 fn addOptionalShellStep(
     b: *std.Build,
     name: []const u8,
@@ -12,168 +22,146 @@ fn addOptionalShellStep(
     return step;
 }
 
-// Although this function looks imperative, it does not perform the build
-// directly and instead it mutates the build graph (`b`) that will be then
-// executed by an external runner. The functions in `std.Build` implement a DSL
-// for defining build steps and express dependencies between them, allowing the
-// build runner to parallelize the build automatically (and the cache system to
-// know when a step doesn't need to be re-run).
-pub fn build(b: *std.Build) void {
-    // Standard target options allow the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
-    // It's also possible to define more custom flags to toggle optional features
-    // of this build script using `b.option()`. All defined flags (including
-    // target and optimize options) will be listed when running `zig build --help`
-    // in this directory.
+// Build libsmithers (static) for a specific macOS CPU arch and return both the
+// smithers library and the per-arch sqlite static library artifacts. Used by
+// the xcframework packaging pipeline.
+fn buildLibSmithersForArch(
+    b: *std.Build,
+    cpu_arch: std.Target.Cpu.Arch,
+    optimize: std.builtin.OptimizeMode,
+) struct { lib: *std.Build.Step.Compile, sqlite: *std.Build.Step.Compile } {
+    const resolved = b.resolveTargetQuery(.{
+        .cpu_arch = cpu_arch,
+        .os_tag = .macos,
+        .os_version_min = .{ .semver = .{ .major = 14, .minor = 0, .patch = 0 } },
+    });
 
-    // This creates a module, which represents a collection of source files alongside
+    // Per-arch build options (match root module defaults)
+    const arch_build_opts = b.addOptions();
+    arch_build_opts.addOption(bool, "enable_http_server_tests", false);
+    arch_build_opts.addOption(bool, "enable_storage_module", false);
+
+    // smithers module (per-arch) — unique name per arch to avoid collisions
+    const arch_name = switch (cpu_arch) {
+        .aarch64 => "smithers-arch-aarch64",
+        .x86_64 => "smithers-arch-x86_64",
+        else => "smithers-arch",
+    };
+    const arch_mod = b.addModule(arch_name, .{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = resolved,
+        .optimize = optimize,
+    });
+    arch_mod.addOptions("build_options", arch_build_opts);
+    arch_mod.addIncludePath(b.path("pkg/sqlite"));
+
+    // Optional zap dependency for http_server when enabled
+    const zap_dep = b.dependency("zap", .{ .target = resolved, .optimize = optimize });
+    arch_mod.addImport("zap", zap_dep.module("zap"));
+
+    // Per-arch sqlite static library
+    const sqlite_lib = b.addLibrary(.{
+        .name = "sqlite3",
+        .root_module = b.createModule(.{ .target = resolved, .optimize = optimize }),
+        .linkage = .static,
+    });
+    sqlite_lib.addIncludePath(b.path("pkg/sqlite"));
+    sqlite_lib.addCSourceFile(.{ .file = b.path("pkg/sqlite/sqlite3.c"), .flags = &sqlite_flags });
+    sqlite_lib.linkLibC();
+
+    // smithers static lib (per-arch). Root module = arch_mod (no redundant self-import).
+    const lib = b.addLibrary(.{ .name = "smithers", .root_module = arch_mod, .linkage = .static });
+    lib.addIncludePath(b.path("pkg/sqlite"));
+    lib.linkLibC();
+    lib.linkLibrary(sqlite_lib);
+
+    return .{ .lib = lib, .sqlite = sqlite_lib };
+}
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
     // Build options consumed by src/lib.zig
     const build_opts = b.addOptions();
     build_opts.addOption(bool, "enable_http_server_tests", false);
-    build_opts.addOption(bool, "enable_storage_module", true);
-    // some compilation options, such as optimization mode and linked system libraries.
-    // Zig modules are the preferred way of making Zig code available to consumers.
-    // addModule defines a module that we intend to make available for importing
-    // to our consumers. We must give it a name because a Zig package can expose
-    // multiple modules and consumers will need to be able to specify which
-    // module they want to access.
-    const mod = b.addModule("agent", .{
-        // The root source file is the "entry point" of this module. Users of
-        // this module will only be able to access public declarations contained
-        // in this file, which means that if you have declarations that you
-        // intend to expose to consumers that were defined in other files part
-        // of this module, you will have to make sure to re-export them from
-        // the root file.
+    build_opts.addOption(bool, "enable_storage_module", false);
+
+    // Root smithers module
+    const mod = b.addModule("smithers", .{
         .root_source_file = b.path("src/lib.zig"),
-        // Later on we'll use this module as the root module of a test executable
-        // which requires us to specify a target.
         .target = target,
     });
     mod.addOptions("build_options", build_opts);
+    mod.addIncludePath(b.path("pkg/sqlite"));
 
-    // Here we define an executable. An executable needs to have a root module
-    // which needs to expose a `main` function. While we could add a main function
-    // to the module defined above, it's sometimes preferable to split business
-    // logic and the CLI into two separate modules.
-    //
-    // If your goal is to create a Zig library for others to use, consider if
-    // it might benefit from also exposing a CLI tool. A parser library for a
-    // data serialization format could also bundle a CLI syntax checker, for example.
-    //
-    // If instead your goal is to create an executable, consider if users might
-    // be interested in also being able to embed the core functionality of your
-    // program in their own executable in order to avoid the overhead involved in
-    // subprocessing your CLI tool.
-    //
-    // If neither case applies to you, feel free to delete the declaration you
-    // don't need and to put everything under a single module.
+    // Wire zap dependency for modules that need it (http_server). Gated by
+    // build option in src/lib.zig, so simply exposing the import is safe.
+    const zap_dep_root = b.dependency("zap", .{ .target = target, .optimize = optimize });
+    mod.addImport("zap", zap_dep_root.module("zap"));
+
+    // CLI executable
     const exe = b.addExecutable(.{
         .name = "smithers-ctl",
         .root_module = b.createModule(.{
-            // b.createModule defines a new module just like b.addModule but,
-            // unlike b.addModule, it does not expose the module to consumers of
-            // this package, which is why in this case we don't have to give it a name.
             .root_source_file = b.path("src/main.zig"),
-            // Target and optimization levels must be explicitly wired in when
-            // defining an executable or library (in the root module), and you
-            // can also hardcode a specific target for an executable or library
-            // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
-            // List of modules available for import in source files part of the
-            // root module.
-            .imports = &.{
-                // Here "agent" is the name you will use in your source code to
-                // import this module (e.g. `@import("agent")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
-                .{ .name = "smithers", .module = mod },
-            },
+            .imports = &.{.{ .name = "smithers", .module = mod }},
         }),
     });
+    exe.root_module.addImport("zap", zap_dep_root.module("zap"));
 
-    // This declares intent for the executable to be installed into the
-    // install prefix when running `zig build` (i.e. when executing the default
-    // step). By default the install prefix is `zig-out/` but can be overridden
-    // by passing `--prefix` or `-p`.
+    // Vendored SQLite amalgamation (native) as static library
+    const sqlite_lib = b.addLibrary(.{
+        .name = "sqlite3",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize }),
+        .linkage = .static,
+    });
+    sqlite_lib.addIncludePath(b.path("pkg/sqlite"));
+    sqlite_lib.addCSourceFile(.{ .file = b.path("pkg/sqlite/sqlite3.c"), .flags = &sqlite_flags });
+    sqlite_lib.linkLibC();
+
+    exe.addIncludePath(b.path("pkg/sqlite"));
+    exe.linkLibrary(sqlite_lib);
     b.installArtifact(exe);
 
-    // This creates a top level step. Top level steps have a name and can be
-    // invoked by name when running `zig build` (e.g. `zig build run`).
-    // This will evaluate the `run` step rather than the default step.
-    // For a top level step to actually do something, it must depend on other
-    // steps (e.g. a Run step, as we will see in a moment).
+    // Run step
     const run_step = b.step("run", "Run the app");
-
-    // This creates a RunArtifact step in the build graph. A RunArtifact step
-    // invokes an executable compiled by Zig. Steps will only be executed by the
-    // runner if invoked directly by the user (in the case of top level steps)
-    // or if another step depends on it, so it's up to you to define when and
-    // how this Run step will be executed. In our case we want to run it when
-    // the user runs `zig build run`, so we create a dependency link.
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
-
-    // By making the run step depend on the default step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
     run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| run_cmd.addArgs(args);
 
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    // Creates an executable that will run `test` blocks from the provided module.
-    // Here `mod` needs to define a target, which is why earlier we made sure to
-    // set the releative field.
-    const mod_tests = b.addTest(.{
-        .root_module = mod,
-    });
-
-    // A run step that will run the test executable.
+    // Tests for root module and CLI module
+    const mod_tests = b.addTest(.{ .root_module = mod });
+    mod_tests.addIncludePath(b.path("pkg/sqlite"));
+    mod_tests.linkLibrary(sqlite_lib);
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
-    // Creates an executable that will run `test` blocks from the executable's
-    // root module. Note that test executables only test one module at a time,
-    // hence why we have to create two separate ones.
-    const exe_tests = b.addTest(.{
-        .root_module = exe.root_module,
-    });
-
-    // A run step that will run the second test executable.
+    const exe_tests = b.addTest(.{ .root_module = exe.root_module });
+    exe_tests.addIncludePath(b.path("pkg/sqlite"));
+    exe_tests.linkLibrary(sqlite_lib);
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
-    // A top level step for running all tests. dependOn can be called multiple
-    // times and since the two run steps do not depend on one another, this will
-    // make the two of them run in parallel.
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
-    // Optional integration steps (no-ops if directories are missing).
+    // Optional integration steps (no-ops if directories are missing)
     const web_step = addOptionalShellStep(
         b,
         "web",
-        "Build web app (if web/ exists)",
+        "Build web app (if web/ + pnpm)",
         "if [ ! -d web ]; then echo 'skipping web: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping web: pnpm not installed'; else cd web && pnpm install && pnpm build; fi",
     );
 
     const playwright_step = addOptionalShellStep(
         b,
         "playwright",
-        "Run Playwright e2e (if web/ exists)",
+        "Run Playwright e2e (if web/ + pnpm)",
         "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && pnpm exec playwright test; fi",
     );
-
     _ = playwright_step;
 
     const codex_step = addOptionalShellStep(
@@ -196,7 +184,6 @@ pub fn build(b: *std.Build) void {
         "Run Xcode tests (if macos/ exists)",
         "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers; else echo \"skipping xcode-test: macos/ not found\"; fi",
     );
-
     _ = xcode_test_step;
 
     const ui_test_step = addOptionalShellStep(
@@ -205,14 +192,18 @@ pub fn build(b: *std.Build) void {
         "Run XCUITests (if macos/ exists)",
         "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -only-testing:SmithersUITests; else echo \"skipping ui-test: macos/ not found\"; fi",
     );
-
     _ = ui_test_step;
 
+    // Top-level xcframework step (wired later to concrete commands)
+    const xc_step = b.step("xcframework", "Build SmithersKit.xcframework (macOS arm64 + x86_64)");
+
+    // Dev step: ensure xcframework exists before launching Xcode
     const dev_step = b.step("dev", "Build everything + launch (if macos/ exists)");
     dev_step.dependOn(b.getInstallStep());
     dev_step.dependOn(web_step);
     dev_step.dependOn(codex_step);
     dev_step.dependOn(jj_step);
+    dev_step.dependOn(xc_step);
     const xcode_build = b.addSystemCommand(&.{
         "sh",
         "-c",
@@ -220,39 +211,70 @@ pub fn build(b: *std.Build) void {
     });
     dev_step.dependOn(&xcode_build.step);
 
-    // Format check step (zig fmt --check .)
-    const fmt_check = b.addFmt(.{
-        .paths = &.{"."},
-        .check = true,
-    });
+    // Format & lint steps
+    const fmt_check = b.addFmt(.{ .paths = &.{"."}, .check = true });
     const fmt_check_step = b.step("fmt-check", "Check Zig code formatting");
     fmt_check_step.dependOn(&fmt_check.step);
 
-    // Replaced: Prettier/Typos/Shellcheck checks
     const prettier_check_step = addOptionalShellStep(b, "prettier-check", "Check formatting with prettier (skips if missing)", "if command -v prettier >/dev/null 2>&1; then prettier --check .; else echo 'skipping prettier-check: prettier not installed'; fi");
-
     const typos_check_step = addOptionalShellStep(b, "typos-check", "Run spell checker (skips if missing)", "if command -v typos >/dev/null 2>&1; then typos; else echo 'skipping typos-check: typos not installed'; fi");
-
     const shellcheck_step = addOptionalShellStep(b, "shellcheck", "Lint shell scripts (skips if missing)", "if command -v shellcheck >/dev/null 2>&1; then find . -type f -name '*.sh' -exec shellcheck --severity=warning {} +; find . -type f -name '*.bash' -exec shellcheck --severity=warning {} +; else echo 'skipping shellcheck: shellcheck not installed'; fi");
 
-    // ALL checks step - runs EVERYTHING
     const all_step = b.step("all", "Run ALL checks (build + test + format + lint)");
-    all_step.dependOn(b.getInstallStep()); // Build
-    all_step.dependOn(test_step); // Tests
-    all_step.dependOn(fmt_check_step); // Zig fmt check
-    all_step.dependOn(prettier_check_step); // Prettier check
-    all_step.dependOn(typos_check_step); // Spell check
-    all_step.dependOn(shellcheck_step); // Shell lint
+    all_step.dependOn(b.getInstallStep());
+    all_step.dependOn(test_step);
+    all_step.dependOn(fmt_check_step);
+    all_step.dependOn(prettier_check_step);
+    all_step.dependOn(typos_check_step);
+    all_step.dependOn(shellcheck_step);
+    all_step.dependOn(web_step);
 
-    // Just like flags, top level steps are also listed in the `--help` menu.
-    //
-    // The Zig build system is entirely implemented in userland, which means
-    // that it cannot hook into private compiler APIs. All compilation work
-    // orchestrated by the build system will result in other Zig compiler
-    // subcommands being invoked with the right flags defined. You can observe
-    // these invocations when one fails (or you pass a flag to increase
-    // verbosity) to validate assumptions and diagnose problems.
-    //
-    // Lastly, the Zig build system is relatively simple and self-contained,
-    // and reading its source code will allow you to master it.
+    // --- xcframework pipeline ---
+    // Build per-arch static libraries, merge with libtool, create universal .a, then package.
+    const arm = buildLibSmithersForArch(b, .aarch64, optimize);
+    const x86 = buildLibSmithersForArch(b, .x86_64, optimize);
+
+    // Ensure required Apple toolchain commands exist
+    const xc_tools_check = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "for t in libtool lipo xcodebuild; do if ! command -v $t >/dev/null 2>&1; then echo 'xcframework: missing' $t >&2; exit 1; fi; done",
+    });
+
+    const lt_arm = b.addSystemCommand(&.{ "libtool", "-static", "-o" });
+    const arm_merged = lt_arm.addOutputFileArg("libsmithers-merged-arm64.a");
+    lt_arm.addFileArg(arm.lib.getEmittedBin());
+    lt_arm.addFileArg(arm.sqlite.getEmittedBin());
+    lt_arm.step.dependOn(&xc_tools_check.step);
+
+    const lt_x86 = b.addSystemCommand(&.{ "libtool", "-static", "-o" });
+    const x86_merged = lt_x86.addOutputFileArg("libsmithers-merged-x86_64.a");
+    lt_x86.addFileArg(x86.lib.getEmittedBin());
+    lt_x86.addFileArg(x86.sqlite.getEmittedBin());
+    lt_x86.step.dependOn(&xc_tools_check.step);
+
+    const lipo_cmd = b.addSystemCommand(&.{ "lipo", "-create", "-output" });
+    const universal_out = lipo_cmd.addOutputFileArg("libsmithers.a");
+    lipo_cmd.addFileArg(arm_merged);
+    lipo_cmd.addFileArg(x86_merged);
+    lipo_cmd.step.dependOn(&lt_arm.step);
+    lipo_cmd.step.dependOn(&lt_x86.step);
+    lipo_cmd.step.dependOn(&xc_tools_check.step);
+
+    const xcfw_output_path = "dist/SmithersKit.xcframework";
+    const mkdist_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "dist" });
+    const rm_cmd = b.addSystemCommand(&.{ "rm", "-rf", xcfw_output_path });
+    rm_cmd.has_side_effects = true;
+
+    const xcf_cmd = b.addSystemCommand(&.{ "xcodebuild", "-create-xcframework", "-library" });
+    xcf_cmd.addFileArg(universal_out);
+    xcf_cmd.addArgs(&.{ "-headers", "include", "-output", xcfw_output_path });
+    xcf_cmd.has_side_effects = true;
+    xcf_cmd.step.dependOn(&lipo_cmd.step);
+    xcf_cmd.step.dependOn(&mkdist_cmd.step);
+    xcf_cmd.step.dependOn(&rm_cmd.step);
+    xcf_cmd.step.dependOn(&xc_tools_check.step);
+
+    // Wire pipeline to the top-level step
+    xc_step.dependOn(&xcf_cmd.step);
 }

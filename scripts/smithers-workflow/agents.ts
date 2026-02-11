@@ -34,6 +34,7 @@ const claudeCli = new ClaudeCodeAgent({
   model: CLAUDE_MODEL,
   systemPrompt: SYSTEM_PROMPT,
   dangerouslySkipPermissions: UNSAFE,
+  timeoutMs: 30 * 60 * 1000, // 30 min hard cap per agent call
 });
 
 export const claude = USE_CLI ? claudeCli : claudeApi;
@@ -56,6 +57,7 @@ const codexCli = new CodexAgent({
   yolo: UNSAFE,
   cwd: REPO_ROOT,
   config: { model_reasoning_effort: "high" },
+  timeoutMs: 30 * 60 * 1000, // 30 min hard cap per agent call
 });
 
 export const codex = USE_CLI ? codexCli : codexApi;

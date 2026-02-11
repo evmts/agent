@@ -15,7 +15,7 @@ else
 fi
 
 HDR="${XCFW_DIR:-$XCFW_DIR_ARM64}/Headers"
-LIB_UNI="${XCFW_DIR:-$XCFW_DIR_ARM64}/libsmithers-universal.a"
+LIB_UNI="${XCFW_DIR:-$XCFW_DIR_ARM64}/libsmithers.a"
 
 if [[ ! -d "$XCFW_ROOT" ]]; then
   echo "xcframework not found; run: zig build xcframework" >&2
@@ -23,6 +23,7 @@ if [[ ! -d "$XCFW_ROOT" ]]; then
 fi
 
 TMP_C=$(mktemp -t sm_link).c
+trap 'rm -f "$TMP_C"' EXIT
 cat > "$TMP_C" <<'C'
 #include "libsmithers.h"
 #include <stddef.h>
@@ -49,8 +50,16 @@ link_arch() {
   local out
   out=$(mktemp -t sm_link_bin)
   echo "Linking test for $arch using $lib"
-  clang -arch "$arch" -mmacosx-version-min=14.0 -I"$HDR" "$TMP_C" "$lib" -o "$out"
+  if command -v zig >/dev/null 2>&1; then
+    # Map arch to zig triple
+    local target="$arch-macos"
+    if [[ "$arch" == "arm64" ]]; then target="aarch64-macos"; fi
+    zig cc -target "$target" -mmacosx-version-min=14.0 -I"$HDR" "$TMP_C" "$lib" -o "$out"
+  else
+    clang -arch "$arch" -mmacosx-version-min=14.0 -I"$HDR" "$TMP_C" "$lib" -o "$out"
+  fi
   echo "Link OK ($arch): $out"
+  rm -f "$out"
 }
 
 if [[ -f "$LIB_UNI" ]]; then

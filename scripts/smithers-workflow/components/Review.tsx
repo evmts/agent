@@ -43,6 +43,8 @@ export function Review({ ticket }: ReviewProps) {
         id={`${ticketId}:review-claude`}
         output={tables.review}
         agent={claude}
+        timeoutMs={15 * 60 * 1000}
+        continueOnFail
       >
         <ReviewPrompt {...reviewProps} reviewer="claude" />
       </Task>
@@ -51,6 +53,8 @@ export function Review({ ticket }: ReviewProps) {
         id={`${ticketId}:review-codex`}
         output={tables.review}
         agent={codex}
+        timeoutMs={15 * 60 * 1000}
+        continueOnFail
       >
         <ReviewPrompt {...reviewProps} reviewer="codex" />
       </Task>
