@@ -3,7 +3,9 @@ import Foundation
 
 @MainActor
 final class SmithersCore {
-    private let app: smithers_app_t
+    // Optional so all stored properties are initialized before referencing `self`
+    // during runtime callback setup. Set after `smithers_app_new` succeeds.
+    private var app: smithers_app_t? = nil
     private let chat: ChatModel
     // Optional event hooks set by AppModel for persistence and analytics.
     var onAssistantDelta: ((String) -> Void)?
@@ -11,7 +13,7 @@ final class SmithersCore {
 
     init(chat: ChatModel) throws {
         self.chat = chat
-        // All stored properties initialized; safe to reference self now.
+        // All stored properties (including optional `app`) are initialized; safe to reference `self` now.
         let runtime = smithers_runtime_config_s(
             wakeup: { userdata in
                 guard let userdata = userdata else { return }
@@ -50,6 +52,7 @@ final class SmithersCore {
         var payload = smithers_action_payload_u()
         // Safety: The stub streamer discards the message argument immediately.
         // Production path must arena-dupe before spawning background work.
+        guard let app = app else { return }
         text.withCString { cStr in
             payload.chat_send = smithers_string_s(ptr: UnsafeRawPointer(cStr)?.assumingMemoryBound(to: UInt8.self), len: text.utf8.count)
             smithers_app_action(app, SMITHERS_ACTION_CHAT_SEND, payload)
@@ -57,8 +60,8 @@ final class SmithersCore {
     }
 
     // MARK: Callbacks
-    deinit {
-        smithers_app_free(app)
+    nonisolated(unsafe) deinit {
+        if let app = app { smithers_app_free(app) }
     }
 
     @MainActor private func handleWakeup() {
