@@ -8,10 +8,10 @@ export function Discover() {
   const ctx = useCtx();
 
   const discoverOutput = ctx.latest(tables.discover, "discover-codex");
-  const allTickets = ctx.latestArray(discoverOutput?.tickets, Ticket);
+  const allTickets = ctx.latestArray(discoverOutput?.tickets, Ticket) as Ticket[];
   const completedIds = allTickets
-    .filter((t) => !!ctx.latest(tables.report, `${t.id}:report`))
-    .map((t) => t.id);
+    .filter((t: Ticket) => !!ctx.latest(tables.report, `${t.id}:report`))
+    .map((t: Ticket) => t.id);
 
   const previousRun =
     completedIds.length > 0

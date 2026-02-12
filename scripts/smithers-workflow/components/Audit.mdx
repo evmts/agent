@@ -1,0 +1,19 @@
+FEATURE AUDIT — Smithers v2 Codebase
+
+You have the full engineering spec, design spec, and MVP scope in your system prompt.
+Your job: investigate the actual codebase and report what features are implemented,
+partially implemented, and not started.
+
+STEPS:
+1. Read the MVP scope (docs/mvp-scope.md) and engineering/design specs to build a list of expected features.
+2. Explore the repo: src/, macos/, web/, pkg/, include/, submodules/, build.zig
+3. For each expected feature, check if code exists, how complete it is, and list the relevant files.
+4. Categorize every feature as "implemented", "partial", or "not-started".
+5. Write a high-level summary of overall project progress.
+
+Be thorough. Check actual file contents, not just file existence.
+Focus on P0 and P1 features from the MVP scope.
+
+**REQUIRED OUTPUT** — Must end with JSON matching this schema:
+{props.schema}
+Do not skip JSON output. Workflow fails without it.

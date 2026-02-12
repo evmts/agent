@@ -15,7 +15,7 @@
     "@types/mdx": "^2.0.13",
     "ai": "^6.0.69",
     "react-dom": "^19.2.4",
-    "smithers": "file:../../../guillotine-mini/smithers",
+    "smithers": "file:../../submodules/smithers",
     "zod": "^4.3.6"
   },
   "devDependencies": {

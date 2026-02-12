@@ -7,7 +7,7 @@ export default smithers((ctx) => {
   const discoverOutput = ctx.latest(tables.discover, "discover-codex");
   const unfinishedTickets = ctx
     .latestArray(discoverOutput?.tickets, Ticket)
-    .filter((t) => !ctx.latest(tables.report, `${t.id}:report`)) as Ticket[];
+    .filter((t: Ticket) => !ctx.latest(tables.report, `${t.id}:report`)) as Ticket[];
 
   return (
     <Workflow name="smithers-v2-workflow">

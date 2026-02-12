@@ -47,6 +47,8 @@ CHDB000000000000000001 /* ChatHistoryStoreDebounceTests.swift in Sources (Tests)
 	F20000000000000000000018 /* FileTreeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000008 /* FileTreeSidebar.swift */; };
 
 	TSB00000000000000000009 /* FileTreeSidebarTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = TST00000000000000000009 /* FileTreeSidebarTests.swift */; };
+    EDB00000000000000000001 /* CodeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF00000000000000000001 /* CodeEditorView.swift */; };
+    EDT00000000000000000001 /* CodeEditorViewTests.swift in Sources (Tests) */ = {isa = PBXBuildFile; fileRef = EDF00000000000000000002 /* CodeEditorViewTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -99,6 +101,8 @@ D00000000000000000000007 /* ComponentsTests.swift */ = {isa = PBXFileReference; 
     F20000000000000000000008 /* FileTreeSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FileTreeSidebar.swift; path = "FileTreeSidebar.swift"; sourceTree = "<group>"; };
 
     TST00000000000000000009 /* FileTreeSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FileTreeSidebarTests.swift; path = SmithersTests/FileTreeSidebarTests.swift; sourceTree = SOURCE_ROOT; };
+    EDF00000000000000000001 /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CodeEditorView.swift; path = Sources/Editor/CodeEditorView.swift; sourceTree = SOURCE_ROOT; };
+    EDF00000000000000000002 /* CodeEditorViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CodeEditorViewTests.swift; path = SmithersTests/CodeEditorViewTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -157,13 +161,14 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		A00000000000000000000010 /* Smithers.app */,
 		B11111111111111111111110 /* SmithersTests.xctest */,
 	); name = Products; sourceTree = "<group>"; };
-    A00000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (
-        A00000000000000000000018 /* App */,
-        C11111111111111111111123 /* Ghostty */,
-        D20000000000000000000001 /* Helpers */,
-        SVC00000000000000000001 /* Services */,
-        E50000000000000000000001 /* Features */,
-    ); path = Sources; sourceTree = "<group>"; };
+	A00000000000000000000004 /* Sources */ = {isa = PBXGroup; children = (
+		A00000000000000000000018 /* App */,
+		C11111111111111111111123 /* Ghostty */,
+		D20000000000000000000001 /* Helpers */,
+		SVC00000000000000000001 /* Services */,
+		E50000000000000000000001 /* Features */,
+		EDG00000000000000000001 /* Editor */,
+	); path = Sources; sourceTree = "<group>"; };
     SVC00000000000000000001 /* Services */ = {isa = PBXGroup; children = (
         SVF00000000000000000001 /* ChatHistoryStore.swift */,
     ); path = Services; sourceTree = "<group>"; };
@@ -239,6 +244,7 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		D10000000000000000000003 /* AppTheme.swift in Sources */,
 		D10000000000000000000004 /* Components.swift in Sources */,
 		SVB00000000000000000001 /* ChatHistoryStore.swift in Sources */,
+		EDB00000000000000000001 /* CodeEditorView.swift in Sources */,
 			); runOnlyForDeploymentPostprocessing = 0; };
 	B11111111111111111111113 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 		TSB00000000000000000009 /* FileTreeSidebarTests.swift in Sources (Tests) */,
@@ -256,7 +262,9 @@ E50000000000000000000003 /* Views */ = {isa = PBXGroup; children = (
 		D10000000000000000000013 /* AppTheme.swift in Sources (Tests) */,
 			
 		CTXB000000000000000001 /* ChatHistoryStoreXCTest.swift in Sources (Tests) */,
-		CHDB000000000000000001 /* ChatHistoryStoreDebounceTests.swift in Sources (Tests) */,); runOnlyForDeploymentPostprocessing = 0; };
+		CHDB000000000000000001 /* ChatHistoryStoreDebounceTests.swift in Sources (Tests) */,
+		EDT00000000000000000001 /* CodeEditorViewTests.swift in Sources (Tests) */,
+		); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 /* Begin PBXShellScriptBuildPhase section */
     C22222222222222222222224 /* Verify SmithersKit.xcframework */ = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = ( ); inputFileListPaths = ( ); inputPaths = ( "${SRCROOT}/../dist/SmithersKit.xcframework/Info.plist" ); name = "Verify SmithersKit.xcframework"; outputFileListPaths = ( ); outputPaths = ( "${SRCROOT}/../dist/SmithersKit.stamp" ); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "if [ ! -d \"${SRCROOT}/../dist/SmithersKit.xcframework\" ]; then\n  echo \"SmithersKit.xcframework not found at ../dist. Building via 'zig build xcframework'...\"\n  ROOT=\"$(cd \"${SRCROOT}/..\"; pwd)\"\n  cd \"$ROOT\"\n  if ! command -v zig >/dev/null 2>&1; then\n    echo \"zig not found. Install Zig or build xcframework manually.\" >&2\n    exit 1\n  fi\n  zig build xcframework || { echo \"zig build xcframework failed\"; exit 1; }\nfi\n\n# Emit stamp for incremental builds\n/usr/bin/touch \"${SRCROOT}/../dist/SmithersKit.stamp\"\n"; };
@@ -343,8 +351,6 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		GENERATE_INFOPLIST_FILE = YES;
 		EXCLUDED_ARCHS = x86_64;
-		TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smithers.app/Contents/MacOS/Smithers";
-		BUNDLE_LOADER = "$(TEST_HOST)";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
@@ -358,8 +364,6 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		GCC_C_LANGUAGE_STANDARD = gnu17;
 		GENERATE_INFOPLIST_FILE = YES;
 		EXCLUDED_ARCHS = x86_64;
-		TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smithers.app/Contents/MacOS/Smithers";
-		BUNDLE_LOADER = "$(TEST_HOST)";
 		MACOSX_DEPLOYMENT_TARGET = 14.0;
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
