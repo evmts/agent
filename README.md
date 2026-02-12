@@ -14,6 +14,10 @@ zig build all      # Build + tests + fmt/lint checks
 zig build xcframework  # Build dist/SmithersKit.xcframework (arm64+x86_64)
 ```
 
+Notes:
+- `zig build all` uses a single xcframework writer path. `xcode-build` consumes the already-built `dist/SmithersKit.xcframework` via build-step ordering.
+- The Xcode verify phase checks for the xcframework and fails with guidance if missing; it does not trigger an implicit rebuild.
+
 ## Web App
 
 Requires pnpm and Node.js.
