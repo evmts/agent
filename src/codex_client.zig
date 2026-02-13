@@ -22,10 +22,10 @@ pub fn streamChatJoinable(runtime: configpkg.RuntimeConfig, message: []const u8)
     return try std.Thread.spawn(.{}, Spawn.run, .{runtime});
 }
 
-/// Convenience wrapper used in production: fire-and-forget.
+/// Convenience wrapper used by the app stub: spawn and join for deterministic tests.
 pub fn streamChat(runtime: configpkg.RuntimeConfig, message: []const u8) void {
     if (streamChatJoinable(runtime, message)) |th| {
-        th.detach();
+        th.join();
     } else |err| {
         // Do not silently swallow errors; log for diagnostics per project rules.
         log.warn("failed to spawn chat thread err={}", .{err});
