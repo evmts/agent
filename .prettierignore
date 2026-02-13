@@ -1,4 +1,25 @@
 # Ignore generated lockfiles and build output
 web/pnpm-lock.yaml
 web/dist/
+web/test-results/
+dist/
+.build/
+.zig-cache/
+.zig-cache-local/
+zig-out/
 node_modules/
+
+# Third-party or frozen trees
+submodules/
+prototype1/
+
+# Non-source references / long-form docs outside current formatting scope
+CLAUDE.md
+docs/articles/
+
+# Large reference/spec/workflow trees maintained outside prettier
+docs/context/
+docs/plans/
+docs/mvp-scope.md
+docs/spec-index.md
+scripts/smithers-workflow/
