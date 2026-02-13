@@ -306,6 +306,7 @@ A0000000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSetting
 		CODE_SIGN_ENTITLEMENTS = "Smithers.entitlements";
 		CODE_SIGN_IDENTITY = "-";
 		CODE_SIGN_STYLE = Manual;
+		DEFINES_MODULE = YES;
 		DEVELOPMENT_TEAM = "";
         ENABLE_PREVIEWS = YES;
         GENERATE_INFOPLIST_FILE = YES;
@@ -346,6 +347,7 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		}; name = Release; };
 	B11111111111111111111117 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
 		ALWAYS_SEARCH_USER_PATHS = NO;
+		BUNDLE_LOADER = "$(TEST_HOST)";
 		CODE_SIGNING_ALLOWED = NO;
 		INFOPLIST_KEY_CFBundleName = "SmithersTests";
 		GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -355,10 +357,12 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
 		SWIFT_VERSION = 6.0;
+		TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smithers.app/Contents/MacOS/Smithers";
 		LD_RUNPATH_SEARCH_PATHS = ( "@executable_path/../Frameworks", "@loader_path/../Frameworks" );
 	}; name = Debug; };
 	B11111111111111111111118 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
 		ALWAYS_SEARCH_USER_PATHS = NO;
+		BUNDLE_LOADER = "$(TEST_HOST)";
 		CODE_SIGNING_ALLOWED = NO;
 		INFOPLIST_KEY_CFBundleName = "SmithersTests";
 		GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -368,6 +372,7 @@ A0000000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSetti
 		PRODUCT_BUNDLE_IDENTIFIER = com.smithers.desktop.tests;
 		SDKROOT = macosx;
 		SWIFT_VERSION = 6.0;
+		TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Smithers.app/Contents/MacOS/Smithers";
 		LD_RUNPATH_SEARCH_PATHS = ( "@executable_path/../Frameworks", "@loader_path/../Frameworks" );
 	}; name = Release; };
 /* End XCBuildConfiguration section */
