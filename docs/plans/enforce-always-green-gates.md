@@ -167,7 +167,7 @@ Add a "Requirements" section listing all tools needed for `zig build all`:
 - [typos](https://github.com/crate-ci/typos) — `brew install typos-cli`
 - [shellcheck](https://www.shellcheck.net/) — `brew install shellcheck`
 - Xcode (for macOS app build + tests)
-- Node.js + pnpm (optional, for web app: `npm install -g pnpm`)
+- Node.js + pnpm (`npm install -g pnpm`) for required web/playwright gates
 ```
 
 ## Dependency Order
@@ -179,7 +179,7 @@ Step 2 (xcode-test fix) — independent of Steps 0-1
 Step 3 (wire xcode-test into all) — depends on Step 2
 Step 4 (gate regression test) — depends on Step 1 (tests the new behavior)
 Step 5 (verify existing test) — depends on Steps 1, 2, 3 (runs after all changes)
-Step 6 (web_guard_test) — no change needed
+Step 6 (web_guard_test) — depends on Step 1 (assert missing pnpm causes failure)
 Step 7 (always-green docs) — depends on Steps 1-3 (documents final state)
 Step 8 (README) — depends on Steps 1-3 (documents final state)
 ```
