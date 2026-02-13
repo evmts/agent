@@ -58,6 +58,7 @@ The `zig build all` step runs (in parallel):
 - prettier-check, typos-check, shellcheck (REQUIRED — fail with install guidance if tools are missing)
 - web build, playwright e2e (REQUIRED — fail with install guidance if prerequisites are missing)
 - codex build, jj build (available as explicit steps; not part of `zig build all` until real submodule sources are initialized in this repo)
+- `zig build dev` requires initialized `submodules/codex` and `submodules/jj` because the dev step depends on both
 - C header compile smoke test
 
 ## Key API Reference

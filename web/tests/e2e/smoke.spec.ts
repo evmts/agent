@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("smoke", async () => {
-  // TODO: Replace with a real smoke test that loads the app and verifies basic rendering.
-  expect(1).toBe(1);
+test("smoke renders app shell", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#root")).toBeVisible();
+  await expect(page.getByText("Smithers v2")).toBeVisible();
+  await expect(page.getByPlaceholder("Message Smithers...")).toBeVisible();
 });

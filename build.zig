@@ -157,19 +157,28 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
 
     // Integration/build gates (non-skippable; fail with actionable errors)
+    const web_install_step = addShellStep(
+        b,
+        "web-install",
+        "Install web dependencies",
+        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm install --frozen-lockfile",
+    );
+
     const web_step = addShellStep(
         b,
         "web",
         "Build web app",
-        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm install && pnpm build",
+        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm build",
     );
+    web_step.dependOn(web_install_step);
 
     const playwright_step = addShellStep(
         b,
         "playwright",
         "Run Playwright e2e",
-        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm install && pnpm exec playwright test",
+        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm exec playwright test",
     );
+    playwright_step.dependOn(web_install_step);
 
     const codex_step = addShellStep(
         b,
@@ -189,14 +198,14 @@ pub fn build(b: *std.Build) void {
     const xcode_test_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for xcode-test.' >&2; exit 1; fi; rm -rf .build/xcode/tests.xcresult; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -destination 'platform=macOS' -derivedDataPath .build/xcode -resultBundlePath .build/xcode/tests.xcresult",
+        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for xcode-test.' >&2; exit 1; fi; rm -rf .build/xcode/tests.xcresult; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -destination 'platform=macOS' -parallel-testing-enabled NO -maximum-parallel-testing-workers 1 -derivedDataPath .build/xcode -resultBundlePath .build/xcode/tests.xcresult",
     });
 
     const ui_test_step = addShellStep(
         b,
         "ui-test",
         "Run XCUITests",
-        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for ui-test.' >&2; exit 1; fi; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -only-testing:SmithersUITests",
+        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for ui-test.' >&2; exit 1; fi; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -only-testing:SmithersUITests -parallel-testing-enabled NO -maximum-parallel-testing-workers 1",
     );
     _ = ui_test_step;
 
@@ -217,7 +226,7 @@ pub fn build(b: *std.Build) void {
     xcode_build_step.dependOn(&xcode_build_cmd.step);
 
     // Dev step: ensure xcframework exists before launching Xcode
-    const dev_step = b.step("dev", "Build everything + launch (if macos/ exists)");
+    const dev_step = b.step("dev", "Build everything + launch");
     dev_step.dependOn(b.getInstallStep());
     dev_step.dependOn(web_step);
     dev_step.dependOn(codex_step);
@@ -226,7 +235,7 @@ pub fn build(b: *std.Build) void {
     const xcode_build = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "if [ -d macos ]; then xcodebuild -project macos/Smithers.xcodeproj -scheme Smithers build && if [ -d .build/xcode/Build/Products/Debug/Smithers.app ]; then open .build/xcode/Build/Products/Debug/Smithers.app; else echo \"build succeeded; app not found at .build/xcode/Build/Products/Debug/Smithers.app\"; fi; else echo \"skipping dev: macos/ not found\"; fi",
+        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for dev.' >&2; exit 1; fi; xcodebuild -project macos/Smithers.xcodeproj -scheme Smithers build && if [ -d .build/xcode/Build/Products/Debug/Smithers.app ]; then open .build/xcode/Build/Products/Debug/Smithers.app; else echo \"build succeeded; app not found at .build/xcode/Build/Products/Debug/Smithers.app\"; fi",
     });
     dev_step.dependOn(&xcode_build.step);
 
@@ -238,6 +247,7 @@ pub fn build(b: *std.Build) void {
     const prettier_check_step = addShellStep(b, "prettier-check", "Check formatting with prettier (fails if missing)", "if ! command -v prettier >/dev/null 2>&1; then echo 'ERROR: prettier not found. Install: npm install -g prettier' >&2; exit 1; fi; prettier --check .");
     const typos_check_step = addShellStep(b, "typos-check", "Run spell checker (fails if missing)", "if ! command -v typos >/dev/null 2>&1; then echo 'ERROR: typos not found. Install: brew install typos-cli' >&2; exit 1; fi; typos");
     const shellcheck_step = addShellStep(b, "shellcheck", "Lint shell scripts (fails if missing)", "if ! command -v shellcheck >/dev/null 2>&1; then echo 'ERROR: shellcheck not found. Install: brew install shellcheck' >&2; exit 1; fi; find . -type d \\( -name .git -o -name .build -o -name .zig-cache -o -name .zig-cache-local -o -name node_modules -o -name dist -o -name zig-out -o -name submodules \\) -prune -o -type f \\( -name '*.sh' -o -name '*.bash' \\) -exec shellcheck --severity=warning {} +");
+    const gate_regression_step = addShellStep(b, "gate-regression", "Run gate regression tests", "if [ ! -x tests/lint_tool_gate_test.sh ] || [ ! -x tests/web_guard_test.sh ] || [ ! -x tests/failing_gate_steps_test.sh ]; then echo 'ERROR: gate regression scripts missing or not executable in tests/.' >&2; exit 1; fi; tests/lint_tool_gate_test.sh && tests/web_guard_test.sh && tests/failing_gate_steps_test.sh");
 
     const all_step = b.step("all", "Run ALL checks (build + test + format + lint)");
     all_step.dependOn(b.getInstallStep());
@@ -248,6 +258,7 @@ pub fn build(b: *std.Build) void {
     all_step.dependOn(shellcheck_step);
     all_step.dependOn(web_step);
     all_step.dependOn(playwright_step);
+    all_step.dependOn(gate_regression_step);
     // `xcode-test` consumes `xcframework`; keep a single producer path.
     all_step.dependOn(xcode_test_step);
 

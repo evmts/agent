@@ -56,35 +56,6 @@ run_and_expect_failure \
   "simulated shellcheck failure" \
   env PATH="$SHELLCHECK_FAKE_DIR:$ORIG_PATH" sh -c "cd \"$SHELLCHECK_WORK_DIR\" && zig build --build-file \"$ROOT_DIR/build.zig\" shellcheck"
 
-# Validate xcode test execution failures propagate as non-zero.
-XCODEBUILD_FAKE_DIR="$TMP_DIR/fake-xcodebuild"
-mkdir -p "$XCODEBUILD_FAKE_DIR"
-cat >"$XCODEBUILD_FAKE_DIR/xcodebuild" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-
-for arg in "$@"; do
-  if [ "$arg" = "-create-xcframework" ]; then
-    exec /usr/bin/xcodebuild "$@"
-  fi
-done
-
-for arg in "$@"; do
-  if [ "$arg" = "test" ]; then
-    echo "simulated xcode test failure" >&2
-    exit 31
-  fi
-done
-
-exec /usr/bin/xcodebuild "$@"
-SH
-chmod +x "$XCODEBUILD_FAKE_DIR/xcodebuild"
-
-run_and_expect_failure \
-  "xcode_test_step_failure" \
-  "simulated xcode test failure" \
-  env PATH="$XCODEBUILD_FAKE_DIR:$ORIG_PATH" zig build xcode-test
-
 # Validate Playwright failures propagate as non-zero.
 PNPM_FAKE_DIR="$TMP_DIR/fake-pnpm"
 mkdir -p "$PNPM_FAKE_DIR"

@@ -22,7 +22,8 @@ zig build xcframework  # Build dist/SmithersKit.xcframework (arm64+x86_64)
 - [shellcheck](https://www.shellcheck.net/) — `brew install shellcheck`
 - Xcode (for macOS build and `xcodebuild test`)
 - Node.js + pnpm (`npm install -g pnpm`) for `web`/`playwright` gates
-- `submodules/codex` and `submodules/jj` present and buildable (required for `zig build codex` / `zig build jj`)
+- Rust toolchain (`cargo` via `rustup`) for `zig build codex` / `zig build jj`
+- `submodules/codex` and `submodules/jj` present and buildable (required for `zig build codex` / `zig build jj`, and for `zig build dev`)
 
 Notes:
 
