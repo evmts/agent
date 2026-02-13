@@ -55,8 +55,9 @@ The `zig build all` step runs (in parallel):
 - `zig build` (compile lib + exe)
 - `zig build test` (unit tests for lib module + exe module)
 - `zig fmt --check .` (formatting)
-- prettier-check, typos-check, shellcheck (skip if tools not installed)
-- web build, codex build, jj build (skip if dirs not present)
+- prettier-check, typos-check, shellcheck (REQUIRED — fail with install guidance if tools are missing)
+- web build, playwright e2e (REQUIRED — fail with install guidance if prerequisites are missing)
+- codex build, jj build (available as explicit steps; not part of `zig build all` until real submodule sources are initialized in this repo)
 - C header compile smoke test
 
 ## Key API Reference

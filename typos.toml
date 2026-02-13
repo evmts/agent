@@ -1,0 +1,48 @@
+[files]
+extend-exclude = [
+  ".build/**",
+  ".zig-cache/**",
+  ".zig-cache-local/**",
+  "docs/context/**",
+  "docs/plans/**",
+  "zig-out/**",
+  "prototype1/**",
+  "pkg/sqlite/**",
+  "submodules/**",
+  "web/test-results/**",
+]
+
+[default.extend-words]
+appkit = "appkit"
+codex = "codex"
+deinit = "deinit"
+errdefer = "errdefer"
+facil = "facil"
+ghosttykit = "ghosttykit"
+grdb = "grdb"
+goe = "goe"
+jj = "jj"
+jujutsu = "jujutsu"
+libsmithers = "libsmithers"
+libsmitherskit = "libsmitherskit"
+macos = "macos"
+neovim = "neovim"
+nvim = "nvim"
+pbxproj = "pbxproj"
+pnpm = "pnpm"
+shellcheck = "shellcheck"
+smithers = "smithers"
+smitherskit = "smitherskit"
+solidjs = "solidjs"
+sttextview = "sttextview"
+swiftui = "swiftui"
+tailwind = "tailwind"
+tmux = "tmux"
+treesitter = "treesitter"
+xcodebuild = "xcodebuild"
+xcodeproj = "xcodeproj"
+xcframework = "xcframework"
+xcresult = "xcresult"
+xcworkspace = "xcworkspace"
+xterm = "xterm"
+zap = "zap"

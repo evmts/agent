@@ -14,7 +14,7 @@ const sqlite_flags = [_][]const u8{
     "-fno-sanitize=integer",
 };
 
-fn addOptionalShellStep(
+fn addShellStep(
     b: *std.Build,
     name: []const u8,
     description: []const u8,
@@ -156,48 +156,47 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
-    // Optional integration steps (no-ops if directories are missing)
-    const web_step = addOptionalShellStep(
+    // Integration/build gates (non-skippable; fail with actionable errors)
+    const web_step = addShellStep(
         b,
         "web",
-        "Build web app (if web/ + pnpm)",
-        "if [ ! -d web ]; then echo 'skipping web: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping web: pnpm not installed'; else cd web && pnpm install && pnpm build; fi",
+        "Build web app",
+        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm install && pnpm build",
     );
 
-    const playwright_step = addOptionalShellStep(
+    const playwright_step = addShellStep(
         b,
         "playwright",
-        "Run Playwright e2e (if web/ + pnpm)",
-        "if [ ! -d web ]; then echo 'skipping playwright: web/ not found'; elif ! command -v pnpm >/dev/null 2>&1; then echo 'skipping playwright: pnpm not installed'; else cd web && pnpm install && pnpm exec playwright test; fi",
+        "Run Playwright e2e",
+        "if [ ! -d web ]; then echo 'ERROR: web/ not found. Expected web app at ./web.' >&2; exit 1; fi; if ! command -v pnpm >/dev/null 2>&1; then echo 'ERROR: pnpm not found. Install: npm install -g pnpm' >&2; exit 1; fi; cd web && pnpm install && pnpm exec playwright test",
     );
-    _ = playwright_step;
 
-    const codex_step = addOptionalShellStep(
+    const codex_step = addShellStep(
         b,
         "codex",
-        "Build codex submodule (if present)",
-        "if [ -d submodules/codex ]; then cd submodules/codex && zig build; else echo \"skipping codex: submodules/codex not found\"; fi",
+        "Build codex submodule",
+        "if [ ! -d submodules/codex ]; then echo 'ERROR: submodules/codex not found. Run: git submodule update --init --recursive submodules/codex' >&2; exit 1; fi; cd submodules/codex && zig build",
     );
 
-    const jj_step = addOptionalShellStep(
+    const jj_step = addShellStep(
         b,
         "jj",
-        "Build jj submodule (if present)",
-        "if [ -d submodules/jj ]; then cd submodules/jj && zig build; else echo \"skipping jj: submodules/jj not found\"; fi",
+        "Build jj submodule",
+        "if [ ! -d submodules/jj ]; then echo 'ERROR: submodules/jj not found. Run: git submodule update --init --recursive submodules/jj' >&2; exit 1; fi; cd submodules/jj && zig build",
     );
 
-    const xcode_test_step = b.step("xcode-test", "Run Xcode tests (if macos/ exists)");
+    const xcode_test_step = b.step("xcode-test", "Run Xcode tests");
     const xcode_test_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "if [ -d macos ]; then rm -rf .build/xcode/tests.xcresult; xcodebuild build-for-testing -project macos/Smithers.xcodeproj -scheme Smithers -destination 'platform=macOS' -derivedDataPath .build/xcode; else echo \"skipping xcode-test: macos/ not found\"; fi",
+        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for xcode-test.' >&2; exit 1; fi; rm -rf .build/xcode/tests.xcresult; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -destination 'platform=macOS' -derivedDataPath .build/xcode -resultBundlePath .build/xcode/tests.xcresult",
     });
 
-    const ui_test_step = addOptionalShellStep(
+    const ui_test_step = addShellStep(
         b,
         "ui-test",
-        "Run XCUITests (if macos/ exists)",
-        "if [ -d macos ]; then xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -only-testing:SmithersUITests; else echo \"skipping ui-test: macos/ not found\"; fi",
+        "Run XCUITests",
+        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for ui-test.' >&2; exit 1; fi; xcodebuild test -project macos/Smithers.xcodeproj -scheme Smithers -only-testing:SmithersUITests",
     );
     _ = ui_test_step;
 
@@ -212,7 +211,7 @@ pub fn build(b: *std.Build) void {
     const xcode_build_cmd = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "if [ -d macos ]; then xcodebuild -project macos/Smithers.xcodeproj -scheme Smithers -destination 'platform=macOS' -derivedDataPath .build/xcode build; else echo \"skipping xcode-build: macos/ not found\"; fi",
+        "if [ ! -d macos ]; then echo 'ERROR: macos/ not found. Xcode project is required for xcode-build.' >&2; exit 1; fi; xcodebuild -project macos/Smithers.xcodeproj -scheme Smithers -destination 'platform=macOS' -derivedDataPath .build/xcode build",
     });
     xcode_build_cmd.step.dependOn(xc_step);
     xcode_build_step.dependOn(&xcode_build_cmd.step);
@@ -236,9 +235,9 @@ pub fn build(b: *std.Build) void {
     const fmt_check_step = b.step("fmt-check", "Check Zig code formatting");
     fmt_check_step.dependOn(&fmt_check.step);
 
-    const prettier_check_step = addOptionalShellStep(b, "prettier-check", "Check formatting with prettier (skips if missing)", "if command -v prettier >/dev/null 2>&1; then prettier --check .; else echo 'skipping prettier-check: prettier not installed'; fi");
-    const typos_check_step = addOptionalShellStep(b, "typos-check", "Run spell checker (skips if missing)", "if command -v typos >/dev/null 2>&1; then typos; else echo 'skipping typos-check: typos not installed'; fi");
-    const shellcheck_step = addOptionalShellStep(b, "shellcheck", "Lint shell scripts (skips if missing)", "if command -v shellcheck >/dev/null 2>&1; then find . -type f -name '*.sh' -exec shellcheck --severity=warning {} +; find . -type f -name '*.bash' -exec shellcheck --severity=warning {} +; else echo 'skipping shellcheck: shellcheck not installed'; fi");
+    const prettier_check_step = addShellStep(b, "prettier-check", "Check formatting with prettier (fails if missing)", "if ! command -v prettier >/dev/null 2>&1; then echo 'ERROR: prettier not found. Install: npm install -g prettier' >&2; exit 1; fi; prettier --check .");
+    const typos_check_step = addShellStep(b, "typos-check", "Run spell checker (fails if missing)", "if ! command -v typos >/dev/null 2>&1; then echo 'ERROR: typos not found. Install: brew install typos-cli' >&2; exit 1; fi; typos");
+    const shellcheck_step = addShellStep(b, "shellcheck", "Lint shell scripts (fails if missing)", "if ! command -v shellcheck >/dev/null 2>&1; then echo 'ERROR: shellcheck not found. Install: brew install shellcheck' >&2; exit 1; fi; find . -type d \\( -name .git -o -name .build -o -name .zig-cache -o -name .zig-cache-local -o -name node_modules -o -name dist -o -name zig-out -o -name submodules \\) -prune -o -type f \\( -name '*.sh' -o -name '*.bash' \\) -exec shellcheck --severity=warning {} +");
 
     const all_step = b.step("all", "Run ALL checks (build + test + format + lint)");
     all_step.dependOn(b.getInstallStep());
@@ -248,8 +247,9 @@ pub fn build(b: *std.Build) void {
     all_step.dependOn(typos_check_step);
     all_step.dependOn(shellcheck_step);
     all_step.dependOn(web_step);
-    // `xcode-build` consumes `xcframework`; keep a single producer path.
-    all_step.dependOn(xcode_build_step);
+    all_step.dependOn(playwright_step);
+    // `xcode-test` consumes `xcframework`; keep a single producer path.
+    all_step.dependOn(xcode_test_step);
 
     // --- xcframework pipeline ---
     // Build per-arch static libraries, merge with libtool, create universal .a, then package.

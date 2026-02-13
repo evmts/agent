@@ -150,7 +150,7 @@ pub const Sqlite = struct {
         // Keep bound TEXT memory alive until finalize
         var bind_arena = std.heap.ArenaAllocator.init(self.alloc);
         defer bind_arena.deinit();
-        const ba = bind_arena.allocator();
+        const bind_alloc = bind_arena.allocator();
 
         for (binds, 0..) |b, i| {
             const idx: c_int = @intCast(i + 1);
@@ -158,7 +158,7 @@ pub const Sqlite = struct {
                 .null_val => c.sqlite3_bind_null(stmt, idx),
                 .integer => |v| c.sqlite3_bind_int64(stmt, idx, v),
                 .text => |s| blk: {
-                    const dup = try ba.dupe(u8, s);
+                    const dup = try bind_alloc.dupe(u8, s);
                     break :blk c.sqlite3_bind_text(stmt, idx, @ptrCast(dup.ptr), @intCast(dup.len), c.SQLITE_STATIC);
                 },
             };

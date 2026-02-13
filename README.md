@@ -14,8 +14,23 @@ zig build all      # Build + tests + fmt/lint checks
 zig build xcframework  # Build dist/SmithersKit.xcframework (arm64+x86_64)
 ```
 
+## Requirements
+
+- [Zig](https://ziglang.org/) (0.15+)
+- [prettier](https://prettier.io/) — `npm install -g prettier`
+- [typos](https://github.com/crate-ci/typos) — `brew install typos-cli`
+- [shellcheck](https://www.shellcheck.net/) — `brew install shellcheck`
+- Xcode (for macOS build and `xcodebuild test`)
+- Node.js + pnpm (`npm install -g pnpm`) for `web`/`playwright` gates
+- `submodules/codex` and `submodules/jj` present and buildable (required for `zig build codex` / `zig build jj`)
+
 Notes:
+
 - `zig build all` uses a single xcframework writer path. `xcode-build` consumes the already-built `dist/SmithersKit.xcframework` via build-step ordering.
+- `zig build all` hard-fails when `prettier`, `typos`, or `shellcheck` are missing.
+- `zig build all` hard-fails when `pnpm` or `web/` are missing.
+- `zig build codex` and `zig build jj` fail with explicit errors until those submodule sources are initialized.
+- `zig build all` runs `xcode-test` (test execution), not only `xcode-build`.
 - The Xcode verify phase checks for the xcframework and fails with guidance if missing; it does not trigger an implicit rebuild.
 
 ## Web App

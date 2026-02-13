@@ -4,6 +4,7 @@
 zig-out/
 dist/
 web/dist/
+web/test-results/
 .build/
 .smithers/
 
