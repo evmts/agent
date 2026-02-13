@@ -8,7 +8,4 @@ pub fn build(b: *std.Build) void {
     });
 
     b.getInstallStep().dependOn(&cargo_build.step);
-
-    const check_step = b.step("check", "Build codex artifacts via cargo");
-    check_step.dependOn(&cargo_build.step);
 }
