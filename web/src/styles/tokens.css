@@ -1,23 +1,23 @@
 :root {
   /* Core surfaces */
-  --sm-base: #0F111A;
+  --sm-base: #0f111a;
   --sm-surface1: #141826;
-  --sm-surface2: #1A2030;
+  --sm-surface2: #1a2030;
   --sm-border: rgba(255, 255, 255, 0.08);
 
   /* Chat sidebar */
-  --sm-sidebar-bg: #0C0E16;
+  --sm-sidebar-bg: #0c0e16;
   --sm-sidebar-hover: rgba(255, 255, 255, 0.04);
   --sm-sidebar-selected: rgba(76, 141, 255, 0.12);
 
   /* Pills/badges */
   --sm-pill-bg: rgba(255, 255, 255, 0.06);
-  --sm-pill-border: rgba(255, 255, 255, 0.10);
+  --sm-pill-border: rgba(255, 255, 255, 0.1);
   --sm-pill-active: rgba(76, 141, 255, 0.15);
 
   /* Title bar */
   --sm-titlebar-bg: #141826;
-  --sm-titlebar-fg: rgba(255, 255, 255, 0.70);
+  --sm-titlebar-fg: rgba(255, 255, 255, 0.7);
 
   /* Chat bubbles */
   --sm-bubble-assistant: rgba(255, 255, 255, 0.05);
@@ -31,31 +31,31 @@
   --sm-input-border: rgba(255, 255, 255, 0.06);
 
   /* Semantic colors */
-  --sm-accent: #4C8DFF;
-  --sm-success: #34D399;
-  --sm-warning: #FBBF24;
-  --sm-danger: #F87171;
-  --sm-info: #60A5FA;
+  --sm-accent: #4c8dff;
+  --sm-success: #34d399;
+  --sm-warning: #fbbf24;
+  --sm-danger: #f87171;
+  --sm-info: #60a5fa;
 
   /* Accent composite token */
   --sm-accent-rgb: 76, 141, 255;
 
   /* Text opacity levels */
   --sm-text-primary: rgba(255, 255, 255, 0.88);
-  --sm-text-secondary: rgba(255, 255, 255, 0.60);
+  --sm-text-secondary: rgba(255, 255, 255, 0.6);
   --sm-text-tertiary: rgba(255, 255, 255, 0.45);
 
   /* Syntax highlighting (Nova-inspired) */
-  --syn-keyword: #FF5370;
-  --syn-string: #C3E88D;
-  --syn-function: #82AAFF;
-  --syn-comment: #676E95;
-  --syn-type: #FFCB6B;
-  --syn-variable: #F07178;
-  --syn-number: #D4C26A;
-  --syn-operator: #89DDFF;
-  --syn-punctuation: rgba(255, 255, 255, 0.70);
-  --syn-tag: #FF5370;
+  --syn-keyword: #ff5370;
+  --syn-string: #c3e88d;
+  --syn-function: #82aaff;
+  --syn-comment: #676e95;
+  --syn-type: #ffcb6b;
+  --syn-variable: #f07178;
+  --syn-number: #d4c26a;
+  --syn-operator: #89ddff;
+  --syn-punctuation: rgba(255, 255, 255, 0.7);
+  --syn-tag: #ff5370;
 
   /* shadcn HSL tokens (for Tailwind mapping) */
   --background: 225 29% 8%;
@@ -111,20 +111,37 @@
 }
 
 /* Base styles */
-html, body, #root { height: 100%; }
+html,
+body,
+#root {
+  height: 100%;
+}
 body {
   margin: 0;
   background: var(--sm-base);
   color: var(--sm-text-primary);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 /* Scrollbar (WebKit) */
-*::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.12); border-radius: 10px; }
-*::-webkit-scrollbar-track { background-color: rgba(255,255,255,0.06); }
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+*::-webkit-scrollbar-track {
+  background-color: rgba(255, 255, 255, 0.06);
+}
 
 /*
   shadcn-solid (via Kobalte) uses Tailwind's HSL design tokens that we map here.
