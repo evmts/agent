@@ -18,6 +18,7 @@
     "tailwind-merge": "^2.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.35",
     "shadcn-solid": "^0.7.7",
