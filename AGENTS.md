@@ -4,7 +4,7 @@ You are working inside the Smithers GUI macOS app repository. This app provides 
 
 ## Smithers CLI
 
-The `smithers` CLI (package: `smithers-orchestrator`) manages durable AI workflow execution.
+The `smithers` CLI (package: `smthrs`) manages durable AI workflow execution.
 
 ### Quick Reference
 
@@ -46,7 +46,7 @@ smithers down       Cancel all active runs
 
 Smithers is a Bun/TypeScript framework for building resumable AI workflows as JSX trees.
 
-- Package: `smithers-orchestrator` (requires Bun >= 1.3)
+- Package: `smthrs` (requires Bun >= 1.3)
 - Primary API: `createSmithers(...)` with Zod schemas
 - Persistence: SQLite
 - Core components: `<Workflow>`, `<Task>`, `<Sequence>`, `<Parallel>`, `<Branch>`, `<Loop>`, `<Approval>`, `<MergeQueue>`, `<Worktree>`

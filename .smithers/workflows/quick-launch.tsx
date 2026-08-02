@@ -1,7 +1,7 @@
 // smithers-source: seeded
 // smithers-display-name: Quick Launch
-/** @jsxImportSource smithers-orchestrator */
-import { createSmithers } from "smithers-orchestrator";
+/** @jsxImportSource smthrs */
+import { createSmithers } from "smthrs";
 import { z } from "zod/v4";
 import { providers } from "../agents";
 import QuickLaunchPrompt from "../prompts/quick-launch.mdx";
