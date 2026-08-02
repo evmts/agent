@@ -117,7 +117,7 @@ For run-scoped pages, the frontend should also be able to consume the existing g
 Smithers should eventually expose a tiny browser SDK, for example:
 
 ```ts
-import { createSmithersFrontend } from "@smithers-orchestrator/frontend";
+import { createSmithersFrontend } from "@smthrs/frontend";
 
 const smithers = createSmithersFrontend({
   baseUrl: "/v1/workflows/ticket-kanban/frontend"

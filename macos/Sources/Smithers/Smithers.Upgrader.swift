@@ -24,7 +24,7 @@ final class SmithersUpgrader: ObservableObject {
 
     func upgrade() async {
         guard !isRunning else { return }
-        status = .running(step: "Updating smithers-orchestrator…")
+        status = .running(step: "Updating smthrs…")
 
         let workDir = cwd
         let report = await Task.detached(priority: .userInitiated) { () -> UpgradeReport in
@@ -47,7 +47,7 @@ final class SmithersUpgrader: ObservableObject {
     // MARK: - Worker (nonisolated)
 
     nonisolated private static func runUpgrade(cwd: String) -> UpgradeReport {
-        let packageName = "smithers-orchestrator"
+        let packageName = "smthrs"
         var actions: [String] = []
         var failures: [String] = []
 
@@ -98,7 +98,7 @@ final class SmithersUpgrader: ObservableObject {
         }
 
         if actions.isEmpty && failures.isEmpty {
-            return .failure("No smithers-orchestrator install found to update.")
+            return .failure("No smthrs install found to update.")
         }
         if !failures.isEmpty {
             return .failure(failures.joined(separator: "\n"))

@@ -1,12 +1,12 @@
 // smithers-source: seeded
 // smithers-display-name: Live Run DevTools Build
-/** @jsxImportSource smithers-orchestrator */
+/** @jsxImportSource smthrs */
 import {
   ClaudeCodeAgent,
   CodexAgent,
   Parallel,
   createSmithers,
-} from "smithers-orchestrator";
+} from "smthrs";
 import { reviewOutputSchema } from "../components/Review";
 import { implementOutputSchema } from "../components/ValidationLoop";
 import ImplementPrompt from "../prompts/implement.mdx";

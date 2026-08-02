@@ -1,5 +1,5 @@
 // smithers-source: generated
-import { ClaudeCodeAgent, CodexAgent, GeminiAgent, PiAgent, KimiAgent, AmpAgent, type AgentLike } from "smithers-orchestrator";
+import { ClaudeCodeAgent, CodexAgent, GeminiAgent, PiAgent, KimiAgent, AmpAgent, type AgentLike } from "smthrs";
 
 export const providers = {
   claude: new ClaudeCodeAgent({ model: "claude-opus-4-6" }),

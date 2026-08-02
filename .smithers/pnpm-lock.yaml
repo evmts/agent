@@ -11,7 +11,7 @@ importers:
       '@effect/sql-sqlite-bun':
         specifier: ^0.52.0
         version: 0.52.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1)
-      smithers-orchestrator:
+      smthrs:
         specifier: 0.16.1
         version: 0.16.1(96760ba634bd1149f64b70718782b155)
       zod:
@@ -522,62 +522,62 @@ packages:
     resolution: {integrity: sha512-tmmZ3lQxAe/k/+rNnXQRawJ4NjxO2hqiOLTHvWchtGZULp4RyFeh6aU4XdOYBFe2KE1oShQTv4AblOs2iOrNnQ==}
     engines: {node: '>= 10.0.0'}
 
-  '@smithers-orchestrator/agents@0.16.1':
+  '@smthrs/agents@0.16.1':
     resolution: {integrity: sha512-EXUjgUtT0UYDwQT+U9DVTV8qZyQMjC2+0IzniY7mdXgYkpxPrzbx3YN4vawAPhqRZYPIyfhUXKlM9V60bVNAFg==}
 
-  '@smithers-orchestrator/cli@0.16.1':
+  '@smthrs/cli@0.16.1':
     resolution: {integrity: sha512-GwP+4iopaAz34gN10oBfs1DwNXqHar55OM7eQW5UyZAto1eKrvvNxOWRbKFv4tAFLZGVwYHAfOIs/lN5SvBjNg==}
     hasBin: true
 
-  '@smithers-orchestrator/components@0.16.1':
+  '@smthrs/components@0.16.1':
     resolution: {integrity: sha512-WU+sI7PW3sCIMpf4FryCPBdR2dZPQIruObXESHfs9xvAKhLpoOcgDCzsAtklXtiJdQGSg8h68cQZUeE8yFcpcA==}
 
-  '@smithers-orchestrator/db@0.16.1':
+  '@smthrs/db@0.16.1':
     resolution: {integrity: sha512-LPNOpWBP2mEAptrJ89AWxaz6PGE3NohL4E5zTEv00c4ZGV2+bZezMgwCpva/y2ElMacqL0Rjlf2by0A5aFX3HA==}
 
-  '@smithers-orchestrator/devtools@0.16.1':
+  '@smthrs/devtools@0.16.1':
     resolution: {integrity: sha512-QX8XtHOOrCCb1hWqPma3tXQW+O9GWtrIwo8R+jUSUByMmm9RpcRdR9XDy58NEDFn1P3ug/74N5XEknZjZFqBlg==}
 
-  '@smithers-orchestrator/driver@0.16.1':
+  '@smthrs/driver@0.16.1':
     resolution: {integrity: sha512-FxgfqHfQV8/BgtPCFZk9yRn2DPfFF59fYWK23A/D//aKWufjw9edXuK+LDJum5dRXmb5gSgW5E/Z6SrsBmeb4g==}
 
-  '@smithers-orchestrator/engine@0.16.1':
+  '@smthrs/engine@0.16.1':
     resolution: {integrity: sha512-tpo8YBwQbqCsHzlqn/1CBsItXlhSE5Lc56aampHwGocc5ie//jxq08jfMekUO/PybCozGOO3BwoW94qXEZnKAw==}
 
-  '@smithers-orchestrator/errors@0.16.1':
+  '@smthrs/errors@0.16.1':
     resolution: {integrity: sha512-nE2g28oRqH8WQXNDysLPjyTT9JUpahgxCusP3FcFAMwgv/Diq3VQ3he7oGoj6g8a5+mD0duhSI7qoaGkvgj65g==}
 
-  '@smithers-orchestrator/graph@0.16.1':
+  '@smthrs/graph@0.16.1':
     resolution: {integrity: sha512-SDvfRGFNHzn4dMiJ0+q9r4R9mdC7FT0OJ0043f+C2wQwuYG0U8PyNcJlA+ksrZCkFZi6jz9zUXlH6uxCYM8COw==}
 
-  '@smithers-orchestrator/memory@0.16.1':
+  '@smthrs/memory@0.16.1':
     resolution: {integrity: sha512-CKSekHuCC+zzh3HpzGRkSUDxqSuYjZZSunPNvbO23Gtgst+cc+DSsgAdjCN09dkXmkZyXh1SuKYxjuyIWg38xA==}
 
-  '@smithers-orchestrator/observability@0.16.1':
+  '@smthrs/observability@0.16.1':
     resolution: {integrity: sha512-YN5uNsRQ/hraBoIi1/CxgQlYkyZNNngHlLdUmDGwpowbJXqvirCS9A5Xf5Ultqgep2/YonmoDrMARPF/q0T5ag==}
 
-  '@smithers-orchestrator/openapi@0.16.1':
+  '@smthrs/openapi@0.16.1':
     resolution: {integrity: sha512-Waj09NDRsaLysbm7U8sIhc4CuK6rcSMJ47VtEy9Ps+qvru2iObn/G2IZ5EG5mFzmjBKxMaVB3sB9A/aKJ+d/0A==}
 
-  '@smithers-orchestrator/react-reconciler@0.16.1':
+  '@smthrs/react-reconciler@0.16.1':
     resolution: {integrity: sha512-Ha9mqFAwr+S11sU4He+JI+Ayku9sV08JADJ6MbGom6O4LfjfdDh+ZeRovQf0JeSMlfh2FidlhQ4X2TIG9kqYDQ==}
 
-  '@smithers-orchestrator/sandbox@0.16.1':
+  '@smthrs/sandbox@0.16.1':
     resolution: {integrity: sha512-kIilUuwJJ/uA76tdNY5lyw8aNbp3d2fjGpUhemIHQzLcS+UJBdvOzBhxfgWK7xVnJfWYMapWTxuNOUtcWuY9Qw==}
 
-  '@smithers-orchestrator/scheduler@0.16.1':
+  '@smthrs/scheduler@0.16.1':
     resolution: {integrity: sha512-03kotWF2tUUzzIN8M7eNJdDRKzh2OJ1QtJfYEEv2HsyFQrwRCAoZDsiS8Z9wivNM1FdP2mxycxkaxSVAH1KJQg==}
 
-  '@smithers-orchestrator/scorers@0.16.1':
+  '@smthrs/scorers@0.16.1':
     resolution: {integrity: sha512-zcJIEDt5YMXKFN5C5+gJsWQdIuVAUpGlMnvKR8jZmTLhljWxc9OoisfXPg1fCthL8Fd6sBYFhCt+i0qAebdOwg==}
 
-  '@smithers-orchestrator/server@0.16.1':
+  '@smthrs/server@0.16.1':
     resolution: {integrity: sha512-iahmAoMrthw/0TzfuoijbzDzjuyGzdxXcVt70zcxFfwYfJTZuXkapTyZXb7Oj+G+RmVlUhIoUIpXDYo+lFfzOw==}
 
-  '@smithers-orchestrator/time-travel@0.16.1':
+  '@smthrs/time-travel@0.16.1':
     resolution: {integrity: sha512-aoIIV+tf2gqID/bfgZZk9vetEh/YFM1n7DF3vJy/Y6SmPbK/Ww1XbQuQMhCEGIDrKjC2Hhmip5Io7MmatFmNuw==}
 
-  '@smithers-orchestrator/vcs@0.16.1':
+  '@smthrs/vcs@0.16.1':
     resolution: {integrity: sha512-EdF6kMDecf5E5exrsP8+cm9ERb2XyrvgOnwaXjO23+8j0dJ4vUo6oFTFWr/rPfBvA3x3nxMgCQTdHwxW4o0JpQ==}
 
   '@standard-schema/spec@1.1.0':
@@ -1295,7 +1295,7 @@ packages:
     resolution: {integrity: sha512-mz9VXphOxQWX3eQ/uXCtm6upltoN0DLx8Zb5T4TFC4FHB7S9FDPGre8CfLWqPWQQH/GrQYd2AXhhVM5LDpYx6Q==}
     engines: {node: '>=20.12.2'}
 
-  smithers-orchestrator@0.16.1:
+  smthrs@0.16.1:
     resolution: {integrity: sha512-b/f/KpuwBjizTS5xrtmdNiAHyPlW4j8ViqTHQ0Jc3UqZkdgUooQlZ0K3i5RU6ptHY96PNzGMYAowYuTbO1msSA==}
     hasBin: true
 
@@ -1975,13 +1975,13 @@ snapshots:
       '@parcel/watcher-win32-ia32': 2.5.6
       '@parcel/watcher-win32-x64': 2.5.6
 
-  '@smithers-orchestrator/agents@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/agents@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
       '@ai-sdk/anthropic': 3.0.71(zod@4.3.6)
       '@ai-sdk/openai': 3.0.53(zod@4.3.6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
       ai: 6.0.168(zod@4.3.6)
       zod: 4.3.6
     transitivePeerDependencies:
@@ -2030,26 +2030,26 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/cli@0.16.1(42cf6cd80eff70194a816726cc6f4c22)':
+  '@smthrs/cli@0.16.1(42cf6cd80eff70194a816726cc6f4c22)':
     dependencies:
       '@effect/workflow': 0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1)
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@opentui/core': 0.1.100(stage-js@1.0.2)(typescript@5.9.3)(web-tree-sitter@0.25.10)
       '@opentui/react': 0.1.100(react-devtools-core@7.0.1)(react@19.2.5)(stage-js@1.0.2)(typescript@5.9.3)(web-tree-sitter@0.25.10)(ws@8.20.0)
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/server': 0.16.1(2f963f0042e0c3228fce2770a0e9d52f)
-      '@smithers-orchestrator/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/server': 0.16.1(2f963f0042e0c3228fce2770a0e9d52f)
+      '@smthrs/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
       effect: 3.21.1
       incur: 0.4.1
       picocolors: 1.1.1
       react: 19.2.5
-      smithers-orchestrator: 0.16.1(96760ba634bd1149f64b70718782b155)
+      smthrs: 0.16.1(96760ba634bd1149f64b70718782b155)
       zod: 4.3.6
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -2105,18 +2105,18 @@ snapshots:
       - web-tree-sitter
       - ws
 
-  '@smithers-orchestrator/components@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
+  '@smthrs/components@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
     dependencies:
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/memory': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/react-reconciler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/scorers': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/memory': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/react-reconciler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/scorers': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
       bippy: 0.5.39(react@19.2.5)
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
@@ -2168,15 +2168,15 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/db@0.16.1(a3632bab2c7ce14fcdce276e9af214c6)':
+  '@smthrs/db@0.16.1(a3632bab2c7ce14fcdce276e9af214c6)':
     dependencies:
       '@effect/experimental': 0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1)
       '@effect/sql': 0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)
       drizzle-zod: 0.8.3(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1))(zod@4.3.6)
       zod: 4.3.6
@@ -2226,15 +2226,15 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/devtools@0.16.1': {}
+  '@smthrs/devtools@0.16.1': {}
 
-  '@smithers-orchestrator/driver@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/driver@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       effect: 3.21.1
       zod: 4.3.6
     transitivePeerDependencies:
@@ -2283,23 +2283,23 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/engine@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/engine@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
       '@effect/platform-bun': 0.89.0(@effect/cluster@0.56.4(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/workflow@0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1)
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/memory': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/react-reconciler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/sandbox': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/scorers': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/vcs': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/memory': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/react-reconciler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/sandbox': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/scorers': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/vcs': 0.16.1(153649546138017efd90746dab464383)
       effect: 3.21.1
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -2347,14 +2347,14 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/errors@0.16.1':
+  '@smthrs/errors@0.16.1':
     dependencies:
       effect: 3.21.1
 
-  '@smithers-orchestrator/graph@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/graph@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
       - '@cloudflare/workers-types'
@@ -2401,13 +2401,13 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/memory@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/memory@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)
       effect: 3.21.1
       zod: 4.3.6
@@ -2457,13 +2457,13 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/observability@0.16.1(153649546138017efd90746dab464383)':
+  '@smthrs/observability@0.16.1(153649546138017efd90746dab464383)':
     dependencies:
       '@effect/opentelemetry': 0.63.0(@effect/platform@0.96.0(effect@3.21.1))(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.7.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-logs@0.213.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-metrics@2.7.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.7.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-node@2.7.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-web@2.7.0(@opentelemetry/api@1.9.1))(@opentelemetry/semantic-conventions@1.40.0)(effect@3.21.1)
       '@effect/platform': 0.96.0(effect@3.21.1)
       '@effect/platform-bun': 0.89.0(@effect/cluster@0.56.4(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/workflow@0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1)
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       effect: 3.21.1
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -2510,11 +2510,11 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/openapi@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/openapi@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       ai: 6.0.168(zod@4.3.6)
       zod: 4.3.6
     transitivePeerDependencies:
@@ -2563,12 +2563,12 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/react-reconciler@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/react-reconciler@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
-      '@smithers-orchestrator/devtools': 0.16.1
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/devtools': 0.16.1
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       bippy: 0.5.39(react@19.2.5)
       react: 19.2.5
       react-reconciler: 0.33.0(react@19.2.5)
@@ -2618,15 +2618,15 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/sandbox@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
+  '@smthrs/sandbox@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
     dependencies:
-      '@smithers-orchestrator/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
       - '@cloudflare/workers-types'
@@ -2674,10 +2674,10 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/scheduler@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
+  '@smthrs/scheduler@0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)':
     dependencies:
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       effect: 3.21.1
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -2725,14 +2725,14 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/scorers@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
+  '@smthrs/scorers@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
     dependencies:
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
       zod: 4.3.6
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -2781,17 +2781,17 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/server@0.16.1(2f963f0042e0c3228fce2770a0e9d52f)':
+  '@smthrs/server@0.16.1(2f963f0042e0c3228fce2770a0e9d52f)':
     dependencies:
       '@effect/workflow': 0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1)
-      '@smithers-orchestrator/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/engine': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/engine': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
       cron-parser: 5.5.0
       effect: 3.21.1
       hono: 4.12.14
@@ -2843,16 +2843,16 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/time-travel@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
+  '@smthrs/time-travel@0.16.1(242869be5ae8c1cee5677fa418a766ec)':
     dependencies:
       '@effect/platform-bun': 0.89.0(@effect/cluster@0.56.4(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/workflow@0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(@effect/rpc@0.73.2(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(@effect/platform@0.96.0(effect@3.21.1))(effect@3.21.1))(effect@3.21.1)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/vcs': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/vcs': 0.16.1(153649546138017efd90746dab464383)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)
       picocolors: 1.1.1
     transitivePeerDependencies:
@@ -2902,10 +2902,10 @@ snapshots:
       - sqlite3
       - utf-8-validate
 
-  '@smithers-orchestrator/vcs@0.16.1(153649546138017efd90746dab464383)':
+  '@smthrs/vcs@0.16.1(153649546138017efd90746dab464383)':
     dependencies:
       '@effect/platform': 0.96.0(effect@3.21.1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
       effect: 3.21.1
     transitivePeerDependencies:
       - '@effect/cluster'
@@ -3561,26 +3561,26 @@ snapshots:
 
   simple-xml-to-json@1.2.7: {}
 
-  smithers-orchestrator@0.16.1(96760ba634bd1149f64b70718782b155):
+  smthrs@0.16.1(96760ba634bd1149f64b70718782b155):
     dependencies:
-      '@smithers-orchestrator/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/cli': 0.16.1(42cf6cd80eff70194a816726cc6f4c22)
-      '@smithers-orchestrator/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
-      '@smithers-orchestrator/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/engine': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/errors': 0.16.1
-      '@smithers-orchestrator/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/memory': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/observability': 0.16.1(153649546138017efd90746dab464383)
-      '@smithers-orchestrator/openapi': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/react-reconciler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/sandbox': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
-      '@smithers-orchestrator/scorers': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/server': 0.16.1(2f963f0042e0c3228fce2770a0e9d52f)
-      '@smithers-orchestrator/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
-      '@smithers-orchestrator/vcs': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/agents': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/cli': 0.16.1(42cf6cd80eff70194a816726cc6f4c22)
+      '@smthrs/components': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/db': 0.16.1(a3632bab2c7ce14fcdce276e9af214c6)
+      '@smthrs/driver': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/engine': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/errors': 0.16.1
+      '@smthrs/graph': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/memory': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/observability': 0.16.1(153649546138017efd90746dab464383)
+      '@smthrs/openapi': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/react-reconciler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/sandbox': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/scheduler': 0.16.1(d4ab9a2a0102244caf09b7de1aa79ff1)
+      '@smthrs/scorers': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/server': 0.16.1(2f963f0042e0c3228fce2770a0e9d52f)
+      '@smthrs/time-travel': 0.16.1(242869be5ae8c1cee5677fa418a766ec)
+      '@smthrs/vcs': 0.16.1(153649546138017efd90746dab464383)
       ai: 6.0.168(zod@4.3.6)
       diff: 9.0.0
       zod: 4.3.6

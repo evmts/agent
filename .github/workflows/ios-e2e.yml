@@ -42,7 +42,7 @@ jobs:
           path: gui
 
       # The E2E harness needs the plue checkout side-by-side with gui/.
-      # CI clones the public mirror of smithers-orchestrator into ../plue.
+      # CI clones the public mirror of smthrs into ../plue.
       # Production keeps the two repos siblings on developer laptops
       # (see .smithers/specs/ios-and-remote-sandboxes.md).
       - name: Checkout plue
